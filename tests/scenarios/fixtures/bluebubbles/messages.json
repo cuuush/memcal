@@ -1,0 +1,2166 @@
+[
+ {
+  "originalROWID": 1,
+  "guid": "P:0/FA67F3D8-8406-5045-91E3-611FB3707519",
+  "text": "hey did you see the standup recording",
+  "dateCreated": 1785763200000,
+  "dateDelivered": 1785763200000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550007",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550007",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550007"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 2,
+  "guid": "P:0/030DCE64-9655-5B7E-A396-DB25DA690C29",
+  "text": "ya just watched",
+  "dateCreated": 1785763380000,
+  "dateDelivered": 1785763380000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550007",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550007"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 3,
+  "guid": "P:0/5C99D72E-C3F1-5CEF-951B-F0244EA9F65C",
+  "text": "ok cool, i need you to look at this jira ticket when you get a sec",
+  "dateCreated": 1785763500000,
+  "dateDelivered": 1785763500000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550007",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550007",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550007"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 4,
+  "guid": "P:0/5F6C3C93-7322-54C0-806E-EB054D59F0E1",
+  "text": "Hi Casey \u2014 confirming your physio session for Wednesday the 12th at 5pm, your usual weekly slot.",
+  "dateCreated": 1785763800000,
+  "dateDelivered": 1785763800000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550016",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550016",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550016"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 5,
+  "guid": "P:0/668FBEF4-0C9A-5940-AE74-AB40400B99AE",
+  "text": "which one",
+  "dateCreated": 1785763860000,
+  "dateDelivered": 1785763860000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550007",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550007"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 6,
+  "guid": "P:0/DBF99558-4EE9-5AC0-8C5C-73E9F48230E8",
+  "text": "sec-2847. also sent you a link in slack",
+  "dateCreated": 1785763920000,
+  "dateDelivered": 1785763920000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550007",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550007",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550007"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 7,
+  "guid": "P:0/D500ECA1-8D65-5653-A24A-FDBEEAF57BFB",
+  "text": "got it, will check it out",
+  "dateCreated": 1785764100000,
+  "dateDelivered": 1785764100000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550007",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550007"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 8,
+  "guid": "P:0/09DA677B-B0D0-5DB0-869A-FCEBC359DFB1",
+  "text": "Amazon: Your package will arrive tomorrow. Track your delivery: amzn.to/3mK7bQ2",
+  "dateCreated": 1785769860000,
+  "dateDelivered": 1785769860000,
+  "isFromMe": false,
+  "handle": {
+   "address": "262966",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "262966",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "262966"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 9,
+  "guid": "P:0/3105B04A-20C3-516A-994A-8BB4858506C5",
+  "text": "did you pick up milk",
+  "dateCreated": 1785772800000,
+  "dateDelivered": 1785772800000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550004",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 10,
+  "guid": "P:0/18F608E3-16C7-550A-A5C6-E39A9BF55F60",
+  "text": "got it, also grabbed the cheese you wanted",
+  "dateCreated": 1785773100000,
+  "dateDelivered": 1785773100000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 11,
+  "guid": "P:0/C3C8BC9B-7D1C-5903-8095-6EBA6E43667E",
+  "text": "thanks! what do you wanna watch tonight",
+  "dateCreated": 1785773160000,
+  "dateDelivered": 1785773160000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550004",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 12,
+  "guid": "P:0/21997793-97A6-5CE7-AB93-52093BE20867",
+  "text": "idk, you pick",
+  "dateCreated": 1785773520000,
+  "dateDelivered": 1785773520000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 13,
+  "guid": "P:0/F099D00C-CDB7-5BDA-B5AA-E92508A74CE8",
+  "text": "send you a pic of comet from earlier",
+  "dateCreated": 1785773640000,
+  "dateDelivered": 1785773640000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550004",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 14,
+  "guid": "P:0/99638F63-FCE1-58E4-AF2F-EC5D2A3393EF",
+  "text": "adorable",
+  "dateCreated": 1785773820000,
+  "dateDelivered": 1785773820000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 15,
+  "guid": "P:0/98941AA3-4803-54F3-82E8-A7C7258E1F5D",
+  "text": "the user was so happy on the walk",
+  "dateCreated": 1785773940000,
+  "dateDelivered": 1785773940000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550004",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 16,
+  "guid": "P:0/6A19811E-5E91-56C6-901E-A25DF95ED854",
+  "text": "the user's the best",
+  "dateCreated": 1785774120000,
+  "dateDelivered": 1785774120000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 17,
+  "guid": "P:0/A3610720-493F-525C-B7F9-10831224B00E",
+  "text": "Ran into your mom at the farmers market on Sunday - she looks wonderful! Says hello.",
+  "dateCreated": 1785781200000,
+  "dateDelivered": 1785781200000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550010",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550010",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550010"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 18,
+  "guid": "P:0/F99ED401-2455-54EE-876D-07BDC1ECC67B",
+  "text": "thanks! i'll give her a call",
+  "dateCreated": 1785782100000,
+  "dateDelivered": 1785782100000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550010",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550010"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 19,
+  "guid": "P:0/FB10E3AD-9667-511A-97C4-E8BD25A91FF7",
+  "text": "the pasta here is insane",
+  "dateCreated": 1785783600000,
+  "dateDelivered": 1785783600000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550006",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550006",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550006"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 20,
+  "guid": "P:0/04FA44A3-3EFF-5F6D-A285-17F99A762D6D",
+  "text": "hey! confirming your tattoo tuesday the 18th at 2pm. just a reminder the $100 deposit is non-refundable and i need 48hrs notice if you want to move it",
+  "dateCreated": 1785783720000,
+  "dateDelivered": 1785783720000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550017",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550017",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550017"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 21,
+  "guid": "P:0/E64078A6-60AF-5155-BBF0-572D54D0B0F8",
+  "text": "perfect, ill be there. thanks sasha",
+  "dateCreated": 1785783960000,
+  "dateDelivered": 1785783960000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550017",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550017"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 22,
+  "guid": "P:0/7B11AFD8-8410-5B1E-A770-135A6B00FD48",
+  "text": "living your best life",
+  "dateCreated": 1785784080000,
+  "dateDelivered": 1785784080000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550006",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550006"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 23,
+  "guid": "P:0/61E4E1BE-18DE-59E1-8FAA-D9C2AC10F16F",
+  "text": "just sent you a photo from lake como, gonna have jet lag for DAYS",
+  "dateCreated": 1785784320000,
+  "dateDelivered": 1785784320000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550006",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550006",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550006"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 24,
+  "guid": "P:0/028BD13D-5415-52DA-9C14-7F2066CF2F2B",
+  "text": "worth it though right",
+  "dateCreated": 1785784680000,
+  "dateDelivered": 1785784680000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550006",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550006"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 25,
+  "guid": "P:0/BAC9F0C8-1676-51A4-9C1A-0D5E6FF9889D",
+  "text": "Alamo Drafthouse is my favorite movie theater. My favorite Pokemon set is Team Rocket.",
+  "dateCreated": 1785787800000,
+  "dateDelivered": 1785787800000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550013",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550013",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550013"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 26,
+  "guid": "P:0/AAAFAF53-0655-5C8F-8297-6E947D9BCD6E",
+  "text": "You can borrow my car Friday so you can drive Katie to Medieval Times.",
+  "dateCreated": 1785788040000,
+  "dateDelivered": 1785788040000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550013",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550013"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 27,
+  "guid": "P:0/99494F35-1B65-5625-9A4F-0503C9E503DA",
+  "text": "Katie is my sister\u2014everyone calls her Kat.",
+  "dateCreated": 1785788280000,
+  "dateDelivered": 1785788280000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550013",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550013",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550013"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 28,
+  "guid": "P:0/FE230517-C7E8-5DCE-B7B2-B974ECF9F7C8",
+  "text": "got a spare ticket to the bowery ballroom show friday, you want it?",
+  "dateCreated": 1785793500000,
+  "dateDelivered": 1785793500000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550003",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550003",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550003"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 29,
+  "guid": "P:0/FD1FE1A7-57DB-53D0-B84D-C71D03DA91A8",
+  "text": "im in, ill venmo you for it",
+  "dateCreated": 1785794100000,
+  "dateDelivered": 1785794100000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550003",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550003"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 30,
+  "guid": "P:0/CDB91759-CAB6-5650-9BB1-BBE26F5261BB",
+  "text": "housewarming is saturday the 15th!! ill send the address once i actually have keys",
+  "dateCreated": 1785798900000,
+  "dateDelivered": 1785798900000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550009",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550009",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550009"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 31,
+  "guid": "P:0/7C60CD1F-3C23-5965-A3CB-18951308A204",
+  "text": "im there. what should i bring",
+  "dateCreated": 1785799020000,
+  "dateDelivered": 1785799020000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550009",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550009"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 32,
+  "guid": "P:0/98D505C4-DD2A-5130-A36D-B63050857384",
+  "text": "might do climbing gym wednesday?",
+  "dateCreated": 1785802200000,
+  "dateDelivered": 1785802200000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550005",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550005"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 33,
+  "guid": "P:0/70A0D897-DAEF-5821-AED7-A4F031E84F9F",
+  "text": "maybe, depends on work",
+  "dateCreated": 1785802440000,
+  "dateDelivered": 1785802440000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550005",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550005",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550005"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 34,
+  "guid": "P:0/53F3F16A-4751-54CE-80A2-560035F9DB1F",
+  "text": "movie tuesday the 11th?",
+  "dateCreated": 1785802800000,
+  "dateDelivered": 1785802800000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550005",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550005",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550005"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 35,
+  "guid": "P:0/F0FD0E42-8351-5385-8484-CCC404514E5D",
+  "text": "yeah",
+  "dateCreated": 1785802920000,
+  "dateDelivered": 1785802920000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550005",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550005"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 36,
+  "guid": "P:0/0B4F6212-BA4E-519C-AD44-591EC49F80D8",
+  "text": "just moved to eastwood",
+  "dateCreated": 1785805320000,
+  "dateDelivered": 1785805320000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550001",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550001",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550001"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 37,
+  "guid": "P:0/87080F0A-DCA3-5EF5-9EBB-96F66E71D33C",
+  "text": "how was the move",
+  "dateCreated": 1785805500000,
+  "dateDelivered": 1785805500000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550001",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550001"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 38,
+  "guid": "P:0/6A529D6E-15E3-513F-A8A9-A7B88CD3ADF6",
+  "text": "you going to jacks 30th on the 22nd? im definitely in",
+  "dateCreated": 1785807600000,
+  "dateDelivered": 1785807600000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550015",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550015",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550015"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 39,
+  "guid": "P:0/722BC977-D278-5124-A4DA-B680E9DA64B7",
+  "text": "yeah im going for sure",
+  "dateCreated": 1785807780000,
+  "dateDelivered": 1785807780000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550015",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550015"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 40,
+  "guid": "P:0/EB22ECB5-E0D9-5738-B572-E3C49A9F8712",
+  "text": "i love you, miss you so much",
+  "dateCreated": 1785811200000,
+  "dateDelivered": 1785811200000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550004",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 41,
+  "guid": "P:0/D44F0CCE-BDE1-53CC-BC24-AF41D77536EC",
+  "text": "love you too",
+  "dateCreated": 1785811260000,
+  "dateDelivered": 1785811260000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 42,
+  "guid": "P:0/41CF1D2B-8105-5546-BC40-0FD26DD4FF04",
+  "text": "just landed so jet lagged lol",
+  "dateCreated": 1785841920000,
+  "dateDelivered": 1785841920000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550006",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550006",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550006"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 43,
+  "guid": "P:0/A423225F-416B-5684-9005-006B4B16FBCC",
+  "text": "welcome back! how was italy?",
+  "dateCreated": 1785843600000,
+  "dateDelivered": 1785843600000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550006",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550006"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 44,
+  "guid": "P:0/9469D71D-C5E4-5EBE-8421-C6B90A994716",
+  "text": "just want to make sure you got my comments on that ticket",
+  "dateCreated": 1785850800000,
+  "dateDelivered": 1785850800000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550007",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550007",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550007"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 45,
+  "guid": "P:0/E79A2434-7495-582F-A2B4-9F4F3AC63069",
+  "text": "yep saw them",
+  "dateCreated": 1785850920000,
+  "dateDelivered": 1785850920000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550007",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550007"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 46,
+  "guid": "P:0/317A199E-AB6B-50C1-A0E7-5C0168C34339",
+  "text": "cool, lmk if you have questions",
+  "dateCreated": 1785851040000,
+  "dateDelivered": 1785851040000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550007",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550007",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550007"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 47,
+  "guid": "P:0/1AAFA16B-7F4D-5414-AD9A-5FF52D6CA2F8",
+  "text": "still no word on the offsite",
+  "dateCreated": 1785851220000,
+  "dateDelivered": 1785851220000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550007",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550007"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 48,
+  "guid": "P:0/0B7C271C-AC58-54BE-A867-1167F09B0FB2",
+  "text": "yeah they're being cagey about it",
+  "dateCreated": 1785851340000,
+  "dateDelivered": 1785851340000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550007",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550007",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550007"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 49,
+  "guid": "P:0/D6949A6E-64E3-5378-B3CB-A6EC55A41D47",
+  "text": "don't forget about my birthday dinner later this month... really want you there",
+  "dateCreated": 1785851400000,
+  "dateDelivered": 1785851400000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550011",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550011",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550011"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 50,
+  "guid": "P:0/163713B2-BB18-5622-B003-9F2C2764E084",
+  "text": "When am I coming over again?",
+  "dateCreated": 1785851760000,
+  "dateDelivered": 1785851760000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550011",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550011",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550011"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 51,
+  "guid": "P:0/12F70917-C42C-5EE0-B170-5B6F87155D56",
+  "text": "Neon Garden party moved from tonight to tomorrow, Wednesday August 5. still can't make it",
+  "dateCreated": 1785852120000,
+  "dateDelivered": 1785852120000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550012",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550012",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550012"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 52,
+  "guid": "P:0/4428A577-B0BE-5A7C-81DC-31A39B63067A",
+  "text": "hi casey \u2014 i need to move your appointment. could you do thursday august 20th at 4:15pm instead? sorry for the shuffle!",
+  "dateCreated": 1785853080000,
+  "dateDelivered": 1785853080000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550017",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550017",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550017"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 53,
+  "guid": "P:0/D7B6D00B-CE0B-58DA-93FF-FAEFC24F66DA",
+  "text": "got our Spider-Man tickets. AMC Lincoln Square Monday Aug 10 at 7:40pm, seats H8 and H9",
+  "dateCreated": 1785854100000,
+  "dateDelivered": 1785854100000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550015",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550015",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550015"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 54,
+  "guid": "P:0/2D559259-CD02-5977-A624-BAECD7685074",
+  "text": "moving to saturday, someone cant do fri",
+  "dateCreated": 1785855840000,
+  "dateDelivered": 1785855840000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550001",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550001",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550001"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 55,
+  "guid": "P:0/6C8AF4C7-E014-5B5B-976D-CE4D4C58D81F",
+  "text": "sounds good",
+  "dateCreated": 1785856140000,
+  "dateDelivered": 1785856140000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550001",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550001"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 56,
+  "guid": "P:0/9092E599-A1DB-5255-94BE-CC876DDDCC62",
+  "text": "Amazon: Your package was delivered and left at the front door. amzn.to/4nL9xR3",
+  "dateCreated": 1785856260000,
+  "dateDelivered": 1785856260000,
+  "isFromMe": false,
+  "handle": {
+   "address": "262966",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "262966",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "262966"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 57,
+  "guid": "P:0/EDBF4A82-B6A5-5DFC-B497-4CBD9B134460",
+  "text": "wait its at alexs, 42 Example Street. getting my apt painted",
+  "dateCreated": 1785856920000,
+  "dateDelivered": 1785856920000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550001",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550001",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550001"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 58,
+  "guid": "P:0/651F087C-E958-508B-92B5-0E4F753A762B",
+  "text": "ok is there parking",
+  "dateCreated": 1785857040000,
+  "dateDelivered": 1785857040000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550001",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550001"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 59,
+  "guid": "P:0/DC354FCE-B876-5ED6-8B0C-C95526757A31",
+  "text": "just take the train",
+  "dateCreated": 1785857160000,
+  "dateDelivered": 1785857160000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550001",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550001",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550001"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 60,
+  "guid": "P:0/DC8FB2D5-2397-576B-A578-36127EFFE39D",
+  "text": "ugh eastwood fell thru, actually in riverton",
+  "dateCreated": 1785857460000,
+  "dateDelivered": 1785857460000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550001",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550001",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550001"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 61,
+  "guid": "P:0/ADA30900-201C-5049-B217-1466BC363814",
+  "text": "how'd comet hold up after the trail ride yesterday?",
+  "dateCreated": 1785859500000,
+  "dateDelivered": 1785859500000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550004",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 62,
+  "guid": "P:0/45CDF853-6FE1-5AC3-9AC2-153DEC53DEB5",
+  "text": "doors at 8 friday for the bowery thing, ill meet you there",
+  "dateCreated": 1785859800000,
+  "dateDelivered": 1785859800000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550003",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550003",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550003"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 63,
+  "guid": "P:0/710D1F54-83D6-5E9C-A18B-4D623573C6E6",
+  "text": "cool see you then",
+  "dateCreated": 1785860040000,
+  "dateDelivered": 1785860040000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550003",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550003"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 64,
+  "guid": "P:0/4DE15737-6C3C-5AA6-ACE6-B64CDAC3B773",
+  "text": "cant make sunday :/ something came up. pls dont say anything yet?",
+  "dateCreated": 1785863400000,
+  "dateDelivered": 1785863400000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550008",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550008"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 65,
+  "guid": "P:0/523B2F10-7A22-5072-9DAE-45BB769FFC45",
+  "text": "no worries, got it",
+  "dateCreated": 1785863640000,
+  "dateDelivered": 1785863640000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550008",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550008",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550008"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 66,
+  "guid": "P:0/2DA222F9-1CF4-5E38-95DA-1071B446FF31",
+  "text": "do we have any pasta at home",
+  "dateCreated": 1785866400000,
+  "dateDelivered": 1785866400000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550004",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 67,
+  "guid": "P:0/17DF6E8C-68A9-5782-A4F0-E9FF7C1CBEB0",
+  "text": "i think so",
+  "dateCreated": 1785866580000,
+  "dateDelivered": 1785866580000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 68,
+  "guid": "P:0/A918F26C-6456-5877-8406-87C343E694B5",
+  "text": "ok cool, thinking of making that tonight",
+  "dateCreated": 1785866640000,
+  "dateDelivered": 1785866640000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550004",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 69,
+  "guid": "P:0/3BC940E0-D9E1-5305-A233-A684A2673BCE",
+  "text": "sounds good",
+  "dateCreated": 1785866880000,
+  "dateDelivered": 1785866880000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 70,
+  "guid": "P:0/E4DF613E-0E65-5FB5-BDC4-EE0AE989C594",
+  "text": "anything you don't want in it",
+  "dateCreated": 1785867000000,
+  "dateDelivered": 1785867000000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550004",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 71,
+  "guid": "P:0/E75C423D-6111-5C76-BD29-31E9C7D62373",
+  "text": "nope sounds perfect",
+  "dateCreated": 1785867120000,
+  "dateDelivered": 1785867120000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 72,
+  "guid": "P:0/F0847921-A260-536C-A6CE-3AB139943BF0",
+  "text": "table for thursday 8:30 - how many?",
+  "dateCreated": 1785871200000,
+  "dateDelivered": 1785871200000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550002",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550002",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550002"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 73,
+  "guid": "P:0/CDC9DDE9-3E8F-5E1C-B26E-86CB7CF652F1",
+  "text": "four",
+  "dateCreated": 1785871560000,
+  "dateDelivered": 1785871560000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550002",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550002"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 74,
+  "guid": "P:0/75E675F8-4309-5FD8-9538-F98D5F43F813",
+  "text": "honestly think you should be looking around, you're way too good for this",
+  "dateCreated": 1785873600000,
+  "dateDelivered": 1785873600000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550007",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550007",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550007"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 75,
+  "guid": "P:0/330B954A-1262-5E33-979A-048CB8F8752D",
+  "text": "For future reference, Quinn can borrow my car anytime the user needs it.",
+  "dateCreated": 1785874440000,
+  "dateDelivered": 1785874440000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550013",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550013"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 76,
+  "guid": "P:0/0972D89B-61EE-53B0-A1B5-6114999016CC",
+  "text": "you still on for climbing tomorrow?",
+  "dateCreated": 1785877500000,
+  "dateDelivered": 1785877500000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550005",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550005",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550005"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 77,
+  "guid": "P:0/8D0B6A09-0197-5F7D-8EBA-7A48C7DFAE93",
+  "text": "yeah locked",
+  "dateCreated": 1785879060000,
+  "dateDelivered": 1785879060000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550005",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550005"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 78,
+  "guid": "P:0/BAFB439A-8F9A-5714-A138-3A9262E651C6",
+  "text": "that theater's closing for renos, movie's off",
+  "dateCreated": 1785879300000,
+  "dateDelivered": 1785879300000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550005",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550005",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550005"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 79,
+  "guid": "P:0/48458531-7C30-58BD-B2CA-24433A4F0ED7",
+  "text": "goodnight, miss you",
+  "dateCreated": 1785899400000,
+  "dateDelivered": 1785899400000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550004",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550004",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550004"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 80,
+  "guid": "P:0/CB9FD5A1-F697-51BF-A170-93F163ECCBCE",
+  "text": "Hi Casey \u2014 sorry, we have to move your physio to Wednesday the 19th, same time. Apologies for the short notice.",
+  "dateCreated": 1785938700000,
+  "dateDelivered": 1785938700000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550016",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550016",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550016"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 81,
+  "guid": "P:0/153BE2D0-D0EE-5D08-A37B-4C8347CCAE41",
+  "text": "no worries, the 19th works",
+  "dateCreated": 1785938940000,
+  "dateDelivered": 1785938940000,
+  "isFromMe": true,
+  "handle": null,
+  "chats": [
+   {
+    "chatIdentifier": "+19175550016",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550016"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ },
+ {
+  "originalROWID": 82,
+  "guid": "P:0/DAFC1AD3-5BCD-50D3-8D41-B3084B40C9B3",
+  "text": "ok finally got the keys \u2014 55 Linden Avenue",
+  "dateCreated": 1785948000000,
+  "dateDelivered": 1785948000000,
+  "isFromMe": false,
+  "handle": {
+   "address": "+19175550009",
+   "service": "iMessage",
+   "uncanonicalizedId": null
+  },
+  "chats": [
+   {
+    "chatIdentifier": "+19175550009",
+    "displayName": "",
+    "participants": [
+     {
+      "address": "+19175550009"
+     },
+     {
+      "address": "+19178889999"
+     }
+    ]
+   }
+  ],
+  "attachments": []
+ }
+]

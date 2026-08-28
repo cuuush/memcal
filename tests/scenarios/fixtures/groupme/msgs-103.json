@@ -1,0 +1,50 @@
+[
+ {
+  "id": "17857914000000",
+  "created_at": 1785791400,
+  "user_id": "88003",
+  "name": "Cameron Ortiz",
+  "text": "beer garden saturday? like 3",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "103",
+  "source_guid": "fixture-bg01-0"
+ },
+ {
+  "id": "17857915200001",
+  "created_at": 1785791520,
+  "user_id": "88002",
+  "name": "Alex Rivera",
+  "text": "yes. ill be there",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "103",
+  "source_guid": "fixture-bg02-1"
+ },
+ {
+  "id": "17857919400002",
+  "created_at": 1785791940,
+  "user_id": "88000",
+  "name": "Casey",
+  "text": "im in for saturday",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "103",
+  "source_guid": "fixture-bg03-2"
+ },
+ {
+  "id": "17857923000003",
+  "created_at": 1785792300,
+  "user_id": "88003",
+  "name": "Cameron Ortiz",
+  "text": "cool ill grab us a table. locked",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "103",
+  "source_guid": "fixture-bg04-3"
+ }
+]

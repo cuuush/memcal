@@ -1,0 +1,38 @@
+[
+ {
+  "id": "17857830600000",
+  "created_at": 1785783060,
+  "user_id": "88012",
+  "name": "Jose",
+  "text": "\ud83d\udc40",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "106",
+  "source_guid": "fixture-rx01-0"
+ },
+ {
+  "id": "17857834200001",
+  "created_at": 1785783420,
+  "user_id": "88013",
+  "name": "Quinn Brooks",
+  "text": "I mean, I'm free most of early August",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "106",
+  "source_guid": "fixture-rx02-1"
+ },
+ {
+  "id": "17857840800002",
+  "created_at": 1785784080,
+  "user_id": "88012",
+  "name": "Jose",
+  "text": "board game night at my place Saturday August 8? I can host",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "106",
+  "source_guid": "fixture-rx03-2"
+ }
+]

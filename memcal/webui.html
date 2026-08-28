@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>memcal — what the gate did</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<header>
+  <div class="bar">
+    <div class="brand">memcal <span id="sub">loading…</span></div>
+    <nav>
+      <button data-view="gate" aria-current="true">Gate</button>
+      <button data-view="chats">Chats</button>
+      <button data-view="dream">Dream</button>
+      <button data-view="senders">Senders</button>
+      <button data-view="memory">Memory</button>
+      <button data-view="wiki">Wiki</button>
+      <button data-view="runs">Runs</button>
+    </nav>
+    <button class="icon-btn" id="theme" title="light / dark">◐</button>
+    <button class="icon-btn" id="reload" title="reload">↻</button>
+  </div>
+</header>
+
+<main>
+  <!-- ------------------------------------------------------------- gate -->
+  <section class="view" id="view-gate">
+    <div class="tiles" id="tiles"></div>
+
+    <h2>Post-gate volume</h2>
+    <div class="streams" id="streams"></div>
+    <div class="legend">
+      <span><b style="background:var(--pass)"></b>picked up — the model reads it</span>
+      <span><b style="background:var(--good)"></b>structured — written directly, no model needed</span>
+      <span><b style="background:var(--skip)"></b>skipped — archived and searchable, never costs a token</span>
+    </div>
+
+    <h2>What the gate did</h2>
+    <p class="note" id="queuenote"></p>
+    <div class="filters">
+      <div class="seg" id="queue">
+        <button data-q="queued" aria-pressed="true">Waiting for the next dream</button>
+        <button data-q="read">Already read</button>
+        <button data-q="">Everything ever collected</button>
+      </div>
+      <div class="seg" id="verdict">
+        <button data-v="" aria-pressed="true">All</button>
+        <button data-v="passed">Picked up</button>
+        <button data-v="structured">Structured</button>
+        <button data-v="skipped">Skipped</button>
+      </div>
+      <select id="stream"><option value="">every stream</option></select>
+      <select id="days">
+        <option value="0">all time</option>
+        <option value="3">3 days</option>
+        <option value="7">7 days</option>
+        <option value="14" selected>14 days</option>
+        <option value="30">30 days</option>
+      </select>
+      <input type="search" id="q" placeholder="search text, sender, person   (/)">
+      <div class="seg" id="shape">
+        <button data-s="grouped" aria-pressed="true">By conversation</button>
+        <button data-s="flat">Every line</button>
+      </div>
+      <span class="note" style="margin:0" id="count"></span>
+    </div>
+    <div class="chips" id="chips"></div>
+    <div class="rollup" id="rollup"></div>
+    <div class="feed" id="feed" hidden></div>
+    <button class="more" id="more" hidden>load more</button>
+  </section>
+
+  <!-- ------------------------------------------------------------ chats -->
+  <section class="view" id="view-chats" hidden>
+    <p class="note">
+      Every conversation, and what memcal can tell about it without a model: how much of
+      it is you, how many people in it you already know, and how many of those turn up
+      elsewhere in your world. Muting one keeps it archived and searchable — it just
+      stops costing model calls.
+    </p>
+    <div id="creview"></div>
+    <div class="filters">
+      <select id="cstream"><option value="">every stream</option></select>
+      <input type="search" id="cq" placeholder="search chat name">
+      <span class="note" style="margin:0" id="ccount"></span>
+    </div>
+    <div class="rollup" id="chats"></div>
+  </section>
+
+  <!-- ------------------------------------------------------------ dream -->
+  <section class="view" id="view-dream" hidden>
+    <p class="note">
+      A dream pass reads only what has arrived since the last one, grouped by the person
+      or thread it is about. This is that grouping before any of it is sent — the same
+      text the model will get, in the same requests it will travel in.
+    </p>
+    <div class="tiles" id="dtiles"></div>
+    <div id="dwarn"></div>
+
+    <h2>1 · Collect</h2>
+    <p class="note">
+      Pulls every usable source to exhaustion and gates what it finds. Costs nothing —
+      no model runs here. What passes the gate is what the next dream will read.
+    </p>
+    <div class="card">
+      <div class="row">
+        <button class="btn go" id="collect">Collect from all sources</button>
+        <span class="note" style="margin:0" id="collectnote"></span>
+      </div>
+      <div class="prog" hidden></div>
+      <pre class="log" id="collectlog" hidden></pre>
+    </div>
+
+    <h2>2 · What the agent will see</h2>
+    <div class="card" id="dprefix"></div>
+
+    <h3 style="font-size:13px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.07em;margin:22px 0 10px">
+      The requests it travels in</h3>
+    <div class="reqs" id="dreqs"></div>
+
+    <h3 style="font-size:13px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.07em;margin:22px 0 10px">
+      The bundles <span id="dbcount" style="font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
+    <div class="row" style="margin-bottom:10px;gap:8px;flex-wrap:wrap">
+      <input type="search" id="bq" placeholder="search a name, a handle, or what was said"
+             style="flex:1;min-width:220px">
+      <select id="bstream"><option value="">every stream</option></select>
+      <select id="bkind">
+        <option value="">every kind</option>
+        <option value="person">people</option>
+        <option value="group">group chats</option>
+        <option value="thread">threads</option>
+      </select>
+      <select id="bflag">
+        <option value="">everything</option>
+        <option value="waiting">has lines left over</option>
+        <option value="monologue">your words only</option>
+        <option value="nopage">no wiki page</option>
+        <option value="merged">merged chat ids</option>
+      </select>
+    </div>
+    <div id="dbundles"></div>
+
+    <h2>3 · Dream</h2>
+    <div class="card">
+      <div class="row">
+        <button class="btn spend" id="dream">Dream — spends money</button>
+        <span class="note" style="margin:0" id="dreamnote"></span>
+      </div>
+      <div class="prog" hidden></div>
+      <pre class="log" id="dreamlog" hidden></pre>
+    </div>
+
+    <h2>New memories</h2>
+    <div class="card" id="doutput"><div class="empty">nothing yet — dream to see what it writes</div></div>
+  </section>
+
+  <!-- ---------------------------------------------------------- senders -->
+  <section class="view" id="view-senders" hidden>
+    <h2>The email gate table</h2>
+    <p class="note">
+      Email is a sender problem, not a content problem — “AWS re:Invent night is tomorrow”
+      and “poker is tomorrow” are lexically identical. Flip a row and it is a hash lookup
+      forever after. <b>process</b> = the model reads it · <b>archive</b> = kept and searchable,
+      never read · <b>ignore</b> = same, and it was obvious junk.
+    </p>
+    <div class="filters">
+      <div class="seg" id="sdec">
+        <button data-v="" aria-pressed="true">All</button>
+        <button data-v="process">Processed</button>
+        <button data-v="archive">Archived</button>
+        <button data-v="ignore">Ignored</button>
+      </div>
+      <input type="search" id="sq" placeholder="search address">
+      <label class="note" style="margin:0">
+        <input type="checkbox" id="backfill"> also queue their past mail (subjects only)
+      </label>
+    </div>
+    <div class="wrap"><table>
+      <thead><tr>
+        <th>Sender</th><th>Now</th><th class="num">Mail</th><th class="num">Picked up</th>
+        <th class="num">Read</th><th>Last</th><th>Latest subject</th><th>Set to</th>
+      </tr></thead>
+      <tbody id="senders"></tbody>
+    </table></div>
+  </section>
+
+  <!-- ----------------------------------------------------------- memory -->
+  <section class="view" id="view-memory" hidden>
+    <h2>The brief — this is what is in context</h2>
+    <p class="note">Every sourced line is clickable. It opens the original messages and
+      the relevant pieces of the model call first; the full call stays one click deeper.</p>
+    <div class="card briefcard" id="brief"></div>
+  </section>
+
+  <!-- ------------------------------------------------------------- wiki -->
+  <section class="view" id="view-wiki" hidden>
+    <h2>The wiki</h2>
+    <p class="note">
+      What memcal knows about the people, places and series in your world, kept as prose
+      you edit plus named facts it reads out of messages. Open a page to see each fact
+      beside the line it came from, and the past events the page turned up in.
+    </p>
+    <div class="filters">
+      <input type="search" id="wq" placeholder="search a name or alias">
+      <span class="note" style="margin:0" id="wcount"></span>
+    </div>
+    <div class="wikilayout">
+      <div class="wikilist" id="wikilist"></div>
+      <div class="wikidetail" id="wikidetail">
+        <div class="empty">pick a page to open it</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------- runs -->
+  <section class="view" id="view-runs" hidden>
+    <h2>Dream passes</h2>
+    <p class="note">
+      Click a pass to open it: every request it made, every bundle inside each request,
+      what the model thought, what it answered, and which of those answers actually
+      landed in the store.
+    </p>
+    <div class="wrap"><table>
+      <thead><tr>
+        <th>#</th><th>When</th><th>Mode</th><th>Model</th>
+        <th class="num">Bundles</th><th class="num">Items</th><th class="num">Writes</th>
+        <th class="num">In</th><th class="num">Cached</th><th class="num">Out</th>
+        <th class="num">Cost</th><th></th>
+      </tr></thead>
+      <tbody id="runs"></tbody>
+    </table></div>
+    <div id="rundetail"></div>
+  </section>
+</main>
+
+<!-- The trace panel: any row in Memory can open the model call that wrote it. -->
+<div id="tracepanel" hidden>
+  <div class="thead">
+    <div>
+      <div class="tkicker">Where this came from</div>
+      <div id="tracetitle"></div>
+    </div>
+    <button class="btn" id="traceclose">close</button>
+  </div>
+  <div id="tracebody"></div>
+</div>
+
+<div id="toast"></div>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

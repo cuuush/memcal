@@ -1,0 +1,62 @@
+[
+ {
+  "id": "17857981200000",
+  "created_at": 1785798120,
+  "user_id": "88001",
+  "name": "Jordan Lee",
+  "text": "hey guys there's a party tomorrow at 9 at Elsewhere called Neon Garden. I can't go but figured some of you might want it",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "108",
+  "source_guid": "fixture-ne01-0"
+ },
+ {
+  "id": "17857982400001",
+  "created_at": 1785798240,
+  "user_id": "88003",
+  "name": "Cameron Ortiz",
+  "text": "not me, working tomorrow",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "108",
+  "source_guid": "fixture-ne02-1"
+ },
+ {
+  "id": "17857987200002",
+  "created_at": 1785798720,
+  "user_id": "88002",
+  "name": "Alex Rivera",
+  "text": "Elements Music Festival is Friday August 7 through Sunday August 9 at Cedar Falls. Casey and I are going; that doesn't mean everyone in this chat is going",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "108",
+  "source_guid": "fixture-el01-2"
+ },
+ {
+  "id": "17859504000003",
+  "created_at": 1785950400,
+  "user_id": "88002",
+  "name": "Alex Rivera",
+  "text": "few of us are doing breakfast at elements saturday morning, 9ish, before the sets start",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "108",
+  "source_guid": "fixture-el30-3"
+ },
+ {
+  "id": "17859505200004",
+  "created_at": 1785950520,
+  "user_id": "88000",
+  "name": "Casey",
+  "text": "im in for that",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "108",
+  "source_guid": "fixture-el31-4"
+ }
+]

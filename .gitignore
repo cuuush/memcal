@@ -1,0 +1,32 @@
+.env
+__pycache__/
+*.pyc
+.DS_Store
+proton.txt
+PROJECT_CONTEXT.md
+memcal-architecture-v0_3.md
+/Internal/
+
+# Exported Hermes/agent sessions. Debug artefacts, and they contain real message text.
+transcripts/
+
+# Benchmark runs may contain raw messages, inferred personal details, and full model
+# reasoning. Keep summaries outside the repository and never publish the output tree.
+tools/bench_output/
+tools/bench_history_archive.jsonl
+tools/.bench_history.jsonl.lock
+
+# Local memcal state and call traces. The real store lives in ~/.memcal/, but these
+# patterns also protect against pointing MEMCAL_HOME at the checkout while debugging.
+/.memcal/
+/brief.md
+/calls/
+/wiki/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+!tests/scenarios/fixtures/whatsapp/ChatStorage.sqlite
+*.log
