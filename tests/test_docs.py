@@ -38,7 +38,7 @@ class TestNoPageQuotesABenchmarkScoreByHand(unittest.TestCase):
         self.assertEqual(
             offenders, [],
             "a page states a benchmark score in prose; run the benchmark instead — "
-            "`--layer integration` for the number, `--history` for what moved")
+            "`--layer integration` prints the current result")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""The resolve stage: many mentions of one event become one row.
+"""The Merge stage: many mentions of one event become one row.
 
 Every case here is drawn from the run that motivated the stage — a beer garden arranged
 across four conversations, which arrived as three calendar rows on two different days.
@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from memcal.config import Config                      # noqa: E402
-from memcal.dream import resolve as resolve_stage     # noqa: E402
+from memcal.dream import merge as merge_stage         # noqa: E402
 from memcal.dream.bundle import Bundle                # noqa: E402
 
 
@@ -66,8 +66,8 @@ class TestClustering(unittest.TestCase):
                     title="Beer garden in Queens with Quinn and Jamie",
                     participants=["Avery Morgan", "Quinn Brooks"]),
         ]
-        groups = resolve_stage.cluster([
-            resolve_stage.Mention(r, b, d) for b, d, _g in proposals
+        groups = merge_stage.cluster([
+            merge_stage.Mention(r, b, d) for b, d, _g in proposals
             for r in d["events"]])
         self.assertEqual(len(groups), 1)
         self.assertEqual(len(groups[0]), 3)
@@ -77,8 +77,8 @@ class TestClustering(unittest.TestCase):
                     participants=["Jordan Lee"])
         b = mention("person:Jordan", date="2026-08-15", title="Poker at Robbie's",
                     participants=["Jordan Lee"])
-        groups = resolve_stage.cluster([
-            resolve_stage.Mention(r, bd, d) for bd, d, _g in (a, b) for r in d["events"]])
+        groups = merge_stage.cluster([
+            merge_stage.Mention(r, bd, d) for bd, d, _g in (a, b) for r in d["events"]])
         self.assertEqual(len(groups), 2)
 
     def test_what_happened_is_not_folded_into_what_is_planned(self):
@@ -87,8 +87,8 @@ class TestClustering(unittest.TestCase):
                        status="happened", participants=["Jordan Lee"])
         soon = mention("person:Jordan", date="2026-08-01", title="Poker at Robbie's",
                        status="confirmed", participants=["Jordan Lee"])
-        groups = resolve_stage.cluster([
-            resolve_stage.Mention(r, b, d) for b, d, _g in (past, soon) for r in d["events"]])
+        groups = merge_stage.cluster([
+            merge_stage.Mention(r, b, d) for b, d, _g in (past, soon) for r in d["events"]])
         self.assertEqual(len(groups), 2)
 
     def test_a_shared_stopword_is_not_a_match(self):
@@ -96,8 +96,8 @@ class TestClustering(unittest.TestCase):
                     participants=["Mom"])
         b = mention("person:B", date="2026-08-01", title="Movie with Logan",
                     participants=["Logan"])
-        groups = resolve_stage.cluster([
-            resolve_stage.Mention(r, bd, d) for bd, d, _g in (a, b) for r in d["events"]])
+        groups = merge_stage.cluster([
+            merge_stage.Mention(r, bd, d) for bd, d, _g in (a, b) for r in d["events"]])
         self.assertEqual(len(groups), 2)
 
 
@@ -115,7 +115,7 @@ class TestResolving(unittest.TestCase):
                     participants=["Avery Morgan"]),
         ]
         client = FakeClient()
-        out, log = resolve_stage.resolve_all(client, self.cfg, proposals)
+        out, log = merge_stage.merge_all(client, self.cfg, proposals)
         self.assertEqual(client.calls, [])
         self.assertEqual(len(rows(out)), 1)
         self.assertEqual(sorted(rows(out)[0]["participants"]),
@@ -133,7 +133,7 @@ class TestResolving(unittest.TestCase):
                     participants=["Jordan Lee", "Alex Rivera"]),
         ]
         client = FakeClient()
-        out, _log = resolve_stage.resolve_all(client, self.cfg, proposals)
+        out, _log = merge_stage.merge_all(client, self.cfg, proposals)
         self.assertEqual(client.calls, [])
         self.assertEqual(rows(out)[0]["location"], "42 Example Street, Alex's place")
 
@@ -149,7 +149,7 @@ class TestResolving(unittest.TestCase):
             "location": "42 Example Street", "participants": ["Jordan Lee"],
             "why": "the arranging thread gave the correction",
         })
-        out, _log = resolve_stage.resolve_all(client, self.cfg, proposals)
+        out, _log = merge_stage.merge_all(client, self.cfg, proposals)
         self.assertEqual(len(client.calls), 1)
         self.assertEqual(rows(out)[0]["location"], "42 Example Street")
 
@@ -171,7 +171,7 @@ class TestResolving(unittest.TestCase):
             "why": "the group thread settled on Sunday; the paperwork thread only said "
                    "'next weekend' in passing",
         })
-        out, log = resolve_stage.resolve_all(client, self.cfg, proposals)
+        out, log = merge_stage.merge_all(client, self.cfg, proposals)
         self.assertEqual(len(client.calls), 1)
         # Every fragment reaches the model *with the bundle it came from*: that is the
         # evidence apply never had, and the only basis for preferring one date.
@@ -194,11 +194,11 @@ class TestResolving(unittest.TestCase):
         ]
         client = FakeClient(answer={"same_event": False, "date": "", "title": "",
                                     "participants": [], "why": "two different games"})
-        out, _log = resolve_stage.resolve_all(client, self.cfg, proposals)
+        out, _log = merge_stage.merge_all(client, self.cfg, proposals)
         self.assertEqual(len(rows(out)), 2)
 
     def test_a_failed_call_merges_on_agreement_rather_than_losing_rows(self):
-        """A resolve that cannot reach the model must not drop anything. Falling back
+        """A Merge call that cannot reach the model must not drop anything. Falling back
         to the union is worse than a perfect answer and much better than either
         emitting every duplicate or swallowing a real plan."""
         proposals = [
@@ -207,11 +207,11 @@ class TestResolving(unittest.TestCase):
             mention("person:B", date="2026-08-02", title="Beer garden at Bohemian Hall",
                     participants=["Jamie"]),
         ]
-        out, log = resolve_stage.resolve_all(FakeClient(fail=True), self.cfg, proposals)
+        out, log = merge_stage.merge_all(FakeClient(fail=True), self.cfg, proposals)
         surviving = rows(out)
         self.assertEqual(len(surviving), 1)
         self.assertEqual(sorted(surviving[0]["participants"]), ["Jamie", "Quinn Brooks"])
-        self.assertIn("resolve failed", log[0])
+        self.assertIn("merge failed", log[0])
 
     def test_nothing_to_do_costs_nothing(self):
         proposals = [
@@ -219,7 +219,7 @@ class TestResolving(unittest.TestCase):
             mention("person:B", date="2026-08-09", title="Dad's birthday"),
         ]
         client = FakeClient()
-        out, log = resolve_stage.resolve_all(client, self.cfg, proposals)
+        out, log = merge_stage.merge_all(client, self.cfg, proposals)
         self.assertEqual(client.calls, [])
         self.assertEqual(log, [])
         self.assertEqual(len(rows(out)), 2)
@@ -229,7 +229,7 @@ class TestResolving(unittest.TestCase):
         diff = {"events": [{"date": "2026-08-01", "title": "Beer garden", "subject": "me"}],
                 "todos": [{"text": "ask julian"}], "wiki": [{"page": "robbie", "slot": "hosts"}]}
         other = mention("person:B", date="2026-08-01", title="Beer garden")
-        out, _log = resolve_stage.resolve_all(
+        out, _log = merge_stage.merge_all(
             FakeClient(), Config(home=Path("/tmp")), [(bundle, diff, "g"), other])
         self.assertEqual(diff["todos"], [{"text": "ask julian"}])
         self.assertEqual(diff["wiki"], [{"page": "robbie", "slot": "hosts"}])
@@ -243,15 +243,15 @@ class TestResolving(unittest.TestCase):
             mention("person:B", date="2026-08-02", title="Beer garden",
                     participants=["Jamie"]),
         ]
-        out, _log = resolve_stage.resolve_all(FakeClient(), self.cfg, proposals)
+        out, _log = merge_stage.merge_all(FakeClient(), self.cfg, proposals)
         self.assertEqual(rows(out)[0]["key"], "beer-garden@2026-08-02")
 
 
 class TestOneFriendGroupIsNotOneEvent(unittest.TestCase):
 
     def _groups(self, *mentions):
-        return resolve_stage.cluster([
-            resolve_stage.Mention(r, b, d) for b, d, _g in mentions for r in d["events"]])
+        return merge_stage.cluster([
+            merge_stage.Mention(r, b, d) for b, d, _g in mentions for r in d["events"]])
 
     def test_three_plans_one_crew_stay_three(self):
         crew = ["Alex Rivera", "Cameron Ortiz"]
@@ -294,8 +294,8 @@ class TestOneFriendGroupIsNotOneEvent(unittest.TestCase):
 class TestTheRowsThatMostNeedMergingAreTheField_PoorOnes(unittest.TestCase):
 
     def _groups(self, *mentions, cfg=None):
-        return resolve_stage.cluster(
-            [resolve_stage.Mention(r, b, d)
+        return merge_stage.cluster(
+            [merge_stage.Mention(r, b, d)
              for b, d, _g in mentions for r in d["events"]], cfg)
 
     def test_beer_hall_and_beer_garden_on_one_evening_are_one_cluster(self):

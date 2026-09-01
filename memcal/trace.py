@@ -360,21 +360,30 @@ def resolve_source(conn: sqlite3.Connection, token: str) -> dict:
     if not spec:
         return {"error": f"invalid source handle {token!r}"}
     kind, table, key_col, label_col = spec
-    row = conn.execute(
-        f"SELECT * FROM {table} WHERE id = ?", (row_id,)
-    ).fetchone()
-    if not row:
+    row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
+    redirect = None
+    if not row and kind == "standing":
+        from . import legacy                                       # noqa: PLC0415
+        redirect = legacy.standing_redirect(conn, row_id)
+    if not row and redirect is None:
         return {"error": f"no row for {text}"}
-    ref = str(row[key_col])
+    ref = redirect.old_key if redirect is not None else str(row[key_col])
+    label = redirect.old_value if redirect is not None else str(row[label_col] or "")
     cited = citations(conn, kind, ref)
     out = {
         "source": text,
         "kind": kind,
         "ref": ref,
-        "label": str(row[label_col] or ""),
+        "label": label,
         "citations": cited,
         "evidence": source_rows(conn, kind, ref),
     }
+    if redirect is not None:
+        out["retired"] = True
+        out["redirect"] = {
+            "kind": redirect.destination_kind,
+            "ref": redirect.destination_ref,
+        }
     if not cited["narrow"]:
         # Said plainly, because the alternative is a reader assuming that forty lines of
         # a group chat are forty pieces of evidence. They are the conversation this came

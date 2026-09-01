@@ -27,7 +27,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent.parent))
 
-from memcal import config, db, identity, live, threads, todos  # noqa: E402
+from memcal import config, db, identity, live, threads, todos, wiki  # noqa: E402
 from memcal.sources import base, bluebubbles, groupme, ical, proton, whatsapp  # noqa: E402
 from tests.scenarios import skeleton as sk  # noqa: E402
 
@@ -43,7 +43,7 @@ def day_end(day: int) -> datetime:
 # ------------------------------------------------------------------------- seed --
 
 def seed(home: Path) -> tuple[sqlite3.Connection, config.Config]:
-    """A fresh scratch home with contacts and standing, and nothing else."""
+    """A fresh scratch home with contacts and typed facts, and nothing else."""
     resolved = home.expanduser().resolve()
     if resolved == (Path.home() / ".memcal").resolve():
         raise SystemExit("refusing to seed the real ~/.memcal — pass a scratch --home")
@@ -70,10 +70,15 @@ def seed(home: Path) -> tuple[sqlite3.Connection, config.Config]:
         identity.link(conn, f"groupme:{gm_id}", name, source="fixture")
 
     identity.add_top_tier(conn, "Harper")
-    todos.set_standing(conn, "identity", "Casey, North End. Dog: Comet.",
-                       scope="permanent")
-    todos.set_standing(conn, "alias", '"our cal" / "shared cal" = the u&me calendar',
-                       scope="permanent")
+    wiki.set_slot(cfg.wiki_dir, "casey", "neighborhood", "North End",
+                  source="fixture", conn=conn)
+    wiki.set_slot(cfg.wiki_dir, "casey", "dog", "Comet", source="fixture", conn=conn)
+    wiki.set_slot(cfg.wiki_dir, "u-and-me-calendar", "meaning",
+                  "shared calendar for Casey and Harper", source="fixture",
+                  section="projects", conn=conn)
+    for alias in ("our cal", "shared cal", "u&me"):
+        wiki.add_alias(cfg.wiki_dir, "u-and-me-calendar", alias, section="projects",
+                       conn=conn)
     conn.commit()
     return conn, cfg
 

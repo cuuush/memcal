@@ -32,11 +32,12 @@ try:
 except ModuleNotFoundError:  # Direct execution: python3 tests/test_core.py
     from _support import Base
 
-from memcal import archive, brief, cli, dates, db, detail, events, gate, identity, live, mcp_server, schedule, series, textclean, threads, todos, trace, web, wiki  # noqa: E402
+from memcal import archive, brief, cli, dates, db, detail, events, gate, identity, live, mcp_server, questions, schedule, series, textclean, threads, todos, trace, web, wiki  # noqa: E402
 from memcal.config import Config  # noqa: E402
 from memcal.dream import apply as apply_stage  # noqa: E402
 from memcal.dream import bundle as bundle_stage  # noqa: E402
 from memcal.dream import propose as propose_stage  # noqa: E402
+from memcal.dream import merge as merge_stage  # noqa: E402
 from memcal.dream import sweep as sweep_stage  # noqa: E402
 from memcal import sources  # noqa: E402
 from memcal.sources import base, groupme, ical, imessage, proton, providers, spec, whatsapp  # noqa: E402
@@ -330,17 +331,10 @@ class TestTodos(Base):
         self.assertIn("AMC Lincoln Square", opened)
         self.assertIn("seats F8–F9", opened)
 
-    def test_preference_promotes_on_repetition(self):
-        _, verb = todos.set_standing(self.conn, "preference", "no emoji", scope="session")
-        self.assertEqual(verb, "added")
-        _, verb = todos.set_standing(self.conn, "preference", "no emoji", scope="session")
-        self.assertEqual(verb, "promoted")
-        self.assertEqual(todos.standing(self.conn, "preference")[0]["scope"], "permanent")
-
-
 class TestBrief(Base):
     def test_blocks_and_cap(self):
-        todos.set_standing(self.conn, "identity", "Casey, North End. Dog: Comet.")
+        wiki.set_slot(self.cfg.wiki_dir, "casey", "neighborhood", "North End",
+                      source="test", conn=self.conn)
         events.upsert(self.conn, {"title": "Poker at Jordan's", "date": self.d(3),
                                   "time": "~8pm", "location": "42 Example Street", "status": "confirmed"})
         todos.open_todo(self.conn, "Return Rowan's EZ-Pass")
@@ -676,12 +670,12 @@ class TestPrompt(Base):
 
         Optionality is expressed as a nullable type, never by leaving a key out. This
         covers every schema in the package rather than one, because the check above
-        covered only `DIFF_SCHEMA` and `resolve.SCHEMA` was wrong for six keys the whole
+        covered only `DIFF_SCHEMA` and `merge.SCHEMA` was wrong for six keys the whole
         time — accepted by one provider, rejected with HTTP 400 by the next, which turned
-        the entire resolve stage into its no-model fallback without failing a run.
+        the entire Merge stage into its no-model fallback without failing a run.
         """
         from memcal import live                                    # noqa: PLC0415
-        from memcal.dream import resolve as resolve_stage          # noqa: PLC0415
+        from memcal.dream import merge as merge_stage              # noqa: PLC0415
 
         def walk(name, node):
             if not isinstance(node, dict):
@@ -698,7 +692,7 @@ class TestPrompt(Base):
                     walk(f"{name}.{key}[]", value.get("items"))
 
         found = 0
-        for module in (propose_stage, resolve_stage, sweep_stage, live):
+        for module in (propose_stage, merge_stage, sweep_stage, live):
             for attr in dir(module):
                 if "SCHEMA" not in attr:
                     continue
@@ -1327,7 +1321,6 @@ class TestUserIdentity(Base):
 
     def setUp(self):
         super().setUp()
-        todos.set_standing(self.conn, "identity", "Casey, North End. Dog: Comet.")
         identity.set_me(self.conn, "Casey", "Casey Morgan")
         for handle, person in (("+15550001", "Casey Morgan"), ("+15550002", "Casey Morg"),
                                ("+15550003", "Casey Goodwin"), ("+15550004", "Casey Iverson"),
@@ -2665,12 +2658,175 @@ class TestTraceRecording(Base):
 class TestOpenQuestionsFraming(Base):
     """An open question means unresolved, not handled."""
 
-    def test_the_prefix_says_an_open_question_is_not_a_closed_topic(self):
-        todos.ask(self.conn, "Which Sunday is the beer garden?")
+    def test_the_question_is_beside_its_conversation_not_in_every_prefix(self):
+        key = todos.ask(self.conn, "Which Sunday is the beer garden?")
+        trace.stamp(self.conn, kind="question", ref=key, verb="asked",
+                    entity="person:Quinn Brooks", stage="propose")
+        archive_id = archive.append(
+            self.conn, stream="imessage", external_id="beer-garden-reply",
+            ts=db.now(), text="Maybe the beer garden after I get back",
+            thread="quinn", person="Quinn Brooks", gated=True)
+        row = self.conn.execute("SELECT * FROM archive WHERE id = ?", (archive_id,)).fetchone()
+        bundle = bundle_stage.Bundle(entity="person:Quinn Brooks", items=[row])
         prefix = propose_stage.build_prefix(self.conn, self.cfg)
-        self.assertIn("Which Sunday is the beer garden?", prefix)
-        self.assertIn("do not ask any of these again", prefix)
-        self.assertIn("not that it is handled", prefix)
+        block = propose_stage.build_bundle_block(self.cfg, bundle, self.conn)
+        self.assertNotIn("Which Sunday is the beer garden?", prefix)
+        self.assertIn("Which Sunday is the beer garden?", block)
+        self.assertIn(key, block)
+        self.assertIn("MEMCAL HINT (not source evidence)", block)
+
+
+class TestQuestionCoverageRepair(Base):
+
+    def _bundle(self):
+        archive_id = archive.append(
+            self.conn, stream="imessage", external_id="coverage-line", ts=db.now(),
+            text="I am away through August", thread="quinn", person="Quinn Brooks",
+            gated=True)
+        row = self.conn.execute("SELECT * FROM archive WHERE id = ?", (archive_id,)).fetchone()
+        return bundle_stage.Bundle(entity="person:Quinn Brooks", items=[row])
+
+    def _reviews(self, bundle):
+        bid = propose_stage.bundle_id(bundle.entity)
+        candidate = questions.Candidate(
+            key="q:league", text="When will you next play League with Quinn?",
+            version="v1", wake_condition=None, likely_lines=(1,))
+        return bid, {bid: {"bundle": bid, "entity": bundle.entity,
+                           "candidates": [candidate], "overflow": 0}}
+
+    def test_one_narrow_repair_fills_only_the_missing_disposition(self):
+        from memcal import llm
+        bundle = self._bundle()
+        bid, reviews = self._reviews(bundle)
+
+        class Client:
+            def __init__(self):
+                self.calls = []
+
+            def complete(inner, **kw):
+                inner.calls.append(kw)
+                if kw["schema_name"] == "memcal_question_repair":
+                    data = {"diffs": [{"bundle": bid, "questions": [{
+                        "action": "keep", "key": "q:league", "version": "v1",
+                        "text": None, "answer": None, "wake_condition": None,
+                        "cites": [],
+                    }]}]}
+                else:
+                    data = {"reviewed": [bid], "diffs": []}
+                return llm.Reply(text=json.dumps(data), data=data, usage=llm.Usage(calls=1),
+                                 model="test", generation_id=f"g{len(inner.calls)}")
+
+        client = Client()
+        _group, payload, turns = propose_stage.propose_group(
+            client, self.cfg, "prefix", [bundle], suffix="source", reviews=reviews)
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual([turn.stage for turn in turns], ["", "question-repair"])
+        self.assertEqual(payload["diffs"][0]["questions"][0]["key"], "q:league")
+        self.assertEqual(payload["diffs"][0]["questions"][0]["_generation_id"], "g2")
+        self.assertIn("Review only the entries below", client.calls[1]["turns"][-1]["content"])
+
+    def test_an_incomplete_repair_defers_the_whole_bundle(self):
+        from memcal import llm
+        bundle = self._bundle()
+        bid, reviews = self._reviews(bundle)
+
+        class Client:
+            def complete(self, **kw):
+                data = ({"diffs": []} if kw["schema_name"] == "memcal_question_repair"
+                        else {"reviewed": [bid], "diffs": [{"bundle": bid,
+                              "events": [{"title": "should also be deferred"}]}]})
+                return llm.Reply(text=json.dumps(data), data=data, usage=llm.Usage(calls=1),
+                                 model="test", generation_id="g")
+
+        _group, payload, _turns = propose_stage.propose_group(
+            Client(), self.cfg, "prefix", [bundle], suffix="source", reviews=reviews)
+        self.assertNotIn(bid, payload["reviewed"])
+        self.assertEqual(payload["diffs"], [])
+        self.assertTrue(any("incomplete question review" in error
+                            for error in payload["_coverage_errors"]))
+
+
+class TestQuestionActionsAreVersioned(Base):
+
+    def test_a_stale_drop_cannot_close_a_newer_question(self):
+        key = todos.ask(self.conn, "When is beach day?")
+        row = self.conn.execute("SELECT * FROM questions WHERE key = ?", (key,)).fetchone()
+        version = row["updated_at"] or row["created_at"]
+        self.conn.execute("UPDATE questions SET text = ?, updated_at = ? WHERE key = ?",
+                          ("When is beach day in September?", version + "+new", key))
+        outcome = questions.apply_action(
+            self.conn, {"action": "drop", "key": key, "version": version,
+                        "text": None, "answer": None, "wake_condition": None},
+            written_by="dream", commit=False)
+        self.assertEqual(outcome[0], "rejected-stale")
+        self.assertEqual(
+            self.conn.execute("SELECT status FROM questions WHERE key = ?", (key,)).fetchone()[0],
+            "open")
+
+
+class TestQuestionActionsMeetInMerge(Base):
+
+    def _proposal(self, entity, action, *, evidence_id):
+        bundle = bundle_stage.Bundle(entity=entity, items=[])
+        diff = {"questions": [{
+            "action": action, "key": "q:beach", "version": "v1",
+            "text": "When is beach day?" if action == "amend" else None,
+            "answer": "September 7 works" if action == "resolve" else None,
+            "wake_condition": "after August" if action == "amend" else None,
+            "cite_ids": [evidence_id],
+        }]}
+        return (bundle, diff, "generation")
+
+    def test_conflicting_actions_are_decided_from_evidence(self):
+        from memcal import llm
+        first_id = archive.append(
+            self.conn, stream="imessage", external_id="beach-delay", ts=db.now(),
+            text="I cannot go during August", person="Quinn", gated=True)
+        second_id = archive.append(
+            self.conn, stream="imessage", external_id="beach-date", ts=db.now(),
+            text="September 7 works", person="Quinn", gated=True)
+        proposals = [self._proposal("person:Quinn", "amend", evidence_id=first_id),
+                     self._proposal("thread:imessage:beach", "resolve",
+                                    evidence_id=second_id)]
+
+        class Client:
+            def complete(self, **kw):
+                self.suffix = kw["suffix"]
+                data = {"choice": 2, "why": "The later source states a date."}
+                return llm.Reply(text=json.dumps(data), data=data,
+                                 usage=llm.Usage(calls=1), generation_id="merge")
+
+        client = Client()
+        merged, log = merge_stage.merge_all(
+            client, self.cfg, proposals, conn=self.conn, run_id=None)
+        actions = [row for _bundle, diff, _gen in merged
+                   for row in diff.get("questions") or []]
+        self.assertEqual([row["action"] for row in actions], ["resolve"])
+        self.assertIn("I cannot go during August", client.suffix)
+        self.assertIn("September 7 works", client.suffix)
+        self.assertTrue(any("merged question q:beach as resolve" in line for line in log))
+
+    def test_an_unresolved_conflict_defers_every_involved_bundle(self):
+        from memcal import llm
+        first_id = archive.append(
+            self.conn, stream="imessage", external_id="beach-a", ts=db.now(),
+            text="Maybe later", person="Quinn", gated=True)
+        second_id = archive.append(
+            self.conn, stream="groupme", external_id="beach-b", ts=db.now(),
+            text="No idea", person="Quinn", gated=True)
+        proposals = [self._proposal("person:Quinn", "amend", evidence_id=first_id),
+                     self._proposal("thread:groupme:beach", "drop", evidence_id=second_id)]
+
+        class Client:
+            def complete(self, **kw):
+                data = {"choice": None, "why": "The evidence does not decide."}
+                return llm.Reply(text=json.dumps(data), data=data,
+                                 usage=llm.Usage(calls=1), generation_id="merge")
+
+        merged, log = merge_stage.merge_all(
+            Client(), self.cfg, proposals, conn=self.conn, run_id=None)
+        self.assertEqual(merged, [])
+        self.assertTrue(any("deferred 2 bundle(s)" in line for line in log))
 
 
 class TestKeysAreOpaque(Base):
@@ -4792,8 +4948,7 @@ class TestASubjectNamesAPerson(Base):
     def setUp(self):
         super().setUp()
         identity.link(self.conn, "+15551110001", "Jordan Lee", source="test")
-        todos.set_standing(self.conn, "identity", "Casey, North End.",
-                           scope="permanent")
+        identity.set_me(self.conn, "Casey", "Casey Morgan")
 
     def _write(self, **row):
         bundle = bundle_stage.Bundle(entity="person:Jordan Lee", items=[])
@@ -6422,7 +6577,7 @@ class TestTheCallsThatFailedNeverReachedDisk(Base):
                         "a ceiling of 0 reads as a call that could not truncate")
 
 
-class TestARecentReplySettlesTheQuestionItAnswered(Base):
+class TestARecentReplyLeavesQuestionMeaningToTheModel(Base):
     def setUp(self):
         super().setUp()
         db.set_today(f"{db.today().isoformat()}T19:00")
@@ -6438,7 +6593,7 @@ class TestARecentReplySettlesTheQuestionItAnswered(Base):
                           (db.now(), aid))
         return self.conn.execute("SELECT * FROM archive WHERE id = ?", (aid,)).fetchone()
 
-    def test_asking_about_an_open_topic_and_getting_a_reply_closes_it(self):
+    def test_word_overlap_does_not_turn_a_vacation_into_an_answer(self):
         key = todos.ask(
             self.conn, "When are you and Quinn Brooks playing the next League five-man?",
             written_by="dream:nightly")
@@ -6454,13 +6609,62 @@ class TestARecentReplySettlesTheQuestionItAnswered(Base):
         result = dream_run.dream(self.conn, self.cfg)
 
         row = self.conn.execute("SELECT * FROM questions WHERE key = ?", (key,)).fetchone()
-        self.assertFalse(result.nothing_new)
-        self.assertEqual(result.diffs, 1)
-        self.assertEqual(row["status"], "answered")
-        self.assertEqual(row["answer"], "I am on vacation, wish I could play")
-        sources = trace.source_rows(self.conn, "question", key, context=0)
-        self.assertEqual({source["text"] for source in sources},
-                         {"5 player league??", "I am on vacation, wish I could play"})
+        self.assertTrue(result.nothing_new)
+        self.assertEqual(result.diffs, 0)
+        self.assertEqual(row["status"], "open")
+        self.assertIsNone(row["answer"])
+
+    def test_a_typed_amend_defers_and_preserves_the_old_wording(self):
+        key = todos.ask(
+            self.conn, "When are you and Quinn Brooks playing the next League five-man?",
+            written_by="dream:nightly")
+        trace.stamp(self.conn, kind="question", ref=key, verb="asked",
+                    entity="person:Quinn Brooks", stage="propose")
+        sent = self._line("league-amend-ask", "5 player league??", from_me=True, minute=4)
+        reply = self._line("league-amend-reply", "I am on vacation through August",
+                           from_me=False, minute=5)
+        before = self.conn.execute("SELECT * FROM questions WHERE key = ?", (key,)).fetchone()
+        bundle = bundle_stage.Bundle(entity="person:Quinn Brooks", items=[sent, reply])
+        counts, _log = apply_stage.apply_diffs(
+            self.conn, self.cfg, [(bundle, {"questions": [{
+                "action": "amend", "key": key,
+                "version": before["updated_at"] or before["created_at"],
+                "text": "When will you next play League with Quinn Brooks after August?",
+                "answer": None, "wake_condition": "Quinn is back from vacation",
+                "cite_ids": [sent["id"], reply["id"]],
+            }]})], written_by="dream:nightly")
+        row = self.conn.execute("SELECT * FROM questions WHERE key = ?", (key,)).fetchone()
+        history = self.conn.execute(
+            "SELECT field, old_value, new_value FROM question_history"
+            " WHERE question_id = ? ORDER BY id", (row["id"],)).fetchall()
+        self.assertEqual(counts["question:amended"], 1)
+        self.assertEqual(row["status"], "open")
+        self.assertEqual(row["wake_condition"], "Quinn is back from vacation")
+        self.assertIn(("text", before["text"], row["text"]), [tuple(item) for item in history])
+
+    def test_a_deferred_question_survives_the_ordinary_age_limit(self):
+        key = todos.ask(self.conn, "When will you next play League with Quinn Brooks?")
+        self.conn.execute(
+            "UPDATE questions SET created_at = ?, wake_condition = ? WHERE key = ?",
+            ("2026-01-01T00:00:00-05:00", "Quinn is back from vacation", key))
+        self.conn.commit()
+        self.assertEqual(todos.expire_questions(self.conn), 0)
+        self.assertEqual(
+            self.conn.execute("SELECT status FROM questions WHERE key = ?", (key,)).fetchone()[0],
+            "open")
+
+    def test_automatic_expiry_is_part_of_question_history(self):
+        key = todos.ask(self.conn, "When will you next play League with Quinn Brooks?")
+        self.conn.execute("UPDATE questions SET created_at = ? WHERE key = ?",
+                          ("2026-01-01T00:00:00-05:00", key))
+        self.conn.commit()
+        self.assertEqual(todos.expire_questions(self.conn), 1)
+        history = self.conn.execute(
+            "SELECT field, old_value, new_value, written_by FROM question_history"
+            " WHERE question_id = (SELECT id FROM questions WHERE key = ?)",
+            (key,)).fetchall()
+        self.assertIn(("status", "open", "dropped", "code:expire"),
+                      [tuple(row) for row in history])
 
     def test_an_unrelated_recent_exchange_does_not_close_it(self):
         key = todos.ask(

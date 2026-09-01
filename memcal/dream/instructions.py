@@ -63,9 +63,13 @@ store the row; ask only for the missing time/place/decision.
 
 A QUESTION IS NOT A ROW
 A question and a row never satisfy each other. Store the known plan and ask only about
-the missing field. Do not repeat an item under OPEN QUESTIONS ALREADY ASKED. A later
-direct question-and-reply exchange is settled by code, so write any new event/wiki facts
-it contains but do not create a replacement question.
+the missing field. For every supplied open-question candidate, return exactly one typed
+action: `keep`, `amend`, `resolve`, or `drop`. `keep` is normal. `amend` preserves the
+plan but may improve the wording or add a temporary wake condition. `resolve` requires
+the answer stated here. `drop` means refused, cancelled, or no longer useful. Copy the
+candidate key and version exactly. Cite the lines for every state-changing action; a
+`keep` needs no citation or explanation. Use `ask` with null key/version only for a new
+question not already represented by a candidate.
 
 TO-DOS
 A to-do is an action the user owes, written as a short imperative. Open or close only on
@@ -83,11 +87,6 @@ THE agent STREAM IS THEM INSTRUCTING A MACHINE
 `me → assistant` is an instruction. Facts stated there are reliable; delegated work is
 work handed off, not work the user owes. Create a to-do only when the doer is them.
 Never skip an agent line.
-
-STANDING
-`standing` is a legacy field, not a memory store. Always return `standing: []`. Identity
-aliases come from explicit identity paths; durable facts belong in wiki slots, and open
-obligations belong in to-dos.
 """
 
 

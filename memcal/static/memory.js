@@ -17,7 +17,7 @@ export async function loadMemory() {
       line.title = `open ${token} source`;
       line.onclick = () => openWhy(target.kind, target.ref, row.text);
       if (change) line.append(el("span", `dreamchange ${change}`,
-                                 change === "new" ? "new" : "updated"));
+                                 target.change_label || (change === "new" ? "New" : "Updated")));
       line.append(citeChip(target.citations));
     }
     box.append(line);
@@ -136,9 +136,7 @@ function ago(iso) {
 //: Who a write came from, said the way the user would say it back to me.
 function writerLabel(write) {
   if (write.unstamped) return "edited directly";
-  const stage = write.stage || "code";
-  if (stage === "ical") return "Calendar";
-  if (stage === "live") return "agent";
+  const stage = write.stage_label || write.stage || "Automatic";
   const run = write.run ? `run ${write.run}` : "";
   return [stage, run].filter(Boolean).join(" · ");
 }
@@ -459,7 +457,7 @@ export async function openWhy(kind, ref, title) {
   if (!out.calls.length) {
     const direct = (out.direct || [])[0];
     const detail = direct
-      ? `${direct.verb || "written"} directly by ${direct.stage || "code"}`
+      ? `${direct.verb || "written"} directly by ${direct.stage_label || direct.stage || "Automatic"}`
       : "written directly by the user/agent, or predates call provenance";
     body.append(el("div", "empty",
       `No model call wrote this. It was ${detail}; the original source above is the `
@@ -469,7 +467,8 @@ export async function openWhy(kind, ref, title) {
   for (const c of out.calls) {
     const row = el("div", "callrow");
     const head = el("div", "callhead");
-    head.append(el("span", "pill " + (c.stage === "sweep" ? "archive" : "process"), c.stage || "?"),
+    head.append(el("span", "pill " + (c.stage === "sweep" ? "archive" : "process"),
+                       c.stage_label || c.stage || "?"),
                 el("span", null, `${c.verb || ""} · ${c.at}`),
                 el("span", "callmeta",
                    [c.model, c.run ? "run #" + c.run : "", nf(c.prompt) + " in",

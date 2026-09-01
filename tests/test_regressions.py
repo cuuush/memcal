@@ -188,7 +188,7 @@ class TestReportedMemoryFailures(Base):
             self.conn.execute("SELECT count(*) n FROM archive").fetchone()["n"], 1,
             "rejecting a brief row must never delete its searchable source")
 
-    def test_one_trip_car_permission_is_not_a_permanent_preference(self):
+    def test_a_legacy_standing_payload_cannot_write(self):
         bundle = self._bundle(
             text="Quinn can borrow my car so the user can drive Katie to Medieval Times",
             person="me", external_id="car-permission")
@@ -197,7 +197,7 @@ class TestReportedMemoryFailures(Base):
                 "kind": "preference", "value": "Quinn may borrow my car",
                 "scope": "permanent"}]})], written_by="test")
         self.assertEqual(todos.standing(self.conn, "preference"), [])
-        self.assertEqual(counts["standing:rejected-transient"], 1)
+        self.assertEqual(counts["standing:rejected-legacy"], 1)
 
     def test_every_material_brief_row_has_an_openable_source(self):
         bundle = self._bundle(text="Poker at Robbie's Saturday", person="Robbie",

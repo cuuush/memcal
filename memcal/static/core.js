@@ -72,15 +72,14 @@ $("#theme").onclick = () => {
 $("#reload").onclick = () => show(state.view);
 export async function loadOverview() {
   const o = await api("/api/overview?days=" + (state.days === "0" ? 365 : state.days));
-  $("#sub").textContent = `${o.propose_model.split("/").pop()} · brief ~${o.brief_tokens}/${o.brief_cap} tok`
-    + ` · ${nf(o.pending)} waiting`;
+  $("#sub").textContent = `${nf(o.pending)} waiting · ${nf(o.events)} calendar rows`
+    + ` · ${nf(o.todos)} open to-dos`;
   if (state.view !== "gate") return;   // the tiles and bars only exist on the gate view
 
   const tiles = [
     ["Waiting to be read", nf(o.pending), `spool, ${o.horizon}-day horizon`, o.pending > 400],
     ["memcal rows", nf(o.events), `${o.todos} open to-dos · ${o.questions} questions`, false],
     ["Wiki pages", nf(o.pages), `${o.unresolved} unresolved handles`, false],
-    ["Shared prefix", "~" + nf(o.prefix_tokens), "cached across every call in a run", false],
     ["Spent", "$" + o.spend.toFixed(2), `last ${o.days} days`, false],
   ];
   if (o.last_run) tiles.push(["Last pass", "#" + o.last_run.id,

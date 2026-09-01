@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS todos (
 );
 
 -- -------------------------------------------------------------- standing ----
--- Always-true, always-relevant. Hard token cap enforced at render time.
+-- Retained temporarily for read compatibility while legacy rows are retired.
 CREATE TABLE IF NOT EXISTS standing (
     id         INTEGER PRIMARY KEY,
     key        TEXT UNIQUE NOT NULL,
@@ -166,6 +166,26 @@ CREATE TABLE IF NOT EXISTS standing (
     written_by TEXT NOT NULL DEFAULT 'cli',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+-- A retired S handle remains an address. The original row can leave the legacy table
+-- without losing its label, evidence, or the place it moved to. Provenance and evidence
+-- continue to use old_key, so no historical rows need to be rewritten.
+CREATE TABLE IF NOT EXISTS standing_redirects (
+    old_id           INTEGER PRIMARY KEY,
+    old_key          TEXT UNIQUE NOT NULL,
+    old_kind         TEXT NOT NULL,
+    old_value        TEXT NOT NULL,
+    old_scope        TEXT NOT NULL,
+    old_written_by   TEXT NOT NULL,
+    old_created_at   TEXT NOT NULL,
+    destination_kind TEXT NOT NULL
+                     CHECK(destination_kind IN ('wiki','identity','config','discarded')),
+    destination_ref  TEXT,
+    retired_at       TEXT NOT NULL,
+    CHECK((destination_kind = 'discarded' AND destination_ref IS NULL)
+          OR (destination_kind != 'discarded' AND destination_ref IS NOT NULL
+              AND length(trim(destination_ref)) > 0))
 );
 
 -- ------------------------------------------------------------- questions ----
@@ -184,10 +204,26 @@ CREATE TABLE IF NOT EXISTS questions (
     about_date  TEXT,
     status      TEXT NOT NULL DEFAULT 'open',   -- open | answered | dropped
     answer      TEXT,
+    -- A question can be deliberately waiting without being abandoned. Deferred rows
+    -- survive the ordinary age limit and explain when they should become useful again.
+    wake_condition TEXT,
     written_by  TEXT NOT NULL DEFAULT 'cli',
     created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL DEFAULT '',
     answered_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS question_history (
+    id          INTEGER PRIMARY KEY,
+    question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    field       TEXT NOT NULL,
+    old_value   TEXT,
+    new_value   TEXT,
+    changed_at  TEXT NOT NULL,
+    written_by  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS question_history_question_idx
+    ON question_history(question_id, changed_at);
 
 -- --------------------------------------------------------------- archive ----
 -- Every raw item, appended, full-text indexed. Nothing lives only in a derived store.

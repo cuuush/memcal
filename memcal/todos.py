@@ -1,4 +1,4 @@
-"""To-dos, questions, and standing facts.
+"""To-dos and question lifecycle, with read-only legacy standing helpers.
 
 A to-do dies conversationally. Nothing here closes an item by inference — the
 system's job is to raise the question at a plausible moment.
@@ -11,7 +11,7 @@ import sqlite3
 from datetime import datetime, time, timedelta
 from dataclasses import dataclass
 
-from . import dates, db
+from . import dates, db, questions
 
 STANDING_KINDS = ("identity", "preference", "alias")
 
@@ -362,93 +362,6 @@ def _keywords(text: str) -> set[str]:
             if w not in STOPWORDS}
 
 
-_NUMBER_WORDS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
-                 "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10"}
-
-
-def _topic_words(text: str) -> set[str]:
-    """Loose topic words for matching a stored question to a later exchange."""
-    out = set()
-    for word in _keywords(text):
-        word = _NUMBER_WORDS.get(word, word)
-        if word.startswith("play"):
-            word = "play"
-        out.add(word)
-    # Keep short numerals, which `_keywords` intentionally drops.
-    out.update(re.findall(r"\b\d{1,2}\b", text or ""))
-    return out
-
-
-def answer_from_exchange(conn: sqlite3.Connection, entity: str, rows,
-                         *, commit: bool = True) -> list[dict]:
-    """Answer matching open questions when a direct question receives a reply."""
-    open_rows = conn.execute(
-        """SELECT DISTINCT q.* FROM questions q
-             JOIN provenance p ON p.kind = 'question' AND p.ref = q.key
-            WHERE q.status = 'open' AND p.entity = ?""", (entity,)
-    ).fetchall()
-    if not open_rows:
-        return []
-
-    exchanges = []
-    ordered = sorted(rows, key=lambda row: (str(row["ts"]), int(row["id"] or 0)))
-    for index, sent in enumerate(ordered):
-        if not sent["from_me"] or sent["stream"] == "agent":
-            continue
-        reply = next((row for row in ordered[index + 1:]
-                      if not row["from_me"] and row["stream"] == sent["stream"]
-                      and row["thread"] == sent["thread"]), None)
-        if reply is not None and timedelta(0) <= (
-                db.parse_ts(reply["ts"]) - db.parse_ts(sent["ts"])) <= timedelta(days=2):
-            exchanges.append((sent, reply, _topic_words(sent["text"])))
-
-    settled = []
-    for question in open_rows:
-        wanted = _topic_words(question["text"])
-        match = next(((sent, reply) for sent, reply, topic in exchanges
-                      if len(wanted & topic) >= 2
-                      and db.parse_ts(sent["ts"]) >= db.parse_ts(question["created_at"])),
-                     None)
-        if not match:
-            continue
-        sent, reply = match
-        answer_text = " ".join(str(reply["text"] or "").split())
-        conn.execute(
-            "UPDATE questions SET status = 'answered', answer = ?, answered_at = ? WHERE id = ?",
-            (answer_text, db.now(), question["id"]),
-        )
-        settled.append({"key": question["key"], "text": question["text"],
-                        "answer": answer_text,
-                        "archive_ids": [int(sent["id"]), int(reply["id"])]})
-    if commit and settled:
-        conn.commit()
-    return settled
-
-
-def answer_from_recent_exchanges(conn: sqlite3.Connection, *, days: int = 14,
-                                 commit: bool = True) -> list[dict]:
-    """Settle open questions from recent archived replies, even if already processed."""
-    since = (db.today() - timedelta(days=days)).isoformat()
-    entities = [row["entity"] for row in conn.execute(
-        """SELECT DISTINCT p.entity FROM provenance p JOIN questions q
-               ON p.kind = 'question' AND p.ref = q.key
-            WHERE q.status = 'open' AND p.entity IS NOT NULL""")]
-    settled = []
-    for entity in entities:
-        rows = conn.execute(
-            """SELECT * FROM (
-                   SELECT a.* FROM spool s JOIN archive a ON a.id = s.archive_id
-                    WHERE s.entity = ? AND a.ts >= ?
-                    ORDER BY a.ts DESC, a.id DESC LIMIT 400
-               ) ORDER BY ts, id""", (entity, since)).fetchall()
-        for answer in answer_from_exchange(conn, entity, rows, commit=False):
-            answer["entity"] = entity
-            settled.append(answer)
-    if commit and settled:
-        conn.commit()
-    return settled
-
-
 # Questions are for the user, about the user's life. A question about memcal's own
 # clock or bookkeeping is the system doubting itself out loud, and once stored it sits
 # in the brief forever inviting the same confusion that created it.
@@ -614,8 +527,8 @@ def backfill_about_date(conn: sqlite3.Connection) -> int:
             ASKS_ABOUT_THE_PAST).fetchall():
         day = day_it_is_about(row["text"], db.parse_ts(str(row["created_at"])))
         if day:
-            conn.execute("UPDATE questions SET about_date = ? WHERE id = ?",
-                         (day, row["id"]))
+            conn.execute("UPDATE questions SET about_date = ?, updated_at = ? WHERE id = ?",
+                         (day, db.now(), row["id"]))
             found += 1
     return found
 
@@ -685,8 +598,8 @@ def expire_questions(conn: sqlite3.Connection, days: int = QUESTION_TTL_DAYS) ->
     stale = (db.today() - timedelta(days=days)).isoformat()
     tonight = (db.today() - timedelta(days=TONIGHT_TTL_DAYS)).isoformat()
     doomed = [row["id"] for row in conn.execute(
-        "SELECT id, text, created_at FROM questions WHERE status = 'open'")
-        if row["created_at"] < stale
+        "SELECT id, text, created_at, wake_condition FROM questions WHERE status = 'open'")
+        if (not row["wake_condition"] and row["created_at"] < stale)
         or (row["created_at"] < tonight and TONIGHT.search(row["text"] or ""))]
     for question_id, key, why in (_subject_has_passed(conn)
                                   + _redundant_with_linked_event(conn)):
@@ -698,8 +611,15 @@ def expire_questions(conn: sqlite3.Connection, days: int = QUESTION_TTL_DAYS) ->
     doomed = list(dict.fromkeys(doomed))
     if not doomed:
         return 0
-    conn.executemany("UPDATE questions SET status = 'dropped' WHERE id = ?",
-                     [(qid,) for qid in doomed])
+    now = db.now()
+    for row in conn.execute(
+            f"SELECT id FROM questions WHERE id IN ({','.join('?' for _ in doomed)})",
+            doomed):
+        questions.record_history(conn, row["id"], "status", "open", "dropped",
+                                 "code:expire")
+    conn.executemany(
+        "UPDATE questions SET status = 'dropped', updated_at = ? WHERE id = ?",
+        [(now, qid) for qid in doomed])
     conn.commit()
     return len(doomed)
 
@@ -750,12 +670,12 @@ def ask(conn: sqlite3.Connection, text: str, *, key: str | None = None,
     key = key or f"q:{db.slugify(text, 64)}"
     conn.execute(
         "INSERT INTO questions(key, text, about_event, about_todo, about_date,"
-        "                      written_by, created_at)"
-        " VALUES(?,?,?,?,?,?,?) ON CONFLICT(key) DO NOTHING",
+        "                      written_by, created_at, updated_at)"
+        " VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(key) DO NOTHING",
         (key, text, about_event, about_todo,
          None if written_by in ASKS_ABOUT_THE_PAST
          else day_it_is_about(text, said_on or db.now_dt()),
-         written_by, db.now()),
+         written_by, db.now(), db.now()),
     )
     if commit:
         conn.commit()
@@ -905,15 +825,15 @@ def relink_questions(conn: sqlite3.Connection) -> int:
         if todo_id:
             if row["about_todo"] != todo_id:
                 conn.execute(
-                    "UPDATE questions SET about_todo = ?, about_event = NULL"
-                    " WHERE id = ?", (todo_id, row["id"]))
+                    "UPDATE questions SET about_todo = ?, about_event = NULL, updated_at = ?"
+                    " WHERE id = ?", (todo_id, db.now(), row["id"]))
                 linked += 1
             continue
         event = _event_it_is_about(conn, wanted)
         if event is not None and row["about_event"] != event.id:
             conn.execute(
-                "UPDATE questions SET about_event = ?, about_todo = NULL WHERE id = ?",
-                (event.id, row["id"]))
+                "UPDATE questions SET about_event = ?, about_todo = NULL, updated_at = ?"
+                " WHERE id = ?", (event.id, db.now(), row["id"]))
             linked += 1
     linked += _sharpen_linked_questions(conn)
     backfill_about_date(conn)
@@ -947,7 +867,10 @@ def _sharpen_linked_questions(conn: sqlite3.Connection) -> int:
             continue
         start, end = match.span("when")
         text = row["text"][:start] + "What time" + row["text"][end:]
-        conn.execute("UPDATE questions SET text = ? WHERE id = ?", (text, row["id"]))
+        questions.record_history(conn, row["id"], "text", row["text"], text,
+                                 "code:relink")
+        conn.execute("UPDATE questions SET text = ?, updated_at = ? WHERE id = ?",
+                     (text, db.now(), row["id"]))
         # A question whose words changed without a record of why is indistinguishable
         # from a model having written it that way.
         trace.stamp(conn, kind="question", ref=row["key"], verb="sharpened",
@@ -1059,16 +982,26 @@ def answer(conn: sqlite3.Connection, key_or_text: str, answer_text: str) -> bool
                 row = best
     if not row:
         return False
+    now = db.now()
+    questions.record_history(conn, row["id"], "status", "open", "answered", "user")
+    questions.record_history(conn, row["id"], "answer", row["answer"], answer_text,
+                             "user")
     conn.execute(
-        "UPDATE questions SET status = 'answered', answer = ?, answered_at = ? WHERE id = ?",
-        (answer_text, db.now(), row["id"]),
+        "UPDATE questions SET status = 'answered', answer = ?, answered_at = ?,"
+        " updated_at = ? WHERE id = ?",
+        (answer_text, now, now, row["id"]),
     )
     conn.commit()
     return True
 
 
 def drop_question(conn: sqlite3.Connection, key: str) -> None:
-    conn.execute("UPDATE questions SET status = 'dropped' WHERE key = ?", (key,))
+    row = conn.execute("SELECT * FROM questions WHERE key = ?", (key,)).fetchone()
+    if row:
+        questions.record_history(conn, row["id"], "status", row["status"], "dropped",
+                                 "user")
+    conn.execute("UPDATE questions SET status = 'dropped', updated_at = ? WHERE key = ?",
+                 (db.now(), key))
     conn.commit()
 
 
@@ -1077,7 +1010,7 @@ def drop_question(conn: sqlite3.Connection, key: str) -> None:
 def set_standing(conn: sqlite3.Connection, kind: str, value: str, *, key: str | None = None,
                  scope: str = "permanent", written_by: str = "cli",
                  commit: bool = True) -> tuple[str, str]:
-    """Preferences are session-scoped by default; repetition promotes them."""
+    """Legacy fixture/repair helper; product surfaces no longer call this writer."""
     if kind not in STANDING_KINDS:
         raise ValueError(f"kind must be one of {STANDING_KINDS}")
     key = key or f"{kind}:{db.slugify(value, 48)}"
@@ -1093,10 +1026,19 @@ def set_standing(conn: sqlite3.Connection, kind: str, value: str, *, key: str | 
         if commit:
             conn.commit()
         return key, ("promoted" if new_scope != row["scope"] else "updated")
+    # SQLite may reuse an INTEGER PRIMARY KEY after deletion. A retired S handle is a
+    # permanent address, so even this compatibility-only writer must skip every id held
+    # by `standing_redirects`.
+    next_id = conn.execute(
+        """SELECT coalesce(max(id), 0) + 1 AS id FROM (
+               SELECT id FROM standing
+               UNION ALL SELECT old_id AS id FROM standing_redirects
+           )"""
+    ).fetchone()["id"]
     conn.execute(
-        "INSERT INTO standing(key, kind, value, scope, written_by, created_at, updated_at)"
-        " VALUES(?,?,?,?,?,?,?)",
-        (key, kind, value, scope, written_by, stamp, stamp),
+        "INSERT INTO standing(id, key, kind, value, scope, written_by, created_at, updated_at)"
+        " VALUES(?,?,?,?,?,?,?,?)",
+        (next_id, key, kind, value, scope, written_by, stamp, stamp),
     )
     if commit:
         conn.commit()

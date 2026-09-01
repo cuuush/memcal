@@ -4,13 +4,10 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
-import fcntl
 import hashlib
 import json
 import os
 import shutil
-import subprocess
 import sys
 import threading
 import time
@@ -28,9 +25,6 @@ from tests.scenarios import expect, integration, load, probes             # noqa
 from tests.scenarios import skeleton as sk                                # noqa: E402
 
 OUT = ROOT / "tools" / "bench_output" / "temporal"
-#: A committed rolling window. Older runs move to a local ignored archive.
-HISTORY = ROOT / "tools" / "bench_history.jsonl"
-HISTORY_RUNS_PER_STREAM = 20
 GREEN, RED, YELLOW, DIM, OFF = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 LAYER_ALIASES = {"replay": "integration", "live": "model"}
 STATUS_HEARTBEAT_SECONDS = 15.0
@@ -440,236 +434,6 @@ def report(run: dict) -> str:
     return "\n".join(lines)
 
 
-# ------------------------------------------------------------------------ history --
-
-def _commit_sha() -> str:
-    try:
-        done = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT,
-                              capture_output=True, text=True, timeout=5)
-        return done.stdout.strip() or "unknown"
-    except Exception:                                     # not a checkout, or no git
-        return "unknown"
-
-
-def record_void(run: dict, stamp: str) -> None:
-    """One row saying a trial was thrown away, and why.
-
-    Deliberately carries **no** `check` and **no** `ok`, so every reader that scores
-    history skips it by construction rather than by remembering to. `--history` counts
-    them and prints a warning; nothing else has to change.
-    """
-    _append_history_rows([{
-        "at": stamp, "commit": _commit_sha(), "suite": run.get("suite", "core"),
-        "layer": run["layer"], "model": run.get("model", "none"),
-        "trial": run.get("trial", 1), "void": True,
-        "lost": run.get("void", [])[:4],
-    }])
-
-
-def record_history(run: dict, stamp: str) -> int:
-    """Record score rows and bound the committed history by complete runs."""
-    sha = _commit_sha()
-    rows = [{
-        "at": stamp, "commit": sha, "suite": run.get("suite", "core"),
-        "layer": run["layer"], "model": run.get("model", "none"),
-        "prompt": run.get("prompt", "-"), "format": run.get("format", "-"),
-        "trial": run.get("trial", 1),
-        "challenge": row["challenge"], "check": row["id"],
-        "ok": bool(row["ok"]), "soft": bool(row["soft"]),
-        "frontier": bool(row.get("frontier")),
-    } for row in run["results"]]
-    _append_history_rows(rows)
-    return len(rows)
-
-
-def _archive_path() -> Path:
-    return HISTORY.with_name(f"{HISTORY.stem}_archive{HISTORY.suffix}")
-
-
-def _lock_path() -> Path:
-    return HISTORY.with_name(f".{HISTORY.name}.lock")
-
-
-@contextlib.contextmanager
-def _history_lock():
-    HISTORY.parent.mkdir(parents=True, exist_ok=True)
-    with _lock_path().open("a") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
-
-
-def _row_run_key(row: dict) -> tuple:
-    return (row["at"], row["suite"], row["layer"], row.get("trial", 1))
-
-
-def _rotate_history_unlocked(keep: int) -> int:
-    if keep < 1:
-        raise ValueError("keep must be at least 1")
-    if not HISTORY.exists():
-        return 0
-
-    records = []
-    runs_by_stream: dict[tuple, set[tuple]] = {}
-    for line in HISTORY.read_text().splitlines(keepends=True):
-        try:
-            row = json.loads(line)
-            run_key = _row_run_key(row)
-            stream = (row["suite"], row["layer"])
-        except (json.JSONDecodeError, KeyError):
-            records.append((line, None, None))
-            continue
-        records.append((line, stream, run_key))
-        runs_by_stream.setdefault(stream, set()).add(run_key)
-
-    retained = {
-        run_key
-        for run_keys in runs_by_stream.values()
-        for run_key in sorted(run_keys)[-keep:]
-    }
-    old = [line for line, stream, run_key in records
-           if stream is not None and run_key not in retained]
-    if not old:
-        return 0
-    current = [line for line, stream, run_key in records
-               if stream is None or run_key in retained]
-
-    archive = _archive_path()
-    with archive.open("a") as handle:
-        handle.writelines(old)
-        handle.flush()
-        os.fsync(handle.fileno())
-    temporary = HISTORY.with_name(f".{HISTORY.name}.{os.getpid()}.tmp")
-    try:
-        with temporary.open("w") as handle:
-            handle.writelines(current)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, HISTORY)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return len(old)
-
-
-def rotate_history(keep: int = HISTORY_RUNS_PER_STREAM) -> int:
-    """Archive old complete runs, retaining the newest runs in each suite/layer."""
-    with _history_lock():
-        return _rotate_history_unlocked(keep)
-
-
-def _append_history_rows(rows: list[dict]) -> None:
-    with _history_lock():
-        with HISTORY.open("a") as handle:
-            for row in rows:
-                handle.write(json.dumps(row, sort_keys=True) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        _rotate_history_unlocked(HISTORY_RUNS_PER_STREAM)
-
-
-def _history_path() -> str:
-    try:
-        return str(HISTORY.relative_to(ROOT))
-    except ValueError:                                    # a test's scratch history
-        return str(HISTORY)
-
-
-def _history_runs(*, include_archive: bool = False) -> list[dict]:
-    """Group the flat rows back into runs, oldest first."""
-    paths = ([_archive_path()] if include_archive else []) + [HISTORY]
-    if not any(path.exists() for path in paths):
-        return []
-    runs: dict[tuple, dict] = {}
-    lines = (line for path in paths if path.exists()
-             for line in path.read_text().splitlines())
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        key = (row["at"], row["suite"], row["layer"], row.get("trial", 1))
-        run = runs.setdefault(key, {
-            "at": row["at"], "commit": row.get("commit", "?"), "suite": row["suite"],
-            "layer": row["layer"], "model": row.get("model", "none"),
-            "trial": row.get("trial", 1), "checks": {}, "void": False, "lost": []})
-        if row.get("void"):
-            # A marker, not a measurement. It carries no `check` and no `ok` on purpose,
-            # so every scorer below skips it because there is nothing there to score
-            # rather than because it remembered to filter.
-            run["void"] = True
-            run["lost"] = row.get("lost", [])
-            continue
-        run["checks"][row["check"]] = row
-    return [runs[key] for key in sorted(runs)]
-
-
-def _score(run: dict) -> tuple[int, int]:
-    hard = [row for row in run["checks"].values() if not row["soft"]]
-    return sum(1 for row in hard if row["ok"]), len(hard)
-
-
-def history_report(last: int = 5, *, include_archive: bool = False) -> str:
-    """The last N runs per suite/layer, and every check that went green -> red.
-
-    This is the artifact that answers "what do you want to work on today" without
-    anyone having read a brief to find it.
-    """
-    runs = _history_runs(include_archive=include_archive)
-    if not runs:
-        return f"no history yet — {_history_path()} is empty or absent"
-    by_stream: dict[tuple, list[dict]] = {}
-    for run in runs:
-        by_stream.setdefault((run["suite"], run["layer"]), []).append(run)
-
-    lines = [f"\n{'=' * 72}", f"score history — {_history_path()}", "=" * 72]
-    for (suite, layer), stream in sorted(by_stream.items()):
-        lines.append(f"\n{suite} / {layer}")
-        for run in stream[-last:]:
-            trial = f" trial {run['trial']}" if run["trial"] != 1 else ""
-            if run["void"]:
-                why = (run["lost"][0][:60] + "…") if run["lost"] else "bundles went unread"
-                lines.append(f"  {run['at']}  {run['commit']:>10}  "
-                             f"{RED}VOID{OFF}{trial}  {DIM}{why}{OFF}")
-                continue
-            ok, total = _score(run)
-            lines.append(f"  {run['at']}  {run['commit']:>10}  "
-                         f"{ok}/{total} hard{trial}")
-        # How often the instrument itself failed. A rate that climbs is a broken lab,
-        # not a broken product, and it was previously visible nowhere at all.
-        voids = [run for run in stream[-last:] if run["void"]]
-        if voids:
-            lines.append(f"  {RED}{len(voids)} of the last {len(stream[-last:])} "
-                         f"trial(s) produced no measurement{OFF}")
-        scored = [run for run in stream if not run["void"]]
-        newest = scored[-1] if scored else None
-        previous = scored[-2] if len(scored) > 1 else None
-        if newest is None:
-            lines.append(f"  {DIM}no scored run in this stream{OFF}")
-            continue
-        if previous:
-            regressed = sorted(
-                check for check, row in newest["checks"].items()
-                if not row["ok"] and not row["soft"]
-                and previous["checks"].get(check, {}).get("ok"))
-            lines.append(f"  {RED}went green -> red{OFF}: "
-                         + (", ".join(regressed) if regressed else "nothing"))
-        red: dict[str, list[str]] = {}
-        for check, row in newest["checks"].items():
-            if not row["ok"] and not row["soft"]:
-                red.setdefault(row["challenge"], []).append(check)
-        if red:
-            lines.append(f"  still red — {len(red)} challenge(s):")
-            for challenge, checks in sorted(red.items()):
-                lines.append(f"    {challenge:34} {', '.join(sorted(checks))}")
-        else:
-            lines.append("  still red: nothing")
-    return "\n".join(lines)
-
-
 def probe_run(name: str, home: Path, case: str | None = None) -> dict:
     started = time.time()
     # `main` always passes a named child of the benchmark root, never the root itself.
@@ -821,33 +585,7 @@ def main() -> None:
                         help="run each model suite N independent times and report pass rates")
     parser.add_argument("--rebuild", action="store_true",
                         help="regenerate fixtures from the skeleton first")
-    parser.add_argument("--history", nargs="?", type=int, const=5, default=None,
-                        metavar="N",
-                        help="print the last N runs per suite/layer from "
-                             "tools/bench_history.jsonl and exit, flagging any check "
-                             "that went green -> red")
-    parser.add_argument("--history-all", nargs="?", type=int, const=5, default=None,
-                        metavar="N",
-                        help="like --history, including locally archived runs")
-    parser.add_argument("--rotate-history", action="store_true",
-                        help="rotate old complete runs now and exit")
-    parser.add_argument("--no-record", action="store_true",
-                        help="grade without appending to tools/bench_history.jsonl")
     args = parser.parse_args()
-
-    if args.history is not None and args.history_all is not None:
-        parser.error("choose --history or --history-all")
-    if args.rotate_history:
-        moved = rotate_history()
-        print(f"archived {moved} score row(s); retained the newest "
-              f"{HISTORY_RUNS_PER_STREAM} runs per suite/layer")
-        return
-    if args.history_all is not None:
-        print(history_report(args.history_all, include_archive=True))
-        return
-    if args.history is not None:
-        print(history_report(args.history))
-        return
 
     if args.rebuild:
         from tests.scenarios import build
@@ -918,23 +656,8 @@ def main() -> None:
                     (OUT / f"{tag}-{stamp}.json").write_text(json.dumps(run, indent=1))
                     (OUT / f"{tag}-{stamp}.brief.md").write_text(run["brief"])
                     if run.get("void"):
-                        print(f"{RED}not recording this trial's scores to "
-                              f"bench_history.jsonl — bundles went unread{OFF}")
-                        # But record *that it happened*. Keeping a void trial's scores
-                        # out of the trend line is right; keeping its existence out was
-                        # not, and it hid a live bug for as long as it existed. Two of
-                        # three paid trials died to an un-retried rate limit and the
-                        # history looked perfectly healthy, because a discarded trial
-                        # and a trial nobody ran are the same absence. Recovering it
-                        # meant reading a JSON blob in `bench_output/` by hand.
-                        #
-                        # A run that fails must not be indistinguishable
-                        # from a run that never started. One row, no scores, so nothing
-                        # can mistake it for a measurement.
-                        if not args.no_record and not args.case:
-                            record_void(run, stamp)
-                    elif not args.no_record and not args.case:
-                        record_history(run, stamp)
+                        print(f"{RED}trial produced no measurement — "
+                              f"bundles went unread{OFF}")
             if model_trials:
                 summary = repeat_report(model_trials)
                 if summary:
@@ -949,8 +672,6 @@ def main() -> None:
             probe_runs.append(run)
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             (OUT / f"{name}-probe-{stamp}.json").write_text(json.dumps(run, indent=1))
-            if not args.no_record and not args.case:
-                record_history(run, stamp)
 
     integration_run = next(
         (run for run in core_runs if run["layer"] == "integration"), None)

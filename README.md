@@ -29,17 +29,19 @@ what changed, and which exact model call proposed the change.
 
 ## How it works
 
-A memcal pass has five parts:
+A memcal pass has six parts:
 
 1. **Observe.** Connectors pull new messages, email, and calendar records into a local
    append-only archive.
-2. **Filter.** A deterministic gate decides which items deserve attention. Rejected
-   messages can be archived for search.
-3. **Understand.** The configured model reads related messages together and proposes typed
+2. **Prepare.** A deterministic gate decides which items deserve attention, then related
+   records are bundled into conversations. Rejected messages can still be archived for search.
+3. **Propose.** The configured model reads those conversations and proposes typed
    changes: add an event, move a date, open a to-do, save a fact, or ask a question.
-4. **Reconcile.** Deterministic merge rules join compatible mentions. A model is used again
-   only when real evidence conflicts.
-5. **Brief.** Memcal renders the current slice of your life into a small Markdown snapshot
+4. **Merge.** Deterministic rules join compatible mentions across conversations. A model is
+   used again only when real evidence conflicts.
+5. **Apply and clean up.** Version-checked writes update the typed stores, then deterministic
+   cleanup expires or reconnects state whose conditions changed.
+6. **Brief.** Memcal renders the current slice of your life into a small Markdown snapshot
    that the agent receives on every turn.
 
 
@@ -64,6 +66,10 @@ The handles—`E12`, `T7`, and `Q4`—open the full row, evidence, and history. 
 small enough to include on ordinary agent turns, while deeper detail remains one tool call
 away.
 
+Open questions are durable typed state. When a new conversation may affect one, Memcal shows
+the question beside that evidence and records an explicit keep, amendment, answer, or closure.
+A deferred question can carry a wait condition; loose word overlap alone does not answer it.
+
 ## Sources and surfaces
 
 ### Inputs
@@ -77,7 +83,9 @@ away.
 | Apple Calendar | Created calendars and subscribed calendar feeds |
 | Agent conversations | Inbound user turns from the Hermes and OpenClaw integrations |
 
-Partiful invitations are recognized through Apple Calendar data, provided you subsceribe to the Partiful calendar. Memcal keeps their RSVP links and distinguishes an unanswered invitation from a confirmed plan.
+Partiful invitations are recognized through Apple Calendar data, provided you subscribe to
+the Partiful calendar. Memcal keeps their RSVP links and distinguishes an unanswered
+invitation from a confirmed plan.
 
 Custom sources can live in `~/.memcal/plugins/` or register through the `memcal.sources`
 Python entry-point group. See [`examples/plugins/rss.py`](examples/plugins/rss.py) for a
@@ -337,6 +345,9 @@ Source messages are append-only. Typed rows can be corrected, merged, or withdra
 their evidence and value history remain available. Model calls are also saved locally, so
 `memcal trace` can show what was sent, what came back, and which generation wrote a row.
 
+Durable facts belong on wiki pages. Older installations may still contain legacy standing
+rows: their `S` handles remain readable for recovery, but new standing writes are rejected.
+
 ## Privacy and safety
 
 Memcal is built for personal data, so its defaults are deliberately conservative:
@@ -364,9 +375,6 @@ python3 tools/benchmark_temporal.py --layer integration
 
 # Live configured model
 python3 tools/benchmark_temporal.py --layer model
-
-# Recent results
-python3 tools/benchmark_temporal.py --history
 ```
 
 The live model layer prints its provider, model, fake day, dream stage, dispatched requests,
@@ -375,6 +383,7 @@ active stage every 15 seconds so a slow answer does not look like a hung process
 
 Benchmark scratch stores never use the live `~/.memcal` directory. Live model evaluation can
 cost money or consume subscription capacity; it is not part of the normal development loop.
+Benchmark runs print current results and do not update a tracked score ledger.
 
 ## Development
 
@@ -384,7 +393,7 @@ Run focused tests while iterating, followed by the full suite:
 python3 -m unittest discover -s tests
 ```
 
-Run the integration benchmark when a change affects ingest, resolution, typed storage, dream
+Run the integration benchmark when a change affects ingest, Merge, typed storage, dream
 application, or brief behavior covered by its scenarios. Run the live model layer only when
 you are deliberately evaluating extraction or prompt behavior.
 

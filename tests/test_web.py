@@ -904,7 +904,7 @@ class TestTheProposeBarWasAnAnimationRatherThanAFraction(Base):
         """`total` 0 is the page's signal to animate instead of measure. The whole point
         of the arithmetic above is that this step never sends one."""
         job = web_jobs._Job("dream")
-        job.plan(["prepare", "propose", "resolve"])
+        job.plan(["prepare", "propose", "merge"])
         job.step("propose", "running", web_jobs._read_so_far({"done": 9, "total": 30}),
                  done=9, total=30)
         step = job.snapshot()["steps"][1]
@@ -913,7 +913,7 @@ class TestTheProposeBarWasAnAnimationRatherThanAFraction(Base):
 
 
 class TestAStepWithNoHalfwayStillHasToSaySomething(Base):
-    """`sweep` is one model call over the whole resulting state and `resolve` is one per
+    """`sweep` is one model call over the whole resulting state and Merge is one per
     disagreement: nothing inside `client.complete` can report a fraction, so both drew
     the sliding stripe — which says "working" identically at four seconds and at four
     minutes. How long it has been running is a fact, and it is the one the page needs."""
@@ -1164,11 +1164,13 @@ class TestMemoryIsTheBrief(Base):
             (f"T{todo.id}", "todo", todo.key),
             (f"Q{self.conn.execute('SELECT id FROM questions WHERE key=?', (question,)).fetchone()[0]}",
              "question", question),
-            (f"S{self.conn.execute('SELECT id FROM standing WHERE key=?', (standing,)).fetchone()[0]}",
-             "standing", standing),
         ):
             self.assertEqual(out["targets"][token]["kind"], kind)
             self.assertEqual(out["targets"][token]["ref"], ref)
+        legacy_token = (
+            f"S{self.conn.execute('SELECT id FROM standing WHERE key=?', (standing,)).fetchone()[0]}"
+        )
+        self.assertNotIn(legacy_token, out["targets"])
 
 
 class TestLatestDreamChangesAreMarkedOnTheBrief(Base):

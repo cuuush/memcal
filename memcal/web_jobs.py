@@ -325,7 +325,7 @@ def dream_work(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
     """The real pass. Whatever it writes is what the Memory tab will show next."""
     from .dream.run import dream as run_dream
 
-    job.plan(["prepare", "propose", "resolve", "apply", "sweep", "render"])
+    job.plan(["prepare", "propose", "merge", "apply", "sweep", "render"])
     request_count = 0
 
     def progress(event: str, data: dict) -> None:

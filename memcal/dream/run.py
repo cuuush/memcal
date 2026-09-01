@@ -17,7 +17,7 @@ from ..llm import LLMError
 from . import apply as apply_stage
 from . import bundle as bundle_stage
 from . import propose as propose_stage
-from . import resolve as resolve_stage
+from . import merge as merge_stage
 from . import sweep as sweep_stage
 
 
@@ -46,7 +46,7 @@ class DreamResult:
         lines += [f"  {line}" for line in self.log[:40]]
         if len(self.log) > 40:
             lines.append(f"  … {len(self.log) - 40} more")
-        for label, values in (("resolved", self.resolved),
+        for label, values in (("merged", self.resolved),
                               ("sweep", self.sweep_actions), ("woke", self.woken),
                               ("asked", self.questions), ("errors", self.errors)):
             for value in values:
@@ -165,20 +165,11 @@ def dream(
     emit("prepare", "done", f"{len(bundles)} bundles · {result.items} lines",
          run_id=run_id)
 
-    if not dry_run:
-        counts, log = apply_stage.settle_recent_questions(conn, run_id=run_id)
-        result.log.extend(log)
-        result.diffs += sum(counts.values())
-
     if not bundles:
-        # A recent archived reply can settle a question without a pending bundle or a
-        # model call. Otherwise this is the common no-op pass.
-        result.nothing_new = not result.diffs
+        result.nothing_new = True
         _finish(conn, run_id, result)
         brief.write(conn, cfg)
-        note = (f"{result.diffs} recent question(s) settled; brief refreshed"
-                if result.diffs else "nothing new; brief refreshed")
-        emit("render", "done", note)
+        emit("render", "done", "nothing new; brief refreshed")
         return result
 
     if dry_run:
@@ -302,11 +293,11 @@ def dream(
         # prefix contains these rows and can amend them by key instead of duplicating
         # them. This is the whole reason to run in waves rather than all at once.
         try:
-            got, wave_log = resolve_stage.resolve_all(
+            got, wave_log = merge_stage.merge_all(
                 client, cfg, got, conn=conn, run_id=run_id)
             result.resolved.extend(wave_log)
         except LLMError as exc:
-            errors.append(f"resolve (wave {index}): {exc}")
+            errors.append(f"merge (wave {index}): {exc}")
         counts, log = apply_stage.apply_diffs(
             conn, cfg, got, written_by=f"dream:{mode}", run_id=run_id, stage="propose")
         result.log.extend(log)
@@ -317,21 +308,21 @@ def dream(
     emit("propose", "done" if (proposals or result.diffs) else "failed",
          f"{len(bundles)} bundles reviewed · {len(errors)} issue(s)")
 
-    # 3. resolve — the only stage that sees every proposal at once, so it is the only
+    # 3. merge — the only stage that sees every proposal at once, so it is the only
     #    one that can tell one event mentioned in four threads from four events.
     #    Deterministic clustering; a model is called only where fragments disagree.
     # In wave mode both of these already ran per wave and `proposals` is empty, so these
     # are no-ops — but they must *accumulate* rather than assign, or the last empty pass
     # would erase everything the waves recorded.
     try:
-        emit("resolve", "running", "joining the same plan across conversations")
-        proposals, resolve_log = resolve_stage.resolve_all(
+        emit("merge", "running", "joining proposals across conversations")
+        proposals, merge_log = merge_stage.merge_all(
             client, cfg, proposals, conn=conn, run_id=run_id)
-        result.resolved.extend(resolve_log)
-        emit("resolve", "done", f"{len(result.resolved)} merge decision(s)")
+        result.resolved.extend(merge_log)
+        emit("merge", "done", f"{len(result.resolved)} decision(s)")
     except LLMError as exc:
-        result.errors.append(f"resolve: {exc}")
-        emit("resolve", "failed", str(exc))
+        result.errors.append(f"merge: {exc}")
+        emit("merge", "failed", str(exc))
 
     # 4. apply — deterministic merge on keys
     before_apply = db.now()
@@ -350,7 +341,7 @@ def dream(
         todos.ask(conn, f"{todo.text} — {todo.wake_condition} now looks true. Still open?",
                   key=f"q:wake:{todo.key}", about_todo=todo.id, written_by="dream")
 
-    # 4. sweep — one cheap call over the resulting state
+    # 5. sweep — one cheap call over the resulting state
     if not skip_sweep:
         try:
             # What it is reviewing, not just that it is reviewing. The stage is a single
@@ -409,7 +400,7 @@ def dream(
         bundle_stage.set_watermark(conn, max(str(r["ts"]) for b in bundles
                                             if b.entity in read for r in b.items))
 
-    # 5. render. A page is a fact container, not a contact-card placeholder. Earlier
+    # 6. render. A page is a fact container, not a contact-card placeholder. Earlier
     # builds opened an empty file for everyone standing on an event, then preserved it
     # precisely because they were on the event; the result was dozens of blank pages
     # charged to every prompt forever. Slot, alias, body and recurring-series writes

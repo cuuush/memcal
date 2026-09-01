@@ -43,7 +43,8 @@ specific benchmark challenge; filler records carry `beat: null` and must produce
 | Bailey Stone | +19175550010 | family friend (non-parent disambiguation) |
 | Mom | +19175550011 | mother |
 
-Standing facts: `Casey, North End. Dog: Comet.` and the `u&me` shared-calendar alias.
+Typed facts: Casey's page records North End and Comet. The shared-calendar page has
+`our cal`, `shared cal`, and `u&me` aliases.
 
 ## Storage eligibility criteria
 
@@ -131,7 +132,7 @@ Each challenge evaluates facts established on Day 1 and mutated on Day 2.
 ### 11. One plan, three streams, one row — `dinner`
 - **D2** the Thursday dinner is referenced in the WhatsApp group, in a DM from Alex
   Alvarez, and in a calendar-invite email — all the same evening.
-- **Must:** one row. This is what the `resolve` stage exists for.
+- **Must:** one row. This is what the Merge stage exists for.
 
 ### 12. Wake condition — `ezpass`
 - **D1** `agent` — Casey: "i need to give rowan back their ezpass when the user's back from
@@ -254,10 +255,10 @@ in `load.ingest_day` before that day's dream — the order it happens in real li
 
 ### 27. Durable permission survives the transient-permission guard
 - **D2** Casey explicitly says Quinn can borrow their car anytime in the future.
-- **Must:** this becomes standing memory.
+- **Must:** this becomes a named fact on Quinn's wiki page.
 - **Counterweight:** challenge 25's Medieval Times permission remains one-situation
-  context and must not become standing. A regex that rejects every “can borrow” sentence
-  fails one side or the other. This is currently a frontier gap.
+  context and must not become a durable fact. A regex that rejects every “can borrow” sentence
+  fails one side or the other; model decision quality remains a separate benchmark concern.
 
 ### 28. An unrelated emoji remains unrelated
 - **D1** Jose sends the same `👀` in a quiet group with no topic around it.
@@ -283,9 +284,9 @@ in `load.ingest_day` before that day's dream — the order it happens in real li
 - **Must:** it remains auditable in the store but no longer appears in the brief.
 
 ### 32. Closed-world output inventory
-- **Must:** every event, to-do, question, standing row and wiki page belongs to a declared
-  beat. Targeted “no paid event” regexes are insufficient—a hallucinated “Transfer to
-  Quinn” title would evade one while still being unwanted.
+- **Must:** every event, to-do, question, wiki page, and row in the legacy standing table
+  belongs to a declared beat. Targeted “no paid event” regexes are insufficient—a
+  hallucinated “Transfer to Quinn” title would evade one while still being unwanted.
 - **Frontier:** one wake should produce one question. The current deterministic integration
   produces both the model's EZ-Pass question and the code-generated wake question.
 

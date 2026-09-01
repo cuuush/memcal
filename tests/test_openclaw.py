@@ -18,19 +18,21 @@ class TestOpenClawContextIsFresh(unittest.TestCase):
             cfg = config.load(root)
             cfg.ensure_dirs()
             conn = db.open_db(cfg.db_path)
-            todos.set_standing(conn, "identity", "First snapshot")
+            first_todo, _ = todos.open_todo(conn, "First typed snapshot")
             conn.commit()
             conn.close()
             first = harness.context(cfg, "what is coming up?")
 
             conn = db.open_db(cfg.db_path)
-            todos.set_standing(conn, "identity", "Second snapshot")
+            todos.close(conn, first_todo.key)
+            todos.open_todo(conn, "Second typed snapshot")
             conn.commit()
             conn.close()
             second = harness.context(cfg, "what is coming up?")
 
-        self.assertIn("First snapshot", first)
-        self.assertIn("Second snapshot", second)
+        self.assertIn("First typed snapshot", first)
+        self.assertIn("Second typed snapshot", second)
+        self.assertNotIn("First typed snapshot", second)
         self.assertNotEqual(first, second)
 
 

@@ -29,8 +29,9 @@ Key requirements:
 
 - Run the smallest relevant unittest modules while iterating, then the full suite before handoff.
 - Run `python3 tools/benchmark_temporal.py --layer integration` when a change affects behavior
-  exercised by the multi-day ingest, resolution, storage, dream, or brief scenarios.
+  exercised by the multi-day ingest, Merge, storage, dream, or brief scenarios.
 - Run the live model layer only to evaluate extraction or prompt behavior with a usable provider.
+- Benchmark runs report current results without changing tracked files.
 - **Test class names describe the behavior under test.** New failure modes require dedicated test classes
   rather than appended methods. Distinct class names prevent class shadowing within module namespaces.
 - **Tests pin temporal state explicitly.** Date and time values derive from `db.today()`, `db.now_dt()`,

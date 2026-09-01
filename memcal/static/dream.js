@@ -88,7 +88,7 @@ function renderPrefix(p) {
   const short = p.prefix.tokens < p.prefix.cache_min;
   card.append(el("div", "note",
     `Every request opens with this same ${nf(p.prefix.tokens)}-token preamble — today's date, `
-    + `the memcal window, open to-dos, standing facts, who is known. It is marked cacheable`
+    + `the memcal window, open to-dos, the wiki index, and known identities. It is marked cacheable`
     + (!p.cost.cache ? `, but this model endpoint does not support prompt caching.`
       : short ? `, but it is under the ${nf(p.prefix.cache_min)}-token minimum, so it will not cache.`
              : `, and the first ${p.cost.cache_misses} request(s) fire together against an empty `

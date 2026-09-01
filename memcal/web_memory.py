@@ -8,7 +8,7 @@ import sqlite3
 import threading
 from datetime import timedelta
 
-from . import archive, brief, calls, db, detail, identity, todos, trace, wiki
+from . import archive, brief, calls, db, detail, identity, presentation, todos, trace, wiki
 from .config import Config
 from .dream import propose as propose_stage
 
@@ -105,6 +105,7 @@ def memory(conn: sqlite3.Connection, cfg: Config) -> dict:
         targets[token] = {
             "kind": kind, "ref": row["key"],
             "last_dream_change": change,
+            "change_label": presentation.change_label(change),
             # Counted here rather than by fetching every line: the page shows a chip per
             # brief line, and "how much is behind this" is the question it answers.
             # `resolve_source` would pull the lines themselves — forty rows a token,
@@ -312,6 +313,7 @@ def why(conn: sqlite3.Connection, kind: str, ref: str,
             direct.append({
                 "verb": row["verb"] or "", "entity": row["entity"] or "",
                 "stage": row["stage"] or "", "at": str(row["at"])[:16],
+                "stage_label": presentation.stage_label(row["stage"]),
             })
             continue
         entity = row["entity"] or ""
@@ -326,6 +328,7 @@ def why(conn: sqlite3.Connection, kind: str, ref: str,
         out.append({
             "gen": row["generation_id"] or "",
             "verb": row["verb"], "entity": entity, "stage": row["stage"],
+            "stage_label": presentation.stage_label(row["stage"]),
             "bundle": propose_stage.bundle_id(entity) if entity else "",
             "run": row["run_id"],
             # Which call within that run, so the panel can name it — and so the user can name
@@ -405,6 +408,10 @@ def _needle(conn: sqlite3.Connection, kind: str, ref: str) -> str:
             column = "text" if kind == "question" else "value"
             row = conn.execute(
                 f"SELECT {column} AS text FROM {table} WHERE key = ?", (ref,)).fetchone()
+            if row is None and kind == "standing":
+                from . import legacy                               # noqa: PLC0415
+                redirect = legacy.standing_redirect(conn, ref)
+                return redirect.old_value[:80] if redirect else ""
         elif kind == "wiki":
             # `slug.slot` — the slot name is what appears in the diff.
             return ref.split(".", 1)[-1]
@@ -427,6 +434,7 @@ def trace_call(conn: sqlite3.Connection, cfg: Config, generation_id: str) -> dic
     local = {
         "gen": generation_id,
         "stage": row["stage"] if row else "",
+        "stage_label": presentation.stage_label(row["stage"] if row else ""),
         "label": row["label"] if row else "",
         "model": row["model"] if row else "",
         "run": row["run_id"] if row else None,
@@ -553,6 +561,8 @@ def run_detail(conn: sqlite3.Connection, cfg: Config, run_id: int) -> dict:
         return {"error": f"no run #{run_id}"}
 
     every = calls.for_run(conn, cfg.home, run_id)
+    for call in every:
+        call["stage_label"] = presentation.stage_label(call.get("stage"))
     # A bundle can appear in one request only, so this is a partition, not a join —
     # but a bundle that never routed appears in `unrouted` and nowhere else, and that
     # is exactly the bundle someone came here to find.
@@ -561,6 +571,7 @@ def run_detail(conn: sqlite3.Connection, cfg: Config, run_id: int) -> dict:
         for ref in call.get("bundles") or []:
             seat = seats.setdefault(ref["id"], {**ref, "gen": call["gen"],
                                                 "stage": call["stage"], "wrote": [],
+                                                "stage_label": call["stage_label"],
                                                 "outcome": "no reply"})
             seat["gen"] = call["gen"]
         landed = {r["id"] for r in (call.get("routed") or [])}
@@ -598,7 +609,9 @@ def run_detail(conn: sqlite3.Connection, cfg: Config, run_id: int) -> dict:
         "calls": every,
         # Requests that produced no reply, so there is no `generations` row and they
         # cannot appear above. This is where run 3's six connection resets went.
-        "failures": [{"stage": f.get("stage") or "", "label": f.get("label") or "",
+        "failures": [{"stage": f.get("stage") or "",
+                      "stage_label": presentation.stage_label(f.get("stage")),
+                      "label": f.get("label") or "",
                       "error": str(f.get("error") or "")[:400],
                       "at": str(f.get("at") or "")[:19],
                       "requests": f.get("requests") or 0,
@@ -608,6 +621,7 @@ def run_detail(conn: sqlite3.Connection, cfg: Config, run_id: int) -> dict:
         "seats": sorted(seats.values(), key=lambda s: (s["outcome"] == "read", -s["lines"])),
         "writes": [{"kind": w["kind"], "ref": w["ref"], "verb": w["verb"],
                     "entity": w["entity"] or "", "stage": w["stage"] or "",
+                    "stage_label": presentation.stage_label(w["stage"]),
                     "gen": w["generation_id"] or "",
                     "bundle": propose_stage.bundle_id(w["entity"]) if w["entity"] else ""}
                    for w in writes],

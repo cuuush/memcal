@@ -13,8 +13,6 @@ transcripts/
 # Benchmark runs may contain raw messages, inferred personal details, and full model
 # reasoning. Keep summaries outside the repository and never publish the output tree.
 tools/bench_output/
-tools/bench_history_archive.jsonl
-tools/.bench_history.jsonl.lock
 
 # Local memcal state and call traces. The real store lives in ~/.memcal/, but these
 # patterns also protect against pointing MEMCAL_HOME at the checkout while debugging.

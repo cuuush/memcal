@@ -93,7 +93,7 @@ async function openRun(id) {
       const cost = [f.requests ? `${f.requests} requests` : "",
                     f.waited >= 1 ? `${Math.round(f.waited)}s waiting` : ""]
         .filter(Boolean).join(" · ");
-      row.append(el("span", "pill process", f.stage || "propose"),
+      row.append(el("span", "pill process", f.stage_label || f.stage || "Read"),
                  el("span", "callentity", f.label || ""),
                  el("div", "note", f.error),
                  cost ? el("div", "note", cost) : el("span"));
@@ -178,7 +178,7 @@ export function findInTrace(holder, bid, label) {
 function callCard(c, d) {
   const card = el("details", "tpart");
   card.id = "call-" + c.gen;
-  const bits = [`call ${c.n}`, c.stage, c.model.split("/").pop(),
+  const bits = [`call ${c.n}`, c.stage_label || c.stage, c.model.split("/").pop(),
                 `${c.bundles.length || "?"} bundles`,
                 `${nf(c.prompt_tokens)} in`, `${nf(c.completion_tokens)} out`,
                 c.max_tokens ? `ceiling ${nf(c.max_tokens)}` : "",

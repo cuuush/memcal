@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from . import brief, calls, dates, db, events, series, threads, todos, trace, wiki
+from . import brief, calls, dates, db, events, legacy, presentation, series, threads, todos, trace, wiki
 from .config import Config
 
 #: What `resolve_source` calls each kind, so a caller only ever needs the handle.
@@ -250,14 +250,22 @@ def _question_text(conn: sqlite3.Connection, cfg: Config, ref: str) -> str:
     columns = set(row.keys())
     out = [f"Q{row['id']}  {row['text']}", ""]
     out.extend(_fields([
-        ("state", row["status"]),
+        ("state", presentation.question_state(row)),
         ("asked", str(row["created_at"])[:10]),
         # The day it dies with when no row answers that — otherwise a question that
         # vanishes overnight has nothing on its own page saying why it was going to.
         ("about day", row["about_date"] if "about_date" in columns else ""),
         ("answer", row["answer"] if "answer" in columns else ""),
+        ("waiting for", row["wake_condition"] if "wake_condition" in columns else ""),
         ("asked by", row["written_by"] if "written_by" in columns else ""),
     ]))
+    changes = conn.execute(
+        "SELECT field, old_value, new_value, changed_at FROM question_history"
+        " WHERE question_id = ? ORDER BY id", (row["id"],)).fetchall()
+    if changes:
+        out.extend(["", "changes:"])
+        out.extend(f"  {change['field']}: {change['old_value'] or '—'} → "
+                   f"{change['new_value'] or '—'}" for change in changes)
     about = row["about_event"] if "about_event" in columns else None
     if about:
         event = conn.execute(
@@ -274,7 +282,15 @@ def _question_text(conn: sqlite3.Connection, cfg: Config, ref: str) -> str:
 def _standing_text(conn: sqlite3.Connection, cfg: Config, ref: str) -> str:
     row = conn.execute("SELECT * FROM standing WHERE key = ?", (ref,)).fetchone()
     if not row:
-        return f"(no standing row {ref})"
+        redirect = legacy.standing_redirect(conn, ref)
+        if redirect is None:
+            return f"(no standing row {ref})"
+        return "\n".join([
+            f"S{redirect.old_id}  {redirect.old_value}", "",
+            f"kind: {redirect.old_kind}",
+            f"retired: {redirect.destination}",
+            f"recorded: {redirect.old_created_at[:10]}",
+        ])
     columns = set(row.keys())
     out = [f"S{row['id']}  {row['value']}", ""]
     out.extend(_fields([

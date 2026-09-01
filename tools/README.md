@@ -11,7 +11,8 @@ might be, which costs a reading every time. Eleven of them were deleted on 2026-
 `git log --diff-filter=D -- tools/` has them all, with the commit that explains what
 each was for.
 
-A probe whose finding is already written down in `docs/` is a one-shot. A probe that is
+A probe whose finding is already captured in the README or a regression test is a one-shot.
+A probe that is
 the *only* check on a code path the unit tests deliberately stub is an instrument, and
 stays however long ago it was written.
 
@@ -25,16 +26,11 @@ stays however long ago it was written.
   or `--dry-run`. Frontier failures are deliberate unmet expectations, not xfails.
 
   Its `integration` layer injects hand-written oracle diffs, so it tests the
-  production-shaped multi-day resolve/apply/render/store lifecycle but deliberately
+  production-shaped multi-day Merge/apply/render/store lifecycle but deliberately
   does **not** test extraction or whether the prompt contained enough context. The unit
   suite owns narrow deterministic invariants such as candidate-event retrieval; the
   `model` layer tests those candidates and the prompt through an actual model.
   Deprecated `replay`/`live` CLI aliases remain accepted for old scripts.
-
-  `--history` reads the recent `bench_history.jsonl` window: each run's score, every check that went
-  **green → red** since the previous run, and the challenges that are red now. That
-  last list is the answer to "what should I work on today" and it costs nobody a
-  reading session to produce. `--history-all` also reads the local rotated archive.
 
 - `bench_reset.py` — build a scratch store that replays a cold start. Excludes the
   `agent` stream by default, because it is the user correcting the model *after* the
@@ -58,7 +54,7 @@ stays however long ago it was written.
   real axis: one test asserted a reminder lands before its due date, which is true until
   19:00 and false after it, so it was red five hours a night on every commit and this
   tool could not see it — it swept days while taking the hour from whenever it ran.
-  See [../docs/testing.md](../docs/testing.md).
+  See the testing rules in [AGENTS.md](../AGENTS.md).
 
 ## Reading what happened
 
@@ -104,8 +100,8 @@ stays however long ago it was written.
   turn, which decides what to say or replies `[SILENT]`. So this is a lab instrument in
   the strict sense — it runs again, constantly — but the thing running it is outside this
   repo, and **its output reaches a phone**. Run it by hand *without* `--mark` to see what
-  the agent would be handed; `--mark` records the poke and snoozes it. See the reminders
-  section of [running.md](../docs/running.md).
+  the agent would be handed; `--mark` records the poke and snoozes it. Publishing setup is
+  documented under [Apple Calendar and Reminders](../README.md#apple-calendar-and-reminders).
 
 ## Reading the tracker
 
@@ -121,7 +117,6 @@ stays however long ago it was written.
 ## Output
 
 `bench_output/` is gitignored, because a run carries the corpus out with it — real
-message text, in a store shaped like the owner's. The *score* carries none of it: a
-check id, a boolean, and what produced it. `benchmark_temporal.py` keeps the newest 20
-complete runs per suite/layer in committed `bench_history.jsonl` and rotates older rows
-to an ignored local archive. There is no `RESULTS.md`.
+message text, in a store shaped like the owner's. A benchmark prints its deterministic
+score and detailed checks for that run; the repository keeps the scenarios, not a score
+ledger.

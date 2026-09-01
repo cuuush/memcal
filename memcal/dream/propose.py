@@ -1,7 +1,7 @@
 """Stage 2 — propose (model, parallel, one call per bundle).
 
 Each call sees its bundle plus current state. The shared prefix (instructions,
-memcal window, open to-dos, standing, page titles) is byte-identical across every
+memcal window, open to-dos, identity, page titles) is byte-identical across every
 call in a run, so it caches; the varying part — the bundle's own wiki pages and its
 items — goes in the user turn.
 
@@ -18,7 +18,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import timedelta
 
-from .. import brief, calls, db, events, identity, llm, textclean, threads, todos, trace, wiki
+from .. import brief, calls, db, events, identity, llm, questions, textclean, threads, todos, trace, wiki
 from ..config import Config
 from ..llm import CompletionClient, Reply
 from . import affinity
@@ -34,11 +34,33 @@ INSTRUCTIONS = instructions.V1
 
 _STR = {"type": ["string", "null"]}
 
+QUESTION_DIFF = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["action", "key", "version", "text", "answer", "wake_condition", "cites"],
+    "properties": {
+        "action": {"type": "string",
+                   "enum": ["ask", "keep", "amend", "resolve", "drop"]},
+        "key": {**_STR, "description":
+                "exact candidate key; null only when asking a new question"},
+        "version": {**_STR, "description":
+                    "exact candidate version; null only when asking a new question"},
+        "text": {**_STR, "description":
+                 "new question text for ask/amend; otherwise null"},
+        "answer": {**_STR, "description":
+                   "known answer for resolve; otherwise null"},
+        "wake_condition": {**_STR, "description":
+                           "what the open question is waiting for after amend; else null"},
+        "cites": {"type": "array", "items": {"type": "string"},
+                  "description": "supporting L-tags; required for state-changing actions"},
+    },
+}
+
 # One bundle's diff. The batch schema below wraps a list of these.
 BUNDLE_DIFF = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["entity", "events", "todos", "wiki", "standing", "questions"],
+    "required": ["entity", "events", "todos", "wiki", "questions"],
     "properties": {
         "entity": {"type": "string",
                    "description": "echo the BUNDLE header exactly, so diffs route back"},
@@ -102,22 +124,7 @@ BUNDLE_DIFF = {
                 },
             },
         },
-        "standing": {
-            "type": "array",
-            "maxItems": 0,
-            "description": "legacy field; always return an empty array",
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["kind", "value", "scope"],
-                "properties": {
-                    "kind": {"type": "string", "enum": ["identity", "preference", "alias"]},
-                    "value": {"type": "string"},
-                    "scope": {"type": "string", "enum": ["session", "permanent"]},
-                },
-            },
-        },
-        "questions": {"type": "array", "items": {"type": "string"}},
+        "questions": {"type": "array", "items": QUESTION_DIFF},
     },
 }
 
@@ -300,8 +307,7 @@ def stage_schema(stage: stage_plan_mod.Stage, *, first: bool) -> dict:
                        "diffs": diffs},
     }
 
-EMPTY_DIFF = {"events": [], "todos": [], "wiki": [], "standing": [],
-              "questions": [], "series": []}
+EMPTY_DIFF = {"events": [], "todos": [], "wiki": [], "questions": [], "series": []}
 
 
 ACTIVE_DAYS = 90
@@ -403,10 +409,6 @@ def build_prefix(conn: sqlite3.Connection, cfg: Config) -> str:
         for t in items
     ] or ["  (none)"]
 
-    parts.append("\nIDENTITY AND ALIASES")
-    st = [row for row in todos.standing(conn) if row["kind"] in ("identity", "alias")]
-    parts += [f"  {r['kind']}: {r['value']}" for r in st] or ["  (none)"]
-
     active, ambiguous = known_people(conn, cfg)
     if active:
         parts.append("\nPEOPLE KNOWN: " + ", ".join(active))
@@ -419,16 +421,6 @@ def build_prefix(conn: sqlite3.Connection, cfg: Config) -> str:
 
     pages = wiki.list_pages(cfg.wiki_dir)
     parts.append("\nWIKI PAGES: " + (", ".join(pages) if pages else "(none yet)"))
-    # Listed so the same question is not asked twice — but a bare list of open
-    # questions reads as a list of handled topics. A real trace: "The question's
-    # already been asked, so I'm not sure if there's anything new to track here",
-    # written about a bundle that contained the answer.
-    parts.append("\nOPEN QUESTIONS ALREADY ASKED — do not ask any of these again. An open"
-                 "\nquestion means the topic is unresolved, not that it is handled: if this"
-                 "\nbundle answers one or adds anything to it, write the row or the slot.")
-    qs = todos.open_questions(conn, limit=10)
-    parts += [f"  {q['text']}" for q in qs] or ["  (none)"]
-
     # A model whose endpoint cannot take a json_schema has to be told the shape, or it
     # invents a plausible neighbouring one and every diff is dropped at routing. Under
     # staging the shape is different on every pass, so it goes on each ask instead —
@@ -515,6 +507,167 @@ def model_ceiling(cfg: Config, group: list[Bundle]) -> int:
     return min(32000, max(int(output_ceiling(group) * spec.ceiling_boost), floor))
 
 
+QUESTION_REPAIR_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["diffs"],
+    "properties": {
+        "diffs": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["bundle", "questions"],
+                "properties": {
+                    "bundle": {"type": "string"},
+                    "questions": {"type": "array", "items": QUESTION_DIFF},
+                },
+            },
+        },
+    },
+}
+
+
+def _question_entries(payload: dict, bundle: str) -> list[dict]:
+    for entry in payload.get("diffs") or []:
+        if isinstance(entry, dict) and str(entry.get("bundle") or "").lower() == bundle:
+            questions = entry.setdefault("questions", [])
+            return questions if isinstance(questions, list) else []
+    entry = {"bundle": bundle, **{field: [] for field in EMPTY_DIFF}}
+    payload.setdefault("diffs", []).append(entry)
+    return entry["questions"]
+
+
+def _question_gaps(payload: dict, reviews: dict[str, dict]) -> tuple[dict[str, list], list[str]]:
+    """Reject malformed dispositions and return the candidates that still need review."""
+    missing: dict[str, list] = {}
+    errors = []
+    for bid, review in reviews.items():
+        if review["overflow"]:
+            errors.append(f"{bid} question review overflowed by {review['overflow']} item(s)")
+            continue
+        expected = {candidate.key: candidate for candidate in review["candidates"]}
+        if not expected:
+            continue
+        actions = _question_entries(payload, bid)
+        kept = []
+        by_key: dict[str, list[dict]] = {}
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            key = str(action.get("key") or "")
+            if not key and action.get("action") == "ask":
+                kept.append(action)
+                continue
+            if key not in expected:
+                errors.append(f"{bid} rejected unknown question key {key!r}")
+                continue
+            if action.get("action") not in {"keep", "amend", "resolve", "drop"}:
+                errors.append(f"{bid} rejected invalid disposition for {key!r}")
+                continue
+            by_key.setdefault(key, []).append(action)
+        for key, rows in by_key.items():
+            candidate = expected[key]
+            if len(rows) != 1:
+                errors.append(f"{bid} rejected duplicate question key {key!r}")
+                continue
+            row = rows[0]
+            if str(row.get("version") or "") != candidate.version:
+                errors.append(f"{bid} rejected stale question version for {key!r}")
+                continue
+            kept.append(row)
+        actions[:] = kept
+        covered = {str(row.get("key") or "") for row in kept}
+        gap = [candidate for key, candidate in expected.items() if key not in covered]
+        if gap:
+            missing[bid] = gap
+    return missing, errors
+
+
+def _defer_incomplete_question_bundles(payload: dict, bids: set[str]) -> None:
+    if not bids:
+        return
+    payload["reviewed"] = [bid for bid in (payload.get("reviewed") or [])
+                           if str(bid).lower() not in bids]
+    payload["diffs"] = [entry for entry in (payload.get("diffs") or [])
+                        if not (isinstance(entry, dict)
+                                and str(entry.get("bundle") or "").lower() in bids)]
+
+
+def _tag_generation(payload: dict, generation_id: str) -> None:
+    """Keep row-level provenance when several calls contribute to one merged payload."""
+    if not generation_id:
+        return
+    for entry in payload.get("diffs") or []:
+        if not isinstance(entry, dict):
+            continue
+        for field in EMPTY_DIFF:
+            for row in entry.get(field) or []:
+                if isinstance(row, dict):
+                    row["_generation_id"] = generation_id
+
+
+def _repair_question_coverage(client: CompletionClient, cfg: Config, prefix: str,
+                              body: str, group: list[Bundle], payload: dict,
+                              reply: Reply, reviews: dict[str, dict]
+                              ) -> tuple[dict, Turn | None]:
+    """One bounded continuation for omitted candidate keys; never repeat the proposal."""
+    if prompt_version(cfg) != "v2" or not reviews:
+        return payload, None
+    payload["_question_coverage_checked"] = True
+    missing, errors = _question_gaps(payload, reviews)
+    overflow = {bid for bid, review in reviews.items() if review["overflow"]}
+    if not missing:
+        _defer_incomplete_question_bundles(payload, overflow)
+        payload.setdefault("_coverage_errors", []).extend(errors)
+        return payload, None
+
+    lines = ["You omitted question dispositions. Review only the entries below against "
+             "the same source bundles. Return only `diffs` with those question actions; "
+             "do not repeat events, to-dos, wiki rows, or already-reviewed questions."]
+    for bid, candidates in missing.items():
+        lines.append(f"BUNDLE {bid}")
+        lines.extend(f"  {c.key} | version {c.version} | {c.text}" for c in candidates)
+    ask = "\n".join(lines)
+    said = (reply.text or "").strip() or _json.dumps(payload, ensure_ascii=False)
+    repair = client.complete(
+        model=cfg.propose_model, prefix=prefix, suffix=body,
+        schema=QUESTION_REPAIR_SCHEMA, schema_name="memcal_question_repair",
+        max_tokens=min(6000, 700 + 500 * sum(map(len, missing.values()))),
+        reasoning_effort=cfg.reasoning_effort or None,
+        turns=[{"role": "assistant", "content": said},
+               {"role": "user", "content": ask}],
+    )
+    repair_payload = repair.data if isinstance(repair.data, dict) else {}
+    for entry in repair_payload.get("diffs") or []:
+        if not isinstance(entry, dict):
+            continue
+        bid = str(entry.get("bundle") or "").lower()
+        if bid not in missing:
+            errors.append(f"question repair rejected unknown bundle {bid!r}")
+            continue
+        actions = entry.get("questions") or []
+        if not isinstance(actions, list):
+            errors.append(f"question repair rejected malformed actions for {bid!r}")
+            continue
+        generation_id = (getattr(repair, "generation_id", "") or "").strip()
+        for action in actions:
+            if isinstance(action, dict) and generation_id:
+                action["_generation_id"] = generation_id
+        _question_entries(payload, bid).extend(actions)
+    still_missing, repair_errors = _question_gaps(payload, reviews)
+    errors.extend(repair_errors)
+    incomplete = set(still_missing) | overflow
+    if incomplete:
+        for bid in sorted(incomplete):
+            keys = ", ".join(candidate.key for candidate in still_missing.get(bid, []))
+            errors.append(f"{bid} incomplete question review"
+                          + (f": {keys}" if keys else ""))
+        _defer_incomplete_question_bundles(payload, incomplete)
+    payload.setdefault("_coverage_errors", []).extend(errors)
+    return payload, Turn("question-repair", repair, repair_payload)
+
+
 def build_bundle_block(cfg: Config, bundle: Bundle,
                        conn: sqlite3.Connection | None = None) -> str:
     """One bundle as the model sees it: what it may be amending, its pages, its items."""
@@ -533,9 +686,12 @@ def build_bundle_block(cfg: Config, bundle: Bundle,
         # a diff holding the run's only to-do was dropped as unroutable.
         head = f"BUNDLE ID {bundle_id(bundle.entity)}   ({bundle.label})"
     if conn is not None:
-        standing = build_open_rows(conn, bundle)
-        if standing:
-            context.append(standing)
+        open_rows = build_open_rows(conn, bundle)
+        if open_rows:
+            context.append(open_rows)
+        review = question_manifest(conn, bundle)
+        if review["candidates"] or review["overflow"]:
+            context.append(render_question_manifest(review))
     page_people = [p for p in bundle.people
                    if p != "me" or bundle.entity == "person:me"]
     missing = [p for p in page_people
@@ -554,6 +710,37 @@ def build_bundle_block(cfg: Config, bundle: Bundle,
     # Traffic first and supporting context second preserves the association with one id.
     traffic = bundle.render(_fmt(cfg), head if v2 else None)
     return "\n".join([traffic, *context])
+
+
+def question_manifest(conn: sqlite3.Connection, bundle: Bundle) -> dict:
+    """The narrow question-review contract for one exact conversation entity."""
+    candidates, overflow = questions.candidates(
+        conn, [bundle.entity, *bundle.merged], bundle.items)
+    return {"bundle": bundle_id(bundle.entity), "entity": bundle.entity,
+            "candidates": candidates, "overflow": overflow}
+
+
+def render_question_manifest(review: dict) -> str:
+    """Put nominated questions beside the source traffic without calling hints evidence."""
+    lines = [
+        "OPEN QUESTIONS ASSOCIATED WITH THIS CONVERSATION.",
+        "Return one disposition for every key: keep is normal when nothing changed;",
+        "amend keeps it open, resolve records a known answer, and drop retires it.",
+        "Copy the exact version. Cite source lines only for ask/amend/resolve/drop.",
+    ]
+    for candidate in review["candidates"]:
+        waiting = (f" | waiting: {candidate.wake_condition}"
+                   if candidate.wake_condition else "")
+        lines.append(f"  {candidate.key} | version {candidate.version} | "
+                     f"{candidate.text}{waiting}")
+        if candidate.likely_lines:
+            refs = "-".join(f"L{line}" for line in candidate.likely_lines)
+            lines.append(f"    MEMCAL HINT (not source evidence): {refs} may affect "
+                         f"{candidate.key}. Decide; do not assume it changed.")
+    if review["overflow"]:
+        lines.append(f"  REVIEW OVERFLOW: {review['overflow']} associated question(s) were "
+                     "not presented. This bundle must remain queued.")
+    return "\n".join(lines)
 
 
 def _amendable_groups(conn: sqlite3.Connection, bundle: Bundle
@@ -717,7 +904,8 @@ def _truncated(cfg: Config, group: list[Bundle], ceiling: int, stage: str,
 def propose_group(client: CompletionClient, cfg: Config, prefix: str,
                   group: list[Bundle],
                   conn: sqlite3.Connection | None = None,
-                  suffix: str | None = None
+                  suffix: str | None = None,
+                  reviews: dict[str, dict] | None = None,
                   ) -> tuple[list[Bundle], dict, list[Turn]]:
     """One request. `suffix` is prebuilt by the caller when this runs off-thread.
 
@@ -731,7 +919,7 @@ def propose_group(client: CompletionClient, cfg: Config, prefix: str,
     body = suffix if suffix is not None else build_suffix(cfg, group, conn)
     plan = stage_plan(cfg)
     if plan:
-        return _propose_staged(client, cfg, prefix, group, body, plan)
+        return _propose_staged(client, cfg, prefix, group, body, plan, reviews or {})
     ceiling = model_ceiling(cfg, group)
     reply = client.complete(
         model=cfg.propose_model,
@@ -749,11 +937,16 @@ def propose_group(client: CompletionClient, cfg: Config, prefix: str,
     payload = reply.data if isinstance(reply.data, dict) else {}
     if reply.truncated:
         raise _truncated(cfg, group, ceiling, "", [Turn("", reply, payload)])
-    return group, payload, [Turn("", reply, payload)]
+    payload, repair = _repair_question_coverage(
+        client, cfg, prefix, body, group, payload, reply, reviews or {})
+    turns = [Turn("", reply, payload)]
+    if repair:
+        turns.append(repair)
+    return group, payload, turns
 
 
 def _propose_staged(client: CompletionClient, cfg: Config, prefix: str, group: list[Bundle],
-                    body: str, plan: list[stage_plan_mod.Stage]
+                    body: str, plan: list[stage_plan_mod.Stage], reviews: dict[str, dict]
                     ) -> tuple[list[Bundle], dict, list[Turn]]:
     """The same bundles, asked about one rubric at a time, in one conversation."""
     #: The exchange so far, in wire order, starting after the first user turn:
@@ -803,10 +996,16 @@ def _propose_staged(client: CompletionClient, cfg: Config, prefix: str, group: l
         if not first:
             turns.append({"role": "user", "content": ask})
         turns.append({"role": "assistant", "content": said})
+        _tag_generation(payload, (getattr(reply, "generation_id", "") or "").strip())
         if first and isinstance(payload.get("reviewed"), list):
             merged["reviewed"] = payload["reviewed"]
         merged["diffs"].extend(d for d in (payload.get("diffs") or [])
                                if isinstance(d, dict))
+    if done:
+        merged, repair = _repair_question_coverage(
+            client, cfg, prefix, opening, group, merged, done[-1].reply, reviews)
+        if repair:
+            done.append(repair)
     return group, merged, done
 
 
@@ -843,6 +1042,12 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
         bar, and only if it is told the difference between the bundles it already expected
         and a re-send that appeared halfway through.
         """
+        reviews = {}
+        for group in batch:
+            for bundle in group:
+                review = question_manifest(conn, bundle)
+                if review["candidates"] or review["overflow"]:
+                    reviews[bundle_id(bundle.entity)] = review
         suffixes = [build_suffix(cfg, g, conn) for g in batch]
         if progress:
             progress("propose_wave", {"requests": len(batch), "kind": kind,
@@ -860,9 +1065,11 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
                 "error": str(outcome) if isinstance(outcome, Exception) else "",
             })
 
-        jobs = list(zip(batch, suffixes))
+        jobs = [(group, suffix, {bundle_id(bundle.entity): reviews[bundle_id(bundle.entity)]
+                                for bundle in group if bundle_id(bundle.entity) in reviews})
+                for group, suffix in zip(batch, suffixes)]
         send = lambda pair: propose_group(  # noqa: E731
-            client, cfg, prefix, pair[0], suffix=pair[1])
+            client, cfg, prefix, pair[0], suffix=pair[1], reviews=pair[2])
 
         # Warm the cache before widening. Every request in a wave carries the same
         # `prefix`, so a wave launched all at once has every one of its first
@@ -991,6 +1198,11 @@ def _absorb(conn, cfg: Config, prefix: str, group: list[Bundle], suffix: str, ou
     if len(group) > 4:
         label += f" +{len(group) - 4} more"
     ceiling = model_ceiling(cfg, group)
+    coverage_checked = bool(merged.pop("_question_coverage_checked", False))
+    coverage_errors = list(merged.pop("_coverage_errors", []) or [])
+    if coverage_errors:
+        errors.extend(f"question coverage: {error}" for error in coverage_errors)
+    recorded: list[tuple[Turn, str]] = []
     for turn in turns:
         # The call itself is on disk, so `memcal trace` never has to ask its provider.
         stage = f"propose:{turn.stage}" if turn.stage else "propose"
@@ -1002,6 +1214,11 @@ def _absorb(conn, cfg: Config, prefix: str, group: list[Bundle], suffix: str, ou
         # Carry the id forward: apply writes the provenance line, and it is the only
         # thing that can answer "which call wrote this row" once the run is over.
         gen = (getattr(turn.reply, "generation_id", "") or "").strip()
+        recorded.append((turn, gen))
+        if coverage_checked:
+            calls.annotate(cfg.home, gen, run_id, echoed=[], routed=[],
+                           unrouted=[bundle_ref(b) for b in group])
+            continue
         if prompt_version(cfg) == "v2":
             routed, echoed = _route_v2(group, turn.payload, errors)
         else:
@@ -1020,11 +1237,38 @@ def _absorb(conn, cfg: Config, prefix: str, group: list[Bundle], suffix: str, ou
         for bundle, diff in routed:
             _resolve_cites(bundle, diff)
         good.extend((bundle, diff, gen) for bundle, diff in routed)
+    if coverage_checked:
+        routed, echoed = _route_v2(group, merged, errors)
+        for bundle, diff in routed:
+            _resolve_cites(bundle, diff)
+        # Main diffs came from the first call. A repaired question action carries its
+        # own generation id so apply can attribute that one write to the continuation.
+        gen = recorded[0][1] if recorded else ""
+        routed_by_generation: dict[str, set[str]] = {}
+        for bundle, diff in routed:
+            for field in EMPTY_DIFF:
+                for row in diff.get(field) or []:
+                    if isinstance(row, dict) and row.get("_generation_id"):
+                        routed_by_generation.setdefault(
+                            str(row["_generation_id"]), set()).add(bundle.entity)
+        all_landed = {bundle.entity for bundle, _diff in routed}
+        for index, (turn, turn_gen) in enumerate(recorded):
+            landed = all_landed if index == 0 else routed_by_generation.get(turn_gen, set())
+            turn_echoed = [str(entry.get("bundle") or "")
+                           for entry in (turn.payload.get("diffs") or [])
+                           if isinstance(entry, dict)]
+            calls.annotate(
+                cfg.home, turn_gen, run_id, echoed=turn_echoed,
+                routed=[bundle_ref(bundle) for bundle, _diff in routed
+                        if bundle.entity in landed],
+                unrouted=[bundle_ref(bundle) for bundle in group
+                          if bundle.entity not in landed])
+        good.extend((bundle, diff, gen) for bundle, diff in routed)
 
 
 def _resolve_cites(bundle: Bundle, diff: dict) -> None:
     """Turn this bundle's `L` tags into archive ids, here, while the bundle is known."""
-    for key in ("events", "todos"):
+    for key in ("events", "todos", "questions"):
         for row in diff.get(key) or []:
             if isinstance(row, dict) and "cites" in row:
                 row["cite_ids"] = bundle.cite(row.pop("cites"))

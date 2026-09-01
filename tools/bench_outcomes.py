@@ -243,7 +243,7 @@ def _would_cluster(a, b) -> bool:
     """
     try:
         from memcal.config import Config
-        from memcal.dream.resolve import Mention, same_event
+        from memcal.dream.merge import Mention, same_event
     except ImportError:
         return False
 
@@ -468,7 +468,7 @@ def v3_provenance_stamped(conn) -> tuple[bool, str]:
 
 def h1_same_day_dupes(conn) -> tuple[bool, str]:
     """Any two events on one day whose titles share a distinctive word. A smell test."""
-    from memcal.dream.resolve import _tokens
+    from memcal.dream.merge import _tokens
     rows = _rows(conn, "SELECT key, date, title, written_by FROM events "
                        "WHERE date >= '2026-07-25'")
 

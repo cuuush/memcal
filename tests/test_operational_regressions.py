@@ -33,7 +33,7 @@ try:
 except ModuleNotFoundError:  # Direct execution: python3 tests/test_core.py
     from _support import Base
 
-from memcal import archive, brief, cli, dates, db, detail, events, gate, identity, live, mcp_server, schedule, series, textclean, threads, todos, trace, web_jobs, wiki  # noqa: E402
+from memcal import archive, brief, cli, dates, db, detail, events, gate, identity, legacy, live, llm, mcp_server, schedule, series, textclean, threads, todos, trace, web_jobs, wiki  # noqa: E402
 from memcal.config import Config  # noqa: E402
 from memcal.dream import apply as apply_stage  # noqa: E402
 from memcal.dream import bundle as bundle_stage  # noqa: E402
@@ -62,6 +62,138 @@ class TestReleaseVersionAgreement(unittest.TestCase):
             capture_output=True, text=True, check=True).stdout.splitlines()
         if tags:
             self.assertEqual(tags[0], f"v{self.version}")
+
+
+class TestStandingRetirementStopsNewWrites(Base):
+    def _sourced_standing(self):
+        archive_id = archive.append(
+            self.conn, stream="agent", external_id="standing-retirement", ts=db.now(),
+            text="Use curl before browsers", thread="conversation", person="me",
+            from_me=True,
+        )
+        key, _ = todos.set_standing(
+            self.conn, "preference", "Use curl before browsers", written_by="dream:test"
+        )
+        row = self.conn.execute("SELECT * FROM standing WHERE key = ?", (key,)).fetchone()
+        trace.stamp(self.conn, kind="standing", ref=key, verb="added",
+                    entity="thread:agent:conversation", stage="propose",
+                    archive_ids=[archive_id])
+        self.conn.commit()
+        return key, row
+
+    def test_retirement_preserves_the_old_handle_and_evidence(self):
+        key, row = self._sourced_standing()
+        redirect, verb = legacy.retire_standing(
+            self.conn, key, destination_kind="wiki",
+            destination_ref="agent-behavior.browser tool",
+        )
+        self.assertEqual("retired", verb)
+        self.assertEqual([], todos.standing(self.conn))
+        self.assertEqual(row["id"], redirect.old_id)
+
+        resolved = trace.resolve_source(self.conn, f"S{row['id']}")
+        self.assertEqual(key, resolved["ref"])
+        self.assertEqual({"kind": "wiki", "ref": "agent-behavior.browser tool"},
+                         resolved["redirect"])
+        self.assertTrue(resolved["evidence"])
+        opened = detail.open_handle(self.conn, self.cfg, f"S{row['id']}")
+        self.assertIn("retired: wiki:agent-behavior.browser tool", opened)
+        self.assertIn("Use curl before browsers", opened)
+
+    def test_repeating_a_retirement_is_a_no_op(self):
+        key, _row = self._sourced_standing()
+        first, _ = legacy.retire_standing(
+            self.conn, key, destination_kind="discarded")
+        second, verb = legacy.retire_standing(
+            self.conn, key, destination_kind="discarded")
+        self.assertEqual("unchanged", verb)
+        self.assertEqual(first, second)
+        self.assertEqual(1, self.conn.execute(
+            "SELECT count(*) AS n FROM standing_redirects").fetchone()["n"])
+
+    def test_a_caller_can_roll_back_the_whole_retirement(self):
+        key, _row = self._sourced_standing()
+        legacy.retire_standing(
+            self.conn, key, destination_kind="discarded", commit=False)
+        self.conn.rollback()
+        self.assertEqual(key, todos.standing(self.conn)[0]["key"])
+        self.assertIsNone(legacy.standing_redirect(self.conn, key))
+
+    def test_a_retired_handle_cannot_be_silently_remapped(self):
+        key, _row = self._sourced_standing()
+        legacy.retire_standing(self.conn, key, destination_kind="discarded")
+        with self.assertRaises(ValueError):
+            legacy.retire_standing(
+                self.conn, key, destination_kind="config",
+                destination_ref="hermes.native_polls")
+
+    def test_a_later_legacy_row_cannot_reuse_a_redirected_handle(self):
+        key, row = self._sourced_standing()
+        legacy.retire_standing(self.conn, key, destination_kind="discarded")
+        newer, _ = todos.set_standing(self.conn, "preference", "A later legacy row")
+        newer_row = self.conn.execute(
+            "SELECT * FROM standing WHERE key = ?", (newer,)).fetchone()
+        self.assertGreater(newer_row["id"], row["id"])
+        resolved = trace.resolve_source(self.conn, f"S{row['id']}")
+        self.assertEqual("Use curl before browsers", resolved["label"])
+
+    def test_destination_shape_is_validated_before_the_row_moves(self):
+        key, _row = self._sourced_standing()
+        with self.assertRaises(ValueError):
+            legacy.retire_standing(self.conn, key, destination_kind="wiki")
+        with self.assertRaises(ValueError):
+            legacy.retire_standing(
+                self.conn, key, destination_kind="discarded", destination_ref="anything")
+        self.assertEqual(key, todos.standing(self.conn)[0]["key"])
+
+    def test_proposal_contracts_have_no_standing_field(self):
+        for schema in (propose_stage.BUNDLE_DIFF, propose_stage.BUNDLE_DIFF_V2):
+            self.assertNotIn("standing", schema["required"])
+            self.assertNotIn("standing", schema["properties"])
+        self.assertNotIn("standing", propose_stage.EMPTY_DIFF)
+        self.assertNotIn("standing", propose_stage.stage_plan_mod.ALL_FIELDS)
+
+    def test_legacy_rows_do_not_enter_the_shared_prompt(self):
+        todos.set_standing(self.conn, "identity", "Legacy Name")
+        todos.set_standing(self.conn, "alias", "Legacy Alias")
+        prefix = propose_stage.build_prefix(self.conn, self.cfg)
+        self.assertNotIn("Legacy Name", prefix)
+        self.assertNotIn("Legacy Alias", prefix)
+
+    def test_sweep_cannot_see_or_delete_legacy_rows(self):
+        key, _ = todos.set_standing(self.conn, "preference", "Use curl before browsers")
+        snapshot = sweep_stage.state_snapshot(self.conn, self.cfg, [])
+        self.assertNotIn("Use curl before browsers", snapshot)
+        self.assertNotIn("drop_standing", sweep_stage.SWEEP_SCHEMA["properties"])
+
+        class LegacyReply:
+            def complete(self, **kwargs):
+                return llm.Reply(text="{}", data={
+                    "drop_events": [], "drop_todos": [], "questions": [],
+                    "drop_standing": [{"key": key, "reason": "junk"}],
+                }, model=kwargs.get("model", ""))
+
+        _result, actions = sweep_stage.sweep(LegacyReply(), self.conn, self.cfg, [])
+        self.assertEqual([], actions)
+        self.assertEqual(key, todos.standing(self.conn)[0]["key"])
+
+    def test_the_old_cli_shape_explains_itself_without_writing(self):
+        args = argparse.Namespace(home=str(self.cfg.home), kind="preference",
+                                  value="Use curl before browsers", permanent=True)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(1, cli.cmd_standing(args))
+        self.assertIn("read-only legacy data", out.getvalue())
+        self.assertEqual([], todos.standing(self.conn))
+
+    def test_legacy_rows_remain_listable(self):
+        todos.set_standing(self.conn, "preference", "Use curl before browsers")
+        args = argparse.Namespace(home=str(self.cfg.home), kind="all",
+                                  value=None, permanent=False)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(0, cli.cmd_standing(args))
+        self.assertIn("Use curl before browsers", out.getvalue())
 
 
 class TestANudgeNeedsSomebodyOnTheOtherEndOfIt(Base):
@@ -1152,15 +1284,15 @@ class TestTheCliCouldNotOpenWhatItPrinted(Base):
         agent_text = brief.render(self.conn, self.cfg)
         self.assertIn("memcal_open", agent_text)
 
-    def test_the_agent_legend_is_byte_identical_to_what_it_always_was(self):
-        """Invariant 8. The legend leads the brief, the brief leads the shared prefix,
-        and a byte that moves there stops prompt caching paying for the whole run.
+    def test_the_agent_legend_is_byte_stable(self):
+        """The legend leads the brief, the brief leads the shared prefix, and a byte
+        that moves there stops prompt caching paying for the whole run.
 
         Spelled out rather than compared to a constant, because a constant refactored
         alongside the code it guards proves nothing.
         """
         self.assertEqual(
-            "[〔E#〕〔T#〕〔Q#〕〔S#〕 handles open with memcal_open — full detail: the "
+            "[〔E#〕〔T#〕〔Q#〕 handles open with memcal_open — full detail: the "
             "address, the links, the messages it came from, and what has changed. "
             "Pages open with memcal_open_page; the names in parentheses after a page "
             "are the facts it holds]\n\n",
@@ -1216,8 +1348,8 @@ class TestTheCliCouldNotOpenWhatItPrinted(Base):
         self.assertIn("'week:the memcal window'", text)
         self.assertNotIn("'week:'", text)
 
-    def test_a_question_and_a_standing_row_take_handles_too(self):
-        """One vocabulary means all four kinds, not just the two with the most commands."""
+    def test_question_and_legacy_standing_handles_still_work(self):
+        """Current question handles and retired standing handles remain actionable."""
         todos.ask(self.conn, "What time is the thing?", written_by="cli")
         question = self.conn.execute("SELECT * FROM questions").fetchone()
         args = argparse.Namespace(home=str(self.cfg.home),

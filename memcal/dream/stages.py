@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 #: All array names in a bundle diff, used to verify stage coverage.
-ALL_FIELDS = ("events", "todos", "wiki", "standing", "questions")
+ALL_FIELDS = ("events", "todos", "wiki", "questions")
 
 
 @dataclass(frozen=True)
@@ -36,10 +36,10 @@ calendar — use the exact key, never an invented one. Return `todos` only; the 
 stand as written.""")
 
 
-PAGES = Stage("pages", ("wiki", "standing"), """\
-NOW, PASS {n} OF {total} — PAGES AND STANDING ONLY.
+PAGES = Stage("pages", ("wiki",), """\
+NOW, PASS {n} OF {total} — WIKI PAGES ONLY.
 Same bundles. What durable, entity-level facts does this traffic establish? Apply the
-page, slot, alias and standing rules you were given. Return `wiki` and `standing` only.""")
+page, slot and alias rules you were given. Return `wiki` only.""")
 
 
 QUESTIONS = Stage("questions", ("questions",), """\

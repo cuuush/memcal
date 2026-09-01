@@ -85,7 +85,7 @@ class TestAStagePlanIsParsedOrRefused(unittest.TestCase):
 
     def test_a_partial_plan_reports_what_it_will_never_ask_for(self):
         self.assertEqual(stages.uncovered(stages.parse("calendar,todos")),
-                         ["wiki", "standing", "questions"])
+                         ["wiki", "questions"])
         self.assertEqual(stages.uncovered(stages.parse("on")), [])
 
 
@@ -185,6 +185,8 @@ class TestEachStagesRowsKeepTheGenerationIdThatWroteThem(unittest.TestCase):
         # request said, in one place, without losing which turn said it.
         self.assertEqual(merged["reviewed"], ["x"])
         self.assertEqual(len(merged["diffs"]), 2)
+        self.assertEqual(merged["diffs"][0]["events"][0]["_generation_id"], "gen-0")
+        self.assertEqual(merged["diffs"][1]["todos"][0]["_generation_id"], "gen-1")
 
     def test_the_merged_payload_routes_both_stages_onto_one_bundle(self):
         bundle = _bundle()

@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from memcal import archive, brief, config, db, gate, identity, todos  # noqa: E402
+from memcal import archive, brief, config, db, gate, identity, todos, wiki  # noqa: E402
 
 # (days_ago, stream, thread, person, from_me, text)
 TRAFFIC = [
@@ -92,9 +92,16 @@ def seed(home: Path) -> None:
     cfg.ensure_dirs()
     conn = db.open_db(cfg.db_path)
 
-    todos.set_standing(conn, "identity", "Casey, North End. Dog: Comet.", scope="permanent")
-    todos.set_standing(conn, "alias", '"our cal" / "shared cal" = the u&me calendar',
-                       scope="permanent")
+    identity.set_me(conn, "Casey", "Casey Morgan")
+    wiki.set_slot(cfg.wiki_dir, "casey", "neighborhood", "North End",
+                  source="fixture", conn=conn)
+    wiki.set_slot(cfg.wiki_dir, "casey", "dog", "Comet", source="fixture", conn=conn)
+    wiki.set_slot(cfg.wiki_dir, "u-and-me-calendar", "meaning",
+                  "shared calendar for Casey and Harper", source="fixture",
+                  section="projects", conn=conn)
+    for alias in ("our cal", "shared cal", "u&me"):
+        wiki.add_alias(cfg.wiki_dir, "u-and-me-calendar", alias, section="projects",
+                       conn=conn)
     identity.add_top_tier(conn, "Harper")
     for person, handle in (("Jordan", "+19175550001"), ("Alex", "+19175550002"),
                            ("Cameron", "+19175550003"), ("Harper", "+19175550004"),

@@ -7,7 +7,7 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import archive, db, events, series, threads, todos, wiki
+from . import archive, db, events, presentation, series, threads, todos, wiki
 from .config import Config
 
 CHARS_PER_TOKEN = 4  # Character-to-token approximation factor for token budget calculations.
@@ -49,7 +49,7 @@ DEFAULT_SURFACE = "agent"
 
 def legend(surface: str = DEFAULT_SURFACE) -> str:
     rows, pages = LEGENDS.get(surface) or LEGENDS[DEFAULT_SURFACE]
-    return (f"[〔E#〕〔T#〕〔Q#〕〔S#〕 {rows} — full detail: the "
+    return (f"[〔E#〕〔T#〕〔Q#〕 {rows} — full detail: the "
             "address, the links, the messages it came from, and what has changed. "
             f"{pages}; the names in parentheses after a page "
             "are the facts it holds]\n\n")
@@ -72,7 +72,7 @@ def render(conn: sqlite3.Connection, cfg: Config, ref: date | None = None,
         _recurring_block(conn, ref),
         _open_block(conn),
         _ask_block(conn),
-        _standing_block(conn, cfg),
+        _facts_block(cfg),
     ]
     text = "\n\n".join(b for b in blocks if b).rstrip() + "\n"
     return _trim(legend(surface) + text, cfg.brief_token_cap)
@@ -191,7 +191,8 @@ def _child_lines(conn: sqlite3.Connection, parent: events.Event, asked: dict) ->
 
 def _question_lines(questions: list) -> list[str]:
     """Formats open questions for display directly under their associated event or to-do."""
-    return [f"  ↳ {source_tag('question', q['id'])} {q['text']}" for q in questions]
+    return [f"  ↳ {source_tag('question', q['id'])} {presentation.question_line(q)}"
+            for q in questions]
 
 
 def attribution(conn: sqlite3.Connection) -> dict[str, str]:
@@ -271,7 +272,8 @@ def _open_block(conn: sqlite3.Connection) -> str:
         lines.append(f"{source_tag('todo', todo.id)} {todo.one_line()}")
         # Renders questions associated with a to-do directly beneath it.
         for question in evidence.get(todo.id, []):
-            lines.append(f"  ↳ {source_tag('question', question['id'])} {question['text']}")
+            lines.append(f"  ↳ {source_tag('question', question['id'])} "
+                         f"{presentation.question_line(question)}")
     return "\n".join(lines)
 
 
@@ -284,19 +286,13 @@ def _ask_block(conn: sqlite3.Connection) -> str:
         return ""
     return "\n".join(
         ["## Ask about"]
-        + [f"{source_tag('question', q['id'])} {q['text']}" for q in questions[:6]]
+        + [f"{source_tag('question', q['id'])} {presentation.question_line(q)}"
+           for q in questions[:6]]
     )
 
 
-def _standing_block(conn: sqlite3.Connection, cfg: Config) -> str:
+def _facts_block(cfg: Config) -> str:
     lines = ["## People and facts"]
-    identity_rows = todos.standing(conn, "identity")
-    identity_lines = [r["value"] + " " + source_tag("standing", r["id"])
-                      for r in identity_rows]
-    if identity_lines:
-        lines.append(" ".join(identity_lines))
-    for row in todos.standing(conn, "alias"):
-        lines.append(row["value"] + " " + source_tag("standing", row["id"]))
     index = _pages_line(cfg)
     if index:
         lines.append(index)

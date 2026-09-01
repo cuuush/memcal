@@ -36,7 +36,7 @@ def result(check_id: str, challenge: str, ok: bool, note: str, *,
 
 def _empty_diff(**values) -> dict:
     return {
-        "events": [], "todos": [], "wiki": [], "standing": [], "questions": [],
+        "events": [], "todos": [], "wiki": [], "questions": [],
         **values,
     }
 
@@ -1175,8 +1175,7 @@ def hermes_checks(home: Path) -> list[dict]:
         provider = provider_cls()
         provider.initialize("session-a", agent_context="primary")
         conn = db.open_db(cfg.db_path)
-        todos.set_standing(
-            conn, "identity", "Casey lives in North End.", key="identity:home")
+        first_todo, _ = todos.open_todo(conn, "First typed lifecycle snapshot")
         wiki.set_slot(cfg.wiki_dir, "quinn-brooks", "favorite movie theater",
                       "Alamo Drafthouse", source="benchmark", conn=conn)
         wiki.add_alias(cfg.wiki_dir, "quinn-brooks", "Q")
@@ -1190,14 +1189,16 @@ def hermes_checks(home: Path) -> list[dict]:
             messages=[{"role": "system", "content": first}])
 
         conn = db.open_db(cfg.db_path)
-        todos.set_standing(
-            conn, "identity", "Casey now lives in Harbor Point.", key="identity:home")
+        todos.close(conn, first_todo.key)
+        todos.open_todo(conn, "Second typed lifecycle snapshot")
         conn.close()
         second = provider.prefetch("What theater does Q like?", session_id="session-a")
         checks.append(result(
             "hermes.latest-snapshot-wins", "Hermes lifecycle",
-            "Harbor Point" in second and "North End" not in second,
-            f"Harbor Point={'Harbor Point' in second}; old={'North End' in second}"))
+            "Second typed lifecycle snapshot" in second
+            and "First typed lifecycle snapshot" not in second,
+            f"new={'Second typed lifecycle snapshot' in second}; "
+            f"old={'First typed lifecycle snapshot' in second}"))
         checks.append(result(
             "hermes.nickname-injects-page", "Hermes lifecycle",
             "Alamo Drafthouse" in second and "WIKI PAGES MENTIONED" in second,

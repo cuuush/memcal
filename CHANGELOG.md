@@ -13,9 +13,20 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Temporal benchmarks no longer mutate a tracked score-history ledger during normal runs.
 - Event detail describes state in plain English.
-- A direct question-and-reply exchange can settle the matching open question.
+- Relevant open questions are reviewed beside their conversations and can be kept,
+  amended with a wait condition, answered, or closed through cited, version-checked
+  actions; deferred questions retain their wording history.
+- Brief, detail, and web views share concise state and change labels, with diagnostics
+  kept off the main overview.
+- Dream's cross-conversation stage is now named Merge; old recorded `resolve` stages
+  still display with the same label.
 - Standing is no longer offered to dream or Hermes as a general memory store.
+- Legacy standing rows remain readable, but new writes are rejected and normal prompts,
+  briefs, and command listings use typed identity, wiki, event, to-do, and question state.
+  Retired rows keep their old `S` handles, evidence, and explicit typed destination so
+  migration can be safely repeated.
 - Dream and live-write instructions, comments, and docstrings are shorter and focused
   on current behavior.
 - The GitHub bug-report form now uses a conventional open-source layout.

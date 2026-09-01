@@ -8,9 +8,9 @@ from memcal import archive, brief, wiki
 from memcal.config import Config
 from memcal.dream import apply as apply_stage
 from memcal.dream import bundle as bundle_stage
-from memcal.dream import resolve as resolve_stage
+from memcal.dream import merge as merge_stage
 
-EMPTY = {"events": [], "todos": [], "wiki": [], "standing": [], "questions": []}
+EMPTY = {"events": [], "todos": [], "wiki": [], "questions": []}
 
 FRI, SAT, SUN = "2026-08-07", "2026-08-08", "2026-08-09"
 THU, WED, TUE_NEXT, SAT_15 = "2026-08-06", "2026-08-05", "2026-08-11", "2026-08-15"
@@ -216,7 +216,7 @@ DAY2 = {
         "status": "confirmed", "subject": "me",
         "participants": ["Alex Rivera", "Riley Morgan"],
     }]),
-    # 11. The same dinner from a second stream. Resolve has to collapse this.
+    # 11. The same dinner from a second stream. Merge has to collapse this.
     "person:Alex Rivera": _diff(events=[{
         "title": "Ramen dinner", "date": THU, "time": "20:30", "kind": "commitment",
         "status": "confirmed", "subject": "me", "participants": ["Alex Rivera"],
@@ -246,10 +246,10 @@ DAY2 = {
     "person:Rowan Vale": _diff(
         questions=["Rowan is back from Italy — did you get them their EZ-Pass back?"]),
     "person:Mom": _diff(questions=["When am I coming over again?"]),
-    "person:Quinn Brooks": _diff(standing=[{
-        "kind": "preference",
-        "value": "Quinn can borrow my car anytime the user needs it",
-        "scope": "permanent",
+    "person:Quinn Brooks": _diff(wiki=[{
+        "page": "quinn-brooks", "section": "people", "slot": "car permission",
+        "value": "Can borrow the user's car anytime the user needs it",
+        "question": "", "alias": "",
     }]),
     "person:Jose": _diff(events=[{
         "title": "Neon Garden party", "date": "2026-08-05", "time": "21:00",
@@ -332,7 +332,7 @@ TABLES = {1: DAY1, 2: DAY2, 3: DAY3, 4: DAY4}
 
 
 def apply_day(conn: sqlite3.Connection, cfg: Config, day: int) -> str:
-    """One fake day through resolve -> apply -> render, with no model anywhere."""
+    """One fake day through Merge -> apply -> render, with no model anywhere."""
     table = TABLES[day]
     bundles = bundle_stage.build(conn, limit=cfg.item_budget,
                                  per_entity=cfg.items_per_entity)
@@ -341,7 +341,7 @@ def apply_day(conn: sqlite3.Connection, cfg: Config, day: int) -> str:
     # Cross-bundle dedupe is deterministic until fragments genuinely disagree; these do
     # not, so no client is ever reached for. Passing None makes that a crash rather than
     # a silent network call if the corpus ever changes underneath it.
-    proposals, resolved = resolve_stage.resolve_all(None, cfg, proposals, conn=conn)
+    proposals, resolved = merge_stage.merge_all(None, cfg, proposals, conn=conn)
 
     from memcal import db, todos
     before_apply = db.now()
@@ -379,4 +379,4 @@ def apply_day(conn: sqlite3.Connection, cfg: Config, day: int) -> str:
     return (f"integration day {day} — {len(bundles)} bundles, "
             f"{matched} carried a diff, "
             f"{sum(counts.values())} writes"
-            + (f"; resolve: {'; '.join(resolved)}" if resolved else ""))
+            + (f"; merge: {'; '.join(resolved)}" if resolved else ""))

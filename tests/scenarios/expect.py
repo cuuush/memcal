@@ -337,8 +337,8 @@ def every_handle_opens(ctx):
 def every_row_has_a_handle(ctx):
     """A brief line a reader cannot open is a fact they cannot check or correct.
 
-    Skips headers, the bracketed notes the brief writes about itself, and the standing
-    block, which is one line of several facts rather than one row.
+    Skips headers, the bracketed notes the brief writes about itself, and the People and
+    facts block, which is a wiki index rather than one row.
     """
     missing = []
     for line in ctx.brief().splitlines():
@@ -1167,8 +1167,9 @@ CHECKS: list[Check] = [
     Check("mom.question-not-on-a-row", "26 standalone questions", 2,
           question_links_to(r"mom asked(?::| when).*coming over", None)),
     Check("quinn.durable-car-policy", "27 durable permission", 2,
-          lambda c: (bool(c.standing(r"quinn.*borrow.*car.*anytime")),
-                     f"standing: {[r['value'] for r in c.standing(r'quinn|car')]}"),
+          lambda c: (bool(re.search(r"car permission.*borrow.*car.*anytime",
+                                    c.slot_text("quinn-brooks"), re.I)),
+                     f"quinn-brooks slots: {c.slot_text('quinn-brooks')}"),
           frontier=True),
     Check("mom.question-source", "29 provenance completeness", 2,
           question_source_says(r"coming over", r"When am I coming over again")),
@@ -1414,18 +1415,21 @@ CHECKS: list[Check] = [
     Check("state.only-declared-standing", "32 closed-world inventory", 2,
           only_expected_text_rows(
               lambda c: [row["value"] for row in c.standing(".")],
-              [r"Casey.*North End.*Comet", r"shared cal|u&me",
-               r"Quinn.*borrow.*car.*anytime"], "standing rows")),
+              [], "standing rows")),
     Check("state.only-declared-pages", "32 closed-world inventory", 2,
           only_expected_pages({
-              "jordan-lee", "katie", "poker-night", "quinn-brooks",
+              "casey", "jordan-lee", "katie", "poker-night", "quinn-brooks",
+              "u-and-me-calendar",
           })),
     Check("state.only-declared-wiki-values", "32 closed-world inventory", 2,
           only_expected_wiki_values({
+              "casey": [r"North End", r"Comet"],
               "jordan-lee": [r"Riverton"],
               "katie": [r"Quinn Brooks"],
               "poker-night": [r"42 Example Street"],
-              "quinn-brooks": [r"Alamo Drafthouse", r"Team Rocket", r"Katie"],
+              "quinn-brooks": [r"Alamo Drafthouse", r"Team Rocket", r"Katie",
+                                r"borrow.*car.*anytime"],
+              "u-and-me-calendar": [r"shared calendar.*Casey.*Harper"],
           })),
     Check("state.only-declared-aliases", "32 closed-world inventory", 2,
           only_expected_aliases({"katie": [r"Kat"]})),

@@ -250,20 +250,22 @@ class TestHermesProvider(unittest.TestCase):
         from memcal import brief, config, db, todos
         cfg = config.load(self.tmp.name)
         conn = db.open_db(cfg.db_path)
-        todos.set_standing(conn, "identity", "Casey, North End.")
+        first_todo, _ = todos.open_todo(conn, "First typed snapshot")
         brief.write(conn, cfg)
         conn.close()
         block = provider.system_prompt_block()
         first = provider.prefetch("what is coming up?")
-        self.assertNotIn("North End", block,
+        self.assertNotIn("First typed snapshot", block,
                          "changing memory would make the cached system prompt stale")
-        self.assertIn("North End", first)
+        self.assertIn("First typed snapshot", first)
 
         conn = db.open_db(cfg.db_path)
-        todos.set_standing(conn, "identity", "Casey now lives in Harbor Point.")
+        todos.close(conn, first_todo.key)
+        todos.open_todo(conn, "Second typed snapshot")
         conn.close()
         second = provider.prefetch("and now?")
-        self.assertIn("Harbor Point", second)
+        self.assertIn("Second typed snapshot", second)
+        self.assertNotIn("First typed snapshot", second)
         self.assertNotEqual(first, second)
 
     def test_prompt_routes_real_calendar_writes_to_ical(self):

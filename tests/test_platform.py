@@ -1,7 +1,7 @@
 """The machine is an axis too, and so is the checkout.
 
-`docs/testing.md` has three entries in this family already — green only on Wednesdays,
-green only before 19:00, green only at UTC-04:00. These are the fourth and fifth, and
+The suite already covers failures that appear only on certain weekdays, before 19:00,
+or at UTC-04:00. These are two more machine-dependent cases, and
 they are the two `clock_sweep.py` cannot fake, because no environment variable moves
 either one: what host the suite runs on, and how much history it was cloned with.
 

@@ -519,11 +519,6 @@ def me_names(conn: sqlite3.Connection) -> list[str]:
             found.add(full)
     except (OSError, subprocess.SubprocessError):
         pass
-    # Anything in standing identity that looks like a name: "Casey, North End."
-    for row in conn.execute("SELECT value FROM standing WHERE kind = 'identity'"):
-        first = re.split(r"[,.;]", row["value"])[0].strip()
-        if first and len(first.split()) <= 3:
-            found.add(first)
     if found:
         db.set_meta(conn, "identity.me", db.jdump(sorted(found)))
     return sorted(found)

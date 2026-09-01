@@ -36,8 +36,8 @@ TOOLS = [
             "repeats and when the next one is, what the invitation said, who to ask. "
             "Also returns the messages it came from and every change it has been "
             "through, so 'is this right?' and 'where did this come from?' are the same "
-            "one call. Takes the handle the brief prints in brackets — E258, T2, Q12, "
-            "S4 — and works for events, to-dos, questions and legacy standing rows alike."),
+            "one call. Takes the handle the brief prints in brackets, such as E258, "
+            "T2, or Q12. Existing legacy S handles remain readable."),
         "inputSchema": {
             "type": "object",
             "properties": {

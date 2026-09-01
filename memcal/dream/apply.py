@@ -1,4 +1,4 @@
-"""Stage 3 — apply (code).
+"""Stage 4 — apply (code).
 
 Keyed diffs merge deterministically. Two bundles proposing the same memcal row
 collide on the key and merge; two bundles touching one wiki page apply per-slot.
@@ -12,7 +12,7 @@ import sqlite3
 from collections import Counter
 from datetime import timedelta
 
-from .. import dates, db, events, identity, series as series_mod, todos, trace, wiki
+from .. import dates, db, events, identity, questions, series as series_mod, todos, trace, wiki
 from ..config import Config
 from .bundle import Bundle
 
@@ -303,7 +303,7 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
     row written here also gets a provenance line pointing at the exact model call, which
     is what turns "where did this question come from?" into a lookup.
     """
-    counts, log = settle_recent_questions(conn, run_id=run_id, commit=False)
+    counts, log = Counter(), []
     # Two bundles can propose the same slot in one run — the model sees the same fact
     # from two threads. The key collision is what makes that a no-op rather than a
     # double write, so it is tracked here rather than left to the wiki layer.
@@ -317,7 +317,7 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
         horizon = _horizon(bundle)
         newest = _newest(bundle)
 
-        def note(kind: str, outcome, bucket: str, cites=None, about=()) -> None:
+        def note(kind: str, outcome, bucket: str, cites=None, about=(), generation=None) -> None:
             """One outcome: count it, log it, and record which call produced it.
 
             `cites` is the archive ids the model pointed at, already resolved from this
@@ -338,7 +338,8 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
                 cited = [i for i in (cites or ()) if isinstance(i, int)]
                 derived = _supporting_lines(bundle, about) if (about and not cited) else []
                 trace.stamp(conn, kind=kind, ref=ref, verb=verb, entity=source,
-                            stage=stage, run_id=run_id, generation_id=generation_id,
+                            stage=stage, run_id=run_id,
+                            generation_id=(generation or generation_id),
                             archive_ids=(cited or derived or archive_ids), strict=True)
 
         # Before the events, deliberately. A cadence change and the first occurrence
@@ -351,7 +352,8 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
                                          written_by=written_by, evidence_ts=newest,
                                          commit=False),
                  "series:", cites=row.get("cite_ids") if isinstance(row, dict) else None,
-                 about=_claims(row, "title"))
+                 about=_claims(row, "title"),
+                 generation=row.get("_generation_id") if isinstance(row, dict) else None)
         for row in diff.get("events") or []:
             cited = row.get("cite_ids") if isinstance(row, dict) else None
             note("event", _apply_event(conn, row, source=source, written_by=written_by,
@@ -360,32 +362,68 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
                                        join_url=_join_link(bundle, cited),
                                        named_only_by_thread=_named_only_by_thread(bundle, row),
                                        commit=False),
-                 "event:", cites=cited, about=_claims(row, "title"))
+                 "event:", cites=cited, about=_claims(row, "title"),
+                 generation=row.get("_generation_id") if isinstance(row, dict) else None)
         for row in diff.get("todos") or []:
             note("todo", _apply_todo(conn, row, source=source, written_by=written_by,
                                      auto_remind=cfg.remind_deadlines, commit=False),
                  "todo:", cites=row.get("cite_ids") if isinstance(row, dict) else None,
-                 about=_claims(row, "text"))
+                 about=_claims(row, "text"),
+                 generation=row.get("_generation_id") if isinstance(row, dict) else None)
         for row in diff.get("wiki") or []:
             # A wiki row is three independent claims, so it can produce three outcomes.
             for outcome in _apply_wiki(conn, cfg, row, source=source, seen=seen_slots,
                                        commit=False):
-                note("wiki", outcome, "wiki:")
+                note("wiki", outcome, "wiki:",
+                     generation=(row.get("_generation_id")
+                                 if isinstance(row, dict) else None))
         for row in diff.get("standing") or []:
             note("standing", _apply_standing(conn, row, written_by=written_by,
-                                             commit=False), "standing:")
-        for settled in todos.answer_from_exchange(conn, source, bundle.items, commit=False):
-            note("question", ("answered", f"{settled['text']} — {settled['answer']}",
-                              settled["key"]), "question:",
-                 cites=settled["archive_ids"])
+                                             commit=False), "standing:",
+                 generation=row.get("_generation_id") if isinstance(row, dict) else None)
         for question in diff.get("questions") or []:
-            if not (isinstance(question, str) and question.strip()):
+            # Legacy deterministic fixtures still use strings. Model contracts use the
+            # typed shape below; fixture compatibility does not restore an inference path.
+            if isinstance(question, str):
+                action, question_text, cited = "ask", question.strip(), None
+            elif isinstance(question, dict):
+                action = str(question.get("action") or "").strip().lower()
+                question_text = str(question.get("text") or "").strip()
+                cited = question.get("cite_ids")
+            else:
+                continue
+            if action in {"amend", "resolve", "drop"} and not cited:
+                counts["question:rejected-uncited"] += 1
+                log.append(f"{'rejected':9} uncited question {action}: "
+                           f"{question.get('key') or question_text}")
+                continue
+            if action in {"keep", "amend", "resolve", "drop"}:
+                outcome = questions.apply_action(
+                    conn, question, written_by=written_by, commit=False)
+                if not outcome:
+                    counts["question:rejected-invalid"] += 1
+                    continue
+                verb, label, ref = outcome
+                counts[f"question:{verb}"] += 1
+                log.append(f"{verb:9} {label}")
+                trace.stamp(
+                    conn, kind="question", ref=ref, verb=verb, entity=source,
+                    stage=stage, run_id=run_id,
+                    generation_id=(question.get("_generation_id") or generation_id),
+                    archive_ids=(cited or []), strict=True)
+                continue
+            if action != "ask" or not question_text:
+                counts["question:rejected-invalid"] += 1
+                continue
+            if isinstance(question, dict) and not cited:
+                counts["question:rejected-uncited"] += 1
+                log.append(f"{'rejected':9} uncited new question: {question_text}")
                 continue
             # A question that names a thing and the day it happens is a calendar row
             # wearing a question mark. Written as a row it answers date lookups, ages
             # out on its own, and stops needing them to answer it for the store to know
             # what it was already told.
-            occasion = _dated_occasion(question, bundle)
+            occasion = _dated_occasion(question_text, bundle)
             if occasion:
                 note("event",
                      _apply_event(conn, occasion, source=source, written_by=written_by,
@@ -393,12 +431,12 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
                                   evidence_ts=newest, commit=False),
                      "event:", about=_claims(occasion, "title"))
                 continue
-            if _talks_about_nothing_here(bundle, question):
+            if _talks_about_nothing_here(bundle, question_text):
                 counts["question:rejected-unsupported"] += 1
                 log.append(f"{'rejected':9} nothing in {bundle.label} mentions "
-                           f"that: {question}")
+                           f"that: {question_text}")
                 continue
-            text = _standalone_question(bundle, question)
+            text = _standalone_question(bundle, question_text)
             # The bundle's newest line, not now: "on Sunday" means the Sunday near
             # whoever said it, and a nightly pass reads traffic that is already a day
             # or more old. `_dated_occasion` above anchors on the same moment.
@@ -408,24 +446,9 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
             log.append(f"{'ask':9} {text}")
             trace.stamp(conn, kind="question", ref=key, verb="asked", entity=source,
                         stage=stage, run_id=run_id, generation_id=generation_id,
-                        archive_ids=(_supporting_lines(bundle, question) or archive_ids),
+                        archive_ids=(cited or _supporting_lines(bundle, question_text)
+                                     or archive_ids),
                         strict=True)
-    return counts, log
-
-
-def settle_recent_questions(conn: sqlite3.Connection, *, run_id: int | None = None,
-                            commit: bool = True) -> tuple[Counter, list[str]]:
-    """Resolve questions answered by recent archived exchanges."""
-    counts: Counter = Counter()
-    log = []
-    for settled in todos.answer_from_recent_exchanges(conn, commit=False):
-        counts["question:answered"] += 1
-        log.append(f"{'answered':9} {settled['text']} — {settled['answer']}")
-        trace.stamp(conn, kind="question", ref=settled["key"], verb="answered",
-                    entity=settled["entity"], stage="resolve", run_id=run_id,
-                    archive_ids=settled["archive_ids"], strict=True)
-    if commit and counts:
-        conn.commit()
     return counts, log
 
 
@@ -1020,22 +1043,7 @@ def _apply_standing(conn: sqlite3.Connection, row: dict, *, written_by: str,
     kind, value = _clean(row.get("kind")), _clean(row.get("value"))
     if kind not in todos.STANDING_KINDS or not value:
         return None
-    # Permission for one situation is not an always-on preference. "Quinn may borrow
-    # my car" meant "so the user can take Katie to Medieval Times"; charged on every future
-    # turn, the shortened version loses the reason and becomes a misleading policy.
-    if kind == "preference" and _TRANSIENT_STANDING_RE.search(value):
-        return ("rejected-transient", f"not standing: {value}")
-    scope = _clean(row.get("scope")) or "session"
-    key, verb = todos.set_standing(conn, kind, value, scope=scope,
-                                   written_by=written_by, commit=commit)
-    if verb == "updated":
-        return None
-    return verb, f"{kind}: {value}", key
-
-
-_TRANSIENT_STANDING_RE = re.compile(
-    r"\b(?:may|can|could|is allowed to|feel free to)\s+(?:borrow|use|take|drive|have)\b"
-    r"|\b(?:this|that|next|one)\s+(?:time|trip|day|night|weekend|event)\b"
-    r"|\b(?:for|so (?:that )?)\s+(?:the |this |that )?(?:trip|event|ride|visit|dinner)\b",
-    re.IGNORECASE,
-)
+    # Old providers and hand-built payloads can still send a field excluded by the
+    # current schema. Keep that compatibility boundary read-only: accepting it here
+    # would let the retired store keep growing behind the schema's back.
+    return ("rejected-legacy", f"standing is read-only: {kind}: {value}")

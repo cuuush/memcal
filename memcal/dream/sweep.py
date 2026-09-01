@@ -1,4 +1,4 @@
-"""Stage 4 — sweep.
+"""Stage 5 — post-write cleanup.
 
 Inspects the resulting state and diff log for duplicates, contradictions, and invalid rows.
 Operates on summarized post-run output rather than raw input traffic.
@@ -44,7 +44,7 @@ Return empty arrays when the state looks fine, which is the common case.
 SWEEP_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["drop_events", "drop_todos", "drop_standing", "questions"],
+    "required": ["drop_events", "drop_todos", "questions"],
     "properties": {
         "drop_events": {
             "type": "array",
@@ -59,18 +59,6 @@ SWEEP_SCHEMA = {
             },
         },
         "drop_todos": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["key", "reason"],
-                "properties": {
-                    "key": {"type": "string"},
-                    "reason": {"type": "string", "enum": ["duplicate", "junk"]},
-                },
-            },
-        },
-        "drop_standing": {
             "type": "array",
             "items": {
                 "type": "object",
@@ -99,8 +87,6 @@ def state_snapshot(conn: sqlite3.Connection, cfg: Config, diff_log: list[str]) -
     parts.append("\nQUESTIONS ALREADY OPEN — do not ask any of these again")
     parts += [f"  {r['text']}" for r in todos.open_questions(conn, limit=25)] \
         or ["  (none)"]
-    parts.append("\nSTANDING")
-    parts += [f"  {r['key']} | {r['kind']}: {r['value']}" for r in todos.standing(conn)] or ["  (none)"]
     parts.append("\nWRITES IN THIS RUN")
     parts += [f"  {line}" for line in diff_log[:80]] or ["  (none)"]
     return "\n".join(parts)
@@ -151,10 +137,6 @@ def sweep(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
         key = (row or {}).get("key")
         if key and todos.close(conn, key, status="dropped"):
             actions.append(f"dropped todo {key} ({row.get('reason')})")
-    for row in result.get("drop_standing") or []:
-        key = (row or {}).get("key")
-        if key and todos.forget_standing(conn, key):
-            actions.append(f"dropped standing {key} ({row.get('reason')})")
     for question in result.get("questions") or []:
         if isinstance(question, str) and question.strip():
             key = todos.ask(conn, question.strip(), written_by="sweep")

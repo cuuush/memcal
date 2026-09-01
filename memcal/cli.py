@@ -195,9 +195,6 @@ def cmd_init(args) -> int:
     print(f"brief     {cfg.brief_path}")
     linked, message = identity.import_contacts(conn)
     print(f"contacts  {message}")
-    if not todos.standing(conn, "identity"):
-        print("\nnothing in standing yet. Start with something like:")
-        print('  memcal standing identity "Casey, North End. Dog: Comet."')
     brief.write(conn, cfg)
     print(f"\nwrote {cfg.brief_path}")
     return 0
@@ -566,18 +563,16 @@ def cmd_answer(args) -> int:
     return 0 if ok else 1
 
 
+@_closes_direct_connections
 def cmd_standing(args) -> int:
     cfg, conn = open_ctx(args)
-    if not args.value:
-        rows = todos.standing(conn, args.kind if args.kind != "all" else None)
-        for row in rows:
-            print(f"{handle('standing', row['id']):>5}  {row['kind']:11} "
-                  f"{row['scope']:9} {row['value']}   [{row['key']}]")
-        return 0
-    key, verb = todos.set_standing(conn, args.kind, args.value,
-                                   scope="permanent" if args.permanent else "session")
-    print(f"{verb}: {args.kind} = {args.value}  [{key}]")
-    brief.write(conn, cfg)
+    if args.value:
+        print("standing is read-only legacy data; use a typed identity or wiki path")
+        return 1
+    rows = todos.standing(conn, args.kind if args.kind != "all" else None)
+    for row in rows:
+        print(f"{handle('standing', row['id']):>5}  {row['kind']:11} "
+              f"{row['scope']:9} {row['value']}   [{row['key']}]")
     return 0
 
 
@@ -1691,7 +1686,7 @@ COMMAND_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Read it", ("brief", "open", "week", "month", "todos", "search", "ui")),
     ("Write to it", ("remember", "add", "todo", "done", "ask", "answer", "note",
                      "series", "status", "rm")),
-    ("Wiki and standing", ("page", "pages", "alias", "merge", "standing", "forget", "who")),
+    ("People and facts", ("page", "pages", "alias", "merge", "who")),
     ("Feed it", ("ingest", "sources", "dream", "review", "schedule")),
     ("The gate", ("gatecheck", "senders", "top", "block")),
     ("Set up and check", ("setup", "init", "openclaw", "doctor", "stats", "trace",
@@ -1702,7 +1697,7 @@ COMMAND_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 #: confusing CLI — `ui` and `web` were both in the visible list, doing the same job,
 #: with `web` labelled "the same server, under its original name" — so the older name
 #: keeps working and stops being a choice anybody has to make.
-HIDDEN_COMMANDS = frozenset({"web"})
+HIDDEN_COMMANDS = frozenset({"web", "standing", "forget"})
 
 #: The top of `--help`. A list of forty verbs answers "what is there" and never answers
 #: "what do I type", and the second question is the one somebody opening a terminal
@@ -1893,12 +1888,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("answer", help="the answer")
     s.set_defaults(func=cmd_answer)
 
-    s = sub.add_parser("standing", help="read or write the standing block")
+    s = sub.add_parser("standing", help="list legacy standing rows")
     s.add_argument("kind", nargs="?", default="all",
                    choices=["all", "identity", "preference", "alias"],
                    help="which slot, or 'all' to list them")
-    s.add_argument("value", nargs="?", help="the value to store; omit to read")
-    s.add_argument("--permanent", action="store_true", help="keep it beyond this session")
+    # Retain the old write-shaped arguments long enough to return a useful retirement
+    # message instead of turning an upgrade into an opaque argparse failure.
+    s.add_argument("value", nargs="?", help=argparse.SUPPRESS)
+    s.add_argument("--permanent", action="store_true", help=argparse.SUPPRESS)
     s.set_defaults(func=cmd_standing)
 
     s = sub.add_parser("forget", help="drop a standing entry")

@@ -63,7 +63,7 @@ export function watchJob(job, button, logEl, done, clearLog = false) {
 }
 /* How a step that cannot count itself is drawn.
 
-   `sweep` is one model call over the whole resulting state, and `resolve` is one call per
+   `sweep` is one model call over the whole resulting state, and Merge is one call per
    disagreement: there is no fraction inside `client.complete` for the server to report,
    and inventing a denominator for it would be a bar that lies. What the server does know
    is how long the step has been running, so the bar is drawn from that on a curve that

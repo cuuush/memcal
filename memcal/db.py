@@ -73,6 +73,10 @@ ADDED_COLUMNS = (
     ("generations", "requests", "INTEGER"),
     # Lets questions expire with an explicitly named day even without an event link.
     ("questions", "about_date", "TEXT"),
+    # Question review is optimistic: a model disposition applies only to the exact
+    # version it saw, and a deferred question is not ordinary stale prompt litter.
+    ("questions", "wake_condition", "TEXT"),
+    ("questions", "updated_at", "TEXT"),
     # Expected old wiki bytes for conflict-safe outbox recovery. NULL means the target
     # did not exist when the snapshot was staged.
     ("wiki_pending_writes", "expected_hash", "TEXT"),
@@ -91,6 +95,9 @@ def migrate(conn: sqlite3.Connection) -> None:
     for table, column in added:
         if column == "origin":
             conn.execute(f"UPDATE {table} SET origin = source WHERE origin IS NULL")
+        elif table == "questions" and column == "updated_at":
+            conn.execute("UPDATE questions SET updated_at = created_at"
+                         " WHERE updated_at IS NULL")
     _drop_empty_legacy_tables(conn)
     _resync_archive_fts(conn)
     conn.commit()

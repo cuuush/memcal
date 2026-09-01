@@ -266,7 +266,7 @@ class Reply:
 
 
 class CompletionClient:
-    """The small client surface used by propose, resolve, sweep, and live writes."""
+    """The small client surface used by propose, Merge, sweep, and live writes."""
 
     def __init__(self) -> None:
         self.usage = Usage()
