@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import glob
+import hashlib
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -49,6 +50,10 @@ LIMIT ?
 # text and would only add "[image]" noise to a bundle.
 TEXT_MESSAGE = 0
 
+# The first store seen by this build owns the unscoped IDs and watermark written by
+# older builds. Replacement stores use their Core Data UUID as a separate generation.
+INITIAL_STORE_KEY = "source.whatsapp.initial_store"
+
 
 def store_path(explicit: str | None = None) -> Path | None:
     if explicit:
@@ -69,6 +74,54 @@ def to_iso(value) -> str:
     if seconds <= 0:
         return db.now()
     return (APPLE_EPOCH + timedelta(seconds=seconds)).astimezone().isoformat(timespec="seconds")
+
+
+def store_generation(src: sqlite3.Connection) -> str | None:
+    """Return a non-identifying stable ID for this Core Data store."""
+    try:
+        row = src.execute("SELECT Z_UUID FROM Z_METADATA LIMIT 1").fetchone()
+    except sqlite3.Error:
+        return None
+    raw = str(row[0] or "") if row else ""
+    return hashlib.sha256(raw.encode()).hexdigest() if raw else None
+
+
+def legacy_store_matches(conn: sqlite3.Connection, src: sqlite3.Connection) -> bool | None:
+    """Compare archived legacy IDs with this store when upgrading from older builds."""
+    archived = conn.execute(
+        "SELECT external_id, ts, text FROM archive"
+        " WHERE stream = 'whatsapp' AND external_id GLOB 'wa:[0-9]*'"
+        " AND external_id NOT LIKE 'wa:%:%' ORDER BY id DESC LIMIT 12"
+    ).fetchall()
+    if not archived:
+        return int(base.watermark(conn, "whatsapp.rowid", "0") or 0) == 0
+    by_rowid = {int(row["external_id"].split(":", 1)[1]): row for row in archived}
+    placeholders = ",".join("?" for _ in by_rowid)
+    try:
+        rows = src.execute(
+            f"SELECT Z_PK AS rowid, ZTEXT AS text, ZMESSAGEDATE AS date"
+            f" FROM ZWAMESSAGE WHERE Z_PK IN ({placeholders})",
+            tuple(by_rowid),
+        ).fetchall()
+    except sqlite3.Error:
+        return None
+    for row in rows:
+        old = by_rowid[int(row["rowid"])]
+        text = textclean.clean_message((row["text"] or "").strip())
+        if text == old["text"] and to_iso(row["date"]) == old["ts"]:
+            return True
+    return False
+
+
+def store_scope(conn: sqlite3.Connection, src: sqlite3.Connection) -> tuple[str, str, str | None]:
+    """Choose an isolated watermark and external-ID prefix for this store generation."""
+    generation = store_generation(src)
+    initial = db.get_meta(conn, INITIAL_STORE_KEY)
+    if not generation or generation == initial:
+        return "whatsapp.rowid", "wa", generation
+    if not initial and legacy_store_matches(conn, src) is not False:
+        return "whatsapp.rowid", "wa", generation
+    return f"whatsapp.{generation}.rowid", f"wa:{generation}", generation
 
 
 #: The JID domains whose local part really is a phone number. Everything else merely
@@ -261,7 +314,8 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 2000,
     if adopted:
         report.notes.append(f"named {adopted} handle(s) from WhatsApp's profile cache")
 
-    watermark = int(base.watermark(conn, "whatsapp.rowid", "0") or 0)
+    watermark_key, external_prefix, generation = store_scope(conn, src)
+    watermark = int(base.watermark(conn, watermark_key, "0") or 0)
     tier = identity.top_tier(conn)
     pushed = push_names(src)
     highest = watermark
@@ -299,7 +353,7 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 2000,
         base.deliver(
             conn, report,
             stream="whatsapp",
-            external_id=f"wa:{row['rowid']}",
+            external_id=f"{external_prefix}:{row['rowid']}",
             ts=to_iso(row["date"]),
             text=text,
             thread=thread,
@@ -313,8 +367,14 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 2000,
     src.close()
 
     conn.commit()
+    initial_generation = db.get_meta(conn, INITIAL_STORE_KEY)
+    if generation and not initial_generation:
+        db.set_meta(conn, INITIAL_STORE_KEY,
+                    generation if external_prefix == "wa" else "legacy")
+    if generation and external_prefix != "wa":
+        report.notes.append("kept this WhatsApp account separate from an earlier sign-in")
     if highest > watermark:
-        base.set_watermark(conn, "whatsapp.rowid", highest)
+        base.set_watermark(conn, watermark_key, highest)
     if len(rows) >= limit:
         report.more = True
     return report

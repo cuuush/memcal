@@ -35,6 +35,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Removed phone numbers and private quoted prose from comments and docstrings, with a
   regression check to keep them out.
+- Signing out of WhatsApp and into another account no longer lets reused local message
+  IDs collide with or hide the earlier account's archive.
 
 ## [0.6.0] - 2026-08-14
 

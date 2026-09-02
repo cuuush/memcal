@@ -3070,10 +3070,11 @@ class TestWhatsApp(Base):
     GROUP_JID = "12345-67890@g.us"
     MUM_JID = "19175550001@s.whatsapp.net"
 
-    def _store(self, rows) -> str:
-        path = Path(self.tmp.name) / "ChatStorage.sqlite"
+    def _store(self, rows, *, name="ChatStorage.sqlite", store_uuid="store-one") -> str:
+        path = Path(self.tmp.name) / name
         src = sqlite3.connect(path)
         src.executescript("""
+            CREATE TABLE Z_METADATA (Z_UUID TEXT);
             CREATE TABLE ZWACHATSESSION (Z_PK INTEGER PRIMARY KEY, ZCONTACTJID TEXT,
                                          ZPARTNERNAME TEXT, ZSESSIONTYPE INTEGER);
             CREATE TABLE ZWAGROUPMEMBER (Z_PK INTEGER PRIMARY KEY, ZMEMBERJID TEXT,
@@ -3083,6 +3084,7 @@ class TestWhatsApp(Base):
                                      ZMESSAGETYPE INTEGER, ZCHATSESSION INTEGER,
                                      ZGROUPMEMBER INTEGER);
         """)
+        src.execute("INSERT INTO Z_METADATA VALUES(?)", (store_uuid,))
         src.execute("INSERT INTO ZWACHATSESSION VALUES(1,?,?,1)", (self.GROUP_JID, "Family"))
         src.execute("INSERT INTO ZWACHATSESSION VALUES(2,?,?,0)", (self.MUM_JID, "Mum"))
         src.execute("INSERT INTO ZWAGROUPMEMBER VALUES(1,?,?)", (self.MUM_JID, "Mum"))
@@ -3132,6 +3134,47 @@ class TestWhatsApp(Base):
         second = whatsapp.ingest(self.conn, self.cfg, db_path=path)
         self.assertEqual(first.archived, 1)
         self.assertEqual(second.archived, 0)
+
+    def test_a_new_account_cannot_overwrite_the_previous_accounts_rows(self):
+        first_path = self._store(
+            [(1, "old account message", self._seconds(), 0, self.GROUP_JID, 0, 1, 1)],
+            name="first.sqlite", store_uuid="first-account-store")
+        second_path = self._store(
+            [(1, "new account message", self._seconds(), 0, self.GROUP_JID, 0, 1, 1)],
+            name="second.sqlite", store_uuid="second-account-store")
+
+        whatsapp.ingest(self.conn, self.cfg, db_path=first_path)
+        report = whatsapp.ingest(self.conn, self.cfg, db_path=second_path)
+        replay = whatsapp.ingest(self.conn, self.cfg, db_path=second_path)
+
+        rows = self.conn.execute(
+            "SELECT external_id, text FROM archive WHERE stream = 'whatsapp' ORDER BY id"
+        ).fetchall()
+        self.assertEqual([row["text"] for row in rows],
+                         ["old account message", "new account message"])
+        self.assertEqual(len({row["external_id"] for row in rows}), 2)
+        self.assertIn("separate from an earlier sign-in", " ".join(report.notes))
+        self.assertEqual(replay.archived, 0)
+
+    def test_an_account_changed_before_upgrade_is_recognized_from_archived_rows(self):
+        first_path = self._store(
+            [(1, "old account message", self._seconds(), 0, self.GROUP_JID, 0, 1, 1)],
+            name="legacy.sqlite", store_uuid="old-store")
+        second_path = self._store(
+            [(1, "new account message", self._seconds(), 0, self.GROUP_JID, 0, 1, 1)],
+            name="current.sqlite", store_uuid="new-store")
+        whatsapp.ingest(self.conn, self.cfg, db_path=first_path)
+        self.conn.execute("DELETE FROM meta WHERE key = ?", (whatsapp.INITIAL_STORE_KEY,))
+        self.conn.commit()
+
+        report = whatsapp.ingest(self.conn, self.cfg, db_path=second_path)
+
+        rows = self.conn.execute(
+            "SELECT text FROM archive WHERE stream = 'whatsapp' ORDER BY id"
+        ).fetchall()
+        self.assertEqual([row["text"] for row in rows],
+                         ["old account message", "new account message"])
+        self.assertIn("separate from an earlier sign-in", " ".join(report.notes))
 
     def test_the_watermark_advances_past_skipped_rows(self):
         # A run of media messages must not pin the watermark forever.
