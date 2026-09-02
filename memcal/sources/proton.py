@@ -44,6 +44,7 @@ class Bridge:
         self.user = cfg.secret("PROTON_BRIDGE_USER", "protonuser")
         self.password = cfg.secret("PROTON_BRIDGE_PASSWORD", "protonpassword")
         self.conn: imaplib.IMAP4 | None = None
+        self.security = ""
         if not (self.user and self.password):
             raise base.HttpError(
                 "no Proton Bridge credentials. Add PROTON_BRIDGE_USER and "
@@ -51,27 +52,64 @@ class Bridge:
             )
 
     def __enter__(self) -> "Bridge":
+        context = ssl.create_default_context()
+        # Bridge presents a self-signed certificate for localhost by design.
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
         try:
-            self.conn = imaplib.IMAP4(self.host, self.port, timeout=30)
-            context = ssl.create_default_context()
-            # Bridge presents a self-signed certificate for localhost by design.
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-            self.conn.starttls(context)
-            self.conn.login(self.user, self.password)
-        except (imaplib.IMAP4.error, OSError, socket.error) as exc:
+            self.conn = imaplib.IMAP4_SSL(
+                self.host, self.port, timeout=30, ssl_context=context)
+            self.security = "SSL"
+        except ssl.SSLError:
+            self._connect_starttls(context)
+        except (OSError, socket.error) as exc:
             raise base.HttpError(
-                f"cannot reach Proton Bridge at {self.host}:{self.port} ({exc}). "
-                f"Is the Bridge app running and unlocked?"
+                f"Proton Bridge is not accepting connections at {self.host}:{self.port}. "
+                "Open Bridge and unlock it."
             ) from exc
+        self._login()
         return self
 
+    def _connect_starttls(self, context: ssl.SSLContext) -> None:
+        try:
+            self.conn = imaplib.IMAP4(self.host, self.port, timeout=30)
+            self.conn.starttls(context)
+            self.security = "STARTTLS"
+        except (imaplib.IMAP4.error, OSError, socket.error) as exc:
+            self._disconnect()
+            raise base.HttpError(
+                f"Proton Bridge answered at {self.host}:{self.port}, but secure IMAP "
+                f"could not start ({exc}). Restart Bridge and try again."
+            ) from exc
+
+    def _login(self) -> None:
+        try:
+            self.conn.login(self.user, self.password)
+        except imaplib.IMAP4.error as exc:
+            self._disconnect()
+            raise base.HttpError(
+                "Proton Bridge is open, but rejected the saved mailbox credentials. "
+                "Open Mailbox details and update "
+                "PROTON_BRIDGE_USER and PROTON_BRIDGE_PASSWORD in memcal's .env with "
+                "the IMAP credentials shown there."
+            ) from exc
+        except (OSError, socket.error) as exc:
+            self._disconnect()
+            raise base.HttpError(
+                f"Proton Bridge closed the connection during login ({exc}). Restart "
+                "Bridge and try again."
+            ) from exc
+
     def __exit__(self, *_exc) -> None:
+        self._disconnect()
+
+    def _disconnect(self) -> None:
         if self.conn:
             try:
                 self.conn.logout()
             except Exception:
                 pass
+            self.conn = None
 
     def folders(self) -> list[str]:
         typ, data = self.conn.list()
@@ -382,6 +420,6 @@ class ProtonSource(Source):
             return ok, message
         try:
             with Bridge(cfg) as bridge:
-                return True, f"bridge up, {len(bridge.folders())} folders"
+                return True, f"bridge up over {bridge.security}, {len(bridge.folders())} folders"
         except base.HttpError as exc:
             return False, str(exc)[:90]

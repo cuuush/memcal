@@ -172,6 +172,105 @@ class TestEmailProgress(unittest.TestCase):
         self.assertEqual(updates[-1], "INBOX: 30/30 this round")
 
 
+class TestProtonBridgeConnectionFailures(unittest.TestCase):
+    def _context(self):
+        temporary_home = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary_home.cleanup)
+        home = Path(temporary_home.name)
+        cfg = Config(home=home, env={
+            "PROTON_BRIDGE_USER": "mailbox-user",
+            "PROTON_BRIDGE_PASSWORD": "old-mailbox-password",
+        })
+        conn = db.connect(home / "memcal.db")
+        db.migrate(conn)
+        self.addCleanup(conn.close)
+        return conn, cfg
+
+    def test_login_rejection_names_the_bridge_credentials_to_replace(self):
+        closed = []
+        authentication_error = proton.imaplib.IMAP4.error
+
+        class IMAP:
+            error = authentication_error
+
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def starttls(self, _context):
+                pass
+
+            def login(self, _user, _password):
+                raise authentication_error("authentication failed")
+
+            def logout(self):
+                closed.append(True)
+
+        conn, cfg = self._context()
+
+        with mock.patch.object(proton.imaplib, "IMAP4_SSL",
+                               side_effect=proton.ssl.SSLError), \
+             mock.patch.object(proton.imaplib, "IMAP4", IMAP):
+            report = proton.ingest(conn, cfg)
+
+        self.assertIn("Bridge is open", report.error or "")
+        self.assertIn("rejected the saved mailbox credentials", report.error or "")
+        self.assertIn("PROTON_BRIDGE_PASSWORD", report.error or "")
+        self.assertNotIn("not accepting connections", report.error or "")
+        self.assertEqual(closed, [True])
+
+    def test_a_closed_bridge_says_to_open_it(self):
+        conn, cfg = self._context()
+        with mock.patch.object(
+                proton.imaplib, "IMAP4_SSL", side_effect=ConnectionRefusedError):
+            report = proton.ingest(conn, cfg)
+
+        self.assertIn("not accepting connections", report.error or "")
+        self.assertIn("Open Bridge and unlock it", report.error or "")
+        self.assertNotIn("mailbox credentials", report.error or "")
+
+    def test_implicit_ssl_is_used_when_the_bridge_accepts_it(self):
+        connected = []
+
+        class IMAPSSL:
+            def __init__(self, *_args, **_kwargs):
+                connected.append("SSL")
+
+            def login(self, _user, _password):
+                pass
+
+            def logout(self):
+                pass
+
+        _conn, cfg = self._context()
+        with mock.patch.object(proton.imaplib, "IMAP4_SSL", IMAPSSL):
+            with proton.Bridge(cfg) as bridge:
+                self.assertEqual(bridge.security, "SSL")
+        self.assertEqual(connected, ["SSL"])
+
+    def test_starttls_is_used_when_implicit_ssl_is_rejected(self):
+        connected = []
+
+        class IMAP:
+            def __init__(self, *_args, **_kwargs):
+                connected.append("STARTTLS")
+
+            def starttls(self, _context):
+                pass
+
+            def login(self, _user, _password):
+                pass
+
+            def logout(self):
+                pass
+
+        _conn, cfg = self._context()
+        with mock.patch.object(proton.imaplib, "IMAP4_SSL",
+                               side_effect=proton.ssl.SSLError), \
+             mock.patch.object(proton.imaplib, "IMAP4", IMAP):
+            with proton.Bridge(cfg) as bridge:
+                self.assertEqual(bridge.security, "STARTTLS")
+        self.assertEqual(connected, ["STARTTLS"])
+
 
 class TestTheFirstEmailRunIsBounded(unittest.TestCase):
     """Proton had no date floor while every other source had one.

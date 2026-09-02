@@ -13,6 +13,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Proton Bridge email automatically uses implicit SSL or STARTTLS, matching the mode
+  selected in Bridge.
 - Temporal benchmarks no longer mutate a tracked score-history ledger during normal runs.
 - Event detail describes state in plain English.
 - Relevant open questions are reviewed beside their conversations and can be kept,
@@ -37,6 +39,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   regression check to keep them out.
 - Signing out of WhatsApp and into another account no longer lets reused local message
   IDs collide with or hide the earlier account's archive.
+- Proton Bridge login failures now identify stale mailbox credentials and explain how to
+  refresh them after a Proton account password change.
 
 ## [0.6.0] - 2026-08-14
 
