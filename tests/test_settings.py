@@ -15,7 +15,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from memcal import config, llm, settings, web, web_server, web_settings  # noqa: E402
+from memcal import (config, db, llm, settings, web, web_server,  # noqa: E402
+                    web_settings)
 from memcal.config import Config  # noqa: E402
 from memcal.dream import bundle as bundle_stage  # noqa: E402
 from memcal.dream import instructions  # noqa: E402
@@ -264,13 +265,107 @@ class TestThePagePayload(Base):
              if s["key"] == "MEMCAL_DAYS_BACK"], ["6"])
 
 
+class TestTheUsualAnswersAreOffered(Base):
+    """A free-text field is a question; a field that knows the usual answers is a form.
+
+    None of this narrows anything — every one of these fields still takes whatever is
+    typed into it. It exists so "which model?" is not asked by an empty box.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.conn = db.open_db(self.cfg.db_path)
+
+    def tearDown(self):
+        self.conn.close()
+        super().tearDown()
+
+    def test_every_field_that_takes_free_text_has_something_to_suggest(self):
+        found = web_settings.suggestions(self.cfg, self.conn)
+        combos = [s.key for s in settings.SETTINGS if s.kind == "combo"]
+        self.assertTrue(combos)
+        for key in combos:
+            with self.subTest(key=key):
+                self.assertTrue(found.get(key))
+
+    def test_models_are_named_the_way_the_chosen_provider_names_them(self):
+        # A CLI backend is configured with the bare native name; only OpenRouter takes
+        # the vendor-prefixed id. Offering the wrong shape is offering a broken value.
+        self.cfg.llm_provider = "codex"
+        codex = [row["value"] for row in
+                 web_settings.suggestions(self.cfg, self.conn)["MEMCAL_PROPOSE_MODEL"]]
+        self.assertIn("gpt-5.6-luna", codex)
+        self.assertFalse([m for m in codex if m.startswith("openai/")])
+
+        self.cfg.llm_provider = "openrouter"
+        router = [row["value"] for row in
+                  web_settings.suggestions(self.cfg, self.conn)["MEMCAL_PROPOSE_MODEL"]]
+        self.assertIn("openai/gpt-5.6-luna", router)
+
+    def test_a_provider_can_be_previewed_without_being_chosen(self):
+        found = web_settings.suggestions(self.cfg, self.conn, "claude-code")
+        values = [row["value"] for row in found["MEMCAL_PROPOSE_MODEL"]]
+        self.assertEqual(values[0], llm.PROVIDER_DEFAULT_MODELS["claude-code"])
+        self.assertEqual(self.cfg.llm_provider, "codex")     # nothing was changed
+
+    def test_what_this_store_has_actually_run_is_offered_first(self):
+        self.conn.execute(
+            """INSERT INTO generations
+               (generation_id, stage, model, prompt_tokens, completion_tokens,
+                cost_usd, created_at)
+               VALUES ('gen-1', 'propose', 'some/local-model', 10, 5, 0.1, '2026-01-01')""")
+        found = web_settings.suggestions(self.cfg, self.conn)["MEMCAL_PROPOSE_MODEL"]
+        used = [row for row in found if row["value"] == "some/local-model"]
+        self.assertEqual(len(used), 1)
+        self.assertIn("used here", used[0]["note"])
+
+    def test_a_calendar_memcal_has_read_is_offered_as_one_to_publish_to(self):
+        self.conn.execute(
+            """INSERT INTO calendar_items
+               (identity, calendar_uid, calendar_name, event_uid, event_key,
+                starts_at, last_seen_at, updated_at)
+               VALUES ('i1', 'c1', 'Home', 'e1', 'E1', '2026-01-01T00:00:00Z',
+                       '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')""")
+        found = web_settings.suggestions(self.cfg, self.conn)["MEMCAL_PUBLISH_CALENDAR"]
+        self.assertEqual([row["value"] for row in found][0], "Home")
+
+    def test_an_executable_on_the_path_is_offered_as_its_absolute_path(self):
+        self.cfg.codex_command = "sh"     # something every machine running this has
+        found = web_settings.suggestions(self.cfg, self.conn)["MEMCAL_CODEX_COMMAND"]
+        self.assertTrue(found[0]["value"].startswith("/"))
+        self.assertTrue(found[0]["value"].endswith("/sh"))
+
+    def test_the_catalog_prices_every_model_it_offers_for_a_cli_provider(self):
+        for native, priced_as in llm.catalog("claude-code"):
+            with self.subTest(model=native):
+                self.assertNotIn("/", native)
+                self.assertIsNotNone(llm.rates(priced_as))
+        self.assertEqual(llm.catalog("antigravity"), [])
+
+
+class TestStagesArePickedRatherThanSpelled(Base):
+    def test_the_offered_stages_are_the_ones_the_pass_can_run(self):
+        from memcal.dream import stages
+        row = [s for g in settings.snapshot(self.cfg)["groups"]
+               for s in g["settings"] if s["key"] == "MEMCAL_PROPOSE_STAGES"][0]
+        self.assertEqual(row["options"], list(stages.DEFAULT_ORDER))
+        self.assertEqual(row["kind"], "stages")
+
+    def test_a_picked_list_and_a_hand_written_on_both_survive_a_save(self):
+        settings.save(self.cfg, {"MEMCAL_PROPOSE_STAGES": "calendar,todos"})
+        self.assertEqual(self.cfg.propose_stages, "calendar,todos")
+        settings.save(self.cfg, {"MEMCAL_PROPOSE_STAGES": "on"})
+        self.assertEqual(config.load(self.home).propose_stages, "on")
+
+
 class TestTheTabIsWiredIntoThePage(unittest.TestCase):
     """The schema is only reachable if the shell, the router and the module agree."""
 
     def test_the_shell_has_the_tab_and_the_module_that_draws_it(self):
         source = web_server.frontend_source()
         for needle in ('data-view="settings"', 'id="view-settings"', "loadSettings",
-                       "/api/settings", "/api/settings_probe", 'id="setbar"'):
+                       "/api/settings", "/api/settings_probe", 'id="setbar"',
+                       'id="setnav"', "function combobox", "function stageChips"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, source)
 

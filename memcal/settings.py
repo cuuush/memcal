@@ -48,7 +48,10 @@ class Setting:
     label: str
     help: str
     group: str
-    kind: str = "text"                                  # text | int | choice | bool
+    #: How the tab asks for it. `combo` is free text that knows what the usual answers
+    #: are — a model, an executable, a calendar — and `stages` is the one field whose
+    #: value is a list, so it is picked rather than spelled.
+    kind: str = "text"              # text | int | choice | bool | combo | stages
     choices: tuple[tuple[str, str], ...] = ()
     minimum: int | None = None
     maximum: int | None = None
@@ -82,11 +85,14 @@ GROUPS: tuple[Group, ...] = (
           "name a destination, and both are scoped to this store."),
 )
 
+#: Short on purpose: a select shows one option at a time in a narrow control, and a
+#: label that has to be truncated to fit says less than a short one. What each provider
+#: is, is the group's own note.
 _PROVIDERS = (
-    ("codex", "Codex — programmatic mode"),
-    ("claude-code", "Claude Code — programmatic mode"),
-    ("antigravity", "Antigravity — programmatic mode"),
-    ("openrouter", "OpenRouter — API key"),
+    ("codex", "Codex"),
+    ("claude-code", "Claude Code"),
+    ("antigravity", "Antigravity"),
+    ("openrouter", "OpenRouter · API key"),
 )
 
 SETTINGS: tuple[Setting, ...] = (
@@ -98,15 +104,15 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("MEMCAL_PROPOSE_MODEL", "propose_model", "Propose model",
             "Reads the night's traffic and proposes what to write. This is where a "
             "pass spends most of its money.",
-            "provider", placeholder="provider default"),
+            "provider", kind="combo", placeholder="provider default"),
     Setting("MEMCAL_SWEEP_MODEL", "sweep_model", "Sweep model",
             "Revisits what the store already holds — stale rows, questions that "
             "answered themselves.",
-            "provider", placeholder="provider default"),
+            "provider", kind="combo", placeholder="provider default"),
     Setting("MEMCAL_MATCH_MODEL", "match_model", "Merge model",
             "Arbitrates whether two proposed rows are one occasion. It keeps its "
             "older name in the variable; the stage is called Merge.",
-            "provider", placeholder="provider default"),
+            "provider", kind="combo", placeholder="provider default"),
     Setting("MEMCAL_REASONING_EFFORT", "reasoning_effort", "Reasoning effort",
             "Overrides the per-model default. Higher costs more and is slower; on a "
             "short bundle it usually buys nothing.",
@@ -124,15 +130,15 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("MEMCAL_CODEX_COMMAND", "codex_command", "codex executable",
             "Absolute path is safest: the nightly agent does not inherit your shell's "
             "PATH.",
-            "provider", placeholder="codex"),
+            "provider", kind="combo", placeholder="codex"),
     Setting("MEMCAL_CLAUDE_COMMAND", "claude_command", "claude executable",
             "Absolute path is safest: the nightly agent does not inherit your shell's "
             "PATH.",
-            "provider", placeholder="claude"),
+            "provider", kind="combo", placeholder="claude"),
     Setting("MEMCAL_AGY_COMMAND", "agy_command", "agy executable",
             "Absolute path is safest: the nightly agent does not inherit your shell's "
             "PATH.",
-            "provider", placeholder="agy"),
+            "provider", kind="combo", placeholder="agy"),
 
     # --------------------------------------------------------------------- brief --
     Setting("MEMCAL_DAYS_BACK", "days_back", "Days back",
@@ -161,9 +167,9 @@ SETTINGS: tuple[Setting, ...] = (
             "evidence, not an instruction — you may have muted a group whose plans "
             "still concern you.",
             "collect", kind="choice",
-            choices=(("show", "show — archive it, do not treat it as a signal"),
-                     ("ask", "ask — put it up for review"),
-                     ("mute", "mute — take the platform's word for it"))),
+            choices=(("show", "show · archive, not a signal"),
+                     ("ask", "ask · put it up for review"),
+                     ("mute", "mute · take their word for it"))),
     Setting("MEMCAL_ITEM_BUDGET", "item_budget", "Lines per pass",
             "The total number of spooled lines one pass may read. What does not fit "
             "waits for the next pass rather than being dropped.",
@@ -190,8 +196,8 @@ SETTINGS: tuple[Setting, ...] = (
             "Affinity puts conversations that look like they are about the same "
             "occasion in one request, so the model can see they are.",
             "dream", kind="choice",
-            choices=(("size", "size — pack by token size"),
-                     ("affinity", "affinity — group related conversations"))),
+            choices=(("size", "size · by token size"),
+                     ("affinity", "affinity · by what relates"))),
     Setting("MEMCAL_AFFINITY_NEAR_DAYS", "affinity_near_days", "Affinity window",
             "How far apart two references may be and still count as the same "
             "occasion. Only used by the affinity strategy.",
@@ -200,19 +206,20 @@ SETTINGS: tuple[Setting, ...] = (
             "v2 asks for a list of the bundles it reviewed plus diffs only where "
             "something changed, which is both cheaper and checkable.",
             "dream", kind="choice",
-            choices=(("v2", "v2 — reviewed list plus changed bundles"),
-                     ("v1", "v1 — one diff per bundle"))),
+            choices=(("v2", "v2 · reviewed + diffs"),
+                     ("v1", "v1 · a diff per bundle"))),
     Setting("MEMCAL_PROPOSE_STAGES", "propose_stages", "Propose stages",
-            "Empty asks for everything in one answer. `on` splits it into calendar, "
-            "todos, pages, questions — more calls, more focus per call. A "
-            "comma-separated list runs exactly those, in that order.",
-            "dream", placeholder="off — one call"),
+            "Pick none and one answer covers everything. Pick some and the same "
+            "bundles are read once per stage — more calls, more attention on each, and "
+            "each stage can see what the ones before it wrote. They always run in the "
+            "order shown.",
+            "dream", kind="stages", placeholder="off — one call"),
     Setting("MEMCAL_BUNDLE_FORMAT", "bundle_format", "Bundle wire format",
             "How a bundle is laid out in the prompt. The quiet variant drops the "
             "stream tag from every line of a single-stream bundle.",
             "dream", kind="choice",
-            choices=(("v1", "v1 — stream tag on every line"),
-                     ("v2-quiet-stream", "v2 — quiet stream tags"))),
+            choices=(("v1", "v1 · a tag on every line"),
+                     ("v2-quiet-stream", "v2 · quiet stream tags"))),
 
     # --------------------------------------------------------------------- merge --
     Setting("MEMCAL_SAME_EVENT_TOKENS", "same_event_tokens", "Title words that match",
@@ -229,11 +236,11 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("MEMCAL_PUBLISH_CALENDAR", "publish_calendar", "Publish to calendar",
             "The name of a macOS calendar to write confirmed commitments into. Empty "
             "means memcal never writes to your calendar.",
-            "publish", placeholder="off", store_scoped=True),
+            "publish", kind="combo", placeholder="off", store_scoped=True),
     Setting("MEMCAL_PUBLISH_REMINDERS", "publish_reminders", "Publish to Reminders",
             "The name of a Reminders list for to-do reminder timestamps. Empty means "
             "memcal never writes to Reminders.",
-            "publish", placeholder="off", store_scoped=True),
+            "publish", kind="combo", placeholder="off", store_scoped=True),
     Setting("MEMCAL_REMIND_DEADLINES", "remind_deadlines", "Schedule deadline reminders",
             "Whether an obligation with a deadline gets a reminder timestamp at all. "
             "With no Reminders list named above, this stays internal.",
@@ -328,6 +335,12 @@ def shadowed_by(setting: Setting, files: list[tuple[str, Path, dict[str, str]]])
     return ""
 
 
+def stage_names() -> list[str]:
+    """The stages `propose_stages` may name, in the order they have to run in."""
+    from .dream import stages                                      # noqa: PLC0415
+    return list(stages.DEFAULT_ORDER)
+
+
 def snapshot(cfg: Config) -> dict:
     """Every setting, its value, its default, and which file that value came from."""
     files = _file_values(cfg)
@@ -342,6 +355,9 @@ def snapshot(cfg: Config) -> dict:
                 "key": setting.key, "attr": setting.attr, "label": setting.label,
                 "help": setting.help, "kind": setting.kind,
                 "choices": [{"value": v, "label": text} for v, text in setting.choices],
+                # For the one list-valued field, the stages themselves — named by the
+                # module that runs them, so a renamed stage cannot linger in the UI.
+                "options": stage_names() if setting.kind == "stages" else [],
                 "min": setting.minimum, "max": setting.maximum,
                 "unit": setting.unit, "placeholder": setting.placeholder,
                 "scope": "store" if setting.store_scoped else "everywhere",
@@ -410,10 +426,10 @@ def coerce(setting: Setting, raw, *, provider: str = "") -> tuple[str, object]:
             raise SettingsError(
                 f"{setting.label} is one of {', '.join(v or 'empty' for v in allowed)}")
         return text, text
-    if setting.key == "MEMCAL_PROPOSE_STAGES":
-        # The one free-text field with a parser behind it. Saving a typo here fails the
-        # next pass at the point where it has already spent the collect, which is a bad
-        # place to find out.
+    if setting.kind == "stages":
+        # The tab picks these rather than spelling them, but the field is still a list
+        # in a file: a value typed elsewhere, or a stage renamed since, fails the next
+        # pass at the point where it has already spent the collect.
         from .dream import stages                                  # noqa: PLC0415
         try:
             stages.parse(text)

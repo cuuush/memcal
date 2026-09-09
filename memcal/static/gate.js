@@ -259,6 +259,10 @@ $("#shape").onclick = e => {
     x.setAttribute("aria-pressed", String(x === b)));
   loadFeed(true);
 };
+// Scoped to this tab: `/` used to reach past whatever view was open and focus a search
+// box the person could not see, which reads as the key doing nothing.
 document.addEventListener("keydown", e => {
-  if (e.key === "/" && e.target.tagName !== "INPUT") { e.preventDefault(); $("#q").focus(); }
+  if (e.key === "/" && state.view === "gate" && e.target.tagName !== "INPUT") {
+    e.preventDefault(); $("#q").focus();
+  }
 });
