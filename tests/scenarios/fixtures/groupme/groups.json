@@ -1,0 +1,238 @@
+[
+ {
+  "id": "101",
+  "name": "poker crew",
+  "type": "private",
+  "updated_at": 1785887040,
+  "muted_until": null,
+  "members": [
+   {
+    "user_id": "88000",
+    "nickname": "Casey"
+   },
+   {
+    "user_id": "88001",
+    "nickname": "Jordan Lee"
+   },
+   {
+    "user_id": "88002",
+    "nickname": "Alex Rivera"
+   },
+   {
+    "user_id": "88003",
+    "nickname": "Cameron Ortiz"
+   }
+  ],
+  "messages": {
+   "count": 8,
+   "last_message_id": "17858870400007",
+   "last_message_created_at": 1785887040
+  }
+ },
+ {
+  "id": "102",
+  "name": "brunch sunday",
+  "type": "private",
+  "updated_at": 1785883800,
+  "muted_until": null,
+  "members": [
+   {
+    "user_id": "88000",
+    "nickname": "Casey"
+   },
+   {
+    "user_id": "88008",
+    "nickname": "Skyler Reed"
+   },
+   {
+    "user_id": "88009",
+    "nickname": "Devon Park"
+   }
+  ],
+  "messages": {
+   "count": 6,
+   "last_message_id": "17858838000005",
+   "last_message_created_at": 1785883800
+  }
+ },
+ {
+  "id": "103",
+  "name": "beer garden",
+  "type": "private",
+  "updated_at": 1785792300,
+  "muted_until": null,
+  "members": [
+   {
+    "user_id": "88000",
+    "nickname": "Casey"
+   },
+   {
+    "user_id": "88003",
+    "nickname": "Cameron Ortiz"
+   },
+   {
+    "user_id": "88002",
+    "nickname": "Alex Rivera"
+   }
+  ],
+  "messages": {
+   "count": 4,
+   "last_message_id": "17857923000003",
+   "last_message_created_at": 1785792300
+  }
+ },
+ {
+  "id": "104",
+  "name": "block party",
+  "type": "private",
+  "updated_at": 1785867900,
+  "muted_until": null,
+  "members": [
+   {
+    "user_id": "88000",
+    "nickname": "Casey"
+   },
+   {
+    "user_id": "88009",
+    "nickname": "Devon Park"
+   },
+   {
+    "user_id": "88010",
+    "nickname": "Bailey Stone"
+   }
+  ],
+  "messages": {
+   "count": 9,
+   "last_message_id": "17858679000008",
+   "last_message_created_at": 1785867900
+  }
+ },
+ {
+  "id": "105",
+  "name": "smash bros",
+  "type": "private",
+  "updated_at": 1785974820,
+  "muted_until": null,
+  "members": [
+   {
+    "user_id": "88000",
+    "nickname": "Casey"
+   },
+   {
+    "user_id": "88001",
+    "nickname": "Jordan Lee"
+   },
+   {
+    "user_id": "88002",
+    "nickname": "Alex Rivera"
+   },
+   {
+    "user_id": "88003",
+    "nickname": "Cameron Ortiz"
+   },
+   {
+    "user_id": "88005",
+    "nickname": "Riley Morgan"
+   },
+   {
+    "user_id": "0",
+    "nickname": "GroupMe"
+   }
+  ],
+  "messages": {
+   "count": 47,
+   "last_message_id": "17859748200046",
+   "last_message_created_at": 1785974820
+  }
+ },
+ {
+  "id": "106",
+  "name": "board game night",
+  "type": "private",
+  "updated_at": 1785784080,
+  "muted_until": null,
+  "members": [
+   {
+    "user_id": "88000",
+    "nickname": "Casey"
+   },
+   {
+    "user_id": "88012",
+    "nickname": "Jose"
+   },
+   {
+    "user_id": "88013",
+    "nickname": "Quinn Brooks"
+   }
+  ],
+  "messages": {
+   "count": 3,
+   "last_message_id": "17857840800002",
+   "last_message_created_at": 1785784080
+  }
+ },
+ {
+  "id": "107",
+  "name": "emoji noise",
+  "type": "private",
+  "updated_at": 1785769320,
+  "muted_until": null,
+  "members": [
+   {
+    "user_id": "88000",
+    "nickname": "Casey"
+   },
+   {
+    "user_id": "88012",
+    "nickname": "Jose"
+   },
+   {
+    "user_id": "88013",
+    "nickname": "Quinn Brooks"
+   }
+  ],
+  "messages": {
+   "count": 1,
+   "last_message_id": "17857693200000",
+   "last_message_created_at": 1785769320
+  }
+ },
+ {
+  "id": "108",
+  "name": "rave chat",
+  "type": "private",
+  "updated_at": 1785950520,
+  "muted_until": null,
+  "members": [
+   {
+    "user_id": "88000",
+    "nickname": "Casey"
+   },
+   {
+    "user_id": "88001",
+    "nickname": "Jordan Lee"
+   },
+   {
+    "user_id": "88002",
+    "nickname": "Alex Rivera"
+   },
+   {
+    "user_id": "88003",
+    "nickname": "Cameron Ortiz"
+   },
+   {
+    "user_id": "88005",
+    "nickname": "Riley Morgan"
+   },
+   {
+    "user_id": "88012",
+    "nickname": "Jose"
+   }
+  ],
+  "messages": {
+   "count": 5,
+   "last_message_id": "17859505200004",
+   "last_message_created_at": 1785950520
+  }
+ }
+]

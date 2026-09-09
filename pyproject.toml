@@ -1,0 +1,30 @@
+[project]
+name = "memcal"
+version = "0.6.0"
+description = "A calendar and a to-do list that live in context, fed by the streams you already get."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+memcal = "memcal.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# The filesystem is the declaration. An explicit `packages` list does not walk
+# subpackages of the entries in it, so `memcal.sources.providers` — a real package that
+# `ical.py` imports unconditionally — was on disk and absent from every wheel, and the
+# iCal connector raised ImportError on any `pip install .`. Nothing caught it because
+# nothing does that: `install.sh` runs from the checkout with PYTHONPATH. Naming the
+# fourth package would have fixed this instance; `find` makes a fifth impossible.
+[tool.setuptools.packages.find]
+include = ["memcal*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+memcal = ["schema.sql", "webui.html", "static/*.css", "static/*.js"]
+
+# Third-party sources advertise themselves here:
+#   [project.entry-points."memcal.sources"]
+#   slack = "my_package.slack:SlackSource"

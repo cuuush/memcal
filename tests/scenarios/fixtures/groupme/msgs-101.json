@@ -1,0 +1,98 @@
+[
+ {
+  "id": "17857951200000",
+  "created_at": 1785795120,
+  "user_id": "88001",
+  "name": "Jordan Lee",
+  "text": "yo poker at mine friday? 8ish",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "101",
+  "source_guid": "fixture-pk01-0"
+ },
+ {
+  "id": "17857952400001",
+  "created_at": 1785795240,
+  "user_id": "88002",
+  "name": "Alex Rivera",
+  "text": "im in",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "101",
+  "source_guid": "fixture-pk02-1"
+ },
+ {
+  "id": "17857953000002",
+  "created_at": 1785795300,
+  "user_id": "88003",
+  "name": "Cameron Ortiz",
+  "text": "whats the buyin",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "101",
+  "source_guid": "fixture-pk03-2"
+ },
+ {
+  "id": "17857953600003",
+  "created_at": 1785795360,
+  "user_id": "88001",
+  "name": "Jordan Lee",
+  "text": "40 like always",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "101",
+  "source_guid": "fixture-pk04-3"
+ },
+ {
+  "id": "17857962600004",
+  "created_at": 1785796260,
+  "user_id": "88000",
+  "name": "Casey",
+  "text": "im in, friday works",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "101",
+  "source_guid": "fixture-pk05-4"
+ },
+ {
+  "id": "17857963800005",
+  "created_at": 1785796380,
+  "user_id": "88003",
+  "name": "Cameron Ortiz",
+  "text": "bout to get destroyed",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "101",
+  "source_guid": "fixture-pk06-5"
+ },
+ {
+  "id": "17858868000006",
+  "created_at": 1785886800,
+  "user_id": "88003",
+  "name": "Cameron Ortiz",
+  "text": "wait wasnt it friday",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "101",
+  "source_guid": "fixture-pk20-6"
+ },
+ {
+  "id": "17858870400007",
+  "created_at": 1785887040,
+  "user_id": "88002",
+  "name": "Alex Rivera",
+  "text": "nah saturday at my place",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "101",
+  "source_guid": "fixture-pk21-7"
+ }
+]
