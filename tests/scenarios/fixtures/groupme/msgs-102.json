@@ -1,0 +1,74 @@
+[
+ {
+  "id": "17857873200000",
+  "created_at": 1785787320,
+  "user_id": "88008",
+  "name": "Skyler Reed",
+  "text": "brunch sunday 11am laurent's?",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "102",
+  "source_guid": "fixture-br01-0"
+ },
+ {
+  "id": "17857875000001",
+  "created_at": 1785787500,
+  "user_id": "88009",
+  "name": "Devon Park",
+  "text": "yesss",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "102",
+  "source_guid": "fixture-br02-1"
+ },
+ {
+  "id": "17857884000002",
+  "created_at": 1785788400,
+  "user_id": "88000",
+  "name": "Casey",
+  "text": "im in",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "102",
+  "source_guid": "fixture-br03-2"
+ },
+ {
+  "id": "17857885200003",
+  "created_at": 1785788520,
+  "user_id": "88008",
+  "name": "Skyler Reed",
+  "text": "gonna book for 3",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "102",
+  "source_guid": "fixture-br04-3"
+ },
+ {
+  "id": "17858835000004",
+  "created_at": 1785883500,
+  "user_id": "88009",
+  "name": "Devon Park",
+  "text": "cant wait for sunday!!! see everyone then",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "102",
+  "source_guid": "fixture-br20-4"
+ },
+ {
+  "id": "17858838000005",
+  "created_at": 1785883800,
+  "user_id": "88008",
+  "name": "Skyler Reed",
+  "text": "yup",
+  "system": false,
+  "favorited_by": [],
+  "attachments": [],
+  "group_id": "102",
+  "source_guid": "fixture-br21-5"
+ }
+]

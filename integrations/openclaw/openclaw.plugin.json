@@ -1,0 +1,18 @@
+{
+  "id": "memcal",
+  "name": "Memcal",
+  "description": "Fresh personal context and inbound-turn archival for memcal",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "memcalHome": {"type": "string"},
+      "memcalSrc": {"type": "string"},
+      "pythonCommand": {"type": "string"},
+      "agentId": {"type": "string"}
+    }
+  }
+}

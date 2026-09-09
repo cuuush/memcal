@@ -1,0 +1,1298 @@
+[
+ {
+  "letters": 85754,
+  "spaces": 24419,
+  "digits": 12796,
+  "marks": 10922,
+  "wide": 630,
+  "tokens": 45387
+ },
+ {
+  "letters": 30787,
+  "spaces": 9020,
+  "digits": 2731,
+  "marks": 2786,
+  "wide": 207,
+  "tokens": 14304
+ },
+ {
+  "letters": 21075,
+  "spaces": 6024,
+  "digits": 1193,
+  "marks": 1904,
+  "wide": 144,
+  "tokens": 9375
+ },
+ {
+  "letters": 30330,
+  "spaces": 9089,
+  "digits": 2672,
+  "marks": 2821,
+  "wide": 207,
+  "tokens": 14038
+ },
+ {
+  "letters": 75702,
+  "spaces": 22800,
+  "digits": 9623,
+  "marks": 7039,
+  "wide": 698,
+  "tokens": 37881
+ },
+ {
+  "letters": 57271,
+  "spaces": 16901,
+  "digits": 6746,
+  "marks": 5239,
+  "wide": 481,
+  "tokens": 27929
+ },
+ {
+  "letters": 33759,
+  "spaces": 9662,
+  "digits": 3106,
+  "marks": 3103,
+  "wide": 240,
+  "tokens": 15634
+ },
+ {
+  "letters": 24396,
+  "spaces": 7041,
+  "digits": 1802,
+  "marks": 2454,
+  "wide": 209,
+  "tokens": 11268
+ },
+ {
+  "letters": 40732,
+  "spaces": 11938,
+  "digits": 3604,
+  "marks": 3725,
+  "wide": 428,
+  "tokens": 18969
+ },
+ {
+  "letters": 16758,
+  "spaces": 4549,
+  "digits": 573,
+  "marks": 1390,
+  "wide": 124,
+  "tokens": 6933
+ },
+ {
+  "letters": 1539,
+  "spaces": 350,
+  "digits": 33,
+  "marks": 95,
+  "wide": 2,
+  "tokens": 612
+ },
+ {
+  "letters": 1303,
+  "spaces": 294,
+  "digits": 44,
+  "marks": 67,
+  "wide": 2,
+  "tokens": 553
+ },
+ {
+  "letters": 1235,
+  "spaces": 284,
+  "digits": 21,
+  "marks": 64,
+  "wide": 2,
+  "tokens": 518
+ },
+ {
+  "letters": 43301,
+  "spaces": 13345,
+  "digits": 3862,
+  "marks": 3353,
+  "wide": 684,
+  "tokens": 18809
+ },
+ {
+  "letters": 32437,
+  "spaces": 9308,
+  "digits": 2342,
+  "marks": 2873,
+  "wide": 328,
+  "tokens": 14348
+ },
+ {
+  "letters": 22317,
+  "spaces": 6506,
+  "digits": 2298,
+  "marks": 2651,
+  "wide": 158,
+  "tokens": 10423
+ },
+ {
+  "letters": 17866,
+  "spaces": 4933,
+  "digits": 730,
+  "marks": 1499,
+  "wide": 104,
+  "tokens": 7354
+ },
+ {
+  "letters": 15005,
+  "spaces": 4006,
+  "digits": 418,
+  "marks": 1186,
+  "wide": 83,
+  "tokens": 6070
+ },
+ {
+  "letters": 18714,
+  "spaces": 5624,
+  "digits": 671,
+  "marks": 1535,
+  "wide": 498,
+  "tokens": 8321
+ },
+ {
+  "letters": 25983,
+  "spaces": 7140,
+  "digits": 2377,
+  "marks": 1956,
+  "wide": 194,
+  "tokens": 10838
+ },
+ {
+  "letters": 14940,
+  "spaces": 3937,
+  "digits": 347,
+  "marks": 1122,
+  "wide": 79,
+  "tokens": 5922
+ },
+ {
+  "letters": 18951,
+  "spaces": 5165,
+  "digits": 793,
+  "marks": 1574,
+  "wide": 105,
+  "tokens": 7648
+ },
+ {
+  "letters": 29787,
+  "spaces": 9854,
+  "digits": 5367,
+  "marks": 5032,
+  "wide": 258,
+  "tokens": 15763
+ },
+ {
+  "letters": 22352,
+  "spaces": 6407,
+  "digits": 940,
+  "marks": 1779,
+  "wide": 203,
+  "tokens": 8890
+ },
+ {
+  "letters": 16025,
+  "spaces": 4307,
+  "digits": 590,
+  "marks": 1336,
+  "wide": 86,
+  "tokens": 6550
+ },
+ {
+  "letters": 17358,
+  "spaces": 4895,
+  "digits": 668,
+  "marks": 1415,
+  "wide": 179,
+  "tokens": 7295
+ },
+ {
+  "letters": 18914,
+  "spaces": 5840,
+  "digits": 636,
+  "marks": 1755,
+  "wide": 506,
+  "tokens": 8757
+ },
+ {
+  "letters": 16287,
+  "spaces": 4379,
+  "digits": 590,
+  "marks": 1370,
+  "wide": 92,
+  "tokens": 6621
+ },
+ {
+  "letters": 15054,
+  "spaces": 3960,
+  "digits": 326,
+  "marks": 1141,
+  "wide": 80,
+  "tokens": 5969
+ },
+ {
+  "letters": 19080,
+  "spaces": 5283,
+  "digits": 704,
+  "marks": 1545,
+  "wide": 114,
+  "tokens": 7651
+ },
+ {
+  "letters": 15811,
+  "spaces": 4235,
+  "digits": 546,
+  "marks": 1305,
+  "wide": 93,
+  "tokens": 6448
+ },
+ {
+  "letters": 23046,
+  "spaces": 7544,
+  "digits": 1258,
+  "marks": 2012,
+  "wide": 163,
+  "tokens": 9961
+ },
+ {
+  "letters": 1443,
+  "spaces": 327,
+  "digits": 43,
+  "marks": 92,
+  "wide": 2,
+  "tokens": 606
+ },
+ {
+  "letters": 4054,
+  "spaces": 1119,
+  "digits": 581,
+  "marks": 440,
+  "wide": 11,
+  "tokens": 1974
+ },
+ {
+  "letters": 43824,
+  "spaces": 12390,
+  "digits": 2641,
+  "marks": 4133,
+  "wide": 202,
+  "tokens": 17320
+ },
+ {
+  "letters": 21924,
+  "spaces": 6086,
+  "digits": 1359,
+  "marks": 2029,
+  "wide": 128,
+  "tokens": 9664
+ },
+ {
+  "letters": 34370,
+  "spaces": 9576,
+  "digits": 1687,
+  "marks": 3319,
+  "wide": 108,
+  "tokens": 12951
+ },
+ {
+  "letters": 1383,
+  "spaces": 312,
+  "digits": 35,
+  "marks": 73,
+  "wide": 2,
+  "tokens": 561
+ },
+ {
+  "letters": 15550,
+  "spaces": 4074,
+  "digits": 429,
+  "marks": 1219,
+  "wide": 79,
+  "tokens": 6224
+ },
+ {
+  "letters": 23829,
+  "spaces": 6481,
+  "digits": 1364,
+  "marks": 2085,
+  "wide": 157,
+  "tokens": 10264
+ },
+ {
+  "letters": 15902,
+  "spaces": 4135,
+  "digits": 471,
+  "marks": 1263,
+  "wide": 80,
+  "tokens": 6371
+ },
+ {
+  "letters": 22455,
+  "spaces": 6173,
+  "digits": 1482,
+  "marks": 2006,
+  "wide": 172,
+  "tokens": 9668
+ },
+ {
+  "letters": 17489,
+  "spaces": 4626,
+  "digits": 864,
+  "marks": 1374,
+  "wide": 95,
+  "tokens": 7105
+ },
+ {
+  "letters": 18503,
+  "spaces": 5382,
+  "digits": 790,
+  "marks": 1499,
+  "wide": 489,
+  "tokens": 8292
+ },
+ {
+  "letters": 2699,
+  "spaces": 679,
+  "digits": 376,
+  "marks": 298,
+  "wide": 3,
+  "tokens": 1318
+ },
+ {
+  "letters": 23763,
+  "spaces": 6337,
+  "digits": 1505,
+  "marks": 2172,
+  "wide": 122,
+  "tokens": 10137
+ },
+ {
+  "letters": 45439,
+  "spaces": 12159,
+  "digits": 4407,
+  "marks": 5961,
+  "wide": 228,
+  "tokens": 20213
+ },
+ {
+  "letters": 18878,
+  "spaces": 4922,
+  "digits": 832,
+  "marks": 1575,
+  "wide": 88,
+  "tokens": 7666
+ },
+ {
+  "letters": 28414,
+  "spaces": 7705,
+  "digits": 2058,
+  "marks": 2670,
+  "wide": 164,
+  "tokens": 12603
+ },
+ {
+  "letters": 18999,
+  "spaces": 4937,
+  "digits": 823,
+  "marks": 1622,
+  "wide": 90,
+  "tokens": 7736
+ },
+ {
+  "letters": 24113,
+  "spaces": 6795,
+  "digits": 1101,
+  "marks": 1973,
+  "wide": 159,
+  "tokens": 9634
+ },
+ {
+  "letters": 3453,
+  "spaces": 825,
+  "digits": 604,
+  "marks": 472,
+  "wide": 4,
+  "tokens": 1794
+ },
+ {
+  "letters": 26372,
+  "spaces": 6984,
+  "digits": 1778,
+  "marks": 2370,
+  "wide": 135,
+  "tokens": 10948
+ },
+ {
+  "letters": 21920,
+  "spaces": 5542,
+  "digits": 1054,
+  "marks": 2004,
+  "wide": 93,
+  "tokens": 8951
+ },
+ {
+  "letters": 3567,
+  "spaces": 869,
+  "digits": 514,
+  "marks": 438,
+  "wide": 4,
+  "tokens": 1748
+ },
+ {
+  "letters": 22062,
+  "spaces": 5736,
+  "digits": 1120,
+  "marks": 2008,
+  "wide": 95,
+  "tokens": 9106
+ },
+ {
+  "letters": 25373,
+  "spaces": 6707,
+  "digits": 1817,
+  "marks": 2303,
+  "wide": 98,
+  "tokens": 10682
+ },
+ {
+  "letters": 18843,
+  "spaces": 4830,
+  "digits": 726,
+  "marks": 1546,
+  "wide": 77,
+  "tokens": 7521
+ },
+ {
+  "letters": 3206,
+  "spaces": 757,
+  "digits": 473,
+  "marks": 413,
+  "wide": 3,
+  "tokens": 1595
+ },
+ {
+  "letters": 27548,
+  "spaces": 7353,
+  "digits": 1978,
+  "marks": 2458,
+  "wide": 136,
+  "tokens": 11674
+ },
+ {
+  "letters": 20519,
+  "spaces": 5298,
+  "digits": 907,
+  "marks": 1773,
+  "wide": 86,
+  "tokens": 8291
+ },
+ {
+  "letters": 3036,
+  "spaces": 713,
+  "digits": 375,
+  "marks": 362,
+  "wide": 2,
+  "tokens": 1439
+ },
+ {
+  "letters": 18006,
+  "spaces": 4732,
+  "digits": 463,
+  "marks": 1396,
+  "wide": 80,
+  "tokens": 7018
+ },
+ {
+  "letters": 21085,
+  "spaces": 5833,
+  "digits": 834,
+  "marks": 1684,
+  "wide": 98,
+  "tokens": 8395
+ },
+ {
+  "letters": 33471,
+  "spaces": 9600,
+  "digits": 3032,
+  "marks": 2866,
+  "wide": 227,
+  "tokens": 14217
+ },
+ {
+  "letters": 22393,
+  "spaces": 6318,
+  "digits": 1699,
+  "marks": 2219,
+  "wide": 118,
+  "tokens": 9509
+ },
+ {
+  "letters": 20376,
+  "spaces": 5406,
+  "digits": 636,
+  "marks": 1528,
+  "wide": 78,
+  "tokens": 7981
+ },
+ {
+  "letters": 1310,
+  "spaces": 288,
+  "digits": 25,
+  "marks": 71,
+  "wide": 2,
+  "tokens": 547
+ },
+ {
+  "letters": 3930,
+  "spaces": 966,
+  "digits": 345,
+  "marks": 344,
+  "wide": 12,
+  "tokens": 1675
+ },
+ {
+  "letters": 20880,
+  "spaces": 5652,
+  "digits": 779,
+  "marks": 1563,
+  "wide": 88,
+  "tokens": 8101
+ },
+ {
+  "letters": 3043,
+  "spaces": 741,
+  "digits": 212,
+  "marks": 255,
+  "wide": 12,
+  "tokens": 1285
+ },
+ {
+  "letters": 42687,
+  "spaces": 12791,
+  "digits": 4741,
+  "marks": 4286,
+  "wide": 251,
+  "tokens": 21323
+ },
+ {
+  "letters": 49349,
+  "spaces": 13058,
+  "digits": 3213,
+  "marks": 4569,
+  "wide": 502,
+  "tokens": 18842
+ },
+ {
+  "letters": 17526,
+  "spaces": 4499,
+  "digits": 420,
+  "marks": 1345,
+  "wide": 78,
+  "tokens": 7170
+ },
+ {
+  "letters": 45361,
+  "spaces": 13871,
+  "digits": 5668,
+  "marks": 4990,
+  "wide": 326,
+  "tokens": 23273
+ },
+ {
+  "letters": 35660,
+  "spaces": 10291,
+  "digits": 3132,
+  "marks": 3522,
+  "wide": 251,
+  "tokens": 16973
+ },
+ {
+  "letters": 32419,
+  "spaces": 8959,
+  "digits": 2541,
+  "marks": 3227,
+  "wide": 228,
+  "tokens": 14778
+ },
+ {
+  "letters": 19534,
+  "spaces": 5084,
+  "digits": 707,
+  "marks": 1655,
+  "wide": 91,
+  "tokens": 8195
+ },
+ {
+  "letters": 23375,
+  "spaces": 6096,
+  "digits": 1119,
+  "marks": 2017,
+  "wide": 123,
+  "tokens": 9843
+ },
+ {
+  "letters": 19763,
+  "spaces": 5089,
+  "digits": 755,
+  "marks": 1698,
+  "wide": 90,
+  "tokens": 8231
+ },
+ {
+  "letters": 18475,
+  "spaces": 4692,
+  "digits": 527,
+  "marks": 1438,
+  "wide": 76,
+  "tokens": 7506
+ },
+ {
+  "letters": 20181,
+  "spaces": 5234,
+  "digits": 870,
+  "marks": 1719,
+  "wide": 120,
+  "tokens": 8387
+ },
+ {
+  "letters": 18413,
+  "spaces": 4695,
+  "digits": 612,
+  "marks": 1495,
+  "wide": 79,
+  "tokens": 7573
+ },
+ {
+  "letters": 4520,
+  "spaces": 1076,
+  "digits": 471,
+  "marks": 443,
+  "wide": 12,
+  "tokens": 1949
+ },
+ {
+  "letters": 31271,
+  "spaces": 8474,
+  "digits": 2222,
+  "marks": 2954,
+  "wide": 174,
+  "tokens": 14063
+ },
+ {
+  "letters": 19665,
+  "spaces": 5149,
+  "digits": 753,
+  "marks": 1616,
+  "wide": 87,
+  "tokens": 8251
+ },
+ {
+  "letters": 3113,
+  "spaces": 740,
+  "digits": 338,
+  "marks": 314,
+  "wide": 3,
+  "tokens": 1405
+ },
+ {
+  "letters": 37550,
+  "spaces": 10380,
+  "digits": 3262,
+  "marks": 3760,
+  "wide": 287,
+  "tokens": 17223
+ },
+ {
+  "letters": 24374,
+  "spaces": 6905,
+  "digits": 1610,
+  "marks": 2374,
+  "wide": 141,
+  "tokens": 11100
+ },
+ {
+  "letters": 20072,
+  "spaces": 5346,
+  "digits": 1073,
+  "marks": 1872,
+  "wide": 99,
+  "tokens": 8864
+ },
+ {
+  "letters": 1275,
+  "spaces": 289,
+  "digits": 35,
+  "marks": 62,
+  "wide": 2,
+  "tokens": 538
+ },
+ {
+  "letters": 3106,
+  "spaces": 786,
+  "digits": 419,
+  "marks": 343,
+  "wide": 3,
+  "tokens": 1508
+ },
+ {
+  "letters": 18068,
+  "spaces": 4680,
+  "digits": 656,
+  "marks": 1486,
+  "wide": 78,
+  "tokens": 7556
+ },
+ {
+  "letters": 29876,
+  "spaces": 7998,
+  "digits": 2089,
+  "marks": 2932,
+  "wide": 207,
+  "tokens": 13156
+ },
+ {
+  "letters": 4027,
+  "spaces": 925,
+  "digits": 375,
+  "marks": 389,
+  "wide": 3,
+  "tokens": 1694
+ },
+ {
+  "letters": 19083,
+  "spaces": 4876,
+  "digits": 578,
+  "marks": 1527,
+  "wide": 87,
+  "tokens": 7817
+ },
+ {
+  "letters": 23052,
+  "spaces": 6116,
+  "digits": 1348,
+  "marks": 2188,
+  "wide": 113,
+  "tokens": 10173
+ },
+ {
+  "letters": 18360,
+  "spaces": 4684,
+  "digits": 509,
+  "marks": 1428,
+  "wide": 78,
+  "tokens": 7480
+ },
+ {
+  "letters": 18121,
+  "spaces": 4610,
+  "digits": 496,
+  "marks": 1415,
+  "wide": 77,
+  "tokens": 7399
+ },
+ {
+  "letters": 3586,
+  "spaces": 817,
+  "digits": 352,
+  "marks": 364,
+  "wide": 3,
+  "tokens": 1555
+ },
+ {
+  "letters": 24184,
+  "spaces": 6425,
+  "digits": 1536,
+  "marks": 2244,
+  "wide": 147,
+  "tokens": 10605
+ },
+ {
+  "letters": 19315,
+  "spaces": 4983,
+  "digits": 793,
+  "marks": 1712,
+  "wide": 86,
+  "tokens": 8163
+ },
+ {
+  "letters": 17532,
+  "spaces": 4468,
+  "digits": 430,
+  "marks": 1377,
+  "wide": 75,
+  "tokens": 7168
+ },
+ {
+  "letters": 36843,
+  "spaces": 9981,
+  "digits": 3275,
+  "marks": 3369,
+  "wide": 258,
+  "tokens": 16281
+ },
+ {
+  "letters": 4085,
+  "spaces": 949,
+  "digits": 407,
+  "marks": 419,
+  "wide": 3,
+  "tokens": 1777
+ },
+ {
+  "letters": 45708,
+  "spaces": 11893,
+  "digits": 3574,
+  "marks": 5166,
+  "wide": 587,
+  "tokens": 22109
+ },
+ {
+  "letters": 19604,
+  "spaces": 5079,
+  "digits": 797,
+  "marks": 1730,
+  "wide": 93,
+  "tokens": 8260
+ },
+ {
+  "letters": 21897,
+  "spaces": 5789,
+  "digits": 785,
+  "marks": 2200,
+  "wide": 274,
+  "tokens": 10026
+ },
+ {
+  "letters": 23861,
+  "spaces": 6171,
+  "digits": 1288,
+  "marks": 2244,
+  "wide": 386,
+  "tokens": 10505
+ },
+ {
+  "letters": 20899,
+  "spaces": 5458,
+  "digits": 917,
+  "marks": 1834,
+  "wide": 102,
+  "tokens": 8883
+ },
+ {
+  "letters": 22092,
+  "spaces": 5970,
+  "digits": 1314,
+  "marks": 2501,
+  "wide": 100,
+  "tokens": 10146
+ },
+ {
+  "letters": 26134,
+  "spaces": 7279,
+  "digits": 1708,
+  "marks": 2390,
+  "wide": 133,
+  "tokens": 11173
+ },
+ {
+  "letters": 18075,
+  "spaces": 4648,
+  "digits": 495,
+  "marks": 1444,
+  "wide": 77,
+  "tokens": 7420
+ },
+ {
+  "letters": 4283,
+  "spaces": 966,
+  "digits": 450,
+  "marks": 463,
+  "wide": 3,
+  "tokens": 1869
+ },
+ {
+  "letters": 25476,
+  "spaces": 7515,
+  "digits": 2101,
+  "marks": 2760,
+  "wide": 133,
+  "tokens": 11992
+ },
+ {
+  "letters": 18900,
+  "spaces": 4858,
+  "digits": 648,
+  "marks": 1587,
+  "wide": 85,
+  "tokens": 7876
+ },
+ {
+  "letters": 21441,
+  "spaces": 5572,
+  "digits": 1005,
+  "marks": 1945,
+  "wide": 100,
+  "tokens": 9164
+ },
+ {
+  "letters": 18364,
+  "spaces": 4721,
+  "digits": 623,
+  "marks": 1475,
+  "wide": 76,
+  "tokens": 7589
+ },
+ {
+  "letters": 18349,
+  "spaces": 4690,
+  "digits": 531,
+  "marks": 1448,
+  "wide": 78,
+  "tokens": 7507
+ },
+ {
+  "letters": 4616,
+  "spaces": 1086,
+  "digits": 436,
+  "marks": 463,
+  "wide": 3,
+  "tokens": 1955
+ },
+ {
+  "letters": 18849,
+  "spaces": 4891,
+  "digits": 718,
+  "marks": 1594,
+  "wide": 78,
+  "tokens": 7904
+ },
+ {
+  "letters": 22793,
+  "spaces": 5988,
+  "digits": 1226,
+  "marks": 2116,
+  "wide": 105,
+  "tokens": 9772
+ },
+ {
+  "letters": 25522,
+  "spaces": 6684,
+  "digits": 1613,
+  "marks": 2284,
+  "wide": 113,
+  "tokens": 10878
+ },
+ {
+  "letters": 4925,
+  "spaces": 1102,
+  "digits": 457,
+  "marks": 502,
+  "wide": 4,
+  "tokens": 2041
+ },
+ {
+  "letters": 19696,
+  "spaces": 5117,
+  "digits": 877,
+  "marks": 1746,
+  "wide": 93,
+  "tokens": 8328
+ },
+ {
+  "letters": 20036,
+  "spaces": 5547,
+  "digits": 1587,
+  "marks": 2400,
+  "wide": 102,
+  "tokens": 9242
+ },
+ {
+  "letters": 40374,
+  "spaces": 11065,
+  "digits": 2992,
+  "marks": 4024,
+  "wide": 338,
+  "tokens": 17330
+ },
+ {
+  "letters": 29904,
+  "spaces": 7786,
+  "digits": 1647,
+  "marks": 2670,
+  "wide": 236,
+  "tokens": 11981
+ },
+ {
+  "letters": 1748,
+  "spaces": 381,
+  "digits": 25,
+  "marks": 108,
+  "wide": 4,
+  "tokens": 675
+ },
+ {
+  "letters": 4399,
+  "spaces": 989,
+  "digits": 472,
+  "marks": 492,
+  "wide": 7,
+  "tokens": 1924
+ },
+ {
+  "letters": 28699,
+  "spaces": 7605,
+  "digits": 1916,
+  "marks": 2720,
+  "wide": 218,
+  "tokens": 12786
+ },
+ {
+  "letters": 48947,
+  "spaces": 14073,
+  "digits": 2298,
+  "marks": 4284,
+  "wide": 1411,
+  "tokens": 18963
+ },
+ {
+  "letters": 22375,
+  "spaces": 5986,
+  "digits": 1211,
+  "marks": 2086,
+  "wide": 242,
+  "tokens": 9968
+ },
+ {
+  "letters": 21358,
+  "spaces": 5613,
+  "digits": 1053,
+  "marks": 1970,
+  "wide": 109,
+  "tokens": 9259
+ },
+ {
+  "letters": 19073,
+  "spaces": 4968,
+  "digits": 748,
+  "marks": 1634,
+  "wide": 80,
+  "tokens": 8028
+ },
+ {
+  "letters": 4163,
+  "spaces": 951,
+  "digits": 470,
+  "marks": 470,
+  "wide": 6,
+  "tokens": 1854
+ },
+ {
+  "letters": 32936,
+  "spaces": 9031,
+  "digits": 2970,
+  "marks": 3479,
+  "wide": 174,
+  "tokens": 15719
+ },
+ {
+  "letters": 18456,
+  "spaces": 4759,
+  "digits": 596,
+  "marks": 1508,
+  "wide": 93,
+  "tokens": 7670
+ },
+ {
+  "letters": 43027,
+  "spaces": 11601,
+  "digits": 2307,
+  "marks": 3610,
+  "wide": 866,
+  "tokens": 19542
+ },
+ {
+  "letters": 43322,
+  "spaces": 11640,
+  "digits": 3526,
+  "marks": 4400,
+  "wide": 453,
+  "tokens": 19439
+ },
+ {
+  "letters": 20898,
+  "spaces": 5509,
+  "digits": 750,
+  "marks": 1646,
+  "wide": 114,
+  "tokens": 8700
+ },
+ {
+  "letters": 26844,
+  "spaces": 7703,
+  "digits": 1511,
+  "marks": 2408,
+  "wide": 332,
+  "tokens": 12163
+ },
+ {
+  "letters": 21141,
+  "spaces": 5525,
+  "digits": 888,
+  "marks": 1919,
+  "wide": 100,
+  "tokens": 8993
+ },
+ {
+  "letters": 18500,
+  "spaces": 4782,
+  "digits": 550,
+  "marks": 1482,
+  "wide": 78,
+  "tokens": 7656
+ },
+ {
+  "letters": 20894,
+  "spaces": 5711,
+  "digits": 743,
+  "marks": 1695,
+  "wide": 259,
+  "tokens": 9072
+ },
+ {
+  "letters": 18187,
+  "spaces": 4682,
+  "digits": 520,
+  "marks": 1447,
+  "wide": 77,
+  "tokens": 7475
+ },
+ {
+  "letters": 20726,
+  "spaces": 5352,
+  "digits": 782,
+  "marks": 1850,
+  "wide": 107,
+  "tokens": 8560
+ },
+ {
+  "letters": 19002,
+  "spaces": 4990,
+  "digits": 644,
+  "marks": 1641,
+  "wide": 83,
+  "tokens": 7894
+ },
+ {
+  "letters": 18942,
+  "spaces": 4938,
+  "digits": 616,
+  "marks": 1553,
+  "wide": 79,
+  "tokens": 7782
+ },
+ {
+  "letters": 22769,
+  "spaces": 6026,
+  "digits": 1166,
+  "marks": 2110,
+  "wide": 1840,
+  "tokens": 11502
+ },
+ {
+  "letters": 5649,
+  "spaces": 1324,
+  "digits": 507,
+  "marks": 556,
+  "wide": 13,
+  "tokens": 2321
+ },
+ {
+  "letters": 23427,
+  "spaces": 6005,
+  "digits": 2141,
+  "marks": 2519,
+  "wide": 159,
+  "tokens": 11544
+ },
+ {
+  "letters": 10347,
+  "spaces": 2510,
+  "digits": 619,
+  "marks": 997,
+  "wide": 61,
+  "tokens": 5051
+ },
+ {
+  "letters": 15704,
+  "spaces": 4056,
+  "digits": 1266,
+  "marks": 1530,
+  "wide": 100,
+  "tokens": 7486
+ },
+ {
+  "letters": 12345,
+  "spaces": 3115,
+  "digits": 804,
+  "marks": 1245,
+  "wide": 71,
+  "tokens": 6058
+ },
+ {
+  "letters": 9404,
+  "spaces": 2228,
+  "digits": 474,
+  "marks": 837,
+  "wide": 54,
+  "tokens": 4578
+ },
+ {
+  "letters": 9712,
+  "spaces": 2304,
+  "digits": 570,
+  "marks": 835,
+  "wide": 57,
+  "tokens": 4712
+ },
+ {
+  "letters": 11035,
+  "spaces": 2735,
+  "digits": 775,
+  "marks": 1071,
+  "wide": 71,
+  "tokens": 5552
+ },
+ {
+  "letters": 9928,
+  "spaces": 2387,
+  "digits": 536,
+  "marks": 870,
+  "wide": 57,
+  "tokens": 4828
+ },
+ {
+  "letters": 9451,
+  "spaces": 2232,
+  "digits": 465,
+  "marks": 830,
+  "wide": 54,
+  "tokens": 4593
+ },
+ {
+  "letters": 1729,
+  "spaces": 397,
+  "digits": 146,
+  "marks": 125,
+  "wide": 2,
+  "tokens": 787
+ },
+ {
+  "letters": 5149,
+  "spaces": 1151,
+  "digits": 429,
+  "marks": 499,
+  "wide": 11,
+  "tokens": 2090
+ }
+]

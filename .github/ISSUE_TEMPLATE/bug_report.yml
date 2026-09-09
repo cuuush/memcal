@@ -1,0 +1,48 @@
+name: Bug report
+description: Report something that is not working as expected.
+title: ""
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report a bug.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest example, command, or sequence that reproduces it.
+      placeholder: |
+        1. Run ...
+        2. Open ...
+        3. See ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include memcal version, Python version, operating system, and relevant source or agent integration.
+      placeholder: |
+        memcal: 0.6.0
+        Python: 3.11
+        OS: macOS 15
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or additional context
+      description: Add relevant output, screenshots, or anything else that may help. Remove private message content and credentials.
+    validations:
+      required: false
