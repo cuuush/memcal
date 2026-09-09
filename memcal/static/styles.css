@@ -502,6 +502,80 @@
                max-height: 460px; overflow: auto; }
   .tpart.think summary { color: var(--focus); }
 
+  /* ------------------------------------------------------------- settings */
+  .mono { font: 12.5px/1.5 var(--mono); color: var(--ink-2); }
+  #setq { min-width: 280px; }
+  .setgroup { background: var(--surface-1); border: 1px solid var(--line-soft);
+              border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+  .setgroup h3 { margin: 0; font-size: 14px; font-weight: 620; letter-spacing: -0.01em; }
+  .setgroup > .note { margin: 4px 0 10px; max-width: 78ch; }
+  .setrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
+            gap: 10px 18px; align-items: start; padding: 12px 0;
+            border-top: 1px solid var(--line-soft); }
+  .setgroup .setrow:first-of-type, .card > .setrow:first-of-type { border-top: 0; }
+  /* A row with an unsaved edit is marked on the row, not only in the save bar: with
+     twenty-seven knobs on one page, "3 unsaved changes" is not an answer to "which". */
+  .setrow.changed { background: color-mix(in srgb, var(--pass) 7%, transparent);
+                    box-shadow: inset 3px 0 0 var(--pass); }
+  .setrow.changed .setmain, .setrow.changed .setctl { padding-left: 9px; }
+  .setlabel { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
+              font-weight: 560; }
+  .setkey { font: 11px/1.6 var(--mono); color: var(--ink-3); background: var(--surface-2);
+            border: 1px solid var(--line-soft); border-radius: 5px; padding: 1px 6px;
+            font-weight: 400; }
+  .setflag { font: 10.5px/1.6 var(--mono); text-transform: uppercase; letter-spacing: .05em;
+             border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px;
+             color: var(--ink-3); font-weight: 400; }
+  .setflag.store { border-color: var(--pass); color: var(--pass); }
+  .setflag.ok { border-color: var(--good); color: var(--good); }
+  .setflag.bad { border-color: var(--warn); color: var(--warn); }
+  .sethelp { margin: 4px 0 0; color: var(--ink-2); font-size: 12.5px; max-width: 78ch; }
+  .setmeta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 5px;
+             color: var(--ink-3); font: 11px/1.5 var(--mono); }
+  .setwarn { margin-top: 7px; color: var(--warn); font-size: 12px; }
+  .setctl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+            justify-content: flex-end; }
+  .setctl input, .setctl select {
+    background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 10px; color: var(--ink); font: inherit; min-width: 0;
+    flex: 1 1 150px; max-width: 300px;
+  }
+  .setctl input:focus, .setctl select:focus { outline: 2px solid var(--focus);
+                                              outline-offset: -1px; }
+  .setctl input[type=number] { font-variant-numeric: tabular-nums; }
+  .setreset { flex: 0 0 auto; background: var(--surface-1); border: 1px solid var(--line);
+              border-radius: 7px; padding: 5px 9px; font-size: 12px; cursor: pointer;
+              color: var(--ink-3); }
+  .setreset:hover:not(:disabled) { border-color: var(--ink-3); color: var(--ink); }
+  .setreset:disabled { opacity: .4; cursor: default; }
+  .setpending { flex: 1 0 100%; text-align: right; color: var(--pass);
+                font: 11px/1.5 var(--mono); }
+  .setpaths { display: grid; grid-template-columns: auto minmax(0, 1fr);
+              gap: 3px 14px; margin-top: 12px; align-items: baseline; }
+  .setpathk { color: var(--ink-3); font: 10.5px/1.7 var(--mono); text-transform: uppercase;
+              letter-spacing: .05em; }
+  .setpathv { font: 11.5px/1.6 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+  .setfile { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline;
+             padding: 6px 0; border-top: 1px solid var(--line-soft); }
+  .setfile:first-of-type { border-top: 0; }
+  .setfile .note { margin: 0; }
+  /* Bottom right, because the toast owns bottom centre. */
+  #setbar { position: fixed; bottom: 18px; right: 18px;
+            display: flex; gap: 10px; align-items: center; z-index: 45;
+            background: var(--surface-1); border: 1px solid var(--line);
+            border-radius: 10px; padding: 9px 12px;
+            box-shadow: 0 8px 28px rgb(0 0 0 / .18); }
+  /* `display:flex` above outranks the user-agent rule for `[hidden]`, so without this
+     the bar sits there saying "0 unsaved changes" on a page nobody has touched. */
+  #setbar[hidden] { display: none; }
+  #setbarnote { font-size: 12.5px; color: var(--ink-2);
+                font-variant-numeric: tabular-nums; }
+  @media (max-width: 720px) {
+    .setrow { grid-template-columns: 1fr; }
+    .setctl { justify-content: flex-start; }
+    .setpending { text-align: left; }
+  }
+
   #toast {
     position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(20px);
     background: var(--ink); color: var(--surface-1); padding: 9px 16px; border-radius: 8px;

@@ -17,9 +17,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import archive, db, threads, trace, wiki
+from . import archive, db, settings, threads, trace, wiki
 from .config import Config
-from . import web_queue, web_memory, web_dream, web_jobs
+from . import web_queue, web_memory, web_dream, web_jobs, web_settings
 
 PAGE = Path(__file__).with_name("webui.html")
 STATIC_DIR = Path(__file__).with_name("static")
@@ -281,6 +281,12 @@ class Handler(BaseHTTPRequestHandler):
             return {"lines": trace.conversation(
                 conn, stream=query.get("stream", ""), thread=query.get("thread", ""),
                 around=query.get("around", ""))}
+        if path == "/api/settings":
+            return web_settings.page(self.cfg)
+        if path == "/api/settings_probe":
+            # Split off the parts that can open a socket or start a subprocess, so the
+            # settings page draws immediately and fills in what it had to go and ask.
+            return web_settings.probe(self.cfg)
         if path == "/api/wiki_pages":
             return web_memory.wiki_pages(conn, self.cfg, q=query.get("q", ""))
         if path == "/api/wiki":
@@ -337,9 +343,15 @@ class Handler(BaseHTTPRequestHandler):
                 # The one endpoint here that spends money, so it is never implicit —
                 # it fires because someone pressed the button on the preview.
                 out = web_jobs.start_job("dream", web_jobs.dream_work, self.cfg)
+            elif url.path == "/api/settings":
+                out = web_settings.save(self.cfg, payload)
             else:
                 return self._send({"error": "not found"}, 404)
             self._send(out)
+        # A rejected setting is an answer, not a fault: it says which value was refused
+        # and why, and the form stays exactly as the person left it.
+        except settings.SettingsError as exc:
+            self._send({"error": str(exc)}, 400)
         except Exception as exc:
             self._send({"error": f"{type(exc).__name__}: {exc}"}, 500)
         finally:

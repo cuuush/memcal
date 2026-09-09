@@ -21,7 +21,8 @@ from datetime import date, timedelta
 from functools import wraps
 
 from . import (archive, brief, calls, config, db, detail, events, identity, live,
-               llm, schedule, series, textclean, todos, trace, web, whois, wiki)
+               llm, schedule, series, settings, textclean, todos, trace, web, whois,
+               wiki)
 from .config import Config
 from .dream import bundle as bundle_stage
 from .dream import propose as propose_stage
@@ -202,27 +203,9 @@ def cmd_init(args) -> int:
     return 0
 
 
-def _write_env(path, values: dict[str, str]) -> None:
-    """Update owned keys without flattening a person's hand-edited .env file."""
-    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
-    pending = dict(values)
-    out = []
-    for line in lines:
-        stripped = line.strip()
-        key = stripped.partition("=")[0].strip() if "=" in stripped else ""
-        if key in pending:
-            out.append(f"{key}={pending.pop(key)}")
-        else:
-            out.append(line)
-    if pending and out and out[-1].strip():
-        out.append("")
-    out.extend(f"{key}={value}" for key, value in pending.items())
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+#: `memcal setup` and the settings tab write the same file the same way, so there is one
+#: implementation of "update these keys and leave the rest of the file alone".
+_write_env = settings.write_env
 
 
 def _provider_choice() -> str:

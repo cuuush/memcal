@@ -142,6 +142,16 @@ memcal ui
 
 The web UI listens on `http://127.0.0.1:8765`.
 
+Its **Settings** tab is the full list of what memcal can be told: every `MEMCAL_*`
+setting it reads, what each one does, the default, and which file the current value came
+from. Saving writes `~/.memcal/.env` — leaving your hand-written lines alone — and
+applies to the running process immediately, so the next pass uses it without a restart.
+Clearing a field unsets the key and restores the built-in default. Source credentials can
+be set there too; the page reports that a credential is present and never reads one back
+out. If a `.env` beside your working directory already sets the same key, the tab says
+so, because that file still wins the next time memcal starts. The tab also reports what
+each source still needs and what the nightly agent is doing.
+
 ## Choose a model backend
 
 | Backend | Default model | Authentication |
@@ -405,6 +415,9 @@ MEMCAL_PUBLISH_REMINDERS=memcal
 
 memcal reminders setup --yes
 ```
+
+Both destinations are also editable from the web UI's Settings tab, under *Writing back
+out*; like every outward-write setting they are scoped to this store's `.env` alone.
 
 Publishing is idempotent: changes update the matching item, withdrawn rows retract it, and
 disabled publishing performs no external writes. Calendar and Reminders require separate

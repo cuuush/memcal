@@ -7,6 +7,16 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A Settings tab in the web UI: every `MEMCAL_*` setting memcal reads, grouped and
+  explained, with its default and the file its current value came from. Saving writes
+  `~/.memcal/.env` without disturbing hand-written lines and applies to the running
+  process immediately; clearing a field unsets the key and restores the default. A value
+  that is out of range, not a valid option, or a stage name that does not exist is
+  refused as a whole — no half a form lands — and a key another `.env` sets more strongly
+  is reported rather than silently ignored. The tab also shows whether the configured
+  provider is reachable, what each source still needs, which credentials are set (never
+  their values, which can be replaced but not read back), and the state of the nightly
+  agent.
 - Antigravity (`agy`) joins Codex and Claude Code as a model backend that runs on a login
   you already have: `memcal setup --provider antigravity`, defaulting to
   `gemini-3.8-flash-high`. Its Gemini, Claude and open-weight models are all reachable

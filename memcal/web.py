@@ -95,3 +95,10 @@ from .web_server import (
     frontend_source,
     serve,
 )
+from .web_settings import (
+    page as settings_page,
+    probe as settings_probe,
+    provider as settings_provider,
+    save as save_settings,
+    store as settings_store,
+)

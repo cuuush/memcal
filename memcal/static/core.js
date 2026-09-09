@@ -43,7 +43,8 @@ export const state = {view: "gate", verdict: "", stream: "", days: "14", q: "", 
                // because "what is the next pass going to read" is the live question.
                queue: "queued"};
 
-export const VIEWS = ["gate", "chats", "dream", "senders", "memory", "wiki", "runs"];
+export const VIEWS = ["gate", "chats", "dream", "senders", "memory", "wiki", "runs",
+                      "settings"];
 document.querySelectorAll("nav button").forEach(b =>
   b.onclick = () => { location.hash = b.dataset.view; });
 addEventListener("hashchange", () => show(location.hash.slice(1)));
