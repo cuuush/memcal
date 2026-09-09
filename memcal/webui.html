@@ -19,6 +19,7 @@
       <button data-view="memory">Memory</button>
       <button data-view="wiki">Wiki</button>
       <button data-view="runs">Runs</button>
+      <button data-view="settings">Settings</button>
     </nav>
     <button class="icon-btn" id="theme" title="light / dark">◐</button>
     <button class="icon-btn" id="reload" title="reload">↻</button>
@@ -234,7 +235,54 @@
     </table></div>
     <div id="rundetail"></div>
   </section>
+
+  <!-- --------------------------------------------------------- settings -->
+  <section class="view" id="view-settings" hidden>
+    <h2>Runtime</h2>
+    <div id="setruntime"></div>
+
+    <h2>Settings</h2>
+    <p class="note">
+      Every <code>MEMCAL_*</code> variable memcal reads, with what it does and where its
+      current value came from. Saving writes <span id="setfile" class="mono"></span> and
+      applies to this process immediately; the nightly pass picks it up on its next run.
+      An empty field means “unset” — the key is blanked and the built-in default comes
+      back.
+    </p>
+    <div class="filters">
+      <input type="search" id="setq" placeholder="search a setting, or its variable">
+      <label class="note" style="margin:0">
+        <input type="checkbox" id="setcustom"> only what differs from the default
+      </label>
+      <span class="note" style="margin:0" id="setcount"></span>
+    </div>
+    <div id="setgroups"></div>
+
+    <h2>Where these live</h2>
+    <div id="setfiles"></div>
+
+    <h2>Credentials</h2>
+    <p class="note">
+      What each source asks for. memcal never reads one of these back out to the page —
+      it can tell you a credential is set, and it can replace it.
+    </p>
+    <div id="setcreds"></div>
+
+    <h2>Sources</h2>
+    <div id="setsources"><div class="empty">checking…</div></div>
+
+    <h2>The nightly pass</h2>
+    <div id="setschedule"><div class="empty">checking…</div></div>
+  </section>
 </main>
+
+<!-- Nothing on the settings tab saves as you type: a knob that changes what a pass
+     costs should take a deliberate press. -->
+<div id="setbar" hidden>
+  <span id="setbarnote"></span>
+  <button class="btn" id="setdiscard">discard</button>
+  <button class="btn go" id="setsave">save</button>
+</div>
 
 <!-- The trace panel: any row in Memory can open the model call that wrote it. -->
 <div id="tracepanel" hidden>

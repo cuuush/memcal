@@ -12,6 +12,9 @@ This file is a map and a short set of hard rules. User-facing operation belongs 
 Main ownership:
 
 - `config.py`, `db.py`, `schema.sql`: configuration, connection, and schema.
+  `settings.py` is the schema for what `config.py` reads — every `MEMCAL_*` knob, its
+  meaning and bounds, and the only writer of a store's `.env`. A new setting belongs in
+  both, and a test holds the two lists to each other.
 - `archive.py`, `gate.py`, `identity.py`, `textclean.py`: ingest spine. `identity.py`
   is a dictionary and stays one — no model call belongs on the path every arriving line
   takes. `whois.py` holds the one identity call there is, asked for explicitly, and

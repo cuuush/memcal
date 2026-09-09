@@ -19,7 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from memcal import (archive, brief, db, detail, events, gate, identity, llm,
                     presentation, schedule, threads, todos, trace, web, web_dream,
-                    web_jobs, web_memory, web_queue, web_server, wiki)  # noqa: E402
+                    web_jobs, web_memory, web_queue, web_server, web_settings,
+                    wiki)  # noqa: E402
 from memcal.config import Config  # noqa: E402
 from memcal.dream import bundle as bundle_stage  # noqa: E402
 from memcal.dream import propose as propose_stage  # noqa: E402
@@ -49,7 +50,7 @@ class TestWebFacadePreservesOwnershipBoundaries(unittest.TestCase):
 
         upward = {"web", "web_server", "web_jobs", "memcal.web",
                   "memcal.web_server", "memcal.web_jobs"}
-        for module in (web_queue, web_memory, web_dream):
+        for module in (web_queue, web_memory, web_dream, web_settings):
             self.assertTrue(imports(module).isdisjoint(upward))
         self.assertTrue(imports(web_jobs).isdisjoint(
             {"web", "web_server", "memcal.web", "memcal.web_server"}))

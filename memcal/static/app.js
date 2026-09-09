@@ -6,9 +6,10 @@ import { loadSenders } from "./senders.js";
 import { loadMemory } from "./memory.js";
 import { loadWiki } from "./wiki.js";
 import { loadRuns } from "./runs.js";
+import { loadSettings } from "./settings.js";
 
 registerViews({gate: loadGate, chats: loadChats, dream: loadDream,
                senders: loadSenders, memory: loadMemory, wiki: loadWiki,
-               runs: loadRuns});
+               runs: loadRuns, settings: loadSettings});
 
 show(location.hash.slice(1));
