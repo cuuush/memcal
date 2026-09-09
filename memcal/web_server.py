@@ -282,7 +282,9 @@ class Handler(BaseHTTPRequestHandler):
                 conn, stream=query.get("stream", ""), thread=query.get("thread", ""),
                 around=query.get("around", ""))}
         if path == "/api/settings":
-            return web_settings.page(self.cfg)
+            # `provider` previews the model suggestions for a provider the form has
+            # selected but not saved. It changes nothing.
+            return web_settings.page(self.cfg, conn, query.get("provider", ""))
         if path == "/api/settings_probe":
             # Split off the parts that can open a socket or start a subprocess, so the
             # settings page draws immediately and fills in what it had to go and ask.
@@ -344,7 +346,7 @@ class Handler(BaseHTTPRequestHandler):
                 # it fires because someone pressed the button on the preview.
                 out = web_jobs.start_job("dream", web_jobs.dream_work, self.cfg)
             elif url.path == "/api/settings":
-                out = web_settings.save(self.cfg, payload)
+                out = web_settings.save(self.cfg, payload, conn)
             else:
                 return self._send({"error": "not found"}, 404)
             self._send(out)

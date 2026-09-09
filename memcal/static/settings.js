@@ -28,6 +28,10 @@ function nothingToReset(s) {
 function pendingText(s) {
   if (!pending.has(s.key)) return "";
   const to = pending.get(s.key);
+  // Changing provider quietly changes what an unset model resolves to, which is the
+  // one consequence of this form that is not visible in the row you edited.
+  if (s.key === "MEMCAL_LLM_PROVIDER")
+    return `unsaved: ${to} — any model left on its default follows it`;
   return to === "" ? `unsets it — back to ${s.default || "empty"}` : `unsaved: ${to}`;
 }
 
@@ -59,25 +63,157 @@ function originLine(s) {
   return s.origin_path;
 }
 
+function valueOf(s) { return pending.has(s.key) ? pending.get(s.key) : s.value; }
+
+/* A text box that knows the usual answers: type anything, or open the list and pick one
+   with the note beside it — what a model costs, where an executable actually is. A plain
+   <datalist> would be less code and would not show the notes, and half the browsers only
+   reveal it once you have already typed the thing you were trying to remember. */
+function combobox(s) {
+  const options = (page.suggestions || {})[s.key] || [];
+  const box = el("div", "combo");
+  const input = el("input");
+  input.type = "text";
+  input.value = valueOf(s);
+  input.placeholder = s.placeholder || s.default || "";
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-expanded", "false");
+  input.setAttribute("aria-autocomplete", "list");
+  input.autocomplete = "off";
+
+  const open = el("button", "combotoggle", "▾");
+  open.type = "button";
+  open.title = `${options.length} suggestion${options.length === 1 ? "" : "s"}`;
+  open.setAttribute("aria-label", "show suggestions");
+  const list = el("div", "combolist");
+  list.hidden = true;
+  list.setAttribute("role", "listbox");
+  box.append(input, open, list);
+
+  let active = -1;
+  const shown = () => [...list.querySelectorAll(".comboopt")];
+  function draw(filter) {
+    const needle = (filter || "").trim().toLowerCase();
+    list.innerHTML = "";
+    active = -1;
+    const rows = options.filter(o =>
+      !needle || o.value.toLowerCase().includes(needle)
+      || (o.note || "").toLowerCase().includes(needle));
+    for (const o of rows) {
+      const opt = el("button", "comboopt");
+      opt.type = "button";
+      opt.setAttribute("role", "option");
+      opt.append(el("span", "comboval", o.value));
+      if (o.note) opt.append(el("span", "combonote", o.note));
+      if (o.value === input.value) opt.classList.add("on");
+      // `mousedown` rather than `click`: the input's blur fires first and would close
+      // the list out from under the pointer.
+      opt.onmousedown = e => { e.preventDefault(); pick(o.value); };
+      list.append(opt);
+    }
+    if (!rows.length) {
+      list.append(el("div", "combonone", needle
+        ? "no suggestion matches — what you type is still accepted"
+        : "nothing to suggest yet"));
+    }
+  }
+  /* Opening shows everything; only what is typed *after* opening narrows it. Filtering
+     by the value already in the box hides every alternative at the exact moment the
+     list is being opened to see the alternatives. */
+  function show(on, filter = "") {
+    list.hidden = !on;
+    input.setAttribute("aria-expanded", String(on));
+    if (on) draw(filter);
+  }
+  function pick(value) {
+    input.value = value;
+    mark(s.key, value === s.value ? null : value);
+    show(false);
+    input.focus();
+  }
+  function move(step) {
+    const rows = shown();
+    if (!rows.length) return;
+    if (list.hidden) show(true);
+    rows.forEach(r => r.classList.remove("active"));
+    active = (active + step + rows.length) % rows.length;
+    rows[active].classList.add("active");
+    rows[active].scrollIntoView({block: "nearest"});
+  }
+
+  open.onclick = () => { show(list.hidden); if (!list.hidden) input.focus(); };
+  input.oninput = () => { mark(s.key, input.value === s.value ? null : input.value);
+                          show(true, input.value); };
+  input.onfocus = () => show(true);
+  input.onblur = () => setTimeout(() => show(false), 120);
+  input.onkeydown = e => {
+    if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+    else if (e.key === "Enter" && active >= 0) {
+      e.preventDefault(); pick(shown()[active].querySelector(".comboval").textContent);
+    } else if (e.key === "Escape" && !list.hidden) { e.stopPropagation(); show(false); }
+  };
+  return box;
+}
+
+/* `propose_stages` is the one setting whose value is a list. Typed, it is a
+   comma-separated string with four legal words in a required order; picked, it is four
+   chips. Same string in the file either way. */
+function stageChips(s) {
+  const chosen = new Set((valueOf(s).toLowerCase() === "on"
+    ? s.options : valueOf(s).split(",").map(p => p.trim()).filter(Boolean)));
+  const wrap = el("div", "chips setchips");
+  for (const name of s.options) {
+    const chip = el("button", "chip");
+    chip.type = "button";
+    chip.textContent = name;
+    chip.setAttribute("aria-pressed", String(chosen.has(name)));
+    chip.onclick = () => {
+      chosen.has(name) ? chosen.delete(name) : chosen.add(name);
+      // Written back in the module's own order, because the stages depend on each
+      // other: to-dos may point at a row the calendar pass wrote.
+      const value = s.options.filter(n => chosen.has(n)).join(",");
+      mark(s.key, value === s.value ? null : value);
+      render();
+    };
+    wrap.append(chip);
+  }
+  const off = el("div", "combonone", chosen.size
+    ? `${chosen.size} pass${chosen.size === 1 ? "" : "es"} per bundle, in that order`
+    : "one call — everything at once");
+  const holder = el("div", "setstages");
+  holder.append(wrap, off);
+  return holder;
+}
+
 function control(s) {
-  const value = pending.has(s.key) ? pending.get(s.key) : s.value;
+  const value = valueOf(s);
   if (s.kind === "choice") {
     const sel = el("select");
     for (const c of s.choices) sel.append(new Option(c.label, c.value));
     sel.value = value;
-    sel.onchange = () => mark(s.key, sel.value);
+    sel.onchange = () => {
+      mark(s.key, sel.value === s.value ? null : sel.value);
+      // The provider decides which models are worth suggesting, so choosing one
+      // re-asks before the choice has been saved.
+      if (s.key === "MEMCAL_LLM_PROVIDER") refreshSuggestions(sel.value);
+      else render();
+    };
     return sel;
   }
   if (s.kind === "bool") {
     const seg = el("div", "setseg");
     for (const [v, label] of [["on", "on"], ["off", "off"]]) {
       const b = el("button", null, label);
+      b.type = "button";
       b.setAttribute("aria-pressed", String((value || s.default) === v));
-      b.onclick = () => { mark(s.key, v); render(); };
+      b.onclick = () => { mark(s.key, v === s.value ? null : v); render(); };
       seg.append(b);
     }
     return seg;
   }
+  if (s.kind === "combo") return combobox(s);
+  if (s.kind === "stages") return stageChips(s);
   const input = el("input");
   input.type = s.kind === "int" ? "number" : "text";
   if (s.min !== null && s.min !== undefined) input.min = s.min;
@@ -91,7 +227,6 @@ function control(s) {
 function settingRow(s) {
   const row = el("div", "setrow" + (pending.has(s.key) ? " changed" : ""));
   row.dataset.key = s.key;
-  row.dataset.hay = `${s.label} ${s.key} ${s.help} ${s.attr}`.toLowerCase();
 
   const main = el("div", "setmain");
   const head = el("div", "setlabel");
@@ -108,7 +243,10 @@ function settingRow(s) {
   const meta = el("div", "setmeta");
   meta.append(el("span", null, `default ${s.default || "empty"}`),
               el("span", null, `from ${originLine(s)}`));
-  if (s.unit) meta.append(el("span", null, s.unit));
+  // The bounds, printed rather than discovered by having a save refused.
+  if (s.kind === "int" && s.min !== null && s.max !== null)
+    meta.append(el("span", null, `${nf(s.min)}–${nf(s.max)}${s.unit ? " " + s.unit : ""}`));
+  else if (s.unit) meta.append(el("span", null, s.unit));
   main.append(meta);
 
   if (s.shadowed_by) {
@@ -134,6 +272,7 @@ function renderGroups() {
   const q = ($("#setq").value || "").trim().toLowerCase();
   const onlyCustom = $("#setcustom").checked;
   const box = $("#setgroups"); box.innerHTML = "";
+  const nav = $("#setnav"); nav.innerHTML = "";
   let shown = 0;
   for (const group of page.groups) {
     const rows = group.settings.filter(s =>
@@ -142,9 +281,20 @@ function renderGroups() {
     if (!rows.length) continue;
     shown += rows.length;
     const card = el("div", "setgroup");
+    card.id = "setgroup-" + group.id;
     card.append(el("h3", null, group.title), el("p", "note", group.note));
     for (const s of rows) card.append(settingRow(s));
     box.append(card);
+
+    // Six cards is more than one screen, so the section names double as the way there,
+    // each carrying the count of what it holds that is not on its default.
+    const jump = el("button", "chip");
+    jump.type = "button";
+    jump.append(el("span", null, group.title));
+    const changed = rows.filter(s => s.custom || pending.has(s.key)).length;
+    jump.append(el("span", "n", changed ? `${changed} changed` : String(rows.length)));
+    jump.onclick = () => card.scrollIntoView({behavior: "smooth", block: "start"});
+    nav.append(jump);
   }
   const total = page.groups.reduce((n, g) => n + g.settings.length, 0);
   $("#setcount").textContent = shown === total
@@ -225,10 +375,18 @@ function renderCredentials() {
     input.type = "password";
     input.autocomplete = "off";
     input.placeholder = c.present ? "replace it" : "paste it here";
+    // A pasted token is worth being able to look at once before committing it; what is
+    // already saved is still never shown, because the page is never sent it.
+    const peek = el("button", "setreset", "show");
+    peek.onclick = () => {
+      const hidden = input.type === "password";
+      input.type = hidden ? "text" : "password";
+      peek.textContent = hidden ? "hide" : "show";
+    };
     const save = el("button", "setreset", "save");
     save.onclick = () => saveSecret(c.name, input.value, input);
     input.onkeydown = e => { if (e.key === "Enter") saveSecret(c.name, input.value, input); };
-    side.append(input, save);
+    side.append(input, peek, save);
     if (c.present) {
       const clear = el("button", "setreset", "clear");
       clear.onclick = () => saveSecret(c.name, "", input);
@@ -346,12 +504,35 @@ addEventListener("hashchange", () => {
     toast(`${pending.size} unsaved setting change${pending.size === 1 ? "" : "s"} — `
           + "they are still there on the Settings tab");
 });
+addEventListener("beforeunload", e => { if (dirty()) e.preventDefault(); });
+document.addEventListener("keydown", e => {
+  if (state.view !== "settings") return;
+  const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
+  if (e.key === "/" && !typing) { e.preventDefault(); $("#setq").focus(); }
+  // ⌘S / ctrl-S is what the fingers do on a form with a save button.
+  else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s" && dirty()) {
+    e.preventDefault(); saveChanges();
+  } else if (e.key === "Escape" && e.target === $("#setq") && $("#setq").value) {
+    $("#setq").value = ""; renderGroups();
+  }
+});
 
 /* The second half can open a socket (a source check) or start a subprocess (launchctl),
    so it is a second request: the page is drawn and usable before it is asked for. */
 async function loadProbe() {
   const probe = await api("/api/settings_probe");
   if (!probe.error && state.view === "settings") renderProbe(probe);
+}
+
+/* Which models are worth suggesting depends on the provider, and the provider can be
+   chosen here without being saved yet. This asks what that choice would suggest; it
+   changes nothing on the server, and the values on the page stay the saved ones. */
+async function refreshSuggestions(providerName) {
+  render();
+  const out = await api("/api/settings?provider=" + encodeURIComponent(providerName));
+  if (out.error || !page) return;
+  page.suggestions = out.suggestions;
+  render();
 }
 
 export async function loadSettings() {

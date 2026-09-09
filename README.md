@@ -152,6 +152,14 @@ out. If a `.env` beside your working directory already sets the same key, the ta
 so, because that file still wins the next time memcal starts. The tab also reports what
 each source still needs and what the nightly agent is doing.
 
+Nothing there has to be typed from memory. A model field opens onto the models memcal
+can price for the provider you have chosen — named the way that provider names them,
+with their rates — plus any this store has already run; picking a provider re-asks
+before you save, so the list follows the choice you are making. An executable field
+offers the absolute path `which` finds, which is what the nightly agent needs. A
+calendar field offers the calendars memcal has read. Anything else you type is still
+accepted: the suggestions are a shortcut, never a restriction.
+
 ## Choose a model backend
 
 | Backend | Default model | Authentication |

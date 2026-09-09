@@ -16,7 +16,14 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   is reported rather than silently ignored. The tab also shows whether the configured
   provider is reachable, what each source still needs, which credentials are set (never
   their values, which can be replaced but not read back), and the state of the nightly
-  agent.
+  agent. Nothing on it has to be typed from memory: a model field opens onto the models
+  memcal can price for the chosen provider — named the way that provider names them,
+  with their rates — plus the ones this store has already run; an executable field
+  offers the absolute path `which` finds; a calendar field offers the calendars memcal
+  has read. Choosing a provider re-asks before it is saved, so the model list follows
+  the choice being made. Propose stages are picked as chips rather than spelled as a
+  comma-separated list, every number states its range, each section can be jumped to
+  from a row of counts, and `/` searches while ⌘S saves.
 - Antigravity (`agy`) joins Codex and Claude Code as a model backend that runs on a login
   you already have: `memcal setup --provider antigravity`, defaulting to
   `gemini-3.8-flash-high`. Its Gemini, Claude and open-weight models are all reachable

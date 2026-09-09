@@ -9,6 +9,8 @@ has already drawn — see `probe`.
 
 from __future__ import annotations
 
+import shutil
+import sqlite3
 from pathlib import Path
 
 from . import llm, schedule, settings
@@ -47,11 +49,105 @@ def store(cfg: Config) -> dict:
     }
 
 
-def page(cfg: Config) -> dict:
+def _models_for(name: str) -> list[dict]:
+    """The models memcal already knows how to price and reach, for this provider.
+
+    Nothing here narrows the field — any model the runtime accepts can still be typed.
+    It exists because "which model?" answered with an empty text box is a question you
+    have to leave the page to answer.
+    """
+    out = []
+    for native, priced_as in llm.catalog(name):
+        rate = llm.rates(priced_as)
+        note = f"${rate[0]:.2f}/M in · ${rate[1]:.2f}/M out" if rate else ""
+        if llm.endpoint(priced_as).service_tier == "flex":
+            note += " · flex tier"
+        out.append({"value": native, "note": note})
+    return out
+
+
+def _models_used(conn) -> list[dict]:
+    """Models this store has actually run, newest first — usually the real answer."""
+    if conn is None:
+        return []
+    try:
+        rows = conn.execute(
+            """SELECT model, COUNT(*) AS n, MAX(created_at) AS last
+                 FROM generations WHERE model IS NOT NULL AND model != ''
+                GROUP BY model ORDER BY last DESC LIMIT 12""").fetchall()
+    except sqlite3.Error:
+        return []
+    return [{"value": row["model"],
+             "note": f"used here · {row['n']} call{'' if row['n'] == 1 else 's'}"}
+            for row in rows]
+
+
+def _calendars_seen(conn) -> list[dict]:
+    """Calendars memcal has read. Naming one it already knows beats guessing at spelling.
+
+    Deliberately not a live Calendar.app enumeration: a real read can open the macOS
+    consent dialog, and drawing a settings page must never do that on its own.
+    """
+    if conn is None:
+        return []
+    try:
+        rows = conn.execute(
+            """SELECT calendar_name AS name, COUNT(*) AS n FROM calendar_items
+                GROUP BY calendar_name ORDER BY n DESC LIMIT 20""").fetchall()
+    except sqlite3.Error:
+        return []
+    return [{"value": row["name"], "note": f"{row['n']} items seen"} for row in rows]
+
+
+def _dedupe(*groups: list[dict]) -> list[dict]:
+    """First mention of a value wins, so the most specific note is the one shown."""
+    seen, out = set(), []
+    for group in groups:
+        for row in group:
+            if row["value"] and row["value"] not in seen:
+                seen.add(row["value"])
+                out.append(row)
+    return out
+
+
+def suggestions(cfg: Config, conn=None, provider_name: str = "") -> dict[str, list[dict]]:
+    """The usual answers for every field that is free text but rarely arbitrary.
+
+    `provider_name` previews a provider the form has selected but not saved, so the
+    model list answers the question being asked rather than the one already settled.
+    """
+    name = str(getattr(cfg, "llm_provider", "") or llm.DEFAULT_PROVIDER)
+    if provider_name in llm.PROVIDER_DEFAULT_MODELS:
+        name = provider_name
+    default = llm.PROVIDER_DEFAULT_MODELS.get(name, "")
+    models = _dedupe([{"value": default, "note": f"{name} default"}] if default else [],
+                     _models_used(conn), _models_for(name))
+    found: dict[str, list[dict]] = {key: models for key in
+                                    ("MEMCAL_PROPOSE_MODEL", "MEMCAL_SWEEP_MODEL",
+                                     "MEMCAL_MATCH_MODEL")}
+    # An absolute path is what the nightly agent needs, and `which` already knows it.
+    for key, command in (("MEMCAL_CODEX_COMMAND", cfg.codex_command),
+                         ("MEMCAL_CLAUDE_COMMAND", cfg.claude_command),
+                         ("MEMCAL_AGY_COMMAND", cfg.agy_command)):
+        bare = Path(command).name or command
+        resolved = shutil.which(bare)
+        found[key] = _dedupe(
+            [{"value": resolved, "note": "found on your PATH"}] if resolved else [],
+            [{"value": bare, "note": "whatever PATH resolves at run time"}])
+    calendars = _calendars_seen(conn)
+    found["MEMCAL_PUBLISH_CALENDAR"] = _dedupe(
+        calendars, [{"value": "memcal", "note": "a calendar of its own, as documented"}])
+    found["MEMCAL_PUBLISH_REMINDERS"] = _dedupe(
+        [{"value": "memcal", "note": "a list of its own, as documented"}])
+    return found
+
+
+def page(cfg: Config, conn=None, provider_name: str = "") -> dict:
     """Everything the tab can draw without touching the network or a subprocess."""
     return {**settings.snapshot(cfg),
             "provider": provider(cfg),
             "credentials": settings.credentials(cfg),
+            "suggestions": suggestions(cfg, conn, provider_name),
             "store": store(cfg)}
 
 
@@ -76,7 +172,7 @@ def probe(cfg: Config) -> dict:
             "plugin_dir": str(cfg.plugin_dir), "schedule": nightly}
 
 
-def save(cfg: Config, payload: dict) -> dict:
+def save(cfg: Config, payload: dict, conn=None) -> dict:
     """One POST for the form and for a credential; neither is implicit.
 
     A credential is write-only by construction: it goes in, and only its presence ever
@@ -93,4 +189,4 @@ def save(cfg: Config, payload: dict) -> dict:
         out.update(settings.save(cfg, payload["changes"]))
     if not out:
         raise settings.SettingsError("nothing to save")
-    return {**out, **page(cfg)}
+    return {**out, **page(cfg, conn)}

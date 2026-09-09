@@ -577,6 +577,23 @@ def _native_model(provider: str, model: str) -> str:
     return model[len(prefix):] if prefix and model.startswith(prefix) else model
 
 
+def catalog(provider: str) -> list[tuple[str, str]]:
+    """`(what to configure, what to price it as)` for models memcal already knows.
+
+    Not a restriction — any model the runtime accepts still works, and `PROVIDER_COMMANDS`
+    never consults this. It exists so a surface offering a choice can offer the models
+    this repo has a price or a pinned endpoint for, named the way that provider names
+    them. Antigravity has no vendor prefix here, so it contributes nothing and the
+    caller falls back to its default.
+    """
+    prefix = _VENDOR_PREFIX.get(provider, "")
+    known = sorted(set(PRICES) | set(ENDPOINTS))
+    if provider == "openrouter":
+        return [(model, model) for model in known]
+    return [(model[len(prefix):], model)
+            for model in known if prefix and model.startswith(prefix)]
+
+
 def _spec_for(provider: str, model: str) -> Endpoint:
     """The `ENDPOINTS` row for a model named the way a CLI backend names it.
 
