@@ -46,6 +46,9 @@ function mark(key, value) {
     // Typed a value into a row that was on its default: there is something to undo now,
     // and the row is not re-rendered on every keystroke.
     row.querySelector(".setreset").disabled = nothingToReset(setting);
+    // The one thing that does have to follow every keystroke: whether what is in the
+    // box now is a model this provider refuses.
+    drawModelWarning(row.querySelector(".modelwarn"), setting);
   }
   syncBar();
 }
@@ -230,6 +233,30 @@ function control(s) {
   return input;
 }
 
+/* Said before the pass is run, rather than afterwards in an error string repeated 74
+   times. Two strengths of claim, because they are two different situations: a model
+   memcal recognises as somebody else's will not save, and one it has never heard of is
+   a new release at least as often as it is a mistake. */
+function drawModelWarning(holder, s) {
+  if (!holder) return;
+  holder.innerHTML = "";
+  const m = page.models || {};
+  if (!(m.keys || []).includes(s.key)) return;
+  const value = valueOf(s);
+  const owner = (m.foreign || {})[value];
+  if (owner) {
+    holder.append(el("div", "setwarn",
+      `${value} belongs to ${owner}, and the provider is ${m.provider} — every request `
+      + `in a pass would be refused, so this will not save. Pick one of ${m.provider}'s, `
+      + `or switch the provider to ${owner}.`));
+  } else if (m.closed && value && !(m.known || []).includes(value)) {
+    holder.append(el("div", "setwarn",
+      `memcal does not recognise ${value} as one of ${m.provider}'s ${m.known.length} `
+      + `known models. That is not necessarily wrong — a model newer than memcal's table `
+      + `looks exactly like this — so it will save, and the first pass will tell you.`));
+  }
+}
+
 function settingRow(s) {
   const row = el("div", "setrow" + (pending.has(s.key) ? " changed" : ""));
   row.dataset.key = s.key;
@@ -263,12 +290,49 @@ function settingRow(s) {
       `also set in ${s.shadowed_by}, which wins the next time memcal starts`));
   }
 
+  const m = page.models || {};
+  const isModel = (m.keys || []).includes(s.key);
+
+  const hold = el("div", "modelwarn");
+  if (isModel) main.append(hold);
+  drawModelWarning(hold, s);
+  // Antigravity states its reasoning budget in the model name and memcal does not pass
+  // `--effort` on top of one that does, so this row is genuinely inert for most of its
+  // models. Better said here than concluded from a setting that appears not to work.
+  if (s.key === "MEMCAL_REASONING_EFFORT" && m.effort_in_name) {
+    main.append(el("div", "setwarn",
+      "Antigravity model names carry their own budget — gemini-3.8-flash-high and "
+      + "gemini-3.8-flash-low are separate models. When the chosen model ends in "
+      + "-low/-medium/-high this is ignored; it applies to the ones that do not, "
+      + "like claude-sonnet-4-6."));
+  }
+
   const side = el("div", "setctl");
   side.append(control(s));
   const reset = el("button", "setreset", "use default");
   reset.disabled = nothingToReset(s);
   reset.onclick = () => { mark(s.key, ""); render(); };
-  side.append(reset, el("div", "setpending", pendingText(s)));
+  side.append(reset);
+  // Propose, sweep and merge are nearly always the same choice, and setting them one at
+  // a time through three comboboxes is three chances to leave one behind on a model the
+  // provider no longer serves.
+  if (s.key === "MEMCAL_PROPOSE_MODEL" && (m.keys || []).length > 1) {
+    const all = el("button", "setreset", "use for all stages");
+    all.title = "Set the sweep and merge models to this one too. Nothing is saved until "
+              + "you save.";
+    all.onclick = () => {
+      const value = valueOf(s);
+      for (const key of m.keys) {
+        const other = rowFor(key);
+        if (other) mark(key, value === other.value ? null : value);
+      }
+      render();
+      toast(value ? `propose, sweep and merge all set to ${value}`
+                  : `propose, sweep and merge all back to the ${m.provider} default`);
+    };
+    side.append(all);
+  }
+  side.append(el("div", "setpending", pendingText(s)));
 
   row.append(main, side);
   return row;
@@ -323,6 +387,17 @@ function renderRuntime() {
   if (p.default_model)
     head.append(el("span", "setflag", `provider default model: ${p.default_model}`));
   card.append(head);
+  const m = page.models || {};
+  if ((m.known || []).length) {
+    card.append(el("p", "note",
+      `${m.known.length} model${m.known.length === 1 ? "" : "s"} available here`
+      + (m.roster_source ? ` — from ${m.roster_source}` : "")
+      + (m.closed ? ". The model fields below accept these and refuse the rest, "
+                    + "because a model this provider does not serve fails every "
+                    + "request in the pass rather than one."
+                  : ". OpenRouter routes more than memcal prices, so anything you type "
+                    + "is still accepted.")));
+  }
   if (!p.ok) {
     card.append(el("div", "setwarn", p.needs_key
       ? "OpenRouter needs an API key — set OPENROUTER_API_KEY under Credentials below."
@@ -415,6 +490,17 @@ async function saveSecret(name, value, input) {
 }
 
 function renderProbe(probe) {
+  /* The roster arrives with the slow half because getting it runs `agy models`. Folding
+     it into `page.models` here means the "does not serve that" warning is checked
+     against what the provider says today, not only against memcal's own table. */
+  const roster = probe.roster || {};
+  if (page && page.models && roster.provider === page.models.provider
+      && (roster.models || []).length) {
+    page.models.known = [...new Set([...roster.models, page.models.default])];
+    page.models.roster_source = roster.source;
+    renderGroups();
+    renderRuntime();
+  }
   const box = $("#setsources"); box.innerHTML = "";
   const card = el("div", "card");
   for (const s of probe.sources) {
@@ -530,15 +616,53 @@ async function loadProbe() {
   if (!probe.error && state.view === "settings") renderProbe(probe);
 }
 
-/* Which models are worth suggesting depends on the provider, and the provider can be
-   chosen here without being saved yet. This asks what that choice would suggest; it
-   changes nothing on the server, and the values on the page stay the saved ones. */
+/* Which models a provider serves depends on the provider, and the provider can be
+   chosen here without being saved yet. This asks what that choice would offer — with
+   `live=1`, so Antigravity is asked rather than guessed at — and then does the thing
+   the form was silently not doing: moves any model field the new provider cannot serve
+   onto one it can.
+
+   Not doing that is what broke a whole pass. The provider was switched to Codex while
+   the propose model still read `gemini-3.8-flash-high`; the form accepted both, and
+   every one of the 74 bundles came back "not supported when using Codex with a ChatGPT
+   account". The model fields are part of choosing a provider, so they move with it. */
 async function refreshSuggestions(providerName) {
   render();
-  const out = await api("/api/settings?provider=" + encodeURIComponent(providerName));
+  const out = await api("/api/settings?live=1&provider="
+                        + encodeURIComponent(providerName));
   if (out.error || !page) return;
   page.suggestions = out.suggestions;
+  page.models = out.models;
+  const moved = repointModels();
   render();
+  if (moved.length) {
+    toast(`${providerName} does not serve ${moved.join(", ")} — `
+          + `moved to ${page.models.default}. Nothing is saved until you press save.`);
+  }
+}
+
+/* Move every model field that names *another* provider's model onto this provider's
+   default. Returns what had to be abandoned, so the page says which and why rather than
+   quietly rewriting what somebody typed.
+
+   Only the foreign ones. A model memcal does not recognise at all is far more often a
+   release newer than its price table than a mistake, and rewriting that out from under
+   someone would be the worse failure of the two. */
+function repointModels() {
+  const m = page.models || {};
+  const foreign = m.foreign || {};
+  if (!m.default) return [];
+  const moved = [];
+  for (const key of m.keys || []) {
+    const s = rowFor(key);
+    if (!s) continue;
+    const now = valueOf(s);
+    // Empty is "use the provider default", which is right under any provider.
+    if (!now || !foreign[now]) continue;
+    moved.push(`${now} (${foreign[now]}'s)`);
+    mark(key, m.default === s.value ? null : m.default);
+  }
+  return [...new Set(moved)];
 }
 
 export async function loadSettings() {

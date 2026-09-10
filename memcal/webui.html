@@ -99,6 +99,7 @@
       text the model will get, in the same requests it will travel in.
     </p>
     <div class="tiles" id="dtiles"></div>
+    <div id="dretry"></div>
     <div id="dwarn"></div>
 
     <h2>1 · Collect</h2>
@@ -122,27 +123,35 @@
       The requests it travels in</h3>
     <div class="reqs" id="dreqs"></div>
 
-    <h3 style="font-size:13px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.07em;margin:22px 0 10px">
-      The bundles <span id="dbcount" style="font-weight:400;text-transform:none;letter-spacing:0"></span></h3>
-    <div class="row" style="margin-bottom:10px;gap:8px;flex-wrap:wrap">
-      <input type="search" id="bq" placeholder="search a name, a handle, or what was said"
-             style="flex:1;min-width:220px">
-      <select id="bstream"><option value="">every stream</option></select>
-      <select id="bkind">
-        <option value="">every kind</option>
-        <option value="person">people</option>
-        <option value="group">group chats</option>
-        <option value="thread">threads</option>
-      </select>
-      <select id="bflag">
-        <option value="">everything</option>
-        <option value="waiting">has lines left over</option>
-        <option value="monologue">your words only</option>
-        <option value="nopage">no wiki page</option>
-        <option value="merged">merged chat ids</option>
-      </select>
-    </div>
-    <div id="dbundles"></div>
+    <!-- Closed, and scrolling inside itself when open. A real pass is a hundred-odd
+         conversations and every one of them is an expandable card; rendered inline they
+         pushed the Dream button and everything the pass wrote several screens down the
+         page, so the control you came here for was the hardest thing on it to find. -->
+    <details class="bundlebox" id="dbundlebox">
+      <summary>
+        <span class="bundleboxtitle">The bundles</span>
+        <span id="dbcount" class="note" style="margin:0"></span>
+      </summary>
+      <div class="row" style="margin:10px 0;gap:8px;flex-wrap:wrap">
+        <input type="search" id="bq" placeholder="search a name, a handle, or what was said"
+               style="flex:1;min-width:220px">
+        <select id="bstream"><option value="">every stream</option></select>
+        <select id="bkind">
+          <option value="">every kind</option>
+          <option value="person">people</option>
+          <option value="group">group chats</option>
+          <option value="thread">threads</option>
+        </select>
+        <select id="bflag">
+          <option value="">everything</option>
+          <option value="waiting">has lines left over</option>
+          <option value="monologue">your words only</option>
+          <option value="nopage">no wiki page</option>
+          <option value="merged">merged chat ids</option>
+        </select>
+      </div>
+      <div id="dbundles" class="bundlescroll"></div>
+    </details>
 
     <h2>3 · Dream</h2>
     <div class="card">
@@ -224,9 +233,19 @@
       what the model thought, what it answered, and which of those answers actually
       landed in the store.
     </p>
+    <div class="filters">
+      <div class="seg" id="routcome">
+        <button data-v="" aria-pressed="true">All</button>
+        <button data-v="ok">Succeeded</button>
+        <button data-v="partial">Partial</button>
+        <button data-v="failed">Failed</button>
+      </div>
+      <span class="note" style="margin:0" id="runcount"></span>
+    </div>
+    <div id="runretry"></div>
     <div class="wrap"><table>
       <thead><tr>
-        <th>#</th><th>When</th><th>Mode</th><th>Model</th>
+        <th>#</th><th>When</th><th>How it ended</th><th>Mode</th><th>Model</th>
         <th class="num">Bundles</th><th class="num">Items</th><th class="num">Writes</th>
         <th class="num">In</th><th class="num">Cached</th><th class="num">Out</th>
         <th class="num">Cost</th><th></th>

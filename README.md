@@ -157,8 +157,16 @@ can price for the provider you have chosen — named the way that provider names
 with their rates — plus any this store has already run; picking a provider re-asks
 before you save, so the list follows the choice you are making. An executable field
 offers the absolute path `which` finds, which is what the nightly agent needs. A
-calendar field offers the calendars memcal has read. Anything else you type is still
-accepted: the suggestions are a shortcut, never a restriction.
+calendar field offers the calendars memcal has read.
+
+The model fields are the one place that does restrict. A model belonging to a different
+provider than the one selected is refused, because it does not fail one request — it
+fails every request in a pass, which is how a run once read 74 conversations and wrote
+nothing. Choosing a provider moves any model field naming another provider's model onto
+the new provider's default and tells you which and why, and one control sets the propose,
+sweep and merge models together. A model memcal simply does not recognise still saves:
+these lists lag every release, so an unfamiliar name is a new model at least as often as
+it is a mistake. Every other suggestion is a shortcut, never a restriction.
 
 ## Choose a model backend
 
@@ -193,6 +201,23 @@ Antigravity model names carry their own reasoning budget — `gemini-3.8-flash-h
 `gemini-3.8-flash-low` are separate selections — so memcal leaves `--effort` alone for
 those and sets it only for a model that does not state one. `agy models` lists what the
 login can reach.
+
+## Retry a pass that failed
+
+A dream pass claims the spooled lines it reads, so a pass that broke part-way through
+leaves a queue that no longer holds what it read. The Runs tab says how each pass ended —
+ok, partial, failed, running, priced only — and offers a Retry on the ones worth
+re-reading; the Dream tab says the same above the button that spends money.
+
+Retrying puts back exactly the lines that pass claimed and dreams over them again with
+whatever provider and model are configured **now**, so fix the setting that broke it
+first. A pass refused on its first call claimed nothing at all — its traffic was never
+removed from the queue — and the page says so, rather than leaving the retry looking as
+though it did nothing.
+
+```bash
+memcal dream --retry 29
+```
 
 The setup flow can also be scripted:
 

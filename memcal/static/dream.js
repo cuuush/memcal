@@ -1,5 +1,5 @@
 import { $, el, nf, api, toast, state } from "./core.js";
-import { runJob, watchJob } from "./jobs.js";
+import { runJob, watchJob, retryDream } from "./jobs.js";
 import { openWhy } from "./memory.js";
 
 /* Bundle filtering is client-side: the preview is already in hand and re-fetching it
@@ -17,6 +17,7 @@ export async function loadDream() {
   preview = await api("/api/dream_preview");
   if (preview.error) return;
   renderTiles(preview);
+  renderRetry(preview);
   renderWarning(preview);
   renderPrefix(preview);
   renderRequests(preview);
@@ -41,7 +42,10 @@ function renderTiles(p) {
   };
   box.append(
     tile("Last dream", p.last_dream.at ? p.last_dream.at.slice(5).replace("T", " ") : "never",
-         p.last_dream.model || "no pass on record"),
+         p.last_dream.at
+           ? `${p.last_dream.model} · ${p.last_dream.outcome_label}`
+           : "no pass on record",
+         p.last_dream.outcome === "failed" || p.last_dream.outcome === "partial"),
     tile("Waiting", nf(s.pending), `gated and unread · ${nf(s.entities)} conversations`),
     // Selection is round-robin across conversations, capped per conversation, so the
     // interesting number is not "how many did not fit" but "whose tail got cut".
@@ -65,6 +69,39 @@ function renderTiles(p) {
   // The count line belongs to renderBundles now — it has to say how many the filter is
   // showing, and two writers of one element means whichever ran last wins.
   $("#dream").disabled = !p.bundles.length;
+}
+
+/* The last pass, when it did not work. This is the tab someone is on when they decide
+   to spend money, so the fact that the previous attempt read nothing — and the button
+   that re-reads what it was given — belong here rather than only on Runs. */
+function renderRetry(p) {
+  const box = $("#dretry"); box.innerHTML = "";
+  const last = p.last_dream || {};
+  if (!last.retryable) return;
+  const n = el("div", "banner");
+  n.append(el("b", null, `Run #${last.id} ${last.outcome === "failed"
+    ? "read nothing" : "only partly landed"} — ${last.at}, ${last.model}`));
+  n.append(el("p", null, (last.error || "").slice(0, 400)));
+  const row = el("div", "row");
+  const go = el("button", "retrybtn", "Retry that pass");
+  go.onclick = async () => {
+    go.disabled = true;
+    await retryDream(last.id, async s => { renderOutput(s.result || {}); await loadDream(); });
+    go.disabled = false;
+  };
+  const note = el("span", "note");
+  note.style.margin = "0";
+  /* Whichever of the two situations it is, said plainly. They lead to the same button
+     and to very different amounts of undoing, and guessing wrong about which one you
+     are in is how a retry looks like it did nothing. */
+  note.textContent = last.claimed
+    ? `Puts the ${nf(last.claimed)} line(s) it read back in the queue, then dreams over `
+      + `them with the provider and model set now — fix those first if that is what broke.`
+    : "It claimed nothing, so everything it was given is still queued. Fix the provider "
+      + "and model first if that is what broke, then this is an ordinary pass over the same traffic.";
+  row.append(go, note);
+  n.append(row);
+  box.append(n);
 }
 
 function renderWarning(p) {
@@ -216,6 +253,10 @@ function rebundle() { if (preview) renderBundles(preview); }
 function flashBundle(bid) {
   const card = document.getElementById("bundle-" + bid);
   if (!card) return false;
+  // The list is folded away by default now, and scrolling to a card inside a closed
+  // <details> scrolls to nothing.
+  const box = $("#dbundlebox");
+  if (box) box.open = true;
   card.open = true;
   card.scrollIntoView({behavior: "smooth", block: "center"});
   card.classList.add("flash");

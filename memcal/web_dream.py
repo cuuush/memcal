@@ -9,6 +9,7 @@ from . import archive, db, llm, textclean, threads, wiki
 from .config import Config
 from .dream import bundle as bundle_stage
 from .dream import propose as propose_stage
+from .dream import retry as dream_retry
 
 def dream_preview(conn: sqlite3.Connection, cfg: Config, *, limit: int = 0) -> dict:
     """Exactly what the next pass would see. Claims nothing — safe to call at will."""
@@ -23,7 +24,7 @@ def dream_preview(conn: sqlite3.Connection, cfg: Config, *, limit: int = 0) -> d
     pending = conn.execute(
         "SELECT count(*) n FROM spool WHERE processed_at IS NULL").fetchone()["n"]
     last = conn.execute(
-        """SELECT started_at, model, mode FROM runs
+        """SELECT * FROM runs
            WHERE mode NOT IN ('dry-run') AND diffs IS NOT NULL
            ORDER BY id DESC LIMIT 1""").fetchone()
     cutoff = (db.today() - timedelta(days=archive.SPOOL_HORIZON_DAYS)).isoformat()
@@ -57,8 +58,21 @@ def dream_preview(conn: sqlite3.Connection, cfg: Config, *, limit: int = 0) -> d
             "per_entity": cfg.items_per_entity,
             "entities": len(bundles),
         },
-        "last_dream": {"at": str(last["started_at"])[:16] if last else None,
-                       "model": (last["model"] or "").split("/")[-1] if last else None},
+        "last_dream": {
+            "at": str(last["started_at"])[:16] if last else None,
+            "model": (last["model"] or "").split("/")[-1] if last else None,
+            # Whether the pass before this one actually worked, said here rather than
+            # only on the Runs tab. This is the page someone is on when they decide to
+            # spend money again, and "last dream: 20:21, gemini-3.8-flash-high" reads
+            # as a pass that happened when in fact it read nothing.
+            "id": last["id"] if last else None,
+            "outcome": dream_retry.outcome(last) if last else None,
+            "outcome_label": (dream_retry.OUTCOME_LABELS[dream_retry.outcome(last)]
+                              if last else None),
+            "retryable": bool(last is not None and dream_retry.retryable(last)),
+            "claimed": dream_retry.claimed(conn, last["id"]) if last else 0,
+            "error": (last["error"] or "") if last else "",
+        },
         "max_parallel": cfg.max_parallel,
         "pack": {"bundles": cfg.pack_bundles, "tokens": cfg.pack_tokens},
         "cost": _cost_estimate(cfg, prefix_tok, groups, conn),

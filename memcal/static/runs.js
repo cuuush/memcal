@@ -1,21 +1,93 @@
 import { $, el, nf, api, toast, state } from "./core.js";
 import { openTrace, seatRow } from "./trace.js";
+import { retryDream } from "./jobs.js";
 
 /* ---------------------------------------------------------------- runs -- */
+/* The last payload, kept so the outcome filter redraws without re-asking. The list is
+   forty rows and each one costs a `generations` count and a `spool` count on the
+   server; filtering is a question about rows already in hand. */
+let allRuns = [];
+let outcomeFilter = "";
+
+export function retryPill(run, after) {
+  /* The one control that turns "this pass failed" into something you can do about it.
+     It says what it will put back, because that is the part that is not obvious: a run
+     refused on its first call claimed nothing and retrying it is an ordinary pass. */
+  const b = el("button", "retrybtn", "Retry this pass");
+  b.title = run.claimed
+    ? `Puts the ${nf(run.claimed)} line(s) this pass read back in the queue, then dreams `
+      + `over them with whatever is configured now.`
+    : "This pass never claimed anything, so its traffic is still queued. Dreams over it "
+      + "again with whatever is configured now.";
+  b.onclick = async e => {
+    e.stopPropagation();
+    b.disabled = true;
+    await retryDream(run.id, after);
+    b.disabled = false;
+  };
+  return b;
+}
+
 export async function loadRuns() {
   const {runs} = await api("/api/runs?limit=40");
-  const body = $("#runs"); body.innerHTML = "";
+  allRuns = runs || [];
   $("#rundetail").innerHTML = "";
-  if (!runs.length) { body.innerHTML = '<tr><td colspan="12" class="empty">no passes yet</td></tr>'; return; }
-  for (const r of runs) {
+  renderRuns();
+  if (state.run) openRun(state.run);
+}
+
+/* The newest pass that is worth retrying, called out above the table. Scanning twelve
+   numeric columns for the one row that failed is exactly the work the tab should be
+   doing for you, and the failure people care about is nearly always the last one. */
+function renderRetryBanner() {
+  const box = $("#runretry"); box.innerHTML = "";
+  const broken = allRuns.find(r => r.retryable);
+  if (!broken) return;
+  const n = el("div", "banner");
+  n.append(el("b", null, `Run #${broken.id} ${broken.outcome === "failed"
+    ? "wrote nothing" : "only partly landed"} — ${broken.at}, ${broken.model}`));
+  n.append(el("p", null, (broken.error || "").slice(0, 400)));
+  const row = el("div", "row");
+  row.append(retryPill(broken, () => loadRuns()));
+  const note = el("span", "note");
+  note.style.margin = "0";
+  note.textContent = broken.claimed
+    ? `${nf(broken.claimed)} line(s) go back in the queue first.`
+    : "Nothing to put back — the traffic it was given is still queued.";
+  row.append(note);
+  n.append(row);
+  box.append(n);
+}
+
+function renderRuns() {
+  const body = $("#runs"); body.innerHTML = "";
+  renderRetryBanner();
+  const shown = allRuns.filter(r => !outcomeFilter || r.outcome === outcomeFilter);
+  $("#runcount").textContent = shown.length === allRuns.length
+    ? `${nf(allRuns.length)} pass${allRuns.length === 1 ? "" : "es"}`
+    : `${nf(shown.length)} of ${nf(allRuns.length)}`;
+  if (!shown.length) {
+    body.innerHTML = `<tr><td colspan="13" class="empty">${
+      allRuns.length ? "no pass ended that way" : "no passes yet"}</td></tr>`;
+    return;
+  }
+  for (const r of shown) {
     const tr = el("tr", "runrow");
     tr.setAttribute("aria-expanded", "false");
-    tr.append(el("td", "num", "#" + r.id), el("td", null, r.at), el("td", null, r.mode),
-              el("td", null, r.model),
+    const state_ = el("td");
+    state_.append(el("span", "outcome " + r.outcome, r.outcome_label));
+    tr.append(el("td", "num", "#" + r.id), el("td", null, r.at), state_,
+              el("td", null, r.mode), el("td", null, r.model),
               el("td", "num", nf(r.bundles)), el("td", "num", nf(r.items)), el("td", "num", nf(r.diffs)),
               el("td", "num", nf(r.prompt)), el("td", "num", nf(r.cached)), el("td", "num", nf(r.completion)),
               el("td", "num", "$" + r.cost.toFixed(4)));
-    const err = el("td"); if (r.error) { err.className = "flag"; err.textContent = r.error.slice(0, 80); }
+    const err = el("td");
+    if (r.retryable) {
+      err.append(retryPill(r, () => loadRuns()));
+    } else if (r.error) {
+      err.className = "flag";
+      err.textContent = r.error.slice(0, 80);
+    }
     tr.append(err);
     tr.onclick = () => {
       const open = tr.getAttribute("aria-expanded") === "true";
@@ -26,7 +98,15 @@ export async function loadRuns() {
     };
     body.append(tr);
   }
-  if (state.run) openRun(state.run);
+}
+
+for (const b of $("#routcome").querySelectorAll("button")) {
+  b.onclick = () => {
+    outcomeFilter = b.dataset.v;
+    for (const other of $("#routcome").querySelectorAll("button"))
+      other.setAttribute("aria-pressed", String(other === b));
+    renderRuns();
+  };
 }
 
 /* One pass, opened up. The runs table was twelve numbers and an error string, and the
@@ -58,11 +138,25 @@ async function openRun(id) {
     d.run.at, d.run.finished ? "→ " + d.run.finished.slice(11) : "",
     `${nf(d.run.bundles)} bundles`, `${nf(d.run.items)} lines`, `${nf(d.calls.length)} calls`,
     ...spent,
-    `${nf(d.run.diffs)} writes`, `$${d.run.cost.toFixed(4)}`,
+    `${nf(d.run.diffs)} writes`, `$${d.run.cost.toFixed(4)}`, d.run.outcome_label,
   ].filter(Boolean).join(" · ");
   box.append(meta);
   if (d.run.error) {
-    const w = el("div", "banner"); w.textContent = d.run.error; box.append(w);
+    const w = el("div", "banner");
+    w.append(el("b", null, `This pass ${d.run.outcome_label}`),
+             el("p", null, d.run.error));
+    if (d.run.retryable) {
+      const row = el("div", "row");
+      row.append(retryPill({...d.run}, () => loadRuns()));
+      const note = el("span", "note");
+      note.style.margin = "0";
+      note.textContent = d.run.claimed
+        ? `${nf(d.run.claimed)} line(s) this pass read go back in the queue first.`
+        : "It claimed nothing, so everything it was given is still queued.";
+      row.append(note);
+      w.append(row);
+    }
+    box.append(w);
   }
 
   /* Bundles that got no diff back, first — that is what someone opens a run for. Not

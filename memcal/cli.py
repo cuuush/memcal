@@ -1149,6 +1149,23 @@ def cmd_dream(args) -> int:
     other end. `--rounds` keeps going until nothing is left, printing what each pass cost.
     """
     cfg, conn = open_ctx(args)
+    if getattr(args, "retry", None):
+        from .dream import retry as retry_stage                    # noqa: PLC0415
+        row = conn.execute("SELECT * FROM runs WHERE id = ?", (args.retry,)).fetchone()
+        if not row:
+            print(f"no run #{args.retry}")
+            return 1
+        if not retry_stage.retryable(row):
+            state = retry_stage.OUTCOME_LABELS[retry_stage.outcome(row)]
+            print(f"run #{args.retry} is {state}; there is nothing to retry")
+            return 1
+        released = retry_stage.requeue(conn, args.retry)
+        # Nothing released is the normal outcome for a pass refused on its first call,
+        # and it is not a problem: that pass never claimed anything, so its traffic is
+        # still queued and this is an ordinary pass over it.
+        print(f"retrying run #{args.retry}: "
+              + (f"released {released} previously-read item(s)" if released
+                 else "it claimed nothing, so its traffic is still queued"))
     failed = False
     for round_no in range(1, max(1, args.rounds) + 1):
         result = dream(conn, cfg, mode=args.mode, model=args.model, limit=args.limit,
@@ -2184,6 +2201,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="re-read already-processed items ('all', or an ISO date)")
     s.add_argument("--no-sweep", action="store_true",
                    help="skip the final cheap pass over the result")
+    s.add_argument("--retry", type=int, metavar="RUN",
+                   help="re-read what a failed pass was given: puts the lines that run "
+                        "claimed back in the queue, then dreams over them with whatever "
+                        "is configured now")
     s.set_defaults(func=cmd_dream)
 
     s = sub.add_parser("remember", help="tell memcal something directly (writes immediately)")

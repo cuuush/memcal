@@ -577,21 +577,117 @@ def _native_model(provider: str, model: str) -> str:
     return model[len(prefix):] if prefix and model.startswith(prefix) else model
 
 
+#: Providers that serve models this repo has no `PRICES`/`ENDPOINTS` row for, listed
+#: by hand because there is no vendor prefix that would find them.
+#:
+#: Antigravity is the whole reason this exists. It serves Gemini, Claude and open-weight
+#: models from one command under names of its own, so `_VENDOR_PREFIX` cannot reach them
+#: and `catalog("antigravity")` returned nothing at all — which meant the settings page
+#: offered every *other* provider's models for it and none of its own. Run `agy models`
+#: to refresh this; `list_models` below asks the CLI directly when it is installed, and
+#: this is what a store with no `agy` on its PATH falls back to.
+STATIC_PROVIDER_MODELS: dict[str, tuple[str, ...]] = {
+    "antigravity": (
+        "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low",
+        "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low",
+        "gemini-3.6-flash-high", "gemini-3.6-flash-medium", "gemini-3.6-flash-low",
+        "gemini-3.1-pro-high", "gemini-3.1-pro-low",
+        "claude-sonnet-4-6", "claude-opus-4-6-thinking",
+        "gpt-oss-120b-medium",
+    ),
+}
+
+
 def catalog(provider: str) -> list[tuple[str, str]]:
     """`(what to configure, what to price it as)` for models memcal already knows.
 
-    Not a restriction — any model the runtime accepts still works, and `PROVIDER_COMMANDS`
-    never consults this. It exists so a surface offering a choice can offer the models
-    this repo has a price or a pinned endpoint for, named the way that provider names
-    them. Antigravity has no vendor prefix here, so it contributes nothing and the
-    caller falls back to its default.
+    Named the way that provider names them. A model with no price of its own is paired
+    with itself, so `rates()` returns None for it and every surface says "no price on
+    file" rather than quoting somebody else's.
     """
     prefix = _VENDOR_PREFIX.get(provider, "")
     known = sorted(set(PRICES) | set(ENDPOINTS))
     if provider == "openrouter":
         return [(model, model) for model in known]
-    return [(model[len(prefix):], model)
-            for model in known if prefix and model.startswith(prefix)]
+    if prefix:
+        return [(model[len(prefix):], model)
+                for model in known if model.startswith(prefix)]
+    return [(model, model) for model in STATIC_PROVIDER_MODELS.get(provider, ())]
+
+
+def list_models(cfg, provider: str) -> tuple[list[str], str]:
+    """`(models, where that came from)` — asked of the CLI when the CLI can answer.
+
+    Only Antigravity has a listing command, and it is the only provider whose roster
+    `catalog` cannot derive by vendor prefix. Anything that goes wrong — no executable,
+    a timeout, unfamiliar output — falls back to the static table rather than raising,
+    because the settings page has to draw on a machine that never installed the CLI.
+    """
+    provider = str(provider or "").strip().lower()
+    known = [native for native, _priced in catalog(provider)]
+    if provider != "antigravity":
+        return known, "memcal's own table"
+    backend = PROVIDER_COMMANDS.get(provider)
+    command = backend.command(cfg) if backend else ""
+    if not command or not (Path(command).is_file() or shutil.which(command)):
+        return known, "memcal's own table — `agy` is not on this PATH to ask"
+    try:
+        proc = subprocess.run([command, "models"], capture_output=True, text=True,
+                              timeout=30, cwd=str(cfg.home))
+    except (OSError, subprocess.SubprocessError):
+        return known, "memcal's own table — `agy models` did not answer"
+    if proc.returncode:
+        return known, "memcal's own table — `agy models` failed"
+    # One model per line, `id<TAB>Human Name`. Anything that is not shaped like that is
+    # a banner ("Fetching available models…") and is skipped rather than offered.
+    found = []
+    for line in (proc.stdout or "").splitlines():
+        name = line.split("\t", 1)[0].strip()
+        if name and " " not in name and not name.endswith(":"):
+            found.append(name)
+    return (found, "`agy models`") if found else (
+        known, "memcal's own table — `agy models` listed nothing")
+
+
+def serves(provider: str, model: str) -> bool | None:
+    """Whether this provider's own roster names this model. None means it has no roster.
+
+    A `False` here means "memcal cannot vouch for this", not "this will fail". These
+    rosters lag the providers: a model OpenAI shipped this morning is not in `PRICES`
+    yet and Codex will serve it perfectly well. Use it to shade a suggestion or warn on
+    a form — see `belongs_elsewhere` for the stronger claim that is safe to refuse on.
+    """
+    provider = str(provider or "").strip().lower()
+    if provider == "openrouter" or provider not in PROVIDER_DEFAULT_MODELS:
+        return None
+    model = str(model or "").strip()
+    if not model:
+        return True                        # unset means the provider default, always fine
+    known = {native for native, _priced in catalog(provider)}
+    return _native_model(provider, model) in known or model in known
+
+
+def belongs_elsewhere(provider: str, model: str) -> str:
+    """The provider this model *is* known to belong to, when that is a different one.
+
+    The narrow, positive claim, and the only one worth refusing a save over. "Not in
+    Codex's list" is weak — the list lags every release. "This is Antigravity's model
+    and you picked Codex" is not, and it is what cost run 29 all 74 of its bundles.
+    Returns "" when nothing is known either way, leaving an unheard-of model typable.
+    """
+    provider = str(provider or "").strip().lower()
+    model = str(model or "").strip()
+    if not model or not provider or serves(provider, model) is not False:
+        return ""
+    for other, rows in ((name, catalog(name)) for name in PROVIDER_DEFAULT_MODELS):
+        if other in (provider, "openrouter"):
+            # OpenRouter's catalog is memcal's whole price table, so it names every
+            # model and would claim all of them. It routes them all too, which is why
+            # it is never the answer to "whose model is this".
+            continue
+        if any(model == native for native, _priced in rows):
+            return other
+    return ""
 
 
 def _spec_for(provider: str, model: str) -> Endpoint:
@@ -794,7 +890,7 @@ class Codex(ProgrammaticClient):
 #: (`gemini-3.8-flash-high`). Passing `--effort` on top of one of those is asking the
 #: same question twice, so the suffix wins and the flag is only used for a model that
 #: does not state a budget of its own.
-_AGY_EFFORT_SUFFIX = re.compile(r"-(low|medium|high)$")
+AGY_EFFORT_SUFFIX = re.compile(r"-(low|medium|high)$")
 
 
 class Antigravity(ProgrammaticClient):
@@ -825,7 +921,7 @@ class Antigravity(ProgrammaticClient):
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 json.dump(schema, fh, separators=(",", ":"))
             args += ["--json-schema", schema_path]
-        if reasoning_effort and not _AGY_EFFORT_SUFFIX.search(native):
+        if reasoning_effort and not AGY_EFFORT_SUFFIX.search(native):
             args += ["--effort", reasoning_effort]
         # `agy` runs its own five-minute clock over the turn and, when it expires,
         # returns *partial output* with returncode 0 — an `ERROR` status, or worse a

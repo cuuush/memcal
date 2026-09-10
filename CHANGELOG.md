@@ -7,6 +7,26 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A failed dream pass can be retried. The Runs tab now says how each pass ended — ok,
+  partial, failed, running, priced only — filters on it, and puts a Retry button on the
+  ones worth re-reading; the Dream tab says the same thing above the button that spends
+  money, so a pass that read nothing is not discovered afterwards. Retrying puts the
+  spooled lines that pass claimed back in the queue and dreams over them again with
+  whatever provider and model are configured now, which is what a retry after fixing a
+  broken provider has to mean. A pass refused on its first call claimed nothing, and the
+  page says so rather than leaving the retry looking like it did nothing.
+  `memcal dream --retry RUN` does the same from the command line.
+- The model fields on the Settings tab are limited to what the chosen provider actually
+  serves. Antigravity's own models are offered for it — read from `agy models` where the
+  CLI is installed, and from memcal's own list otherwise — instead of the empty list that
+  left it borrowing every other provider's. Choosing a provider moves any model field
+  naming another provider's model onto the new provider's default and says which and why;
+  saving one is refused outright, because it is not a bad value in a file, it is a whole
+  pass in which every request is refused. A model memcal does not recognise at all still
+  saves: these lists lag every release. One control sets the propose, sweep and merge
+  models together, and the reasoning-effort setting says when the chosen model states its
+  own budget in its name and this is therefore ignored.
+
 - A Settings tab in the web UI: every `MEMCAL_*` setting memcal reads, grouped and
   explained, with its default and the file its current value came from. Saving writes
   `~/.memcal/.env` without disturbing hand-written lines and applies to the running
@@ -65,6 +85,14 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The Dream tab no longer buries its own button. A real pass is a hundred-odd
+  conversations, each an expandable card, and rendering them inline pushed "Dream" and
+  everything the pass wrote several screens down. The list is folded away by default and
+  scrolls inside itself when opened, so pressing Dream and reading what it wrote no
+  longer means paging past every bundle first.
+- A model this store had run under one provider is no longer offered, carrying that
+  endorsement, while a different provider is selected. That is how a pass came to be
+  configured with an Antigravity model under Codex and had all 74 of its bundles refused.
 - Antigravity requests no longer fail wholesale. `agy` runs its own five-minute clock
   over a turn and, when it expires, returns partial output with a success exit code —
   either an error status or a success carrying an empty response. memcal never told it
