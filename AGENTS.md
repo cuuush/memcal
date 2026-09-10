@@ -19,7 +19,11 @@ Main ownership:
   is a dictionary and stays one — no model call belongs on the path every arriving line
   takes. `whois.py` holds the one identity call there is, asked for explicitly, and
   writes back through `identity.link` at an evidence rank Contacts still outranks.
-- `sources/`: transports. `sources/providers/`: platform policy layered on a transport.
+- `sources/`: transports. `sources/polled.py` holds the two shapes a message source
+  can have — `PolledSource` (conversation list, watermark per conversation) and
+  `StreamSource` (one ordered stream, one cursor); a new platform implements its
+  hooks rather than another ingest loop. `sources/providers/`: platform policy
+  layered on a transport.
 - `dream/`: bundle, propose, merge, apply, sweep, and run orchestration.
 - `events.py`, `series.py`, `todos.py`, `questions.py`, `wiki.py`: typed stores and merge rules.
 - `legacy.py`: temporary read compatibility and idempotent retirement for removed stores.

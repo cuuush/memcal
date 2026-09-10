@@ -951,6 +951,23 @@ def cmd_sources(args) -> int:
     return 0
 
 
+def cmd_login(args) -> int:
+    """Run a source's one-time interactive sign-in."""
+    cfg, _conn = open_ctx(args)
+    source = sources.get(args.stream, cfg)
+    if source is None:
+        known = ", ".join(sources.names(cfg))
+        print(f"no such source: {args.stream}\nknown sources: {known}")
+        return 1
+    try:
+        ok, message = source.setup(cfg)
+    except Exception as exc:
+        print(f"{source.name}: {type(exc).__name__}: {exc}")
+        return 1
+    print(f"{source.name}: {message}")
+    return 0 if ok else 1
+
+
 def cmd_reminders(args) -> int:
     """Request or report macOS Reminders permission.
 
@@ -2167,6 +2184,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--rounds", type=int, default=sources.DEFAULT_ROUNDS,
                    help="how many rounds to spend catching a stale source up")
     s.set_defaults(func=cmd_ingest)
+
+    s = sub.add_parser("login", help="one-time interactive sign-in for a source")
+    s.add_argument("stream", help="which source to sign in to (telegram, signal, ...)")
+    s.set_defaults(func=cmd_login)
 
     s = sub.add_parser("sources", help="list sources and whether each is usable")
     s.add_argument("--json", action="store_true", help="machine-readable output")

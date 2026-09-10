@@ -49,6 +49,15 @@ class Source:
         """
         raise NotImplementedError
 
+    def setup(self, cfg: Config) -> tuple[bool, str]:
+        """One-time interactive sign-in. Reached by `memcal login <source>`.
+
+        Most sources don't need this — a credential in .env is the whole setup. Telegram
+        and Signal link a device (phone and code, or a QR scan), which can't happen
+        inside the nightly pass.
+        """
+        return False, f"{self.name} needs no interactive login — see `memcal sources`"
+
     def check(self, cfg: Config) -> tuple[bool, str]:
         """Is this source usable right now? Reported by `memcal sources` and `doctor`."""
         missing = [s for s in self.secrets if not cfg.secret(s, s.lower())]

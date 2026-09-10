@@ -22,7 +22,8 @@ from .base import (HttpError, IngestReport, deliver, get_json, post_json,  # noq
                    set_watermark, watermark)
 from .spec import Source, SourceError  # noqa: F401
 
-BUILTINS = ("bluebubbles", "imessage", "whatsapp", "groupme", "proton", "ical")
+BUILTINS = ("bluebubbles", "imessage", "whatsapp", "groupme", "slack", "telegram",
+            "signal", "proton", "ical")
 ENTRY_POINT_GROUP = "memcal.sources"
 
 _registry: dict[str, Source] = {}
