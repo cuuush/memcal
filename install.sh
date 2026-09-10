@@ -2,9 +2,16 @@
 # memcal installer.
 #
 # Puts a `memcal` on your PATH that points at *this* source tree rather than a copy,
-# so editing the code takes effect immediately with no reinstall. The current runtime has
-# no third-party dependencies, so there is nothing to compile or resolve. If dependencies
-# are added to pyproject.toml, this installer must install them before the launcher runs.
+# so editing the code takes effect immediately with no reinstall. The core runtime has no
+# third-party dependencies, so there is nothing to compile or resolve here. Two sources
+# need a library and ask for it only when used, so they are extras rather than
+# dependencies and this installer stays free of a resolve step:
+#
+#   pip install -e '.[chat]'      # Slack (slack_sdk) and Telegram (telethon)
+#   brew install signal-cli       # Signal, a JVM program rather than a Python package
+#
+# If anything ever becomes a hard dependency of the core, this installer must install it
+# before the launcher runs.
 #
 #   ./install.sh                 # ~/.local/bin/memcal, and `memcal init` if this is new
 #   ./install.sh --nightly       # ...and schedule the dream pass for 3am

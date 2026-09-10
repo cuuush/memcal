@@ -7,6 +7,28 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Slack, Telegram and Signal are sources, and all three read your direct messages.
+  Slack wants a user token (`slack=xoxp-...`); Telegram wants an `api_id` and `api_hash`
+  from my.telegram.org and one `memcal login telegram`; Signal links as a device through
+  `signal-cli` and reads nothing that leaves your machine. Install what you feed it with
+  `pip install -e '.[chat]'` — the core still has no dependencies of its own, and a
+  source whose library is missing says so in `memcal sources` instead of disappearing.
+- `memcal login <source>` runs a source's one-time interactive sign-in, for the sources
+  that link a device rather than take a token.
+- Sources are built on two shared shapes rather than one loop per platform.
+  `PolledSource` enumerates conversations and reads each forward from its own watermark;
+  `StreamSource` walks a single ordered stream from a single cursor. A new platform
+  implements how it authenticates, what its conversations are called, and which messages
+  are real speech — the watermark handling, dormant-chat skipping, budget spending and
+  rate-limit backoff are inherited and no longer written per connector.
+
+### Removed
+
+- Discord is no longer a source. Its API will not read a human's direct messages under
+  any token that does not violate Discord's terms, and server channels on their own were
+  not worth a connector. Nothing else changes; watermarks under `discord.*` are simply
+  never read again.
+
 - A failed dream pass can be retried. The Runs tab now says how each pass ended — ok,
   partial, failed, running, priced only — filters on it, and puts a Retry button on the
   ones worth re-reading; the Dream tab says the same thing above the button that spends
@@ -87,6 +109,12 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   than telling you to add a per-token price it will never bill.
 
 ### Fixed
+
+- A family alias in `Config.secret` no longer answers for a sibling credential: a
+  `secret("SLACK_TOKEN", "slack")` lookup could return `SLACK_USER_ID`, because the short
+  `slack` alias prefix-matched any sibling key. Only the most-specific name prefix-matches
+  now, so a verbose `SLACK_TOKEN_PROD` still resolves while the user id no longer stands
+  in for the token.
 
 - The Dream tab no longer buries its own button. A real pass is a hundred-odd
   conversations, each an expandable card, and rendering them inline pushed "Dream" and

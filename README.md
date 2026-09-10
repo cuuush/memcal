@@ -79,9 +79,22 @@ A deferred question can carry a wait condition; loose word overlap alone does no
 | iMessage | BlueBubbles when configured, with the local macOS Messages database as a fallback |
 | WhatsApp | Groups and direct messages from the macOS WhatsApp database |
 | GroupMe | Groups and direct messages through API v3 |
+| Slack | Direct messages, group DMs and channels through a user token |
+| Telegram | Direct messages, groups and channels through the MTProto user API |
+| Signal | Direct messages and groups through `signal-cli`, linked as a device |
 | Email | IMAP, including Proton Mail Bridge |
 | Apple Calendar | Created calendars and subscribed calendar feeds |
 | Agent conversations | Inbound user turns from the Hermes and OpenClaw integrations |
+
+Slack, Telegram and Signal each need something installed before they can run:
+`pip install -e '.[chat]'` covers Slack and Telegram, and Signal wants `brew install
+signal-cli`. Telegram and Signal then link a device once — `memcal login telegram`, or
+`signal-cli link -n memcal` — because a phone number and a code cannot be supplied by the
+nightly pass. `memcal sources` says which of these is still outstanding.
+
+Discord is deliberately absent. Its API will not hand a human's direct messages to any
+token that does not violate its terms, and server channels alone did not earn a
+connector.
 
 Partiful invitations are recognized through Apple Calendar data, provided you subscribe to
 the Partiful calendar. Memcal keeps their RSVP links and distinguishes an unanswered
