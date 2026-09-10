@@ -15,7 +15,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   whatever provider and model are configured now, which is what a retry after fixing a
   broken provider has to mean. A pass refused on its first call claimed nothing, and the
   page says so rather than leaving the retry looking like it did nothing.
-  `memcal dream --retry RUN` does the same from the command line.
+  `memcal dream --retry RUN` does the same from the command line. A line the run read
+  that is now past the model horizon stays marked as read rather than being released:
+  a pass retires anything that old before it reads anything, so putting it back would
+  re-file it as never-read instead of re-reading it.
 - The model fields on the Settings tab are limited to what the chosen provider actually
   serves. Antigravity's own models are offered for it — read from `agy models` where the
   CLI is installed, and from memcal's own list otherwise — instead of the empty list that

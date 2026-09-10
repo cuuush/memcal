@@ -349,6 +349,9 @@ CREATE TABLE IF NOT EXISTS spool (
     UNIQUE(archive_id)
 );
 CREATE INDEX IF NOT EXISTS spool_pending_idx ON spool(processed_at);
+-- Which pass claimed a line. Read per run row by the Runs tab, and the column
+-- `retry.requeue` updates on; without this both are a full scan of the spool.
+CREATE INDEX IF NOT EXISTS spool_run_idx ON spool(run_id);
 
 -- -------------------------------------------------------------- identity ----
 -- Hash lookups, never model calls (thesis 5).

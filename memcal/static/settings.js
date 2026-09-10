@@ -498,7 +498,12 @@ function renderProbe(probe) {
       && (roster.models || []).length) {
     page.models.known = [...new Set([...roster.models, page.models.default])];
     page.models.roster_source = roster.source;
-    renderGroups();
+    // `agy models` is a subprocess and a network fetch, so this can land many seconds
+    // after the page drew — quite possibly with someone half-way through typing a model
+    // name. Rebuilding the rows then detaches the input under the caret. The data above
+    // is already updated, and `mark` redraws the warning on the next keystroke, so
+    // deferring the repaint costs nothing but a moment's staleness.
+    if (!$("#setgroups").contains(document.activeElement)) renderGroups();
     renderRuntime();
   }
   const box = $("#setsources"); box.innerHTML = "";
@@ -660,7 +665,13 @@ function repointModels() {
     // Empty is "use the provider default", which is right under any provider.
     if (!now || !foreign[now]) continue;
     moved.push(`${now} (${foreign[now]}'s)`);
-    mark(key, m.default === s.value ? null : m.default);
+    // A field that was on its default goes back to *being* unset rather than being
+    // pinned to the new default's spelling: `settings.coerce` resolves an empty model
+    // to the chosen provider's own, so unset keeps following the provider, which is
+    // what `pendingText` promises for a provider change. Pinning it here meant every
+    // later switch found a foreign model and pinned it again.
+    if (s.origin === "default" && !s.custom) mark(key, "");
+    else mark(key, m.default === s.value ? null : m.default);
   }
   return [...new Set(moved)];
 }
