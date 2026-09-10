@@ -244,7 +244,10 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("MEMCAL_REMIND_DEADLINES", "remind_deadlines", "Schedule deadline reminders",
             "Whether an obligation with a deadline gets a reminder timestamp at all. "
             "With no Reminders list named above, this stays internal.",
-            "publish", kind="bool", store_scoped=True),
+            # Not store-scoped, unlike the two above it: `config.load` reads this one
+            # from the merged environment. Claiming otherwise would print a badge that
+            # is false and suppress the warning that a checkout's `.env` outranks this.
+            "publish", kind="bool"),
 )
 
 BY_KEY: dict[str, Setting] = {s.key: s for s in SETTINGS}
@@ -288,20 +291,28 @@ def env_files(cfg: Config) -> list[tuple[str, Path]]:
     settings page that wrote the store's file and said nothing about that would be
     lying by omission the moment someone kept a `.env` beside a checkout.
     """
+    def canonical(path: Path) -> Path:
+        try:
+            return path.expanduser().resolve()
+        except OSError:                       # a deleted cwd, mostly
+            return path.expanduser()
+
+    store = canonical(cfg.home / STORE_ENV)
     seen: set[Path] = set()
     out: list[tuple[str, Path]] = []
     for role, path in (("working directory", Path.cwd() / STORE_ENV),
                        ("store", cfg.home / STORE_ENV),
                        ("project", config.PROJECT_ROOT / STORE_ENV)):
-        resolved = path.expanduser()
-        try:
-            resolved = resolved.resolve()
-        except OSError:                       # a deleted cwd, mostly
-            pass
+        resolved = canonical(path)
         if resolved in seen:
             continue
         seen.add(resolved)
-        out.append((role, path))
+        # The store's own file answers to that name wherever else it turns up. Run
+        # `memcal web` from inside `~/.memcal` and it is also the working directory's
+        # file; labelled that way it stopped being the store row, so every save warned
+        # that the file it had just written was shadowing itself, and a store-scoped
+        # setting — which is only ever read from the store row — reported no value at all.
+        out.append(("store" if resolved == store else role, path))
     return out
 
 
@@ -500,7 +511,30 @@ def save(cfg: Config, changes: dict) -> dict:
             warnings.append(
                 f"{setting.label} is also set in {blocker}, which wins the next time "
                 f"memcal starts. This process is using the new value now.")
+    resolve_provider_models(cfg)
     return {"saved": sorted(planned), "warnings": warnings}
+
+
+def resolve_provider_models(cfg: Config) -> None:
+    """Re-run the last thing `config.load` does: fill unset models from the provider.
+
+    Changing only the provider changes three other values, because a model nobody set
+    follows whichever runtime is chosen. Without this the live config kept the previous
+    provider's model id and the next pass handed a Claude Code CLI an OpenRouter-shaped
+    name — a save that is correct on disk and wrong in the process that wrote it.
+    """
+    from . import llm                                              # noqa: PLC0415
+    native = llm.PROVIDER_DEFAULT_MODELS.get(
+        str(getattr(cfg, "llm_provider", "") or "").strip().lower())
+    if not native:
+        return
+    for setting in SETTINGS:
+        if setting.attr not in _PROVIDER_MODEL_ATTRS:
+            continue
+        # Configured anywhere `config.load` looks means the choice was explicit and
+        # stands; `cfg.env` is kept in step with the file this module writes.
+        if not (cfg.env.get(setting.key) or os.environ.get(setting.key)):
+            setattr(cfg, setting.attr, native)
 
 
 # --------------------------------------------------------------- credentials --

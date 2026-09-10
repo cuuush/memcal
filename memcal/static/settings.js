@@ -90,7 +90,7 @@ function combobox(s) {
   list.setAttribute("role", "listbox");
   box.append(input, open, list);
 
-  let active = -1;
+  let active = -1, closing;
   const shown = () => [...list.querySelectorAll(".comboopt")];
   function draw(filter) {
     const needle = (filter || "").trim().toLowerCase();
@@ -121,6 +121,10 @@ function combobox(s) {
      by the value already in the box hides every alternative at the exact moment the
      list is being opened to see the alternatives. */
   function show(on, filter = "") {
+    // The blur below closes on a delay so a click on an option still lands. Anything
+    // that opens the list has to call that off, or the toggle button opens a list that
+    // shuts itself a tenth of a second later.
+    clearTimeout(closing);
     list.hidden = !on;
     input.setAttribute("aria-expanded", String(on));
     if (on) draw(filter);
@@ -132,9 +136,11 @@ function combobox(s) {
     input.focus();
   }
   function move(step) {
+    // Open first, then read the rows: `show` redraws the list, so rows collected before
+    // it are detached nodes, and the highlight would land on none of what is on screen.
+    if (list.hidden) show(true);
     const rows = shown();
     if (!rows.length) return;
-    if (list.hidden) show(true);
     rows.forEach(r => r.classList.remove("active"));
     active = (active + step + rows.length) % rows.length;
     rows[active].classList.add("active");
@@ -145,7 +151,7 @@ function combobox(s) {
   input.oninput = () => { mark(s.key, input.value === s.value ? null : input.value);
                           show(true, input.value); };
   input.onfocus = () => show(true);
-  input.onblur = () => setTimeout(() => show(false), 120);
+  input.onblur = () => { closing = setTimeout(() => show(false), 120); };
   input.onkeydown = e => {
     if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
     else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }

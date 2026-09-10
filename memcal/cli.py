@@ -10,7 +10,6 @@ import argparse
 import difflib
 import getpass
 import json
-import os
 import re
 import shutil
 import sqlite3
