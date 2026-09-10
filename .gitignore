@@ -28,3 +28,6 @@ tools/bench_output/
 *.sqlite-shm
 !tests/scenarios/fixtures/whatsapp/ChatStorage.sqlite
 *.log
+
+# Local Claude Code scratch (launch.json points at a dev port on this machine).
+.claude/

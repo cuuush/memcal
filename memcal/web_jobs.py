@@ -321,6 +321,27 @@ def _read_so_far(data: dict) -> str:
     return f"{data.get('done', 0)}/{data.get('total', 0)} bundles read"
 
 
+def retry_work(run_id: int):
+    """Re-read what one failed pass was given, using whatever is configured *now*.
+
+    Not a resume: nothing about the failed run is replayed. Its claimed lines go back in
+    the queue and an ordinary pass is started over them, so a retry after fixing the
+    provider is a retry with the fixed provider — which is the only kind anybody wants.
+    A pass that failed before claiming anything releases nothing and this is simply a
+    dream, which is also correct: its traffic never left the queue.
+    """
+    def work(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
+        from .dream import retry as retry_stage
+
+        released = retry_stage.requeue(conn, run_id)
+        job.say(f"retrying run #{run_id}: "
+                + (f"put {released} line(s) back in the queue"
+                   if released else "it claimed nothing, so nothing had to be released"))
+        out = dream_work(conn, cfg, job)
+        return {**out, "retry_of": run_id, "requeued": released}
+    return work
+
+
 def dream_work(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
     """The real pass. Whatever it writes is what the Memory tab will show next."""
     from .dream.run import dream as run_dream

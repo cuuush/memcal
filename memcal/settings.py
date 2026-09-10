@@ -449,6 +449,28 @@ def coerce(setting: Setting, raw, *, provider: str = "") -> tuple[str, object]:
     return text, text
 
 
+def _check_models_served(provider: str, planned: dict[str, tuple[str, object]]) -> None:
+    """Refuse a model that is known to belong to a *different* provider.
+
+    Run 29 read nothing: Codex was selected while the propose model still said
+    `gemini-3.8-flash-high`, and all 74 bundles were refused. Narrow on purpose —
+    `llm.belongs_elsewhere` answers only when it recognises the model as someone else's,
+    so a model memcal has never heard of stays typable and a release that outpaces
+    `llm.PRICES` is not locked out.
+    """
+    from . import llm                                              # noqa: PLC0415
+    for key, (text, _value) in planned.items():
+        if BY_KEY[key].attr not in _PROVIDER_MODEL_ATTRS or not text:
+            continue
+        owner = llm.belongs_elsewhere(provider, text)
+        if owner:
+            raise SettingsError(
+                f"{text} belongs to {owner}, and the provider is {provider}, so every "
+                f"request in a pass would be refused. Switch the provider to {owner}, "
+                f"pick one of {provider}'s own, or leave the field empty for "
+                f"{llm.PROVIDER_DEFAULT_MODELS.get(provider, 'its default')}.")
+
+
 def write_env(path: Path, values: dict[str, str]) -> None:
     """Update owned keys without flattening a person's hand-edited .env file."""
     lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
@@ -492,6 +514,7 @@ def save(cfg: Config, changes: dict) -> dict:
     planned: dict[str, tuple[str, object]] = {}
     for key, raw in changes.items():
         planned[key] = coerce(BY_KEY[key], raw, provider=check_text(provider))
+    _check_models_served(check_text(provider), planned)
 
     files = _file_values(cfg)
     write_env(cfg.home / STORE_ENV, {key: text for key, (text, _v) in planned.items()})

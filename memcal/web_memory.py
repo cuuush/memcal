@@ -12,6 +12,7 @@ from . import (archive, brief, calls, db, detail, identity, presentation, textcl
                trace, wiki)
 from .config import Config
 from .dream import propose as propose_stage
+from .dream import retry as dream_retry
 
 
 def overview(conn: sqlite3.Connection, cfg: Config, days: int = 14) -> dict:
@@ -560,6 +561,14 @@ def runs(conn: sqlite3.Connection, limit: int = 30) -> list[dict]:
         "prompt": r["prompt_tokens"], "cached": r["cached_tokens"],
         "completion": r["completion_tokens"], "cost": round(r["cost_usd"], 4),
         "error": r["error"],
+        # How the pass ended, in one word, and whether re-running it would read
+        # anything. Both are judgements about the same row and belong together: a list
+        # that says "failed" without saying "and here is the way out" is the state the
+        # Runs tab was already in.
+        "outcome": dream_retry.outcome(r),
+        "outcome_label": dream_retry.OUTCOME_LABELS[dream_retry.outcome(r)],
+        "retryable": dream_retry.retryable(r),
+        "claimed": dream_retry.claimed(conn, r["id"]),
         "calls": conn.execute(
             "SELECT count(*) n FROM generations WHERE run_id = ?", (r["id"],)
         ).fetchone()["n"],
@@ -624,6 +633,13 @@ def run_detail(conn: sqlite3.Connection, cfg: Config, run_id: int) -> dict:
             "failed_calls": row["failed_calls"],
             "wait_seconds": (round(row["wait_seconds"], 1)
                              if row["wait_seconds"] is not None else None),
+            "outcome": dream_retry.outcome(row),
+            "outcome_label": dream_retry.OUTCOME_LABELS[dream_retry.outcome(row)],
+            "retryable": dream_retry.retryable(row),
+            # How many spooled lines a retry would have to put back. Zero is the usual
+            # answer for a pass that was refused outright, and it means the traffic is
+            # still queued — the retry is an ordinary dream and nothing is undone.
+            "claimed": dream_retry.claimed(conn, run_id),
         },
         "calls": every,
         # Requests that produced no reply, so there is no `generations` row and they

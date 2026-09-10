@@ -674,7 +674,41 @@
   .thit { background: rgba(255,196,0,.32); border-radius: 2px; }
   .thit.on { background: var(--pass); color: #fff; }
   .tnav { font: 11.5px/1 var(--mono); color: var(--ink-3); white-space: nowrap; }
+  /* ---- the bundle list, folded away ---- */
+  /* A pass is a hundred-odd conversations. Open, the list scrolls inside its own box
+     rather than growing the page: the Dream button below it has to stay reachable
+     without paging past every bundle first. */
+  details.bundlebox { border: 1px solid var(--line); border-radius: 10px;
+                      background: var(--card); margin: 22px 0 0; }
+  details.bundlebox > summary { padding: 12px 14px; cursor: pointer; display: flex;
+                                align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  details.bundlebox > summary::-webkit-details-marker { display: none; }
+  details.bundlebox > summary::before { content: "▸"; color: var(--ink-3);
+                                        font-size: 11px; }
+  details.bundlebox[open] > summary::before { content: "▾"; }
+  details.bundlebox[open] > summary { border-bottom: 1px solid var(--line-soft); }
+  .bundleboxtitle { font-size: 13px; color: var(--ink-3); text-transform: uppercase;
+                    letter-spacing: .07em; font-weight: 600; }
+  details.bundlebox > .row { margin-inline: 14px; }
+  .bundlescroll { margin-inline: 14px; max-height: 62vh; overflow-y: auto;
+                  overscroll-behavior: contain; padding-bottom: 14px; }
+
+  /* ---- how a pass ended ---- */
+  .outcome { font: 11.5px/1 var(--mono); border: 1px solid var(--line);
+             border-radius: 999px; padding: 3px 8px; white-space: nowrap; }
+  .outcome.ok { border-color: var(--good); color: var(--good); }
+  .outcome.partial { border-color: var(--warn); color: var(--warn); }
+  .outcome.failed { border-color: var(--warn); color: #fff; background: var(--warn); }
+  .outcome.running { border-color: var(--pass); color: var(--pass); }
+  .outcome.priced { color: var(--ink-3); }
+  .retrybtn { font-size: 12px; padding: 4px 10px; border-radius: 7px;
+              border: 1px solid var(--warn); color: var(--warn);
+              background: transparent; cursor: pointer; white-space: nowrap; }
+  .retrybtn:hover:not(:disabled) { background: var(--warn); color: #fff; }
+  .retrybtn:disabled { opacity: .5; cursor: default; }
+
   @media (max-width: 560px) {
+    .bundlescroll { max-height: 70vh; }
     .eventmeta { grid-template-columns:1fr; }
     .metafield.wide { grid-column:auto; }
     .wikilayout { grid-template-columns:1fr; }

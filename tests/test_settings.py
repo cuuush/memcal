@@ -201,6 +201,37 @@ class TestTheProcessAgreesWithTheFileItJustWrote(Base):
         self.assertEqual(self.cfg.propose_model, "something-specific")
         self.assertEqual(config.load(self.home).propose_model, "something-specific")
 
+
+class TestAModelBelongingToAnotherProviderIsRefused(Base):
+    """Run 29 read none of its 74 bundles: Codex was selected while the propose model
+    still named an Antigravity model, and every request came back refused."""
+
+    def test_another_providers_model_does_not_save(self):
+        with self.assertRaises(settings.SettingsError) as caught:
+            settings.save(self.cfg, {"MEMCAL_LLM_PROVIDER": "codex",
+                                     "MEMCAL_PROPOSE_MODEL": "gemini-3.8-flash-high"})
+        self.assertIn("antigravity", str(caught.exception))
+
+    def test_the_refusal_writes_nothing_at_all(self):
+        """All-or-nothing: the provider in the same save must not land either."""
+        before = config.load(self.home).llm_provider
+        with self.assertRaises(settings.SettingsError):
+            settings.save(self.cfg, {"MEMCAL_LLM_PROVIDER": "codex",
+                                     "MEMCAL_PROPOSE_MODEL": "gemini-3.8-flash-high"})
+        self.assertEqual(config.load(self.home).llm_provider, before)
+
+    def test_a_model_nobody_recognises_still_saves(self):
+        """These rosters lag every release. A name memcal has never seen is a new model
+        far more often than it is a mistake, and locking it out is the worse failure."""
+        settings.save(self.cfg, {"MEMCAL_LLM_PROVIDER": "codex",
+                                 "MEMCAL_PROPOSE_MODEL": "gpt-6-something-new"})
+        self.assertEqual(config.load(self.home).propose_model, "gpt-6-something-new")
+
+    def test_the_model_saves_once_its_own_provider_is_chosen(self):
+        settings.save(self.cfg, {"MEMCAL_LLM_PROVIDER": "antigravity",
+                                 "MEMCAL_PROPOSE_MODEL": "gemini-3.8-flash-high"})
+        self.assertEqual(config.load(self.home).propose_model, "gemini-3.8-flash-high")
+
     def test_a_setting_is_store_scoped_exactly_where_config_load_scopes_it(self):
         """`store_scoped` is a claim about `config.load`, printed as a badge on the row.
 
@@ -388,6 +419,23 @@ class TestTheUsualAnswersAreOffered(Base):
         self.assertEqual(len(used), 1)
         self.assertIn("used here", used[0]["note"])
 
+    def test_a_model_this_store_ran_under_another_provider_is_not_offered(self):
+        """"Used here" is an endorsement, and it was being made across providers.
+
+        The store had run `gemini-3.8-flash-high` happily under Antigravity, so it was
+        offered — with that endorsement on it — to someone configuring Codex, which
+        refuses it. That is how run 29 read none of its 74 bundles.
+        """
+        self.cfg.llm_provider = "codex"
+        self.conn.execute(
+            """INSERT INTO generations
+               (generation_id, stage, model, prompt_tokens, completion_tokens,
+                cost_usd, created_at)
+               VALUES ('gen-2', 'propose', 'gemini-3.8-flash-high', 10, 5, 0.1,
+                       '2026-01-01')""")
+        found = web_settings.suggestions(self.cfg, self.conn)["MEMCAL_PROPOSE_MODEL"]
+        self.assertNotIn("gemini-3.8-flash-high", [row["value"] for row in found])
+
     def test_a_calendar_memcal_has_read_is_offered_as_one_to_publish_to(self):
         self.conn.execute(
             """INSERT INTO calendar_items
@@ -405,11 +453,22 @@ class TestTheUsualAnswersAreOffered(Base):
         self.assertTrue(found[0]["value"].endswith("/sh"))
 
     def test_the_catalog_prices_every_model_it_offers_for_a_cli_provider(self):
+        self.assertTrue(llm.catalog("claude-code"))
         for native, priced_as in llm.catalog("claude-code"):
             with self.subTest(model=native):
                 self.assertNotIn("/", native)
                 self.assertIsNotNone(llm.rates(priced_as))
-        self.assertEqual(llm.catalog("antigravity"), [])
+    def test_antigravity_offers_its_own_models_rather_than_nothing(self):
+        """It serves Gemini, Claude and open-weight models under names of its own.
+
+        No vendor prefix reaches them, so the catalog was empty and the page fell back
+        to offering every *other* provider's models for it.
+        """
+        offered = [native for native, _priced in llm.catalog("antigravity")]
+        self.assertIn("gemini-3.8-flash-high", offered)
+        self.assertIn(llm.PROVIDER_DEFAULT_MODELS["antigravity"], offered)
+        for native in offered:
+            self.assertNotIn("/", native)
 
 
 class TestStagesArePickedRatherThanSpelled(Base):

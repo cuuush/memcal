@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 from . import archive, db, settings, threads, trace, wiki
 from .config import Config
 from . import web_queue, web_memory, web_dream, web_jobs, web_settings
+from .dream import retry as dream_retry
 
 PAGE = Path(__file__).with_name("webui.html")
 STATIC_DIR = Path(__file__).with_name("static")
@@ -161,6 +162,27 @@ class Handler(BaseHTTPRequestHandler):
             return self._send({"error": "not found"}, 404)
         self._send(path.read_bytes(), ctype=ctype)
 
+    def _retry_dream(self, conn: sqlite3.Connection, payload: dict) -> dict:
+        """Check the run is one that can be retried, then start a pass over its traffic.
+
+        The check is here rather than inside the job because a job reports its refusal
+        as a failed run in the log, minutes later and on a different surface. A run
+        number that is wrong, or a pass that succeeded, is an answer the button can have
+        straight away.
+        """
+        try:
+            run_id = int(payload.get("run"))
+        except (TypeError, ValueError):
+            return {"error": "which run? pass {\"run\": <number>}"}
+        row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+        if not row:
+            return {"error": f"no run #{run_id}"}
+        if not dream_retry.retryable(row):
+            state = dream_retry.OUTCOME_LABELS[dream_retry.outcome(row)]
+            return {"error": f"run #{run_id} is {state}; there is nothing to retry"}
+        return {**web_jobs.start_job("dream", web_jobs.retry_work(run_id), self.cfg),
+                "retry_of": run_id, "claimed": dream_retry.claimed(conn, run_id)}
+
     def _stream_job(self, query: dict) -> None:
         """Server-sent events for one job: a frame the moment anything changes."""
         job_id, job = web_jobs.find_job(query.get("id", ""), query.get("kind", ""))
@@ -284,7 +306,16 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/settings":
             # `provider` previews the model suggestions for a provider the form has
             # selected but not saved. It changes nothing.
-            return web_settings.page(self.cfg, conn, query.get("provider", ""))
+            #
+            # `live=1` additionally asks that provider what it serves, which for
+            # Antigravity means running `agy models`. Off by default so the first draw
+            # of the page never waits on a subprocess; on when someone has just chosen a
+            # provider, because that is the moment the answer has to be current.
+            wanted = query.get("provider", "")
+            roster = None
+            if query.get("live") == "1":
+                roster = web_settings.live_roster(self.cfg, wanted)
+            return web_settings.page(self.cfg, conn, wanted, roster)
         if path == "/api/settings_probe":
             # Split off the parts that can open a socket or start a subprocess, so the
             # settings page draws immediately and fills in what it had to go and ask.
@@ -345,6 +376,11 @@ class Handler(BaseHTTPRequestHandler):
                 # The one endpoint here that spends money, so it is never implicit —
                 # it fires because someone pressed the button on the preview.
                 out = web_jobs.start_job("dream", web_jobs.dream_work, self.cfg)
+            elif url.path == "/api/dream_retry":
+                # Re-read what a failed pass was handed, with whatever is configured
+                # now. Spends money on the same terms as /api/dream and is a POST for
+                # the same reason: it releases queue rows before it starts.
+                out = self._retry_dream(conn, payload)
             elif url.path == "/api/settings":
                 out = web_settings.save(self.cfg, payload, conn)
             else:

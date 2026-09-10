@@ -25,6 +25,7 @@ from memcal.config import Config  # noqa: E402
 from memcal.dream import bundle as bundle_stage  # noqa: E402
 from memcal.dream import propose as propose_stage  # noqa: E402
 from memcal.dream import run as dream_run  # noqa: E402
+from memcal.dream import retry as dream_retry  # noqa: E402
 
 
 class TestWebFacadePreservesOwnershipBoundaries(unittest.TestCase):
@@ -1406,6 +1407,143 @@ class TestTheRowDetailLookupHasOneImplementation(Base):
     def test_the_web_module_and_the_detail_module_share_one_function(self):
         self.assertIs(web_memory._wiki_link, detail._wiki_link)
 
+
+
+
+class TestAFailedPassCanBeRetried(Base):
+    """Run 29 read 74 bundles' worth of nothing: the provider refused every request
+    because the configured model belonged to a different one. Nothing about the store
+    was wrong afterwards — the traffic was still queued — but the only thing that said
+    so was an error string, and there was no way to ask for the pass again."""
+
+    def run_row(self, run_id: int, **fields):
+        columns = {"started_at": "2026-09-09T20:21:06", "finished_at": "2026-09-09T20:21:30",
+                   "mode": "web", "model": "gemini-3.8-flash-high", "bundles": 74,
+                   "items": 839, "diffs": 0, "error": "every request was refused"}
+        columns.update(fields)
+        names = ", ".join(["id", *columns])
+        marks = ", ".join(["?"] * (len(columns) + 1))
+        self.conn.execute(f"INSERT INTO runs({names}) VALUES({marks})",
+                          (run_id, *columns.values()))
+        self.conn.commit()
+        return self.conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+
+    def test_what_landed_decides_it_rather_than_the_error_column(self):
+        """Builds before propose split failures from recoveries filed "re-asked 2
+        bundle(s)…" on `runs.error`, so twenty passes that wrote dozens of rows each
+        carry an error string. Read as failures, most nightly passes are failures."""
+        self.assertEqual(dream_retry.outcome(self.run_row(1)), dream_retry.FAILED)
+        self.assertEqual(
+            dream_retry.outcome(self.run_row(2, diffs=9, failed_calls=0,
+                                             error="re-asked 2 bundle(s)")),
+            dream_retry.OK)
+        self.assertEqual(dream_retry.outcome(self.run_row(3, diffs=9, error=None)),
+                         dream_retry.OK)
+
+    def test_a_raised_call_beside_real_writes_is_partial(self):
+        self.assertEqual(
+            dream_retry.outcome(self.run_row(1, diffs=9, failed_calls=4)),
+            dream_retry.PARTIAL)
+
+    def test_an_unrecorded_failed_call_count_is_not_evidence_of_a_failure(self):
+        """NULL is "this run predates the column". Counting it would retro-flag every
+        pass from before it existed."""
+        self.assertEqual(
+            dream_retry.outcome(self.run_row(1, diffs=9, failed_calls=None, error=None)),
+            dream_retry.OK)
+
+    def test_a_priced_run_and_a_running_one_are_neither(self):
+        self.assertEqual(dream_retry.outcome(self.run_row(1, mode="dry-run", error=None)),
+                         dream_retry.PRICED)
+        self.assertEqual(
+            dream_retry.outcome(self.run_row(2, finished_at=None, error=None)),
+            dream_retry.RUNNING)
+
+    def test_only_a_pass_that_read_something_is_worth_retrying(self):
+        self.assertTrue(dream_retry.retryable(self.run_row(1)))
+        self.assertFalse(dream_retry.retryable(
+            self.run_row(2, diffs=9, failed_calls=0, error="re-asked 2 bundle(s)")))
+        self.assertFalse(dream_retry.retryable(self.run_row(3, mode="dry-run")))
+        # Nothing to re-read is nothing to retry: offering it means doing nothing twice.
+        self.assertFalse(dream_retry.retryable(self.run_row(4, bundles=0, items=0)))
+
+    def test_retrying_puts_back_exactly_what_that_run_claimed(self):
+        self.run_row(1)
+        self.run_row(2, diffs=4, failed_calls=2, error="half of it came back")
+        mine = self.mail("a@x.com", "read by run 2", gated=True, reason="unknown-sender")
+        self.mail("b@x.com", "still waiting", gated=True, reason="unknown-sender")
+        self.conn.execute(
+            "UPDATE spool SET processed_at = ?, run_id = 2 WHERE archive_id = ?",
+            (db.now(), mine))
+        self.conn.commit()
+
+        self.assertEqual(dream_retry.claimed(self.conn, 2), 1)
+        self.assertEqual(dream_retry.requeue(self.conn, 2), 1)
+        rows = self.conn.execute(
+            "SELECT processed_at, run_id FROM spool ORDER BY id").fetchall()
+        # Both columns cleared, or the queue view attributes a waiting line to the pass
+        # that failed to read it.
+        self.assertEqual([(r["processed_at"], r["run_id"]) for r in rows],
+                         [(None, None), (None, None)])
+
+    def test_a_pass_refused_before_it_claimed_anything_releases_nothing(self):
+        """The common case, and the one that reads as a broken retry if it is not said
+        out loud: a provider that refuses every request never marks a single line."""
+        self.run_row(1)
+        self.mail("a@x.com", "never read", gated=True, reason="unknown-sender")
+        self.assertEqual(dream_retry.claimed(self.conn, 1), 0)
+        self.assertEqual(dream_retry.requeue(self.conn, 1), 0)
+        self.assertEqual(self.conn.execute(
+            "SELECT count(*) n FROM spool WHERE processed_at IS NULL").fetchone()["n"], 1)
+
+    def test_the_runs_list_says_how_each_pass_ended_and_which_can_be_retried(self):
+        self.run_row(1)
+        self.run_row(2, diffs=9, failed_calls=0, error=None)
+        listed = {r["id"]: r for r in web_memory.runs(self.conn)}
+        self.assertEqual(listed[1]["outcome"], "failed")
+        self.assertTrue(listed[1]["retryable"])
+        self.assertEqual(listed[2]["outcome"], "ok")
+        self.assertFalse(listed[2]["retryable"])
+
+    def test_the_dream_preview_says_whether_the_last_pass_worked(self):
+        """The Dream tab is where someone stands when they decide to spend money, and
+        "last dream: 20:21, gemini-3.8-flash-high" reads as a pass that happened."""
+        self.run_row(1)
+        last = web_dream.dream_preview(self.conn, self.cfg)["last_dream"]
+        self.assertEqual(last["id"], 1)
+        self.assertEqual(last["outcome"], "failed")
+        self.assertTrue(last["retryable"])
+        self.assertIn("refused", last["error"])
+
+    def test_the_page_offers_the_retry_and_the_server_routes_it(self):
+        source = web_server.frontend_source()
+        for needle in ("/api/dream_retry", "retryDream", "retrybtn", 'id="dretry"',
+                       'id="runretry"', 'id="routcome"', "outcome_label"):
+            self.assertIn(needle, source, needle)
+        self.assertIn("/api/dream_retry", Path(web_server.__file__).read_text())
+
+
+class TestTheBundleListDoesNotBuryThePage(Base):
+    """A real pass is a hundred-odd conversations, each an expandable card. Rendered
+    inline they pushed the Dream button and everything the pass wrote several screens
+    down, so the one control the tab exists for was the hardest thing on it to find."""
+
+    def test_the_bundles_are_folded_away_and_scroll_inside_themselves(self):
+        page = Path(web_server.PAGE).read_text()
+        css = (Path(web_server.STATIC_DIR) / "styles.css").read_text()
+        # A <details> with no `open`, so the list starts folded.
+        opening = page.split('id="dbundlebox"')[0].rsplit("<details", 1)[1]
+        self.assertNotIn(" open", opening)
+        self.assertIn('id="dbundles" class="bundlescroll"', page)
+        rule = css.split(".bundlescroll {")[1].split("}")[0]
+        self.assertIn("max-height", rule)
+        self.assertIn("overflow-y: auto", rule)
+
+    def test_opening_a_bundle_by_id_opens_the_box_it_is_folded_into(self):
+        """Scrolling to a card inside a closed <details> scrolls to nothing."""
+        script = (Path(web_server.STATIC_DIR) / "dream.js").read_text()
+        body = script.split("function flashBundle")[1].split("\n}")[0]
+        self.assertIn("dbundlebox", body)
 
 if __name__ == "__main__":
     unittest.main()
