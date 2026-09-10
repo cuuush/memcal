@@ -24,9 +24,19 @@ def _bytes(path: Path) -> int:
         return 0
 
 
+def _chosen(cfg: Config) -> str:
+    """The provider, named the way every table that answers for it is keyed.
+
+    `llm.provider_status` and `client_for` both casefold before looking anything up, so
+    a hand-written `MEMCAL_LLM_PROVIDER=Codex` runs perfectly well. Not doing the same
+    here left every model box with nothing to suggest and no hint why.
+    """
+    return str(getattr(cfg, "llm_provider", "") or llm.DEFAULT_PROVIDER).strip().lower()
+
+
 def provider(cfg: Config) -> dict:
     """The configured runtime, and whether it is reachable from this process."""
-    name = str(getattr(cfg, "llm_provider", "") or llm.DEFAULT_PROVIDER)
+    name = _chosen(cfg)
     try:
         ok, detail = llm.provider_status(cfg)
     except Exception as exc:            # an unknown provider is a setting, not a crash
@@ -116,9 +126,10 @@ def suggestions(cfg: Config, conn=None, provider_name: str = "") -> dict[str, li
     `provider_name` previews a provider the form has selected but not saved, so the
     model list answers the question being asked rather than the one already settled.
     """
-    name = str(getattr(cfg, "llm_provider", "") or llm.DEFAULT_PROVIDER)
-    if provider_name in llm.PROVIDER_DEFAULT_MODELS:
-        name = provider_name
+    name = _chosen(cfg)
+    previewed = str(provider_name or "").strip().lower()
+    if previewed in llm.PROVIDER_DEFAULT_MODELS:
+        name = previewed
     default = llm.PROVIDER_DEFAULT_MODELS.get(name, "")
     models = _dedupe([{"value": default, "note": f"{name} default"}] if default else [],
                      _models_used(conn), _models_for(name))

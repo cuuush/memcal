@@ -177,6 +177,45 @@ class TestClearingAFieldRestoresTheDefault(Base):
         self.assertFalse(self.find("MEMCAL_PROPOSE_MODEL")["custom"])
 
 
+class TestTheProcessAgreesWithTheFileItJustWrote(Base):
+    """A save that is right on disk and wrong in memory is the worst of both.
+
+    The tab applies to the running process precisely so a pass started from it uses what
+    was just saved. Every derived value has to be re-derived, or the process keeps a
+    number nobody chose and no restart would produce.
+    """
+
+    def test_changing_provider_moves_the_models_that_followed_the_old_one(self):
+        settings.save(self.cfg, {"MEMCAL_LLM_PROVIDER": "claude-code"})
+        native = llm.PROVIDER_DEFAULT_MODELS["claude-code"]
+        for attr in ("propose_model", "sweep_model", "match_model"):
+            with self.subTest(attr=attr):
+                # Left alone, this handed the Claude Code CLI an OpenRouter-shaped id.
+                self.assertEqual(getattr(self.cfg, attr), native)
+                self.assertEqual(getattr(config.load(self.home), attr), native)
+        self.assertFalse(self.find("MEMCAL_PROPOSE_MODEL")["custom"])
+
+    def test_a_model_someone_chose_is_not_moved_by_a_provider_change(self):
+        settings.save(self.cfg, {"MEMCAL_PROPOSE_MODEL": "something-specific"})
+        settings.save(self.cfg, {"MEMCAL_LLM_PROVIDER": "claude-code"})
+        self.assertEqual(self.cfg.propose_model, "something-specific")
+        self.assertEqual(config.load(self.home).propose_model, "something-specific")
+
+    def test_a_setting_is_store_scoped_exactly_where_config_load_scopes_it(self):
+        """`store_scoped` is a claim about `config.load`, printed as a badge on the row.
+
+        Claimed wrongly it suppresses the shadow warning for that key, which is the one
+        thing the badge is there to make unnecessary.
+        """
+        source = Path(config.__file__).read_text(encoding="utf-8")
+        # The loop under that comment, up to the blank line that ends it: the keys
+        # `config.load` reads from `store_env` rather than the merged environment.
+        block = source.split("Settings that can write outside this process.")[1]
+        scoped = set(re.findall(r'"(MEMCAL_[A-Z_]+)"', block.split("\n\n")[0]))
+        self.assertTrue(scoped)
+        self.assertEqual({s.key for s in settings.SETTINGS if s.store_scoped}, scoped)
+
+
 class TestAFileThatOutranksTheStoreIsSaidSo(Base):
     """`load_env` merges left to right, so the working directory beats the store.
 
@@ -197,6 +236,27 @@ class TestAFileThatOutranksTheStoreIsSaidSo(Base):
             self.assertTrue(any("wins the next time" in w for w in out["warnings"]))
             self.assertEqual(self.cfg.days_back, 4)          # this process, now
             self.assertEqual(config.load(self.home).days_back, 99)   # a restart, honestly
+        finally:
+            os.chdir(here)
+
+    def test_the_store_run_from_its_own_directory_does_not_shadow_itself(self):
+        """`memcal web` run from inside `~/.memcal` makes cwd and store the same file.
+
+        Deduplicated under the working directory's name it stopped being the store row:
+        every save warned that the file it had just written outranked it, and a
+        store-scoped setting — only ever read from the store row — reported no value.
+        """
+        here = os.getcwd()
+        os.chdir(self.home)
+        try:
+            self.assertIn("store", [role for role, _p in settings.env_files(self.cfg)])
+            settings.save(self.cfg, {"MEMCAL_DAYS_BACK": "5"})
+            self.assertEqual(settings.save(self.cfg, {"MEMCAL_DAYS_BACK": "6"})
+                             ["warnings"], [])
+            settings.save(self.cfg, {"MEMCAL_PUBLISH_CALENDAR": "Home"})
+            row = self.find("MEMCAL_PUBLISH_CALENDAR")
+            self.assertEqual(row["origin"], "store")
+            self.assertEqual(row["value"], "Home")
         finally:
             os.chdir(here)
 
@@ -301,6 +361,15 @@ class TestTheUsualAnswersAreOffered(Base):
         router = [row["value"] for row in
                   web_settings.suggestions(self.cfg, self.conn)["MEMCAL_PROPOSE_MODEL"]]
         self.assertIn("openai/gpt-5.6-luna", router)
+
+    def test_a_provider_named_in_any_case_still_has_models_to_suggest(self):
+        # `provider_status` and `client_for` casefold, so this store runs fine; only the
+        # suggestions went silently empty, which reads as "memcal knows no models".
+        self.cfg.llm_provider = "Codex"
+        found = web_settings.suggestions(self.cfg, self.conn)
+        self.assertTrue(found["MEMCAL_PROPOSE_MODEL"])
+        self.assertEqual(web_settings.provider(self.cfg)["default_model"],
+                         llm.PROVIDER_DEFAULT_MODELS["codex"])
 
     def test_a_provider_can_be_previewed_without_being_chosen(self):
         found = web_settings.suggestions(self.cfg, self.conn, "claude-code")
