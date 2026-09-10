@@ -2,17 +2,17 @@
 
 `archive.spool_mark` stamps `processed_at` and the run id onto every line whose bundle
 came back with a diff. That is the whole record of "this has been looked at", so a pass
-that failed *after* reading some of its bundles leaves a queue that no longer holds
-what it read.
+that failed *after* reading some of its bundles leaves a queue missing what it read.
 
-`requeue` is the undo for exactly that, and for nothing else. A run that failed before
-claiming anything releases nothing — the common case, since a provider refusing every
-request never gets far enough to mark one.
+`requeue` is the undo for exactly that, and for nothing else.
 """
 
 from __future__ import annotations
 
 import sqlite3
+from datetime import timedelta
+
+from .. import archive, db
 
 #: Writes on the board, and calls that raised. Something landed and something did not,
 #: and which half matters is a question only the run detail can answer — so it is named
@@ -35,16 +35,11 @@ OUTCOME_LABELS = {
 def outcome(row) -> str:
     """How one `runs` row ended, in one word.
 
-    Deliberately not "was there anything in the error column". That column is not a
-    reliable failure signal: `_finish` writes `result.errors` into it, and builds before
-    propose split failures from recoveries filed "re-asked 2 bundle(s)…" there — so
-    twenty historical passes that wrote dozens of rows each carry an error string. Read
-    that way, most nightly passes are failures and the word stops meaning anything.
-
-    Two structured columns say it properly. `diffs` is what landed, so an error with
-    nothing on the board is a pass that spent its window and changed nothing.
-    `failed_calls` is completions that raised, so writes *plus* raised calls is a pass
-    where some conversations were genuinely not read.
+    Deliberately not "was there anything in the error column". `_finish` writes
+    `result.errors` there, and builds before propose split failures from recoveries
+    filed "re-asked 2 bundle(s)…" in it — read that way, most nightly passes are
+    failures and the word stops meaning anything. Two structured columns say it
+    properly: `diffs` is what landed, and `failed_calls` is completions that raised.
     """
     if str(row["mode"] or "") == "dry-run":
         return PRICED
@@ -75,34 +70,23 @@ def claimed(conn: sqlite3.Connection, run_id: int) -> int:
         "SELECT count(*) n FROM spool WHERE run_id = ?", (run_id,)).fetchone()["n"])
 
 
-def requeue(conn: sqlite3.Connection, run_id: int) -> int:
-    """Put back everything this run claimed, so the next pass reads it again.
+def requeue(conn: sqlite3.Connection, run_id: int) -> tuple[int, int]:
+    """Put back what this run claimed *and a pass could still read*. `(released, kept)`.
 
-    Both columns are cleared, not just `processed_at`. Leaving the run id behind would
-    have the queue view attribute a waiting line to the pass that failed to read it, and
-    the next pass overwrites it anyway the moment it succeeds.
+    Only lines inside the model horizon. `_dream` retires everything older than
+    `archive.SPOOL_HORIZON_DAYS` as its first step, so releasing an old line does not
+    get it re-read — it gets it re-filed as retired-*unread*, erasing the one record
+    that a pass read it. Those stay claimed, and `kept` counts them.
+
+    Both columns are cleared for the rest: leaving the run id behind would have the
+    queue view blame a waiting line on the pass that failed to read it.
     """
+    cutoff = (db.today() - timedelta(days=archive.SPOOL_HORIZON_DAYS)).isoformat()[:10]
     cur = conn.execute(
-        "UPDATE spool SET processed_at = NULL, run_id = NULL WHERE run_id = ?",
-        (run_id,))
+        """UPDATE spool SET processed_at = NULL, run_id = NULL
+            WHERE run_id = ? AND archive_id IN
+              (SELECT id FROM archive WHERE substr(ts, 1, 10) >= ?)""",
+        (run_id, cutoff))
+    released = cur.rowcount
     conn.commit()
-    return cur.rowcount
-
-
-def failed_runs(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
-    """Passes worth offering a retry for, newest first."""
-    rows = conn.execute(
-        "SELECT * FROM runs ORDER BY id DESC LIMIT ?", (max(1, limit) * 4,)).fetchall()
-    out = []
-    for row in rows:
-        if not retryable(row):
-            continue
-        out.append({"id": row["id"], "at": str(row["started_at"])[:16],
-                    "mode": row["mode"], "model": (row["model"] or "").split("/")[-1],
-                    "outcome": outcome(row), "bundles": row["bundles"],
-                    "items": row["items"], "diffs": row["diffs"],
-                    "claimed": claimed(conn, row["id"]),
-                    "error": row["error"] or ""})
-        if len(out) >= limit:
-            break
-    return out
+    return released, claimed(conn, run_id)

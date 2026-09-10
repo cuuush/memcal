@@ -1151,6 +1151,13 @@ def cmd_dream(args) -> int:
     cfg, conn = open_ctx(args)
     if getattr(args, "retry", None):
         from .dream import retry as retry_stage                    # noqa: PLC0415
+        if args.dry_run:
+            # A dry run prices and reads nothing, so the released lines would simply
+            # stay released for whatever pass came next — including tonight's.
+            print("--retry and --dry-run do nothing together: a dry run reads nothing, "
+                  "so the lines it released would be left for the next real pass. "
+                  "Price with `memcal dream --dry-run`, then retry.")
+            return 1
         row = conn.execute("SELECT * FROM runs WHERE id = ?", (args.retry,)).fetchone()
         if not row:
             print(f"no run #{args.retry}")
@@ -1159,13 +1166,17 @@ def cmd_dream(args) -> int:
             state = retry_stage.OUTCOME_LABELS[retry_stage.outcome(row)]
             print(f"run #{args.retry} is {state}; there is nothing to retry")
             return 1
-        released = retry_stage.requeue(conn, args.retry)
+        released, kept = retry_stage.requeue(conn, args.retry)
         # Nothing released is the normal outcome for a pass refused on its first call,
         # and it is not a problem: that pass never claimed anything, so its traffic is
         # still queued and this is an ordinary pass over it.
         print(f"retrying run #{args.retry}: "
               + (f"released {released} previously-read item(s)" if released
-                 else "it claimed nothing, so its traffic is still queued"))
+                 else "nothing to release; its traffic is still queued"))
+        if kept:
+            print(f"  {kept} item(s) it read are past the {archive.SPOOL_HORIZON_DAYS}"
+                  f"-day model horizon and stay marked as read — releasing them would "
+                  f"retire them unread rather than re-read them")
     failed = False
     for round_no in range(1, max(1, args.rounds) + 1):
         result = dream(conn, cfg, mode=args.mode, model=args.model, limit=args.limit,

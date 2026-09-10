@@ -333,12 +333,18 @@ def retry_work(run_id: int):
     def work(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
         from .dream import retry as retry_stage
 
-        released = retry_stage.requeue(conn, run_id)
+        released, kept = retry_stage.requeue(conn, run_id)
         job.say(f"retrying run #{run_id}: "
                 + (f"put {released} line(s) back in the queue"
-                   if released else "it claimed nothing, so nothing had to be released"))
+                   if released else "nothing had to be released"))
+        if kept:
+            # Releasing these would not re-read them: the pass retires anything past the
+            # horizon as its first step, so they would go back in as retired-unread and
+            # the record that this run read them would be gone.
+            job.say(f"  {kept} line(s) this run read are older than "
+                    f"{archive.SPOOL_HORIZON_DAYS} days and stay marked as read")
         out = dream_work(conn, cfg, job)
-        return {**out, "retry_of": run_id, "requeued": released}
+        return {**out, "retry_of": run_id, "requeued": released, "too_old": kept}
     return work
 
 

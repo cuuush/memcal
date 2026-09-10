@@ -1478,7 +1478,7 @@ class TestAFailedPassCanBeRetried(Base):
         self.conn.commit()
 
         self.assertEqual(dream_retry.claimed(self.conn, 2), 1)
-        self.assertEqual(dream_retry.requeue(self.conn, 2), 1)
+        self.assertEqual(dream_retry.requeue(self.conn, 2), (1, 0))
         rows = self.conn.execute(
             "SELECT processed_at, run_id FROM spool ORDER BY id").fetchall()
         # Both columns cleared, or the queue view attributes a waiting line to the pass
@@ -1486,13 +1486,32 @@ class TestAFailedPassCanBeRetried(Base):
         self.assertEqual([(r["processed_at"], r["run_id"]) for r in rows],
                          [(None, None), (None, None)])
 
+    def test_a_line_past_the_model_horizon_stays_marked_as_read(self):
+        """Releasing it would not re-read it. `_dream` retires anything past the horizon
+        as its first step, so it would go straight back in as retired-*unread* — and
+        `run_id` on a spool row is the only record that a pass ever read it."""
+        self.run_row(1, diffs=4, failed_calls=2, error="half of it came back")
+        old = self.mail("a@x.com", "read long ago", gated=True, reason="unknown-sender",
+                        offset=-(archive.SPOOL_HORIZON_DAYS + 10))
+        fresh = self.mail("b@x.com", "read recently", gated=True, reason="unknown-sender")
+        for archive_id in (old, fresh):
+            self.conn.execute(
+                "UPDATE spool SET processed_at = ?, run_id = 1 WHERE archive_id = ?",
+                (db.now(), archive_id))
+        self.conn.commit()
+
+        self.assertEqual(dream_retry.requeue(self.conn, 1), (1, 1))
+        left = self.conn.execute(
+            "SELECT archive_id, run_id FROM spool WHERE run_id IS NOT NULL").fetchall()
+        self.assertEqual([(r["archive_id"], r["run_id"]) for r in left], [(old, 1)])
+
     def test_a_pass_refused_before_it_claimed_anything_releases_nothing(self):
         """The common case, and the one that reads as a broken retry if it is not said
         out loud: a provider that refuses every request never marks a single line."""
         self.run_row(1)
         self.mail("a@x.com", "never read", gated=True, reason="unknown-sender")
         self.assertEqual(dream_retry.claimed(self.conn, 1), 0)
-        self.assertEqual(dream_retry.requeue(self.conn, 1), 0)
+        self.assertEqual(dream_retry.requeue(self.conn, 1), (0, 0))
         self.assertEqual(self.conn.execute(
             "SELECT count(*) n FROM spool WHERE processed_at IS NULL").fetchone()["n"], 1)
 

@@ -81,13 +81,12 @@ function renderRuns() {
               el("td", "num", nf(r.bundles)), el("td", "num", nf(r.items)), el("td", "num", nf(r.diffs)),
               el("td", "num", nf(r.prompt)), el("td", "num", nf(r.cached)), el("td", "num", nf(r.completion)),
               el("td", "num", "$" + r.cost.toFixed(4)));
+    // Both, when there are both: the banner above quotes only the newest failure, so
+    // for any older one this cell is the only place its error is visible without
+    // opening the run.
     const err = el("td");
-    if (r.retryable) {
-      err.append(retryPill(r, () => loadRuns()));
-    } else if (r.error) {
-      err.className = "flag";
-      err.textContent = r.error.slice(0, 80);
-    }
+    if (r.error) err.append(el("div", "flag", r.error.slice(0, 80)));
+    if (r.retryable) err.append(retryPill(r, () => loadRuns()));
     tr.append(err);
     tr.onclick = () => {
       const open = tr.getAttribute("aria-expanded") === "true";
