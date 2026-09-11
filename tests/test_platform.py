@@ -322,6 +322,45 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
                 "--context", "nightly", "--result",
                 str(self.cfg.home / "ical-permission-result.json")]
 
+    def test_the_eventkit_request_runs_as_memcal_not_the_terminal(self):
+        """The whole bug: in-process EventKit calls resolve to the terminal's TCC
+        identity, so setup's request and account check ride the launchd agent."""
+        captured = {}
+        exe = schedule.app_executable(self.cfg)
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(b"")
+        exe.chmod(0o755)
+
+        def answer(*args, **_kw):
+            if args[0] == "bootstrap":
+                captured["plist"] = plistlib.loads(
+                    (self.cfg.home / "ical-eventkit.plist").read_bytes())
+                (self.cfg.home / "ical-eventkit-result.json").write_text(
+                    json.dumps({"ok": True, "message": "granted"}), encoding="utf-8")
+            return (0, "")
+
+        with mock.patch.object(schedule, "_launchctl", answer):
+            ok, msg = schedule.eventkit_call(self.cfg, "request", timeout=1)
+        argv = captured["plist"]["ProgramArguments"]
+        self.assertTrue(ok)
+        self.assertEqual(argv[0], str(exe))
+        self.assertIn("--ek", argv)
+        self.assertIn("request", argv)
+        self.assertEqual([schedule.APP_BUNDLE_ID],
+                         captured["plist"]["AssociatedBundleIdentifiers"])
+
+    def test_the_doctor_reads_the_eventkit_stamp_not_the_terminal(self):
+        """A live in-terminal EventKit check tests the terminal's identity and fails
+        even when memcal holds full access — doctor reads setup's stamp instead."""
+        self.cfg.publish_calendar = "memcal"
+        answer = lambda *_a, **_kw: (0, "")  # noqa: E731
+        failing = self._findings(answer)["Calendar/account"]
+        self.assertEqual(failing.status, cli.FAIL)
+        self.assertIn("ical setup", failing.fix)
+        db.set_meta(self.conn, "ical.eventkit.verified", db.now())
+        passing = self._findings(answer)["Calendar/account"]
+        self.assertEqual(passing.status, cli.OK)
+
     def test_build_app_bundle_writes_a_memcal_identity_and_signs_it(self):
         calls = []
 
@@ -360,9 +399,12 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
 
         schedule.build_app_bundle(self.cfg, runner=runner)
         exe = schedule.app_executable(self.cfg)
-        # Make the build unambiguously newer than the source without touching
-        # the tracked source file itself.
-        src = schedule.LAUNCHER_SOURCE.stat().st_mtime
+        # Make the build unambiguously newer than every source without touching
+        # the tracked source files themselves.
+        src = max(
+            schedule.LAUNCHER_SOURCE.stat().st_mtime,
+            schedule.ICON_SOURCE.stat().st_mtime if schedule.ICON_SOURCE.is_file() else 0,
+        )
         os.utime(exe, (src + 60, src + 60))
         calls = []
 
@@ -403,7 +445,10 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
 
         schedule.build_app_bundle(self.cfg, runner=runner)
         exe = schedule.app_executable(self.cfg)
-        src = schedule.LAUNCHER_SOURCE.stat().st_mtime
+        src = max(
+            schedule.LAUNCHER_SOURCE.stat().st_mtime,
+            schedule.ICON_SOURCE.stat().st_mtime if schedule.ICON_SOURCE.is_file() else 0,
+        )
         os.utime(exe, (src + 60, src + 60))
         calls = []
 
@@ -498,7 +543,10 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
 
         schedule.build_app_bundle(self.cfg, runner=runner)
         exe = schedule.app_executable(self.cfg)
-        src = schedule.LAUNCHER_SOURCE.stat().st_mtime
+        src = max(
+            schedule.LAUNCHER_SOURCE.stat().st_mtime,
+            schedule.ICON_SOURCE.stat().st_mtime if schedule.ICON_SOURCE.is_file() else 0,
+        )
         os.utime(exe, (src + 60, src + 60))
         exe.with_name(exe.name + ".new").write_bytes(b"orphan")
         out = schedule.build_app_bundle(self.cfg, runner=runner)
@@ -756,6 +804,79 @@ class TestConsentRequestsNeverHangSilently(unittest.TestCase):
         for script in (ical.ACCOUNT_JXA, ical.REMINDERS_JXA):
             self.assertNotIn("dateWithTimeIntervalSinceNow(120)", script)
             self.assertNotIn("dateWithTimeIntervalSinceNow(60)", script)
+
+
+class TestAppBundleIconWiring(unittest.TestCase):
+    """The handle-grid art ships as the bundle icon and web favicon."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = Config(home=Path(self.tmp.name))
+        self.cfg.ensure_dirs()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_info_plist_names_the_icon(self):
+        info = schedule.render_info_plist()
+        self.assertEqual(schedule.APP_ICON_NAME, info["CFBundleIconFile"])
+        self.assertEqual(schedule.APP_ICON_NAME, info["CFBundleIconName"])
+
+    def test_icon_source_is_checked_in(self):
+        self.assertTrue(schedule.ICON_SOURCE.is_file(), schedule.ICON_SOURCE)
+        self.assertTrue((ROOT / "memcal" / "static" / "icon.png").is_file())
+
+    def test_build_writes_the_icon_when_tools_succeed(self):
+        def runner(args, **_kw):
+            if args[0] == "sips":
+                Path(args[-1]).write_bytes(b"cell")
+                return subprocess.CompletedProcess(args, 0, "", "")
+            if args[0] == "iconutil":
+                out = Path(args[args.index("-o") + 1])
+                out.write_bytes(b"icns")
+                return subprocess.CompletedProcess(args, 0, "", "")
+            if "-o" in args:
+                out = Path(args[args.index("-o") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"launcher")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with mock.patch.object(schedule, "_is_macos", return_value=True):
+            out = schedule.build_app_bundle(self.cfg, runner=runner)
+        self.assertTrue(schedule.app_icon_path(self.cfg).is_file())
+        self.assertTrue(any("AppIcon.icns" in line for line in out), out)
+
+    def test_build_stays_iconless_but_green_when_tools_fail(self):
+        def runner(args, **_kw):
+            if args[0] in ("sips", "iconutil"):
+                return subprocess.CompletedProcess(args, 1, "", "no such tool")
+            if "-o" in args:
+                out = Path(args[args.index("-o") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"launcher")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with mock.patch.object(schedule, "_is_macos", return_value=True):
+            out = schedule.build_app_bundle(self.cfg, runner=runner)
+        self.assertTrue(schedule.app_executable(self.cfg).is_file())
+        self.assertTrue(any("built" in line for line in out), out)
+
+    def test_newer_icon_source_marks_the_bundle_stale(self):
+        exe = schedule.app_executable(self.cfg)
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(b"launcher")
+        exe.chmod(0o755)
+        launcher_mtime = schedule.LAUNCHER_SOURCE.stat().st_mtime
+        icon_mtime = (schedule.ICON_SOURCE.stat().st_mtime
+                      if schedule.ICON_SOURCE.is_file() else launcher_mtime)
+        os.utime(exe, (launcher_mtime - 60, launcher_mtime - 60))
+        # Older than the launcher alone is stale regardless of the icon.
+        self.assertFalse(schedule._bundle_is_current(self.cfg))
+        os.utime(exe, (launcher_mtime + 60, launcher_mtime + 60))
+        if schedule.ICON_SOURCE.is_file() and icon_mtime > launcher_mtime + 60:
+            self.assertFalse(schedule._bundle_is_current(self.cfg))
+        else:
+            self.assertTrue(schedule._bundle_is_current(self.cfg))
 
 
 if __name__ == "__main__":
