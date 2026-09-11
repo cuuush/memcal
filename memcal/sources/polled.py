@@ -349,5 +349,38 @@ def link_me(conn: sqlite3.Connection, report: base.IngestReport, stream: str,
     return my_id
 
 
+def save_credential(cfg: Config, key: str, value: str) -> None:
+    """Store a credential in the store's own `.env` and this process.
+
+    Uses the same writer as Settings, so hand edits survive and the file stays
+    0600. Values are never printed — callers show at most "already set".
+    """
+    from .. import settings
+    settings.write_env(cfg.home / settings.STORE_ENV, {key: value})
+    cfg.env[key] = value
+
+
+def credential_is_set(cfg: Config, key: str) -> bool:
+    """Is there already a value, without revealing it."""
+    return bool(cfg.secret(key, key.lower()))
+
+
+def ask(question: str) -> str:
+    """One stdin line, empty when there is no terminal to ask in."""
+    try:
+        return input(question).strip()
+    except EOFError:
+        return ""
+
+
+def confirm_overwrite(cfg: Config, key: str) -> bool:
+    """True when a credential may be (re)written — asks if one is already set."""
+    if not credential_is_set(cfg, key):
+        return True
+    answer = ask(f"`{key.lower()}` is already set — overwrite it? [y/N]: ")
+    return answer.lower() in ("y", "yes")
+
+
 __all__ = ["Conversation", "Message", "PolledSource", "StreamSource", "SourceError",
-           "link_me"]
+           "link_me", "save_credential", "credential_is_set", "ask",
+           "confirm_overwrite"]

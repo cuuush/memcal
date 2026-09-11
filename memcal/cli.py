@@ -1616,9 +1616,11 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
                 fix=f"fix the connector above, then `memcal ingest {source.name}`")
         elif not usable:
             status = WARN if source.in_all else SKIP
+            login = f"memcal login {source.name}"
+            fix = login if login in message else \
+                f"memcal sources         # what {source.name} still needs"
             add("Sources", source.name, status, _one_line(message),
-                fix=f"memcal sources         # what {source.name} still needs"
-                    if status == WARN else "")
+                fix=fix if status == WARN else "")
         else:
             add("Sources", source.name, OK, detail)
 
@@ -2186,7 +2188,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_ingest)
 
     s = sub.add_parser("login", help="one-time interactive sign-in for a source")
-    s.add_argument("stream", help="which source to sign in to (telegram, signal, ...)")
+    s.add_argument("stream", help="which source to sign in to (slack, telegram, signal)")
     s.set_defaults(func=cmd_login)
 
     s = sub.add_parser("sources", help="list sources and whether each is usable")
