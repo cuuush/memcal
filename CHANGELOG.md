@@ -26,6 +26,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   agent instead of in-process: from a terminal they resolved to the terminal's
   identity, granting or failing the wrong app. Doctor reads setup's stamp rather
   than re-checking the wrong identity live.
+- The web UI's frontend bundle reads only script and style assets, so a binary
+  file under `memcal/static/` no longer breaks every page that embeds it.
 
 ## [0.7.0] - 2026-09-11
 
@@ -243,132 +245,44 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - The GitHub bug-report form now uses a conventional open-source layout.
 - Subscribed holiday calendars remain reference information in Calendar.app instead of
   becoming Memcal events.
+- Slack, Telegram and Signal sources: `slack=xoxp-...`, `telegram_api_id=`/`telegram_api_hash=` +
+  `memcal login telegram`, Signal via `signal-cli` (local-only, optional `signal_account=`). See README Chat sources; `memcal sources` flags gaps.
+- `memcal login <source>` runs a source's one-time interactive device sign-in.
+- `memcal login slack` provisions the app through the Slack CLI (manifest + install);
+  only the `xoxp-` copy-paste stays human. Telegram asks for international phone format;
+  Signal prints its QR code in-terminal.
+- `memcal login` pastes, validates and saves chat credentials itself (asking before it
+  overwrites); `memcal doctor` re-tests every saved key through each source's check.
+- Shared source base: `PolledSource` (per-conversation watermarks), `StreamSource` (single cursor);
+  platforms implement auth/listing/speech, inheriting dormant-chat skipping, budgets and backoff.
+
 
 ### Fixed
 
-- Dream materializes the next occurrence of a standing schedule before reading new
-  traffic, so a cancellation updates that occurrence instead of creating duplicate rows.
-- Same-day plans still reach Merge when one conversation describes the guest as the
-  subject and another describes the user's shared activity.
-- A message saying something is ready to pick up at any time produces an open to-do,
-  not an event dated on the message timestamp; moved appointments keep the new date.
-- Generated series pages are retired when a renamed typed schedule supersedes them,
-  while pages containing user-authored facts or questions remain untouched.
-- A satisfied wake condition no longer adds a mechanical duplicate when Dream already
-  asked about the same linked to-do in better words.
-- Merge now treats an identical date and clock time as evidence, so two sources
-  describing one appointment no longer land on the brief as separate contradictory rows,
-  without joining unrelated same-time appointments that merely share a generic title.
-- A conversation whose people are all unresolved is shown the calendar rows its wording
-  matches, so it can update them; an email address spelling a participant's name counts
-  as a link to that person.
-- A person is no longer reported as having no wiki page when one stands under a longer
-  or shorter form of their name, which was opening duplicate pages; names sharing only
-  their first three letters are not treated as variants.
-- Splitting chained identity assumptions in their displayed order restores every handle
-  to its original person instead of replaying a merge the user already rejected.
-- Codex and Claude Code record the model's reasoning summary and billed reasoning
-  tokens, and apply the configured per-model reasoning effort. All three were dropped,
-  so `memcal trace` showed no reasoning for any call.
-- A pass on a provider that reports no cost says so instead of printing "$0.0000".
-- A pass that recovered no longer records itself as failed. Splitting a truncated
-  request or re-asking about a skipped bundle went onto `runs.error` alongside timeouts
-  and refusals, so `memcal doctor` reported healthy nightly runs as extraction errors.
-- `memcal doctor` shows a pass's first failure in full, instead of cutting the joined
-  list off mid-word at ninety characters.
-- Schedule upgrades preserve retired scripts, retire predecessor agents only after the
-  replacement loads, and keep an agent's files if it cannot be unloaded.
-- An occurrence belonging to a schedule is no longer published to the calendar on its
-  own when its rule is not published. A row carrying a series name with no rule behind
-  it — or a rule whose publish was refused, since calendar write access is a separate
-  grant — became one standalone calendar event per occurrence, with nothing able to
-  take them back.
-- Calendar publishing can only be switched on from the store's own `.env`. A setting in
-  the checkout's `.env` used to switch it on for every store the process opened.
-
-- A source that has said nothing for longer than the overview window is listed as stale
-  rather than disappearing from the table.
-- `memcal doctor` reports a collection that started and never finished, instead of
-  printing its zero counts as a healthy quiet run.
-- Lines the user wrote earlier in an agent session are marked as such wherever they are
-  quoted — row detail and both agent search surfaces, not only the Hermes one — so they
-  are not read back as independent corroboration.
-
-- The direct chat.db reader now says when it stopped because its page filled, so a
-  catch-up can keep going. It is the fallback, used when iMessage is already behind, and
-  it was the one reader that never reported it — three collections read exactly 1000
-  lines and closed as though the source had run dry. It also counts lines skipped as
-  muted or older than the horizon separately from gate rejections, which are three
-  different situations that read as "gate passed 0".
-
-- A dream pass that crashes now records that it did. Its run row was left with no finish
-  and no error, which is what a pass still running looks like; two such rows are in the
-  store. A row an earlier pass left open is named as abandoned on the next run.
-- A state review whose reply was cut off no longer applies anything from it. It recorded
-  the truncation and then went on to drop the rows the half-reply named.
-
-- `MEMCAL_MATCH_MODEL` now selects the model that decides whether two proposed rows are
-  one occasion. It set a value nothing consulted; that stage used the propose model.
-
-- Short display names are no longer refused. A name had to be three characters, which
-  rejects complete formal names in Chinese, Japanese and Korean, and everyday ones like
-  Jo, Al and Ed; those people's rows filed under a numeral instead. The rule now asks
-  whether one character is a whole word in that script rather than counting characters,
-  so a single letter of an alphabet is still read as an initial.
-
-- Unnamed GroupMe participants now reach the "name this person" queue. The roster was
-  read off the group listing, which is fetched without memberships on purpose, so the
-  one call that could queue an unknown handle always received an empty list; the queue
-  is filled from the group detail that actually carries a roster.
-
-- An iMessage whose body is only a placeholder is no longer stored as though somebody
-  said something. The test was one character wide — an attachment marker — so a message
-  that decoded to a bare replacement character survived as a line reading `�` and was
-  sent to a model as speech. Any body with nothing visible left in it is now treated as
-  no text at all, and existing archived rows are re-derived into the same shape as an
-  attachment-only line: text emptied, taken back out of the queue, the row itself kept.
-  An emoji or a lone `?` is still a message. GroupMe now uses the same rule, and the
-  re-derivation covers every stream rather than iMessage alone, so rows any connector
-  stored as a bare placeholder are retired on the next open.
-- Token estimates no longer run short of what a request actually costs. One estimator,
-  weighted per character class and fitted against the provider's own counts for every
-  saved call, now serves packing, brief trimming, and the dry-run and web cost figures;
-  the two older rules of thumb it replaces under-counted real traffic by 15 to 18 percent
-  every single time, so briefs quietly overran their cap and quoted prices read low.
-- Reminders now fire at the intended hour on dates in a different daylight-saving
-  regime, instead of an hour early for the whole winter.
-- A failure to record what a model call cost is no longer silent: it is kept and
-  reported by `memcal doctor`, which now also compares total run cost against the
-  generation ledger.
-- Emoji reactions of three characters or more can now be pulled into a bundle
-  alongside the message they answer, instead of only the shortest ones.
-- Muting a chat because the platform muted it is now recorded as an automatic decision
-  rather than one made by hand.
-- Proton now requests the `Cc` header it reads, so people only ever CC'd are recognized
-  as correspondents.
-- Merge now reports when a paid arbitration fell back to combining rows locally, and
-  distinguishes a reply cut off at its ceiling from a model that declined to answer.
-  Its output allowance is sized from the endpoint instead of a fixed 1200 tokens, so a
-  model that thinks past that no longer truncates on every conflicted cluster.
-- Removed phone numbers and private quoted prose from comments and docstrings, with a
-  regression check to keep them out.
-- Signing out of WhatsApp and into another account no longer lets reused local message
-  IDs collide with or hide the earlier account's archive.
-- Proton Bridge login failures now identify stale mailbox credentials and explain how to
-  refresh them after a Proton account password change.
-- A past event settled to "happened" overnight now records that change in its history,
-  so its detail says what it used to be and when it changed rather than showing a state
-  nothing accounts for.
+- `Config.secret` family alias no longer prefix-matches siblings (`SLACK_TOKEN` vs `SLACK_USER_ID`).
+- Codex/Claude Code record reasoning summaries, billed reasoning tokens and effort (`memcal trace`).
+- Costless-provider passes say so instead of `$0.0000`.
+- Recovered passes no longer record `runs.error`; `memcal doctor` stays clean.
+- `memcal doctor` shows a pass's first failure in full.
+- Schedule upgrades preserve retired scripts, retire predecessors only after replacement loads.
+- Unpublished schedule occurrences (no rule, refused publish) aren't published standalone.
+- Calendar publishing enables only from the store's own `.env`.
+- Silent sources past the overview window list as stale.
+- Agent-session user lines are attributed everywhere quoted.
+- Direct `chat.db` reader reports page-full stops; muted/over-horizon skips split from gate rejects.
+- Crashed passes record errors; previously open rows are marked abandoned on next run.
+- Truncated state reviews apply nothing.
+- Short display names allowed (CJK single-char words; `Jo`/`Al`/`Ed`); single letters stay initials.
+- Unnamed GroupMe participants queue from group detail rosters.
+- Textless bodies (bare `�`) store as attachment-only with no queued text; emoji/`?` still count.
+- Phone numbers and private quoted prose removed from comments/docstrings, with regression check.
 
 ### Removed
 
-- The `verify`, `verify_budget` and `pack_cross_reference` settings, which nothing read.
-  `MEMCAL_VERIFY_BUDGET` capped a feature that does not exist.
+- Discord source removed: no compliant token reads human DMs. `discord.*` watermarks ignored.
+- Unread `verify`, `verify_budget`, `pack_cross_reference` settings (`MEMCAL_VERIFY_BUDGET`).
+- `source.ical.last_count` no longer recorded; every `source.*` marker has a reader (tested).
 
-- The calendar no longer records `source.ical.last_count` after each read. Nothing has
-  ever read it, so the snapshot size it stored looked like a health signal — "did this
-  read come back smaller than usual" — while being a number nothing checked. A test now
-  holds every `source.*` marker a source writes to having a reader in the code.
 
 ## [0.6.0] - 2026-08-14
 

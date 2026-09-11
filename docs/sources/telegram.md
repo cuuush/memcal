@@ -80,7 +80,7 @@ memcal login telegram
 Expected success:
 
 ```text
-telegram: signed in as Alice Liddell; session at /Users/you/.memcal/telegram.session
+telegram: signed in as Alice Liddell; session at ~/.memcal/telegram.session
 ```
 
 (`signed in as {display name}; session at {session_path}` — the name is your
