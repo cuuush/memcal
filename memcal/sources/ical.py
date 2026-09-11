@@ -2274,6 +2274,16 @@ def _published_note(event) -> str:
     return " ".join(bits)
 
 
+def _contested(conn: sqlite3.Connection) -> set[str]:
+    """Rows an open cancellation nominates. Not proof they are off, reason to wait."""
+    out: set[str] = set()
+    for row in conn.execute(
+            "SELECT candidates FROM pending_changes"
+            "  WHERE status = 'open' AND kind = 'cancellation'"):
+        out.update(str(k) for k in db.jload(row["candidates"], []))
+    return out
+
+
 def publish_pending(conn: sqlite3.Connection, cfg, *, keys=None,
                     runner=subprocess.run) -> list[str]:
     """Put every committed row that is not already on the real calendar onto it.
@@ -2296,10 +2306,14 @@ def publish_pending(conn: sqlite3.Connection, cfg, *, keys=None,
         marks = ",".join("?" * len(keys)) or "''"
         rows = conn.execute(
             f"SELECT * FROM events WHERE key IN ({marks})", list(keys)).fetchall()
+    contested = _contested(conn)
     log = []
     for row in rows:
         event = events.Event.from_row(row)
         if not publishable(event):
+            continue
+        if event.key in contested:
+            log.append(f"{event.key}: an unplaced cancellation names it — not publishing")
             continue
         # A rule already on the calendar puts its own occurrence there. Publishing the
         # row as well would show them two tutoring appointments on one Tuesday, both real,

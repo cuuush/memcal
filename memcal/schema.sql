@@ -250,7 +250,7 @@ CREATE INDEX IF NOT EXISTS question_history_question_idx
 -- Every raw item, appended, full-text indexed. Nothing lives only in a derived store.
 CREATE TABLE IF NOT EXISTS archive (
     id          INTEGER PRIMARY KEY,
-    stream      TEXT NOT NULL,           -- imessage | email | groupme | agent | cli
+    stream      TEXT NOT NULL,           -- imessage | email | groupme | discord | agent | cli
     external_id TEXT NOT NULL,           -- stable id within the stream
     ts          TEXT NOT NULL,           -- ISO timestamp
     thread      TEXT,                    -- chat/thread identifier
@@ -764,6 +764,8 @@ CREATE TABLE IF NOT EXISTS pending_changes (
     -- an exact check needs the same inputs `find_match` was given the first time.
     subject_title TEXT,
     subject_date  TEXT,
+    subject_time  TEXT,
+    subject_location TEXT,
     -- The event this observation is *known* to be about, and who established that. A
     -- stable identifier or a cited semantic decision, and nothing else: a heuristic
     -- match is what nominates candidates, never what authorises a cancellation.
@@ -779,3 +781,17 @@ CREATE TABLE IF NOT EXISTS pending_changes (
     UNIQUE(kind, observation)
 );
 CREATE INDEX IF NOT EXISTS pending_changes_status_idx ON pending_changes(status);
+
+-- A stated relationship between two rows. `same_as` merges, `replaces` marks the
+-- predecessor a cancellation target, `related` only forces co-evaluation.
+CREATE TABLE IF NOT EXISTS event_links (
+    id         INTEGER PRIMARY KEY,
+    from_id    INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    to_id      INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL,          -- same_as | replaces | related
+    written_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    UNIQUE(from_id, to_id, kind)
+);
+CREATE INDEX IF NOT EXISTS event_links_from_idx ON event_links(from_id);
+CREATE INDEX IF NOT EXISTS event_links_to_idx ON event_links(to_id);

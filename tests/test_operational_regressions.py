@@ -565,6 +565,29 @@ class TestReminderTimezoneHandling(unittest.TestCase):
         self.assertEqual(got, "2026-11-09T09:00:00+00:00")
 
 
+class TestLocalTimestampHandling(unittest.TestCase):
+    def setUp(self):
+        self._tz = os.environ.get("TZ")
+        os.environ["TZ"] = "America/New_York"
+        time.tzset()
+
+    def tearDown(self):
+        if self._tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = self._tz
+        time.tzset()
+
+    def test_an_aware_timestamp_is_rendered_in_local_time(self):
+        self.assertEqual(
+            db.parse_ts("2026-08-03T16:00:00+00:00").isoformat(),
+            "2026-08-03T12:00:00-04:00")
+
+    def test_a_nonexistent_dst_wall_time_is_rejected(self):
+        self.assertFalse(db.valid_local_time("2027-03-14", "02:30"))
+        self.assertTrue(db.valid_local_time("2027-03-14", "03:30"))
+
+
 class TestAPokeIsNotProofHeWasTold(unittest.TestCase):
 
     def setUp(self):
@@ -1382,10 +1405,21 @@ class TestNamedLaunchdScript(unittest.TestCase):
         self.cfg.ensure_dirs()
 
     def test_plist_executes_named_script(self):
+        # With no app bundle built, the job runs the script directly — argv[0] is the
+        # script itself, never `/bin/sh <script>`.
         argv = schedule.render_plist(self.cfg)["ProgramArguments"]
         self.assertEqual(1, len(argv), f"{argv} goes through an interpreter again")
         self.assertNotIn("/bin/sh", argv[0])
         self.assertIn("memcal", Path(argv[0]).name)
+
+    def test_plist_runs_through_the_app_when_it_is_built(self):
+        # Built, the job runs through memcal.app so its Calendar access is attributed
+        # to memcal; argv[0] is the app binary and the script is what it runs.
+        exe = schedule.app_executable(self.cfg)
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(b"")
+        argv = schedule.render_plist(self.cfg)["ProgramArguments"]
+        self.assertEqual([str(exe), str(schedule.script_path(self.cfg))], argv)
 
     def test_script_is_executable(self):
         script = schedule.script_path(self.cfg)
@@ -1453,6 +1487,7 @@ class TestNamedLaunchdScript(unittest.TestCase):
         path = self.home / "com.memcal.nightly.plist"
         with mock.patch.object(schedule, "plist_path", return_value=path), \
              mock.patch.object(schedule, "_launchctl", return_value=(1, "refused")), \
+             mock.patch.object(schedule, "build_app_bundle", return_value=[]), \
              mock.patch.object(schedule, "_retire_agents") as retire:
             schedule.install(self.cfg)
         retire.assert_not_called()
@@ -3299,7 +3334,8 @@ class TestANightTheMachineWasAsleepIsNotSimplySkipped(unittest.TestCase):
     def test_installing_the_job_is_not_itself_a_missed_night(self):
         """`RunAtLoad` fires as soon as `install` bootstraps it. Without the stamp,
         installing the schedule would spend a full pass on the spot."""
-        with mock.patch.object(schedule, "_launchctl", return_value=(0, "")):
+        with mock.patch.object(schedule, "_launchctl", return_value=(0, "")), \
+             mock.patch.object(schedule, "build_app_bundle", return_value=[]):
             schedule.install(self.cfg)
         self.assertTrue(schedule.stamp_path(self.cfg).exists())
         self.assertIsNone(schedule.owed(self.cfg)[0])

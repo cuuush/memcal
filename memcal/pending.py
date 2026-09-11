@@ -1,14 +1,8 @@
 """Observations that change something, whose target cannot yet be named.
 
-"That's cancelled" arrives with no title and no date. The typed event diff needs both,
-so until now the statement had two possible fates and neither was acceptable: dropped,
-which loses a real fact about the user's week, or written as a row, which invents a
-cancelled plan out of a sentence that named none.
-
-Kept here instead, with its evidence and without a guess. Retried whenever new evidence
-lands, and surfaced as a question when it bears on something the user is actually
-planning to do. The originating bundle is still marked read — one observation needing a
-target is not a reason to re-read a whole conversation forever.
+A cancellation may name no title and no date, or name a booking no row holds yet. Held
+here with its evidence rather than dropped or written as a phantom row, and retried as
+later evidence lands. The originating bundle is still marked read.
 """
 
 from __future__ import annotations
@@ -27,6 +21,7 @@ MAX_ATTEMPTS = 6
 def note(conn: sqlite3.Connection, *, kind: str, observation: str,
          entity: str | None = None, candidates: list[str] | None = None,
          observed_at: str | None = None, title: str = "", date: str = "",
+         time: str = "", location: str = "",
          target_key: str = "", decided_by: str = "", commit: bool = False) -> str:
     """Record one unplaceable change. Repeating the same observation is a no-op."""
     text = " ".join(str(observation or "").split())[:400]
@@ -35,11 +30,13 @@ def note(conn: sqlite3.Connection, *, kind: str, observation: str,
     stamp = db.now()
     conn.execute(
         """INSERT INTO pending_changes(kind, observation, observed_at, subject_title,
-                                       subject_date, target_key, decided_by, entity,
+                                       subject_date, subject_time, subject_location,
+                                       target_key, decided_by, entity,
                                        candidates, status, created_at, updated_at)
-           VALUES(?,?,?,?,?,?,?,?,?, 'open', ?,?)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?, 'open', ?,?)
            ON CONFLICT(kind, observation) DO UPDATE SET updated_at = excluded.updated_at""",
         (kind, text, observed_at or stamp, title or None, date or None,
+         time or None, location or None,
          target_key or None, decided_by or None, entity,
          db.jdump(list(candidates or [])), stamp, stamp))
     if commit:
@@ -63,12 +60,7 @@ def resolve(conn: sqlite3.Connection, row_id: int, ref: str, *,
 
 
 def retry(conn: sqlite3.Connection, *, ask=None) -> list[str]:
-    """Try again to place every open observation, now that more evidence exists.
-
-    One candidate is an answer and is applied. Several is genuine ambiguity that affects
-    what the user thinks they are doing this week, so it becomes a question rather than a
-    coin toss. None means the evidence still is not here, and the record waits.
-    """
+    """Apply identified observations and ask about unresolved candidates."""
     log: list[str] = []
     for row in open_items(conn):
         # The answer to the question the last pass asked, if one came back. Without this
@@ -86,18 +78,28 @@ def retry(conn: sqlite3.Connection, *, ask=None) -> list[str]:
                              decided_by=f"you:answered q:pending:{row['id']}"):
             row = conn.execute("SELECT * FROM pending_changes WHERE id = ?",
                                (row["id"],)).fetchone()
-        certain = _identified(conn, row)
         found = _place(conn, row)
+        certain = _identified(conn, row)
         conn.execute("UPDATE pending_changes SET attempts = attempts + 1,"
                      " candidates = ?, updated_at = ? WHERE id = ?",
                      (db.jdump([e.key for e in found]), db.now(), row["id"]))
         if certain is not None:
+            evidence_at = str(row["observed_at"] or row["created_at"])
+            stored = conn.execute(
+                "SELECT evidence_ts, created_at FROM events WHERE id = ?",
+                (certain.id,)).fetchone()
+            status_at = events._field_versions(
+                conn, certain.id, str(stored["evidence_ts"] or stored["created_at"]))["status"]
+            if db.parse_ts(evidence_at) < db.parse_ts(status_at):
+                resolve(conn, row["id"], certain.key, commit=False)
+                log.append(f"settled {row['observation'][:60]} → {certain.key}, newer status")
+                continue
             events.upsert(conn, {"key": certain.key, "date": certain.date,
                                  "status": "declined"},
                           written_by="dream:nightly", match=False,
                           # The moment it was said. Placing it later does not make it
                           # newer evidence than the correction it might be walking back.
-                          evidence_ts=str(row["observed_at"] or row["created_at"]),
+                          evidence_ts=evidence_at,
                           commit=False)
             resolve(conn, row["id"], certain.key, commit=False)
             log.append(f"placed  {row['observation'][:60]} → {certain.key}")
@@ -117,7 +119,9 @@ def retry(conn: sqlite3.Connection, *, ask=None) -> list[str]:
         # a look, and "physio on Friday" nominates the physio on Monday because a
         # provider calls every appointment the same thing. Being the only thing shown is
         # not the same as being the thing meant.
-        if found and ask is not None and row["attempts"] == 0:
+        asked = conn.execute("SELECT 1 FROM questions WHERE key = ?",
+                             (f"q:pending:{row['id']}",)).fetchone()
+        if found and ask is not None and asked is None:
             names = ", ".join(f"{e.title} on {e.date}" for e in found[:3])
             ask(f"Something was cancelled — \"{row['observation'][:80]}\". "
                 f"Which one: {names}?", f"q:pending:{row['id']}")
@@ -176,26 +180,19 @@ def _chosen(conn: sqlite3.Connection, row: sqlite3.Row) -> str | None:
 
 
 def _identified(conn: sqlite3.Connection, row: sqlite3.Row) -> events.Event | None:
-    """The row this observation is *about*, when that is established rather than guessed.
+    """The row this observation is about, when that is established rather than guessed.
 
-    Two things establish it, and `find_match` is deliberately not among them. That
-    matcher exists to reunite a mention with a row and is tuned to be forgiving; it has
-    joined distinct appointments at one provider on different days, which is a survivable
-    mistake for a mention and an unrecoverable one for a cancellation. A plan silently
-    cancelled leaves nothing a person would ever think to look for.
-
-    So: a stable identifier — the event key, carried on this record because something
-    supplied it — or a semantic decision that named the target and is recorded with the
-    citation that settled it. Anything else stays unresolved, however few candidates
-    there are.
+    A stable key or a cited semantic decision establishes it. Dates, times, titles and
+    replacement links nominate candidates for that decision; they do not authorize a
+    cancellation on their own.
     """
     key = str(row["target_key"] or "").strip()
     if not key:
         return None
-    found = events.get(conn, key)
-    if found is None or found.status == "declined":
+    event = events.get(conn, key)
+    if event is None or event.status == "declined":
         return None
-    return found
+    return event
 
 
 def settle(conn: sqlite3.Connection, row_id: int, event_key: str, *,
@@ -219,8 +216,11 @@ def settle(conn: sqlite3.Connection, row_id: int, event_key: str, *,
 
 def _place(conn: sqlite3.Connection, row: sqlite3.Row) -> list[events.Event]:
     """Which upcoming rows this observation could be about. Nominations, not a match."""
+    terms = [row["observation"], row["subject_title"], row["subject_date"],
+             row["subject_time"], row["subject_location"]]
     _same, related, nominated, _cut = events.candidates(
-        conn, people=[], entity=row["entity"], text=str(row["observation"] or ""),
+        conn, people=[], entity=row["entity"],
+        text=" ".join(str(term) for term in terms if term),
         entities=[])
     seen: dict[str, events.Event] = {}
     for event in [*related, *nominated]:

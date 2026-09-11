@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import timedelta
 
-from .. import db, llm, trace
+from .. import db, events, llm, pending, trace
 from ..config import Config
 from ..llm import CompletionClient
 from .bundle import Bundle
@@ -105,10 +106,12 @@ class Mention:
     is evidence, and only evidence can be weighed against other evidence.
     """
 
-    __slots__ = ("row", "bundle", "diff")
+    __slots__ = ("row", "bundle", "diff", "existing")
 
-    def __init__(self, row: dict, bundle: Bundle, diff: dict):
+    def __init__(self, row: dict, bundle: Bundle, diff: dict, existing: bool = False):
         self.row, self.bundle, self.diff = row, bundle, diff
+        #: A row already in the store, pulled in to be compared against. Never collapsed.
+        self.existing = existing
 
     @property
     def date(self) -> str:
@@ -131,6 +134,8 @@ class Mention:
 
     def describe(self) -> str:
         bits = [f"from {self.bundle.entity}", f"date {self.date or '?'}"]
+        if self.row.get("key"):
+            bits.append(f"key {self.row['key']}")
         for field in ("time", "until", "location", "status", "kind"):
             if self.row.get(field):
                 bits.append(f"{field} {self.row[field]}")
@@ -141,8 +146,12 @@ class Mention:
         return f"  - {self.row.get('title') or '(untitled)'}  [{'; '.join(bits)}]"
 
 
-def same_event(a: Mention, b: Mention, cfg: Config | None = None) -> bool:
+def same_event(a: Mention, b: Mention, cfg: Config | None = None,
+               links: set[frozenset] | None = None) -> bool:
     """Could these two be one event?"""
+    if links and a.row.get("key") and b.row.get("key"):
+        if frozenset((str(a.row["key"]), str(b.row["key"]))) in links:
+            return True
     left_subject = str(a.row.get("subject") or "me")
     right_subject = str(b.row.get("subject") or "me")
     subjects_differ = left_subject.casefold() != right_subject.casefold()
@@ -210,6 +219,10 @@ def same_event(a: Mention, b: Mention, cfg: Config | None = None) -> bool:
 
     if not shared_title:
         return False
+
+    # One sender describing one day. Clustering is refusable; the duplicate is not.
+    if apart == 0 and a.origin == b.origin:
+        return True
     # One distinctive word is only suggestive — "poker" and "lunch" both being with
     # Quinn on Tuesday is two plans, not one. A word plus a person, a word plus a
     # place, or two words, is enough.
@@ -240,7 +253,8 @@ def corroboration(group: list[Mention]) -> int:
     return len({m.origin for m in group})
 
 
-def cluster(mentions: list[Mention], cfg: Config | None = None) -> list[list[Mention]]:
+def cluster(mentions: list[Mention], cfg: Config | None = None,
+            links: set[frozenset] | None = None) -> list[list[Mention]]:
     """Group mentions into events. Union-find over `same_event`, so a chain of pairwise
     matches lands in one cluster even when the ends of the chain do not resemble each
     other — which is exactly what a plan looks like as it is refined across threads."""
@@ -254,7 +268,8 @@ def cluster(mentions: list[Mention], cfg: Config | None = None) -> list[list[Men
 
     for i in range(len(mentions)):
         for j in range(i + 1, len(mentions)):
-            if find(i) != find(j) and same_event(mentions[i], mentions[j], cfg):
+            if find(i) != find(j) and same_event(
+                    mentions[i], mentions[j], cfg, links):
                 parent[find(i)] = find(j)
 
     groups: dict[int, list[Mention]] = {}
@@ -263,12 +278,40 @@ def cluster(mentions: list[Mention], cfg: Config | None = None) -> list[list[Men
     return list(groups.values())
 
 
+def _with_observations(groups: list[list[Mention]], observations: list[Mention],
+                       *, include: bool = True) \
+        -> list[list[Mention]]:
+    """Show every plausible target together; ranking must not decide a cancellation."""
+    for observation in observations:
+        words = _tokens(str(observation.row.get("title") or observation.row.get("note") or ""))
+        selected = []
+        for index, group in enumerate(groups):
+            overlap = max((len(words & _tokens(str(m.row.get("title") or "")))
+                           for m in group), default=0)
+            same_origin = any(m.origin == observation.origin for m in group)
+            if overlap or same_origin:
+                selected.append(index)
+        if selected:
+            combined = [m for index in selected for m in groups[index]]
+            if include:
+                combined.append(observation)
+            first = selected[0]
+            groups = [combined if index == first else group
+                      for index, group in enumerate(groups)
+                      if index == first or index not in selected]
+        elif include:
+            groups.append([observation])
+    return groups
+
+
 INSTRUCTIONS = """\
 Several conversations described what may be the same event. Each was read on its own, so
 each proposal only knows its own thread — one of them may have been guessing about a
 detail another one states outright.
 
-Decide what is actually true, and return one row.
+Decide what is actually true. Return one row only when the evidence describes one
+occasion. A cancelled old booking followed by a newly booked date is two occasions:
+answer same_event false so the declined old row and confirmed new row both survive.
 
 WEIGH THE SOURCE, NOT THE COUNT
 Three fragments repeating a guess do not outvote one that was there. Prefer:
@@ -276,7 +319,7 @@ Three fragments repeating a guess do not outvote one that was there. Prefer:
   - a specific date ("sunday after 6") over one derived from a vague phrase ("next
     weekend", "sometime soon"), whichever is more common
   - a correction over what it corrected — later beats earlier when they conflict
-The bundle each fragment came from is given. A plan discussed in its own thread is
+The timestamped source lines behind each fragment are given. A plan discussed in its own thread is
 better evidence about that plan than a reference to it inside a thread about something
 else entirely.
 
@@ -294,8 +337,11 @@ Say so with same_event false, and every proposal is kept as its own row. Two pok
 nights a week apart are two poker nights. Only merge what is genuinely one occasion.
 The schema still requires the other fields, so fill them from any one fragment and put
 the reason in `why`. Do not stitch two answers into one field: "Go running; Go to a bar"
-is not a title and "confirmed; mentioned" is not a status. Nothing but `same_event` and
-`why` is read once you answer false, so a joined field is only a way to look wrong."""
+is not a title and "confirmed; mentioned" is not a status.
+Use observation_targets and pending_targets to identify
+which dated proposal each cancellation concerns, including when same_event is false.
+Leave those arrays empty when the evidence cannot identify a target. SOURCE ids support
+fields through citations; a stored summary or the time it was written is not new evidence."""
 
 SCHEMA = {
     "type": "object",
@@ -309,7 +355,8 @@ SCHEMA = {
     # stage built to arbitrate dates was silently answering "the earlier one" every time.
     # Every other schema in the package already lists all its keys; this was the outlier.
     "required": ["same_event", "date", "until", "time", "title", "location",
-                 "kind", "status", "participants", "note", "why"],
+                 "kind", "status", "participants", "note", "citations", "links",
+                 "pending_targets", "observation_targets", "why"],
     "properties": {
         # Three answers, not two. "I cannot tell from this" is a real state and it has
         # to be sayable: with only true/false the honest answer had nowhere to go and
@@ -330,6 +377,56 @@ SCHEMA = {
         "status": {"type": ["string", "null"]},
         "participants": {"type": "array", "items": {"type": "string"}},
         "note": {"type": ["string", "null"]},
+        "citations": {
+            "type": "array",
+            "description": "source ids supporting each field selected for the merged row",
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["field", "source_ids"],
+                "properties": {
+                    "field": {"type": "string", "enum": [
+                        "date", "until", "time", "title", "location", "kind",
+                        "status", "participants", "note"]},
+                    "source_ids": {"type": "array", "items": {"type": "integer"}},
+                },
+            },
+        },
+        "links": {
+            "type": "array",
+            "description": "validated relationships to existing event keys",
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["kind", "key"],
+                "properties": {
+                    "kind": {"type": "string", "enum": ["same_as", "replaces", "related"]},
+                    "key": {"type": "string"},
+                },
+            },
+        },
+        "pending_targets": {
+            "type": "array",
+            "description": "undated observation ids and the 1-based proposal they target",
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["pending_id", "proposal"],
+                "properties": {
+                    "pending_id": {"type": "integer"},
+                    "proposal": {"type": "integer"},
+                },
+            },
+        },
+        "observation_targets": {
+            "type": "array",
+            "description": "fresh undated proposal and the dated proposal it describes",
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["observation", "target"],
+                "properties": {
+                    "observation": {"type": "integer"},
+                    "target": {"type": "integer"},
+                },
+            },
+        },
         "why": {"type": "string",
                 "description": "one sentence: which fragment settled the date, and why"},
     },
@@ -344,6 +441,62 @@ def _cites(group: list[Mention]) -> list[int]:
             if isinstance(archive_id, int) and archive_id not in out:
                 out.append(archive_id)
     return out
+
+
+def _links(group: list[Mention]) -> list[dict]:
+    """Validated relationship claims from every fragment."""
+    out: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for mention in group:
+        for item in mention.row.get("links") or ():
+            if not isinstance(item, dict):
+                continue
+            pair = (str(item.get("kind") or ""), str(item.get("key") or ""))
+            if pair[0] not in events.LINK_KINDS or not pair[1] or pair in seen:
+                continue
+            seen.add(pair)
+            out.append({"kind": pair[0], "key": pair[1]})
+    return out
+
+
+def _field_cites(group: list[Mention], merged: dict) -> dict[str, list[int]]:
+    """Carry citations only from fragments agreeing with the selected field value."""
+    out: dict[str, list[int]] = {}
+    for field in ("date", "until", "time", "title", "location", "kind", "status",
+                  "participants", "note"):
+        selected = merged.get(field)
+        ids: list[int] = []
+        for mention in group:
+            value = mention.row.get(field)
+            agrees = value == selected
+            if field == "participants" and isinstance(selected, list):
+                agrees = bool(value) and set(value) <= set(selected)
+            if not agrees:
+                continue
+            claimed = mention.row.get("field_cite_ids")
+            values = (claimed.get(field) or ()) if isinstance(claimed, dict) \
+                else (mention.row.get("cite_ids") or ())
+            for archive_id in values:
+                if isinstance(archive_id, int) and archive_id not in ids:
+                    ids.append(archive_id)
+        if ids:
+            out[field] = ids
+    return out
+
+
+def _evidence_times(group: list[Mention], conn: sqlite3.Connection | None) -> dict[str, str]:
+    ids = set(_cites(group))
+    for mention in group:
+        for row in mention.bundle.items:
+            if "id" in row.keys() and row["id"]:
+                ids.add(int(row["id"]))
+    if conn is None or not ids:
+        return {str(row["id"]): str(row["ts"])
+                for mention in group for row in mention.bundle.items
+                if "id" in row.keys() and row["id"] and row["ts"]}
+    marks = ",".join("?" for _ in ids)
+    rows = conn.execute(f"SELECT id, ts FROM archive WHERE id IN ({marks})", list(ids))
+    return {str(row["id"]): str(row["ts"]) for row in rows}
 
 
 def _guest_list(names) -> list[str]:
@@ -368,13 +521,12 @@ def _guest_list(names) -> list[str]:
 
 
 def _merge_locally(group: list[Mention]) -> dict:
-    """The no-model answer: keep the earliest-dated fragment's row, union the people.
-
-    Used when the fragments do not actually disagree about anything that matters, and
-    as the fallback when the call fails — a merged row built from what they agree on is
-    strictly better than emitting all of them and calling it a day.
-    """
+    """Merge agreeing fragments without a model call."""
     base = dict(min(group, key=lambda m: m.date).row)
+    for mention in group:
+        if mention.existing and mention.row.get("key"):
+            base["key"] = mention.row["key"]
+            break
     # One person, one entry. A union of raw strings put Quinn in twice — once as
     # "Quinn Brooks" and once as "Quinn" — because each thread names people the way
     # that thread names them, and a guest list only ever grows. Folding on the slug and
@@ -437,6 +589,259 @@ def _ceiling(cfg: Config, base: int = MERGE_TOKENS) -> int:
                          spec.think_tokens + MERGE_ANSWER_TOKENS))
 
 
+class _StoredBundle:
+    """Stands in for the conversation a stored row came from."""
+
+    __slots__ = ("entity", "items")
+
+    def __init__(self, entity: str, items=()):
+        self.entity, self.items = entity, list(items)
+
+
+def _source_lines(conn: sqlite3.Connection | None, mention: Mention) -> list[str]:
+    """Timestamped source evidence, or labeled stored-state history."""
+    if not mention.existing:
+        wanted = set(mention.row.get("cite_ids") or ())
+        rows = [row for row in mention.bundle.items
+                if not wanted or ("id" in row.keys() and row["id"] in wanted)]
+        rows = rows[-6:]
+        return [f"SOURCE {row['id']} at {row['ts']} — "
+                f"{'me' if row['from_me'] else (row['person'] or 'they')}: {row['text']}"
+                for row in rows if "id" in row.keys() and row["id"]]
+    if conn is None or not mention.row.get("key"):
+        return ["STORED STATE — no source evidence attached"]
+    key = str(mention.row["key"])
+    direct = conn.execute(
+        """SELECT DISTINCT a.id, a.ts, a.person, a.from_me, a.text
+             FROM evidence e JOIN archive a ON a.id = e.archive_id
+            WHERE e.kind = 'event' AND e.ref = ? ORDER BY a.ts DESC LIMIT 6""", (key,)
+    ).fetchall()
+    lines = [f"SOURCE {row['id']} at {row['ts']} — "
+             f"{'me' if row['from_me'] else (row['person'] or 'they')}: {row['text']}"
+             for row in reversed(direct)]
+    event = events.get(conn, key)
+    if event is not None:
+        stamp = conn.execute("SELECT updated_at FROM events WHERE id = ?", (event.id,)).fetchone()
+        lines.append(f"STORED STATE at {stamp['updated_at']} — {event.status} on {event.date}")
+        for row in events.history(conn, event.id)[-4:]:
+            lines.append(f"STORED HISTORY at {row['changed_at']} — {row['field']}: "
+                         f"{row['old_value']} -> {row['new_value']}")
+    return lines
+
+
+def _pending_candidates(conn: sqlite3.Connection | None,
+                        group: list[Mention]) -> list[sqlite3.Row]:
+    if conn is None:
+        return []
+    wanted = set().union(*(_tokens(str(m.row.get("title") or "")) for m in group))
+    dates = {m.date for m in group if m.date}
+    places = {db.slugify(str(m.row.get("location") or "")) for m in group
+              if m.row.get("location")}
+    out: list[sqlite3.Row] = []
+    pending_rows = conn.execute(
+        "SELECT * FROM pending_changes WHERE status = 'open' ORDER BY id DESC LIMIT 20")
+    for row in pending_rows:
+        overlap = wanted & _tokens(
+            f"{row['subject_title'] or ''} {row['observation']} "
+            f"{row['subject_location'] or ''}")
+        same_date = bool(row["subject_date"] and row["subject_date"] in dates)
+        same_place = bool(row["subject_location"] and
+                          db.slugify(str(row["subject_location"])) in places)
+        if not (overlap or same_date or same_place):
+            continue
+        out.append(row)
+        if len(out) == 6:
+            break
+    return out
+
+
+def _pending_lines(conn: sqlite3.Connection | None, group: list[Mention]) -> list[str]:
+    """Undated observations nominated by shared event wording."""
+    lines = []
+    for row in _pending_candidates(conn, group):
+        details = [str(row[name]) for name in
+                   ("subject_title", "subject_date", "subject_time", "subject_location")
+                   if row[name]]
+        suffix = f" [{'; '.join(details)}]" if details else ""
+        lines.append(f"PENDING {row['id']} at {row['observed_at'] or row['created_at']} "
+                     f"from {row['entity'] or '?'} — {row['observation']}{suffix}")
+    return lines
+
+
+def _merge_suffix(conn: sqlite3.Connection | None, group: list[Mention]) -> str:
+    lines = ["PROPOSALS"]
+    for index, mention in enumerate(group, 1):
+        lines.append(f"PROPOSAL {index}")
+        lines.append(mention.describe())
+        lines.extend("    " + line for line in _source_lines(conn, mention))
+    pending = _pending_lines(conn, group)
+    if pending:
+        lines.append("\nUNDATED OBSERVATIONS — context only; decide which target they name")
+        lines.extend(pending)
+    lines.append("\nOne row, or same_event false to preserve distinct targets.")
+    return "\n".join(lines)
+
+
+def _answer_citations(conn: sqlite3.Connection | None, group: list[Mention], answer: dict,
+                      merged: dict) -> dict[str, list[int]]:
+    if not isinstance(answer.get("citations"), list):
+        return _field_cites(group, merged)
+    available: set[int] = set()
+    for mention in group:
+        for line in _source_lines(conn, mention):
+            if line.startswith("SOURCE "):
+                try:
+                    available.add(int(line.split()[1]))
+                except (ValueError, IndexError):
+                    continue
+    out: dict[str, list[int]] = {}
+    for item in answer["citations"]:
+        if not isinstance(item, dict):
+            continue
+        field = str(item.get("field") or "")
+        if field not in merged:
+            continue
+        ids = [value for value in (item.get("source_ids") or [])
+               if isinstance(value, int) and value in available]
+        if ids:
+            out[field] = list(dict.fromkeys(ids))
+    return out
+
+
+def _merged_links(conn: sqlite3.Connection | None, group: list[Mention],
+                  answer: dict) -> list[dict]:
+    out = _links(group)
+    seen = {(item["kind"], item["key"]) for item in out}
+    for item in answer.get("links") or ():
+        if not isinstance(item, dict):
+            continue
+        kind, key = str(item.get("kind") or ""), str(item.get("key") or "")
+        if (kind not in events.LINK_KINDS or not key or (kind, key) in seen
+                or (conn is not None and events.get(conn, key) is None)):
+            continue
+        out.append({"kind": kind, "key": key})
+        seen.add((kind, key))
+    return out
+
+
+def _apply_pending_targets(conn: sqlite3.Connection | None, group: list[Mention],
+                           answer: dict, *, merged: dict | None = None) -> None:
+    if conn is None:
+        return
+    allowed = {int(row["id"]) for row in _pending_candidates(conn, group)}
+    for item in answer.get("pending_targets") or ():
+        if not isinstance(item, dict) or not isinstance(item.get("pending_id"), int):
+            continue
+        pending_id, proposal = item["pending_id"], item.get("proposal")
+        if pending_id not in allowed or not isinstance(proposal, int) \
+                or not 1 <= proposal <= len(group):
+            continue
+        mention = group[proposal - 1]
+        if not mention.date:
+            continue
+        if mention.existing and mention.row.get("key"):
+            writable = next((m for m in group if not m.existing), None)
+            if writable is not None:
+                writable.diff.setdefault("_pending_targets", []).append({
+                    "id": pending_id, "key": str(mention.row["key"])})
+            continue
+        target = merged if merged is not None else mention.row
+        ids = target.setdefault("_pending_ids", [])
+        if pending_id not in ids:
+            ids.append(pending_id)
+
+
+def _apply_observation_targets(group: list[Mention], answer: dict,
+                               *, merged: dict | None = None) -> None:
+    for item in answer.get("observation_targets") or ():
+        if not isinstance(item, dict):
+            continue
+        observation, target = item.get("observation"), item.get("target")
+        if not isinstance(observation, int) or not isinstance(target, int) \
+                or not 1 <= observation <= len(group) or not 1 <= target <= len(group):
+            continue
+        source, destination = group[observation - 1], group[target - 1]
+        if source.row.get("date") or source.row.get("status") != "declined" \
+                or not destination.row.get("date"):
+            continue
+        if destination.row.get("key"):
+            source.row["_target_key"] = destination.row["key"]
+            continue
+        claimed = source.row.get("field_cite_ids")
+        cited = (claimed.get("status") or []) if isinstance(claimed, dict) \
+            else (source.row.get("cite_ids") or [])
+        stamps = [str(item["ts"]) for item in source.bundle.items
+                  if item["id"] in cited and item["ts"]]
+        if not stamps:
+            continue
+        row = merged if merged is not None else destination.row
+        row.setdefault("_resolved_observations", []).append({
+            "observation": source.row.get("title") or source.row.get("note"),
+            "observed_at": max(stamps),
+            "entity": source.bundle.entity,
+        })
+        if merged is None:
+            source.diff["events"] = [item for item in source.diff.get("events") or []
+                                     if item is not source.row]
+
+
+def _mark_distinct_lifecycle(group: list[Mention]) -> None:
+    dates = {m.date for m in group if m.date}
+    statuses = {m.row.get("status") for m in group}
+    if len(dates) < 2 or not {"declined", "confirmed"} <= statuses:
+        return
+    for mention in group:
+        if not mention.existing and mention.row.get("status") == "declined" and mention.date:
+            mention.row["_allow_declined_insert"] = True
+
+
+def _stored_near(conn, mentions: list[Mention], *, include_claimed: bool = False) \
+        -> list[Mention]:
+    """Rows already in the store within reach of any proposal, as comparable mentions."""
+    dates = sorted({m.date for m in mentions if m.date})
+    if not dates and not include_claimed:
+        return []
+    try:
+        if include_claimed:
+            lo, hi = db.window_bounds(events.AMENDABLE_DAYS_BACK,
+                                      events.AMENDABLE_DAYS_FORWARD)
+        else:
+            lo = (db.parse_date(dates[0]) - timedelta(days=NEAR_DAYS)).isoformat()
+            hi = (db.parse_date(dates[-1]) + timedelta(days=NEAR_DAYS)).isoformat()
+    except ValueError:
+        return []
+    # A row apply will reach on its own is apply's, under the evidence rules. Only the
+    # ones nothing resolves to are worth a cluster.
+    claimed: set[str] = set()
+    if not include_claimed:
+        claimed = {str(m.row.get("key")) for m in mentions if m.row.get("key")}
+        for m in mentions:
+            hit = events.find_match(
+                conn, title=str(m.row.get("title") or ""), on=m.date,
+                series=m.row.get("series"),
+                participants=[p for p in (m.row.get("participants") or [])
+                              if isinstance(p, str)],
+                subject=str(m.row.get("subject") or "me"))
+            if hit is not None:
+                claimed.add(hit.key)
+    out: list[Mention] = []
+    for event in events.between(conn, lo, hi):
+        if event.key in claimed:
+            continue
+        row = {"key": event.key, "date": event.date, "time": event.time,
+               "title": event.title, "location": event.location, "kind": event.kind,
+               "subject": event.subject, "status": event.status, "series": event.series,
+               "note": event.note, "participants": list(event.participants or [])}
+        evidence = conn.execute(
+            """SELECT DISTINCT a.* FROM evidence e JOIN archive a ON a.id = e.archive_id
+                WHERE e.kind = 'event' AND e.ref = ? ORDER BY a.ts DESC LIMIT 6""",
+            (event.key,)).fetchall()
+        out.append(Mention({k: v for k, v in row.items() if v not in (None, "")},
+                           _StoredBundle(event.source or f"event:{event.key}", evidence),
+                           {"events": []}, existing=True))
+    return out
+
+
 def merge_all(client: CompletionClient, cfg: Config, proposals: list,
               *, conn: sqlite3.Connection | None = None,
               run_id: int | None = None) -> tuple[list, list[str]]:
@@ -448,27 +853,49 @@ def merge_all(client: CompletionClient, cfg: Config, proposals: list,
     involved, so a linked event or to-do cannot be applied without its question action.
     """
     mentions: list[Mention] = []
+    observations: list[Mention] = []
     for bundle, diff, _gen in proposals:
         for row in (diff.get("events") or []):
-            if isinstance(row, dict) and row.get("date") and row.get("title"):
-                mentions.append(Mention(row, bundle, diff))
+            if not isinstance(row, dict):
+                continue
+            mention = Mention(row, bundle, diff)
+            if row.get("date") and row.get("title"):
+                mentions.append(mention)
+            elif not row.get("date") and row.get("status") == "declined":
+                observations.append(mention)
 
+    links = events.linked_pairs(conn) if conn is not None else set()
+    pending_open = bool(pending.open_items(conn)) if conn is not None else False
+    stored = (_stored_near(conn, mentions,
+                           include_claimed=bool(observations or pending_open))
+              if conn is not None else [])
     log: list[str] = []
-    for group in cluster(mentions, cfg) if len(mentions) >= 2 else []:
-        if len(group) < 2:
+    pool = mentions + stored
+    groups = cluster(pool, cfg, links) if pool else []
+    groups = _with_observations(groups, observations)
+    if conn is not None:
+        contexts = [Mention({"title": row["subject_title"] or row["observation"]},
+                            Bundle(entity=row["entity"] or "pending"), {})
+                    for row in pending.open_items(conn)]
+        groups = _with_observations(groups, contexts, include=False)
+    for group in groups:
+        has_pending = bool(_pending_candidates(conn, group))
+        if (len(group) < 2 and not has_pending) or not any(not m.existing for m in group):
             continue
         sources = ", ".join(sorted({m.bundle.entity for m in group}))
         voices = corroboration(group)
-        if not _conflicted(group):
+        if not _conflicted(group) and not has_pending:
             merged = _merge_locally(group)
+            merged["links"] = _links(group)
+            merged["field_cite_ids"] = _field_cites(group, merged)
+            merged["_evidence_times"] = _evidence_times(group, conn)
             _corroborate(merged, voices)
             _collapse(group, merged)
             log.append(f"merged {len(group)} mentions of {merged['title']!r} "
                        f"from {voices} source(s) ({sources})")
             continue
 
-        suffix = ("PROPOSALS\n" + "\n".join(m.describe() for m in group)
-                  + "\n\nOne row, or same_event false.")
+        suffix = _merge_suffix(conn, group)
         ceiling = _ceiling(cfg)
         try:
             reply = client.complete(
@@ -490,7 +917,13 @@ def merge_all(client: CompletionClient, cfg: Config, proposals: list,
                        f"separate, unresolved")
             continue
 
+        if reply.truncated:
+            log.append(f"kept {len(group)} rows separate ({sources}): reply cut off")
+            continue
         if answer.get("same_event") is False:
+            _apply_pending_targets(conn, group, answer)
+            _apply_observation_targets(group, answer)
+            _mark_distinct_lifecycle(group)
             log.append(f"kept {len(group)} separate rows ({sources}): not the same event")
             continue
         if str(answer.get("same_event") or "").lower() == "unresolved":
@@ -501,13 +934,26 @@ def merge_all(client: CompletionClient, cfg: Config, proposals: list,
                    else "model returned no date or title")
             log.append(f"kept {len(group)} rows separate ({sources}): {why}")
             continue
+        if answer.get("same_event") is not True:
+            log.append(f"kept {len(group)} rows separate ({sources}): no merge decision")
+            continue
 
         merged = {k: v for k, v in answer.items()
-                  if k not in ("same_event", "why") and v not in (None, "")}
+                  if k not in ("same_event", "why", "citations", "pending_targets",
+                               "observation_targets")
+                  and v not in (None, "")}
         # The model answers with fields, not with provenance. The citations belong to
         # the fragments it was shown, so they are carried across here rather than lost
         # to a stage whose entire purpose is combining evidence.
         merged["cite_ids"] = _cites(group)
+        merged["links"] = _merged_links(conn, group, answer)
+        merged["field_cite_ids"] = _answer_citations(conn, group, answer, merged)
+        merged["cite_ids"] = list(dict.fromkeys([
+            *merged["cite_ids"],
+            *(archive_id for ids in merged["field_cite_ids"].values() for archive_id in ids)]))
+        merged["_evidence_times"] = _evidence_times(group, conn)
+        _apply_pending_targets(conn, group, answer, merged=merged)
+        _apply_observation_targets(group, answer, merged=merged)
         _corroborate(merged, voices)
         # The key travels with the merged row so apply amends the row that already
         # exists rather than minting a second one beside it.
@@ -656,8 +1102,13 @@ def _collapse(group: list[Mention], merged: dict) -> None:
     Earliest rather than best-worded: the first conversation to mention a plan is the
     one whose bundle the reader will look in for it.
     """
-    keeper = min(group, key=lambda m: m.date)
+    writable = [m for m in group if not m.existing]
+    if not writable:
+        return
+    keeper = min(writable, key=lambda m: m.date)
     for mention in group:
+        if mention.existing:
+            continue
         rows = mention.diff.get("events") or []
         if mention is keeper:
             for index, row in enumerate(rows):

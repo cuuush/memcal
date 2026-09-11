@@ -312,7 +312,7 @@ def env_files(cfg: Config) -> list[tuple[str, Path]]:
         # file; labelled that way it stopped being the store row, so every save warned
         # that the file it had just written was shadowing itself, and a store-scoped
         # setting — which is only ever read from the store row — reported no value at all.
-        out.append(("store" if resolved == store else role, path))
+        out.append(("store" if resolved == store else role, resolved))
     return out
 
 
@@ -449,19 +449,20 @@ def coerce(setting: Setting, raw, *, provider: str = "") -> tuple[str, object]:
     return text, text
 
 
-def _check_models_served(provider: str, planned: dict[str, tuple[str, object]]) -> None:
-    """Refuse a model that is known to belong to a *different* provider.
-
-    Run 29 read nothing: Codex was selected while the propose model still said
-    `gemini-3.8-flash-high`, and all 74 bundles were refused. Narrow on purpose —
-    `llm.belongs_elsewhere` answers only when it recognises the model as someone else's,
-    so a model memcal has never heard of stays typable and a release that outpaces
-    `llm.PRICES` is not locked out.
-    """
+def _check_models_served(cfg: Config, provider: str,
+                         planned: dict[str, tuple[str, object]]) -> None:
+    """Refuse effective model values known to belong to another provider."""
     from . import llm                                              # noqa: PLC0415
-    for key, (text, _value) in planned.items():
-        if BY_KEY[key].attr not in _PROVIDER_MODEL_ATTRS or not text:
+    default = llm.PROVIDER_DEFAULT_MODELS.get(provider, "")
+    for setting in SETTINGS:
+        if setting.attr not in _PROVIDER_MODEL_ATTRS:
             continue
+        if setting.key in planned:
+            text = planned[setting.key][0]
+        elif cfg.env.get(setting.key) or os.environ.get(setting.key):
+            text = str(getattr(cfg, setting.attr, "") or "")
+        else:
+            text = default
         owner = llm.belongs_elsewhere(provider, text)
         if owner:
             raise SettingsError(
@@ -514,7 +515,7 @@ def save(cfg: Config, changes: dict) -> dict:
     planned: dict[str, tuple[str, object]] = {}
     for key, raw in changes.items():
         planned[key] = coerce(BY_KEY[key], raw, provider=check_text(provider))
-    _check_models_served(check_text(provider), planned)
+    _check_models_served(cfg, check_text(provider), planned)
 
     files = _file_values(cfg)
     write_env(cfg.home / STORE_ENV, {key: text for key, (text, _v) in planned.items()})

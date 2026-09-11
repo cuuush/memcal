@@ -35,6 +35,9 @@ def connect(db_path: Path) -> sqlite3.Connection:
 # Existing databases need explicit ALTERs; schema.sql only creates new tables.
 ADDED_COLUMNS = (
     ("events", "until", "TEXT"),
+    # What a cancellation named, for exact re-identification.
+    ("pending_changes", "subject_time", "TEXT"),
+    ("pending_changes", "subject_location", "TEXT"),
     # Reminder delivery is separate from the obligation's due date.
     ("todos", "remind_at", "TEXT"),
     ("todos", "reminded_at", "TEXT"),
@@ -311,9 +314,18 @@ def parse_ts(value: str) -> datetime:
         stamp = datetime.fromisoformat(str(value))
     except ValueError:
         stamp = now_dt()
-    if stamp.tzinfo is None:
-        stamp = stamp.astimezone()
-    return stamp
+    return stamp.astimezone()
+
+
+def valid_local_time(day: str | date, value: str) -> bool:
+    """Whether an HH:MM wall time exists in the machine's local timezone."""
+    try:
+        naive = datetime.combine(parse_date(day), dt_time.fromisoformat(str(value)))
+    except (TypeError, ValueError):
+        return True
+    aware = naive.astimezone()
+    roundtrip = datetime.fromtimestamp(aware.timestamp()).astimezone().replace(tzinfo=None)
+    return roundtrip == naive
 
 
 def utc_stamp(value: str | date | datetime) -> str:

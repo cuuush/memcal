@@ -1414,6 +1414,7 @@ CHECKS: list[Check] = [
               (r"board game", SAT),
               (r"aspca|mobile clinic", WED),
               (r"dog park", SAT),          # 54, proposed by an id nothing can name
+              (r"smash", SUN),
               (r"movie", TUE_NEXT),
               (r"bowery|the show", FRI),
               (r"poker", "2026-06-05"),
@@ -1651,28 +1652,15 @@ CHECKS: list[Check] = [
               not hits, "not queued" if not hits else f"queued: {hits}"))(
                   [r["handle"] for r in c.conn.execute("SELECT handle FROM unresolved")
                    if "system" in str(r["handle"]).lower()])),
-    #    And the decoy that stops the fix being "ignore the system channel": the notice
-    #    *contains* the message. Riley Morgan is the author, GroupMe is only the speaker,
-    #    and a filter that drops the handle drops the plan with it.
-    #    **Frontier, and it is a live defect rather than a hypothetical.**
-    #    `groupme._deliver` returns early on `message.get("system")`, so the whole
-    #    channel is dropped at ingest — including the notices that *are* the message.
-    #    The live store has `DELIA edited to: "This is where we are planning to…"` and
-    #    `Casey Morgan edited to: "No, Morgan is sitting th…"`, both destroyed on the
-    #    way in and in no store. The structural fix is not a regex over the wording: the
-    #    API sends `event: {type, data}` on every system message and the connector's
-    #    field list has never named it. Read `event.type`
-    #    and drop the bookkeeping kinds, keep the ones carrying a person's words.
+    #    The notice contains Riley's edited message. GroupMe is only the carrier.
     Check("platform.the-quoted-plan-still-lands", "55 the platform is not a person", 2,
-          row_on(r"smash", SUN), frontier=True),
-    #    Frontier for the same reason: there is no row yet to attribute wrongly.
+          row_on(r"smash", SUN)),
     Check("platform.the-author-is-not-the-app", "55 the platform is not a person", 2,
           lambda c: (lambda rows: (
               bool(rows) and not any("groupme" in str(p).lower()
                                      for p in [rows[0].subject, *rows[0].participants]),
               f"subject={rows[0].subject!r} participants={rows[0].participants}"
-              if rows else "no row"))(c.rows(r"smash", on=SUN)),
-          frontier=True),
+              if rows else "no row"))(c.rows(r"smash", on=SUN))),
 
     # -- 46. The obligation nobody announced, buried in a thread about a video game.
     #    Integration states the contract; a red *model* result here is the extraction
@@ -1828,6 +1816,7 @@ CHECKS: list[Check] = [
               (r"breakfast", SAT),
               (r"poker", SAT),
               (r"brunch", SUN),
+              (r"smash", SUN),
               (r"Fantastic Four movie", SUN_9),
               (r"Spider-Man movie", MON_10),
               (r"movie", TUE_11),

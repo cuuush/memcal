@@ -375,6 +375,21 @@ def title(conn: sqlite3.Connection, stream: str, thread: str) -> str:
 ROSTER_OVERLAP = 0.5
 
 
+def _one_sided(conn: sqlite3.Connection) -> set[tuple]:
+    """Email threads with one speaker the user never answered.
+
+    Email alone: there `threads.label` is a per-message subject, so a sender that mails
+    a new subject each time splits into one conversation per notice. Every other stream
+    labels the conversation, not the message.
+    """
+    replied = {(r["stream"], r["thread"]) for r in conn.execute(
+        "SELECT DISTINCT stream, thread FROM archive WHERE from_me = 1"
+        "  AND thread IS NOT NULL AND thread != ''")}
+    speakers = _speakers(conn)
+    return {key for key, seat in speakers.items()
+            if key[0] == "email" and len(seat) == 1 and key not in replied}
+
+
 def aliases(conn: sqlite3.Connection) -> dict[tuple, str]:
     """`{(stream, thread): canonical thread}` for conversations that are really one.
 
@@ -387,6 +402,7 @@ def aliases(conn: sqlite3.Connection) -> dict[tuple, str]:
     conversations and gets flagged instead.
     """
     speakers = _speakers(conn)
+    one_sided = _one_sided(conn)
     labels = {(r["stream"], r["thread"]): (r["label"] or "") for r in conn.execute(
         "SELECT stream, thread, label FROM threads")}
     counts = {(r["stream"], r["thread"]): r["n"] for r in conn.execute(
@@ -398,7 +414,7 @@ def aliases(conn: sqlite3.Connection) -> dict[tuple, str]:
         stream, thread = key
         label = labels.get(key) or thread
         roster = frozenset(s["person"] or s["handle"] for s in speakers.get(key, []))
-        if _opaque(label):
+        if _opaque(label) or key in one_sided:
             # No usable name on either side; the people are all there is to match on,
             # and an empty roster matches nothing rather than everything.
             if not roster:

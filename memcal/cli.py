@@ -1152,8 +1152,6 @@ def cmd_dream(args) -> int:
     if getattr(args, "retry", None):
         from .dream import retry as retry_stage                    # noqa: PLC0415
         if args.dry_run:
-            # A dry run prices and reads nothing, so the released lines would simply
-            # stay released for whatever pass came next — including tonight's.
             print("--retry and --dry-run do nothing together: a dry run reads nothing, "
                   "so the lines it released would be left for the next real pass. "
                   "Price with `memcal dream --dry-run`, then retry.")
@@ -1167,9 +1165,6 @@ def cmd_dream(args) -> int:
             print(f"run #{args.retry} is {state}; there is nothing to retry")
             return 1
         released, kept = retry_stage.requeue(conn, args.retry)
-        # Nothing released is the normal outcome for a pass refused on its first call,
-        # and it is not a problem: that pass never claimed anything, so its traffic is
-        # still queued and this is an ordinary pass over it.
         print(f"retrying run #{args.retry}: "
               + (f"released {released} previously-read item(s)" if released
                  else "nothing to release; its traffic is still queued"))

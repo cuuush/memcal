@@ -345,6 +345,11 @@ class TestAnOrdinalDayKeepsItsMonth(unittest.TestCase):
         self.assertEqual(dates.resolve("Join us Thursday, July 30 at", date(2026, 7, 20)),
                          "2026-07-30")
 
+    def test_a_weekday_and_bare_ordinal_must_both_match(self):
+        self.assertEqual(
+            dates.resolve("Tuesday the 11th", date(2026, 8, 3)), "2026-08-11")
+        self.assertIsNone(dates.resolve("Monday the 11th", date(2026, 8, 3)))
+
 
 class TestAYearSomebodyWroteDownIsNotAGuess(unittest.TestCase):
 

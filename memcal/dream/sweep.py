@@ -19,10 +19,11 @@ You are not adding anything new. You are looking for damage:
   duplicate    two rows that are plainly the same event -> drop the worse-worded one
   junk         a row or fact that should never have been stored (banter, affection,
                newsletter events, facts about software, other people's opinions)
-  contradiction  two rows that cannot both be true -> keep neither silently; ask
+  contradiction  two rows that cannot both be true -> raise a question
 
-For a contradiction you cannot resolve from what you see, do not guess and do not
-delete. Raise a question instead.
+A booking that was really made and then called off is a `declined` row, not a duplicate
+or junk. Both rows stay. This summary has no source evidence, so it cannot authorize a
+status correction. Leave corrections to Merge and Apply, which can compare source lines.
 
 KEYS ARE OPAQUE
 A row's key is an identifier, not data. It is minted once from the title and the date
@@ -79,6 +80,7 @@ def state_snapshot(conn: sqlite3.Connection, cfg: Config, diff_log: list[str]) -
     parts = ["MEMCAL AFTER THIS RUN"]
     for ev in events.window(conn, cfg.days_back, cfg.days_forward):
         parts.append(f"  {ev.key} | {ev.date} | {ev.kind}/{ev.status} | {ev.title}"
+                     + (f" | {ev.time}" if ev.time else "")
                      + (f" | {ev.location}" if ev.location else "")
                      + (f" | with {', '.join(ev.participants)}" if ev.participants else "")
                      + (f" | hosted by {', '.join(ev.hosts)}" if ev.hosts else ""))

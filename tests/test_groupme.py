@@ -27,6 +27,20 @@ def rate_limit_error(retry_after: str | None = None, code: int = 429) -> base.Ht
     return error
 
 
+class TestGroupMeSystemMessages(unittest.TestCase):
+    def test_an_edit_notice_preserves_the_authored_message(self):
+        self.assertEqual(groupme._edited_message({
+            "system": True,
+            "text": "Riley Morgan edited to: “actually let’s make smash 7pm Sunday”",
+        }), ("actually let’s make smash 7pm Sunday", "", "Riley Morgan"))
+
+    def test_bookkeeping_notices_stay_ignored(self):
+        self.assertIsNone(groupme._edited_message({
+            "system": True,
+            "text": "A message was deleted.",
+        }))
+
+
 class TestGroupMeRateLimitBackoff(unittest.TestCase):
     def client(self) -> groupme.GroupMe:
         client = object.__new__(groupme.GroupMe)

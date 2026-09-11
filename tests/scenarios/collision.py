@@ -1,31 +1,10 @@
-"""The collision corpus: daytime typed writes meeting the nightly pass.
+"""Collisions between daytime typed writes and the nightly pass.
 
-Every other scenario suite in this repo answers "did the pass read this correctly".
-This one answers the question underneath it: two writers touch the same plan on the
-same day — the assistant, through a typed tool, while the user is talking to it, and
-`dream`, hours later, reading the very sentence that produced that tool call — and the
-store has to end up with one row, the newer decision, and its evidence.
-
-Three things make it different from `tests/scenarios/skeleton.py`:
-
-* **Every operation carries its own moment.** A scenario is an ordered list of timed
-  operations — a message arriving, a tool call, a nightly pass, a retry, a checkpoint —
-  and the clock is pinned to each one through `db.set_today` before it runs. A message
-  also distinguishes *when it was written* from *when it arrived*, because an email
-  written on Monday and collected on Tuesday is the shape of half the failures here.
-* **State is graded at checkpoints, not at the end.** A row that is right on Thursday
-  because two wrongs cancelled on Tuesday is not right.
-* **The three evaluation boundaries are named on every check.** `apply` grades
-  deterministic storage and replay with the decisions supplied; `retrieval` grades what
-  the pass would have been *shown*, with no model and no oracle; `model` grades a real
-  pass end to end. A green `apply` check says nothing about model accuracy and is
-  reported as what it is.
-
-Ground truth lives in `Scenario.checks`, which read the store the way a person would —
-by title, date and status. It is never derived from the matcher under test, and no
-expected key is ever handed to a model: the oracle diffs in `Scenario.script` are input
-to the deterministic layer only, and deliberately carry no `key` unless the scenario is
-specifically about a keyed amendment.
+Scenarios pin every operation's clock and distinguish message time from arrival time.
+They grade state at checkpoints across three boundaries: deterministic apply and replay,
+retrieval, and a live model pass. Ground truth queries user-visible state and is never
+derived from the matcher. Oracle diffs are deterministic-layer input only and omit event
+keys unless a case specifically tests a keyed amendment.
 """
 
 from __future__ import annotations
@@ -1049,21 +1028,16 @@ def _run_tool(conn, cfg, op: Op, origin: actions.Origin) -> str:
 
 
 class _Arbiter:
-    """A competent cross-bundle arbiter, standing in for the model at this boundary.
+    """Deterministic stand-in for same-day, same-hour proposal arbitration.
 
-    Merge asks a model only when fragments disagree about something a union cannot
-    settle — and since a timeout or an uncertain answer is now correctly *not* a merge,
-    a layer with no client at all would report every conflicted cluster as two rows and
-    call it a duplicate. That measures the absence of a provider, not the storage rules
-    this boundary exists to grade.
-
-    So the same-day, same-hour, overlapping-title case answers "same event", the way a
-    reader would, and everything else is left unresolved rather than guessed. The model
-    layer is where extraction and semantic judgement are actually measured.
+    Source timestamps describe when messages arrived, not when their events occur.
+    Semantic interpretation of those messages belongs to the live model layer.
     """
 
     def complete(self, *, suffix: str = "", **_kwargs):
         from memcal import llm                                       # noqa: PLC0415
+        source_ids = [int(value) for value in re.findall(r"^\s+SOURCE (\d+) at", suffix, re.M)]
+        suffix = "\n".join(line for line in suffix.splitlines() if line.startswith("  - "))
         dates = set(re.findall(r"\b\d{4}-\d{2}-\d{2}\b", suffix))
         times = set(re.findall(r"\b\d{2}:\d{2}\b", suffix))
         titles = re.findall(r"^  - (.+?)  \[", suffix, re.M)
@@ -1077,6 +1051,10 @@ class _Arbiter:
                 found = re.findall(rf"{field} ([^;\]]+)", suffix)
                 if found:
                     answer[field] = max(found, key=len).strip()
+            answer["citations"] = [
+                {"field": field, "source_ids": source_ids}
+                for field in ("date", "title", "time", "location", "status", "kind")
+                if field in answer]
             return llm.Reply(text="", data=answer)
         return llm.Reply(text="", data={"same_event": "unresolved",
                                         "why": "differing days"})

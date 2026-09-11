@@ -372,7 +372,7 @@ def boundary_checks(home: Path) -> list[dict]:
             "participants": ["Cameron", "Riley"], "status": "confirmed"})
         roster, _ = events.upsert(conn, {
             "key": roster.key, "title": roster.title, "date": roster.date,
-            "participants": ["Riley"]})
+            "participants": ["Riley"]}, replace_participants=True)
         checks.append(result(
             "boundary.participant-removal", "participant removal",
             "Cameron" not in roster.participants,

@@ -38,7 +38,8 @@ export const state = {view: "gate", verdict: "", stream: "", days: "14", q: "", 
                wq: "", wikiSlug: "",
                // which run is open on the Runs tab, and a bundle id the Dream tab
                // should scroll to and flash as soon as it has finished rendering
-               run: 0, bundleFlash: "", callFlash: "", callNeedle: "",
+               // Run selected for retry on the Dream tab.
+               run: 0, retryRun: 0, bundleFlash: "", callFlash: "", callNeedle: "",
                // "" = everything ever collected. The gate tab opens on the queue,
                // because "what is the next pass going to read" is the live question.
                queue: "queued"};

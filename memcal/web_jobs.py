@@ -322,14 +322,7 @@ def _read_so_far(data: dict) -> str:
 
 
 def retry_work(run_id: int):
-    """Re-read what one failed pass was given, using whatever is configured *now*.
-
-    Not a resume: nothing about the failed run is replayed. Its claimed lines go back in
-    the queue and an ordinary pass is started over them, so a retry after fixing the
-    provider is a retry with the fixed provider — which is the only kind anybody wants.
-    A pass that failed before claiming anything releases nothing and this is simply a
-    dream, which is also correct: its traffic never left the queue.
-    """
+    """Requeue one failed pass, then run dream with the current configuration."""
     def work(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
         from .dream import retry as retry_stage
 
@@ -338,9 +331,6 @@ def retry_work(run_id: int):
                 + (f"put {released} line(s) back in the queue"
                    if released else "nothing had to be released"))
         if kept:
-            # Releasing these would not re-read them: the pass retires anything past the
-            # horizon as its first step, so they would go back in as retired-unread and
-            # the record that this run read them would be gone.
             job.say(f"  {kept} line(s) this run read are older than "
                     f"{archive.SPOOL_HORIZON_DAYS} days and stay marked as read")
         out = dream_work(conn, cfg, job)

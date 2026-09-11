@@ -272,6 +272,7 @@
       <input type="search" id="setq" placeholder="search a setting, or its variable   (/)">
       <label class="note" style="margin:0">
         <input type="checkbox" id="setcustom"> only what differs from the default
+        <span id="setcustomn" class="setkeys"></span>
       </label>
       <span class="note" style="margin:0" id="setcount"></span>
       <span class="note setkeys" style="margin:0">⌘S saves</span>
@@ -300,9 +301,15 @@
 <!-- Nothing on the settings tab saves as you type: a knob that changes what a pass
      costs should take a deliberate press. -->
 <div id="setbar" hidden>
-  <span id="setbarnote"></span>
-  <button class="btn" id="setdiscard">discard</button>
-  <button class="btn go" id="setsave">save</button>
+  <!-- Which knobs, not only how many: the page is twenty-seven settings under six
+       headings, and "3 unsaved changes" from the bottom corner is a riddle. Each chip
+       is the way back to the row it names. -->
+  <div class="chips" id="setbarwhat"></div>
+  <div class="row">
+    <span id="setbarnote"></span>
+    <button class="btn" id="setdiscard">discard</button>
+    <button class="btn go" id="setsave">save</button>
+  </div>
 </div>
 
 <!-- The trace panel: any row in Memory can open the model call that wrote it. -->

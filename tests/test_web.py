@@ -1411,10 +1411,7 @@ class TestTheRowDetailLookupHasOneImplementation(Base):
 
 
 class TestAFailedPassCanBeRetried(Base):
-    """Run 29 read 74 bundles' worth of nothing: the provider refused every request
-    because the configured model belonged to a different one. Nothing about the store
-    was wrong afterwards — the traffic was still queued — but the only thing that said
-    so was an error string, and there was no way to ask for the pass again."""
+    """Failed and partial passes expose a safe retry path."""
 
     def run_row(self, run_id: int, **fields):
         columns = {"started_at": "2026-09-09T20:21:06", "finished_at": "2026-09-09T20:21:30",
@@ -1429,9 +1426,6 @@ class TestAFailedPassCanBeRetried(Base):
         return self.conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
 
     def test_what_landed_decides_it_rather_than_the_error_column(self):
-        """Builds before propose split failures from recoveries filed "re-asked 2
-        bundle(s)…" on `runs.error`, so twenty passes that wrote dozens of rows each
-        carry an error string. Read as failures, most nightly passes are failures."""
         self.assertEqual(dream_retry.outcome(self.run_row(1)), dream_retry.FAILED)
         self.assertEqual(
             dream_retry.outcome(self.run_row(2, diffs=9, failed_calls=0,
@@ -1446,8 +1440,6 @@ class TestAFailedPassCanBeRetried(Base):
             dream_retry.PARTIAL)
 
     def test_an_unrecorded_failed_call_count_is_not_evidence_of_a_failure(self):
-        """NULL is "this run predates the column". Counting it would retro-flag every
-        pass from before it existed."""
         self.assertEqual(
             dream_retry.outcome(self.run_row(1, diffs=9, failed_calls=None, error=None)),
             dream_retry.OK)
@@ -1487,9 +1479,6 @@ class TestAFailedPassCanBeRetried(Base):
                          [(None, None), (None, None)])
 
     def test_a_line_past_the_model_horizon_stays_marked_as_read(self):
-        """Releasing it would not re-read it. `_dream` retires anything past the horizon
-        as its first step, so it would go straight back in as retired-*unread* — and
-        `run_id` on a spool row is the only record that a pass ever read it."""
         self.run_row(1, diffs=4, failed_calls=2, error="half of it came back")
         old = self.mail("a@x.com", "read long ago", gated=True, reason="unknown-sender",
                         offset=-(archive.SPOOL_HORIZON_DAYS + 10))
@@ -1506,8 +1495,6 @@ class TestAFailedPassCanBeRetried(Base):
         self.assertEqual([(r["archive_id"], r["run_id"]) for r in left], [(old, 1)])
 
     def test_a_pass_refused_before_it_claimed_anything_releases_nothing(self):
-        """The common case, and the one that reads as a broken retry if it is not said
-        out loud: a provider that refuses every request never marks a single line."""
         self.run_row(1)
         self.mail("a@x.com", "never read", gated=True, reason="unknown-sender")
         self.assertEqual(dream_retry.claimed(self.conn, 1), 0)
@@ -1525,8 +1512,6 @@ class TestAFailedPassCanBeRetried(Base):
         self.assertFalse(listed[2]["retryable"])
 
     def test_the_dream_preview_says_whether_the_last_pass_worked(self):
-        """The Dream tab is where someone stands when they decide to spend money, and
-        "last dream: 20:21, gemini-3.8-flash-high" reads as a pass that happened."""
         self.run_row(1)
         last = web_dream.dream_preview(self.conn, self.cfg)["last_dream"]
         self.assertEqual(last["id"], 1)
@@ -1541,11 +1526,28 @@ class TestAFailedPassCanBeRetried(Base):
             self.assertIn(needle, source, needle)
         self.assertIn("/api/dream_retry", Path(web_server.__file__).read_text())
 
+    def test_only_the_dream_tab_starts_a_retry(self):
+        static = Path(web_server.STATIC_DIR)
+        runs = (static / "runs.js").read_text()
+        self.assertNotIn("retryDream", runs)
+        self.assertIn("retrylink", runs)
+        self.assertIn("state.retryRun", runs)
+        # And the Dream tab picks up the run the Runs tab handed over, rather than only
+        # ever offering the last pass.
+        dream = (static / "dream.js").read_text()
+        self.assertIn("state.retryRun", dream)
+        self.assertIn("retryDream", dream)
+
+    def test_the_retry_offer_is_withdrawn_while_anything_is_running(self):
+        for name in ("runs.js", "dream.js"):
+            body = (Path(web_server.STATIC_DIR) / name).read_text()
+            self.assertIn("passRunning", body, name)
+            self.assertIn('api("/api/job")', body, name)
+            self.assertNotIn("kind=dream", body, name)
+
 
 class TestTheBundleListDoesNotBuryThePage(Base):
-    """A real pass is a hundred-odd conversations, each an expandable card. Rendered
-    inline they pushed the Dream button and everything the pass wrote several screens
-    down, so the one control the tab exists for was the hardest thing on it to find."""
+    """Large bundle previews remain out of the Dream controls' way."""
 
     def test_the_bundles_are_folded_away_and_scroll_inside_themselves(self):
         page = Path(web_server.PAGE).read_text()

@@ -53,10 +53,16 @@ by anytime" with no scheduled day is an open to-do with no due date, not an even
 email's date. Travel does not imply direction. Do not invent an end date.
 
 To update a listed event, return its existing key. Omit the key only for a new event.
-If something moved, change its date rather than renaming it. A recurring event uses one
-next-occurrence row and its `series` slug.
-A confirmation for one date and a cancellation naming a different date means the
-appointment moved: keep one row on the newly confirmed date, not a declined old row.
+If one booking was explicitly moved, change its date rather than renaming it. A recurring
+event uses one next-occurrence row and its `series` slug. A cancellation for one booking
+followed by a separate booking on another date is two lifecycle rows: decline the old
+booking, keep the new one confirmed, and link the new row to the old with `replaces`.
+
+Use `links` to name an existing row this one relates to: `same_as` for one occasion
+written twice, `replaces` when this booking supersedes that one, `related` when they
+belong together but are not the same. Only keys listed as already on the calendar.
+For a cancellation notice that names no date and cannot safely name an existing key,
+return date null. Merge will compare it with timestamped, more specific notices.
 
 INFERENCE BECOMES A QUESTION, NEVER A FACT
 Ask: does the answer change what the user does next?
