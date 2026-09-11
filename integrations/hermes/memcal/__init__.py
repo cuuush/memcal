@@ -619,6 +619,15 @@ class MemcalMemoryProvider(MemoryProvider):
         self._turn_archive_id: int | None = None
         self._turn_number = 0
         self._archived_turns: dict[tuple[str, str], int] = {}
+        # Hash of the last snapshot body actually injected. Hermes pins each
+        # injected snapshot to its turn's user message and replays it verbatim
+        # forever (prompt-cache stability), so re-emitting an unchanged brief
+        # every turn stacks near-duplicate copies in the transcript. Emit only
+        # when the rendered brief differs; an unchanged turn injects nothing and
+        # the last snapshot in history stays authoritative. brief.render is
+        # deterministic per (db state, date, due reminders), so the hash also
+        # turns over on a data edit, a day rollover, or a reminder coming due.
+        self._last_snapshot_hash: str | None = None
 
     @property
     def name(self) -> str:
@@ -634,6 +643,10 @@ class MemcalMemoryProvider(MemoryProvider):
     def initialize(self, session_id: str, **kwargs) -> None:
         self._session_id = session_id
         self._agent_context = kwargs.get("agent_context", "primary")
+        # A (re-)initialized provider starts a conversation whose history holds no
+        # snapshot yet, so never let a hash carried over from a prior init suppress
+        # the first emit.
+        self._last_snapshot_hash = None
         self._memcal = _load_memcal()
         if self._memcal is None:
             logger.warning("memcal not importable; set MEMCAL_SRC to its checkout")
@@ -655,9 +668,11 @@ class MemcalMemoryProvider(MemoryProvider):
         """
         return (
             "# Memcal\n\n"
-            "Memcal supplies a fresh snapshot of the user's week on every turn. Treat "
-            "the newest `MEMCAL SNAPSHOT` as authoritative; if an older snapshot remains "
-            "in long conversation history, the newest one supersedes it completely. "
+            "Memcal drops a `MEMCAL SNAPSHOT` of the user's week into the conversation and "
+            "refreshes it whenever it changes, so a turn without one is normal — the most "
+            "recent snapshot in the conversation is always current. Treat it as "
+            "authoritative; if older snapshots remain in long conversation history, the "
+            "newest one supersedes them completely. "
             "Rows are things that were mentioned, not necessarily commitments.\n\n"
             "The snapshot is the answer, not a summary of one. It is complete for the "
             "days it covers, so 'what's my weekend looking like', 'what am I doing "
@@ -719,7 +734,13 @@ class MemcalMemoryProvider(MemoryProvider):
         except Exception as exc:
             logger.debug("memcal prefetch failed: %s", exc)
             return ""
-        out = [f"MEMCAL SNAPSHOT {stamp}\n\n{snapshot}"]
+        out = []
+        digest = hashlib.sha1(snapshot.encode("utf-8")).hexdigest()
+        if digest != self._last_snapshot_hash:
+            out.append(f"MEMCAL SNAPSHOT {stamp}\n\n{snapshot}")
+            self._last_snapshot_hash = digest
+        # Wiki pages are query-driven, not a snapshot: inject them whenever this
+        # turn named someone, independent of the brief-change gate above.
         if page_blocks:
             out.append("WIKI PAGES MENTIONED THIS TURN\n\n" + "\n\n---\n\n".join(page_blocks))
         return "\n\n".join(out)
@@ -796,6 +817,8 @@ class MemcalMemoryProvider(MemoryProvider):
         self._turn_archive_id = None
         self._turn_number = 0
         self._archived_turns.clear()
+        # New session opens with no snapshot in its history: force a fresh emit.
+        self._last_snapshot_hash = None
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
         """A free episode boundary: re-render the brief so the next session opens fresh."""

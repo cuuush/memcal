@@ -10,8 +10,12 @@ Run: python3 -m unittest discover -s tests -v
 
 from __future__ import annotations
 
+import argparse
 import ast
 import io
+import json
+import os
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -63,8 +67,13 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
         self.cfg = Config(home=Path(self.tmp.name))
         self.cfg.ensure_dirs()
         self.conn = db.open_db(self.cfg.db_path)
+        # The bundle paths are macOS-only; pretend to be there so the routing,
+        # build, and health tests exercise the macOS behavior off a Mac.
+        self._macos = mock.patch.object(schedule, "_is_macos", return_value=True)
+        self._macos.start()
 
     def tearDown(self):
+        self._macos.stop()
         db.set_today(None)
         self.conn.close()
         self.tmp.cleanup()
@@ -263,6 +272,235 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
         self.assertIn("Schedule/nightly", found)
         self.assertEqual(found["Schedule/nightly"].status, cli.WARN)
 
+    def _run_probe(self):
+        """Run the permission probe against a fake launchd."""
+        captured = {}
+
+        def answer(*args, **_kw):
+            if args[0] == "bootstrap":
+                captured["plist"] = plistlib.loads(
+                    (self.cfg.home / "ical-permission.plist").read_bytes())
+                (self.cfg.home / "ical-permission-result.json").write_text(
+                    json.dumps({"ok": True, "message": "granted"}), encoding="utf-8")
+            return (0, "")
+
+        with mock.patch.object(schedule, "_launchctl", answer):
+            ok, msg = schedule.calendar_permission_probe(self.cfg, timeout=1)
+        return ok, msg, captured["plist"]
+
+    def test_the_calendar_probe_runs_through_the_app_when_it_is_built(self):
+        exe = schedule.app_executable(self.cfg)
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(b"")
+        exe.chmod(0o755)
+        ok, msg, plist = self._run_probe()
+        argv = plist["ProgramArguments"]
+        self.assertTrue(ok)
+        self.assertEqual(argv[0], str(exe))
+        self.assertEqual(argv[1:], self._probe_python_call())
+        self.assertEqual([schedule.APP_BUNDLE_ID],
+                         plist["AssociatedBundleIdentifiers"])
+        self.assertIn("memcal", msg)
+
+    def test_the_probe_falls_back_to_python_without_the_app(self):
+        ok, _msg, plist = self._run_probe()
+        self.assertTrue(ok)
+        self.assertEqual(plist["ProgramArguments"], self._probe_python_call())
+        self.assertNotIn("AssociatedBundleIdentifiers", plist)
+
+    def test_the_probe_ignores_a_non_executable_launcher(self):
+        exe = schedule.app_executable(self.cfg)
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(b"")
+        ok, _msg, plist = self._run_probe()
+        self.assertTrue(ok)
+        self.assertEqual(plist["ProgramArguments"], self._probe_python_call())
+        self.assertNotIn("AssociatedBundleIdentifiers", plist)
+
+    def _probe_python_call(self):
+        return [schedule.pinned_python(self.cfg), "-m", "memcal", "ical", "probe",
+                "--context", "nightly", "--result",
+                str(self.cfg.home / "ical-permission-result.json")]
+
+    def test_build_app_bundle_writes_a_memcal_identity_and_signs_it(self):
+        calls = []
+
+        def runner(args, **_kw):
+            calls.append(args)
+            if "-o" in args:
+                out = Path(args[args.index("-o") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"launcher")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        out = schedule.build_app_bundle(self.cfg, runner=runner)
+        info = plistlib.loads(
+            (schedule.app_path(self.cfg) / "Contents" / "Info.plist").read_bytes())
+        self.assertEqual(info["CFBundleName"], "memcal")
+        self.assertEqual(info["CFBundleIdentifier"], schedule.APP_BUNDLE_ID)
+        self.assertTrue(info["NSAppleEventsUsageDescription"])
+        self.assertTrue(any(a[:2] == ["xcrun", "clang"] for a in calls), calls)
+        self.assertTrue(any(a[0] == "codesign" for a in calls), calls)
+        self.assertTrue(any("built" in line for line in out), out)
+        self.assertTrue(schedule.app_executable(self.cfg).is_file())
+        self.assertFalse(schedule.app_executable(self.cfg).with_name(
+            schedule.app_executable(self.cfg).name + ".new").exists())
+
+    def test_build_app_bundle_skips_when_current(self):
+        def runner(args, **_kw):
+            if "-o" in args:
+                out = Path(args[args.index("-o") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"launcher")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        schedule.build_app_bundle(self.cfg, runner=runner)
+        exe = schedule.app_executable(self.cfg)
+        # Make the build unambiguously newer than the source without touching
+        # the tracked source file itself.
+        src = schedule.LAUNCHER_SOURCE.stat().st_mtime
+        os.utime(exe, (src + 60, src + 60))
+        calls = []
+
+        def counting(args, **_kw):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        out = schedule.build_app_bundle(self.cfg, runner=counting)
+        self.assertTrue(any("is current" in line for line in out), out)
+        self.assertFalse(any(a[0] == "codesign" for a in calls), calls)
+
+    def test_failed_rebuild_preserves_the_working_launcher(self):
+        exe = schedule.app_executable(self.cfg)
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(b"working")
+        exe.chmod(0o755)
+        # Make the binary unambiguously older than the source to force a rebuild
+        # attempt, without touching the tracked source file.
+        src = schedule.LAUNCHER_SOURCE.stat().st_mtime
+        os.utime(exe, (src - 60, src - 60))
+
+        def failing(args, **_kw):
+            if args[:2] == ["xcrun", "-f"]:
+                return subprocess.CompletedProcess(args, 0, "", "")
+            return subprocess.CompletedProcess(args, 1, "", "boom")
+
+        out = schedule.build_app_bundle(self.cfg, runner=failing)
+        self.assertEqual(b"working", exe.read_bytes())
+        self.assertTrue(any("could not compile" in line for line in out), out)
+
+    def test_force_rebuilds_even_when_current(self):
+        def runner(args, **_kw):
+            if "-o" in args:
+                out = Path(args[args.index("-o") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"launcher")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        schedule.build_app_bundle(self.cfg, runner=runner)
+        exe = schedule.app_executable(self.cfg)
+        src = schedule.LAUNCHER_SOURCE.stat().st_mtime
+        os.utime(exe, (src + 60, src + 60))
+        calls = []
+
+        def counting(args, **_kw):
+            calls.append(args)
+            if "-o" in args:
+                out = Path(args[args.index("-o") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"launcher")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        out = schedule.build_app_bundle(self.cfg, runner=counting, force=True)
+        self.assertTrue(any("built" in line for line in out), out)
+        self.assertTrue(any(a[0] == "codesign" for a in calls), calls)
+
+    def test_bundle_health_names_the_broken_states(self):
+        verdict, _ = schedule.bundle_health(self.cfg)
+        self.assertEqual("absent", verdict)
+        exe = schedule.app_executable(self.cfg)
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(b"working")
+        verdict, detail = schedule.bundle_health(self.cfg)
+        self.assertEqual("stale", verdict)
+        self.assertIn("not executable", detail)
+        exe.chmod(0o755)
+        (schedule.app_path(self.cfg) / "Contents" / "Info.plist").parent.mkdir(
+            parents=True, exist_ok=True)
+        with (schedule.app_path(self.cfg) / "Contents" / "Info.plist").open("wb") as fh:
+            plistlib.dump(schedule.render_info_plist(), fh)
+        src = schedule.LAUNCHER_SOURCE.stat().st_mtime
+        os.utime(exe, (src + 60, src + 60))
+        verdict, _ = schedule.bundle_health(self.cfg)
+        self.assertEqual("ok", verdict)
+
+    def test_plist_identity_health_matches_the_bundle(self):
+        with mock.patch.object(schedule, "plist_path",
+                               return_value=self.cfg.home / "missing.plist"):
+            self.assertEqual("absent", schedule.plist_identity_health(self.cfg)[0])
+        plist = self.cfg.home / "nightly.plist"
+        with mock.patch.object(schedule, "plist_path", return_value=plist):
+            with plist.open("wb") as fh:
+                plistlib.dump(schedule.render_plist(self.cfg), fh)
+            verdict, _ = schedule.plist_identity_health(self.cfg)
+            self.assertEqual("ok", verdict)
+            exe = schedule.app_executable(self.cfg)
+            exe.parent.mkdir(parents=True, exist_ok=True)
+            exe.write_bytes(b"")
+            exe.chmod(0o755)
+            verdict, detail = schedule.plist_identity_health(self.cfg)
+            self.assertNotEqual("ok", verdict)
+            self.assertIn("bundle", detail)
+
+    def test_doctor_reports_a_stale_bundle(self):
+        exe = schedule.app_executable(self.cfg)
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(b"working")
+        exe.chmod(0o755)
+        (schedule.app_path(self.cfg) / "Contents").mkdir(parents=True, exist_ok=True)
+        with (schedule.app_path(self.cfg) / "Contents" / "Info.plist").open("wb") as fh:
+            plistlib.dump(schedule.render_info_plist(), fh)
+        src = schedule.LAUNCHER_SOURCE.stat().st_mtime
+        os.utime(exe, (src - 60, src - 60))
+        with mock.patch.object(schedule, "_launchctl", return_value=(1, "not loaded")):
+            found = {f"{f.section}/{f.name}": f
+                     for f in cli.doctor_findings(self.conn, self.cfg)}
+        self.assertIn("Schedule/app bundle", found)
+        self.assertNotEqual(cli.OK, found["Schedule/app bundle"].status)
+        self.assertIn("--rebuild", found["Schedule/app bundle"].fix)
+
+    def test_build_app_bundle_degrades_without_a_compiler(self):
+        def runner(args, **_kw):
+            return subprocess.CompletedProcess(args, 1, "", "not found")
+
+        with mock.patch.object(schedule.shutil, "which", return_value=None):
+            out = schedule.build_app_bundle(self.cfg, runner=runner)
+        self.assertFalse(schedule.app_executable(self.cfg).exists())
+        self.assertFalse(schedule.app_path(self.cfg).exists())
+        self.assertTrue(any("no C compiler" in line for line in out), out)
+        self.assertEqual(schedule.launch_through(self.cfg, ["x"]), ["x"])
+        with mock.patch.object(schedule, "_launchctl", return_value=(1, "not loaded")):
+            found = {f"{f.section}/{f.name}": f
+                     for f in cli.doctor_findings(self.conn, self.cfg)}
+        self.assertNotEqual(cli.FAIL, found["Schedule/app bundle"].status)
+
+    def test_skip_current_clears_a_leftover_new_file(self):
+        def runner(args, **_kw):
+            if "-o" in args:
+                out = Path(args[args.index("-o") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"launcher")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        schedule.build_app_bundle(self.cfg, runner=runner)
+        exe = schedule.app_executable(self.cfg)
+        src = schedule.LAUNCHER_SOURCE.stat().st_mtime
+        os.utime(exe, (src + 60, src + 60))
+        exe.with_name(exe.name + ".new").write_bytes(b"orphan")
+        out = schedule.build_app_bundle(self.cfg, runner=runner)
+        self.assertTrue(any("is current" in line for line in out), out)
+        self.assertFalse(exe.with_name(exe.name + ".new").exists())
+
     # ------------------------------------------- what stops it coming back --
 
     def _ical_functions(self):
@@ -383,6 +621,84 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
         self.assertEqual(offenders, [],
                          "inject the transport instead; a platform skip is a score that "
                          "improved by deleting the checks that failed")
+
+
+class TestCalendarIdentityReexec(unittest.TestCase):
+    """`memcal` re-runs itself through the app bundle so every context — manual CLI,
+    the web server, the nightly job — reads Calendar under one memcal identity."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = Config(home=Path(self.tmp.name))
+        self.cfg.ensure_dirs()
+        self._macos = mock.patch.object(schedule, "_is_macos", return_value=True)
+        self._macos.start()
+
+    def tearDown(self):
+        self._macos.stop()
+        self.tmp.cleanup()
+
+    def _args(self, cmd):
+        return argparse.Namespace(cmd=cmd, home=str(self.cfg.home))
+
+    def _build_fake_app(self):
+        exe = schedule.app_executable(self.cfg)
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        exe.chmod(0o755)
+        return exe
+
+    def _capture_reexec(self, cmd, argv, *, env):
+        calls = []
+        with mock.patch.dict(os.environ, env, clear=False), \
+             mock.patch("os.execv", lambda *a: calls.append(a)):
+            if "MEMCAL_APP" not in env:
+                os.environ.pop("MEMCAL_APP", None)
+            cli._maybe_reexec_under_app(self._args(cmd), argv)
+        return calls
+
+    def test_a_calendar_command_reexecs_through_the_app(self):
+        exe = self._build_fake_app()
+        calls = self._capture_reexec(
+            "ingest", ["--home", str(self.cfg.home), "ingest", "all"], env={})
+        self.assertEqual(len(calls), 1, "a calendar command did not hand off to the app")
+        prog, new_argv = calls[0]
+        self.assertEqual(prog, str(exe))
+        self.assertEqual(new_argv[0], str(exe))
+        # The app runs `<python> -m memcal <original args>`.
+        self.assertEqual(new_argv[1:3], [sys.executable, "-m"])
+        self.assertEqual(new_argv[-2:], ["ingest", "all"])
+
+    def test_already_under_the_app_does_not_reexec(self):
+        self._build_fake_app()
+        calls = self._capture_reexec("ingest", ["ingest"], env={"MEMCAL_APP": "1"})
+        self.assertEqual(calls, [], "re-exec looped instead of stopping under the app")
+
+    def test_schedule_command_never_reexecs(self):
+        # `schedule` builds and removes the bundle, so it must not depend on it.
+        self._build_fake_app()
+        calls = self._capture_reexec("schedule", ["schedule", "install"], env={})
+        self.assertEqual(calls, [])
+
+    def test_no_bundle_means_no_reexec(self):
+        # Nothing built (or a non-macOS host): run in place, as before the bundle.
+        calls = self._capture_reexec("ingest", ["ingest"], env={})
+        self.assertEqual(calls, [])
+
+    def test_off_macos_never_reexecs_even_with_a_bundle(self):
+        self._build_fake_app()
+        with mock.patch.object(schedule, "_is_macos", return_value=False):
+            calls = self._capture_reexec("ingest", ["ingest", "all"], env={})
+        self.assertEqual(calls, [])
+
+    def test_off_macos_skips_the_bundle_build_and_health(self):
+        with mock.patch.object(schedule, "_is_macos", return_value=False):
+            out = schedule.build_app_bundle(self.cfg)
+            self.assertTrue(any("macOS-only" in line for line in out), out)
+            self.assertFalse(schedule.app_path(self.cfg).exists())
+            self.assertEqual("ok", schedule.bundle_health(self.cfg)[0])
+            self.assertEqual("ok", schedule.plist_identity_health(self.cfg)[0])
+            self.assertEqual(["x"], schedule.launch_through(self.cfg, ["x"]))
 
 
 if __name__ == "__main__":

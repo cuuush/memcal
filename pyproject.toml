@@ -1,6 +1,6 @@
 [project]
 name = "memcal"
-version = "0.6.0"
+version = "0.7.0"
 description = "A calendar and a to-do list that live in context, fed by the streams you already get."
 requires-python = ">=3.11"
 dependencies = []

@@ -5,6 +5,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-11
+
 ### Added
 
 - Event updates can explicitly remove named participants as well as add them.
@@ -118,10 +120,28 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- The brief Calendar-access check macOS runs at login now shows up as
-  `memcal-calendar-access` in Login Items rather than as the bare `python`/`osascript`
-  it happened to run through. The nightly job already read as `memcal-nightly`; this
-  gives the permission probe the same descriptive name for the seconds it exists.
+- The Hermes integration now injects a snapshot only when the brief has actually
+  changed. Hermes pins each injected snapshot to its turn and replays it verbatim for
+  prompt-cache stability, so re-emitting an unchanged brief every turn stacked
+  near-duplicate copies through a conversation. An unchanged turn now injects nothing and
+  the snapshot already in history stays authoritative; a data edit, a day rollover, or a
+  reminder coming due turns the brief over and re-injects it.
+
+- Every context that reaches Calendar now runs through a local `memcal.app`, so macOS
+  attributes the access to **memcal** rather than to Python, osascript, or Terminal —
+  and there is one grant to approve instead of a separate one per launcher. The nightly
+  job runs through it, and a manual `memcal ingest`, the web server, and the MCP server
+  re-execute themselves through it on start (only `schedule`, `help`, and `completion`
+  never re-exec; read-only commands still go through the bundle when it exists, at the
+  cost of one fork+exec). Because the grant is keyed to the bundle's signature rather
+  than the interpreter's path, it survives `brew upgrade python`. `memcal schedule
+  install` builds and ad-hoc-signs the wrapper when a compiler is available; without one,
+  the interpreter path remains the fallback. Re-run the install command once to adopt it;
+  the first Calendar prompt afterward reads memcal. Later installs skip the rebuild while
+  the bundle is newer than its source, so the grant is not disturbed; pass `--rebuild`
+  to force one. `memcal doctor` reports a missing, stale, or half-built bundle and a
+  plist whose bundle association does not match what is installed. `memcal schedule run`
+  goes through the bundle too, so a manual run uses the same grant as the 03:00 job.
 - A correction made during the day is no longer undone by older evidence collected
   later. Write precedence is decided per field and on when the evidence was said, rather
   than on whether the row happened to be written the same calendar day. Genuinely newer

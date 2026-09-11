@@ -10,6 +10,7 @@ import argparse
 import difflib
 import getpass
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -1369,7 +1370,8 @@ def cmd_schedule(args) -> int:
     cfg, conn = open_ctx(args)
     conn.close()
     if args.action == "install":
-        for line in schedule.install(cfg, hour=args.hour, minute=args.minute):
+        for line in schedule.install(cfg, hour=args.hour, minute=args.minute,
+                                     force_rebuild=getattr(args, "rebuild", False)):
             print(line)
         return 0
     if args.action == "uninstall":
@@ -1700,6 +1702,22 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
         state["why"] if state["installed"]
         else "no schedule, so nothing collects or extracts on its own",
         fix="" if state["installed"] else "memcal schedule install")
+
+    verdict, detail = schedule.bundle_health(cfg)
+    if verdict == "ok":
+        add("Schedule", "app bundle", OK, detail)
+    elif verdict == "absent":
+        add("Schedule", "app bundle", WARN, detail + " — works, but as python, not memcal",
+            fix="memcal schedule install   # builds memcal.app when a compiler exists")
+    else:
+        # WARN, not FAIL: every stale state still falls back to the interpreter,
+        # so the job works — it just does not carry the memcal identity.
+        add("Schedule", "app bundle", WARN, detail,
+            fix="memcal schedule install --rebuild")
+    verdict, detail = schedule.plist_identity_health(cfg)
+    if state["installed"] and verdict != "ok":
+        add("Schedule", "plist identity", WARN, detail,
+            fix="memcal schedule install   # rewrites the plist to match the bundle")
 
     kind = "nightly" if state["installed"] else "interactive"
     verified = db.get_meta(conn, f"ical.permission.{kind}")
@@ -2266,6 +2284,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="hour of the nightly pass")
     s.add_argument("--minute", type=int, default=schedule.DEFAULT_MINUTE,
                    help="minute of the nightly pass")
+    s.add_argument("--rebuild", action="store_true",
+                   help="install: rebuild memcal.app even when it looks current "
+                        "(normal installs skip the rebuild to keep the Calendar grant)")
     s.set_defaults(func=cmd_schedule)
 
     s = sub.add_parser("models", help="show models for the configured LLM provider")
@@ -2324,7 +2345,42 @@ def _expand_bare_handle(argv: list[str], choices) -> list[str]:
     return argv
 
 
+#: Commands that never run through the app bundle: `schedule` builds and removes
+#: it (and so cannot depend on it); the rest are bare invocations with no work to do.
+#: Every other subcommand re-execs through the bundle when one is built — including
+#: read-only ones, at the cost of one fork+exec — so there is one Calendar identity.
+_NO_APP_COMMANDS = {None, "schedule", "help", "completion"}
+
+
+def _maybe_reexec_under_app(args, argv: list[str]) -> None:
+    """Re-run this invocation through memcal.app so its Calendar access is attributed
+    to memcal, not to the terminal or interpreter that launched it.
+
+    This is what unifies every context — a manual `memcal ingest`, the web server, the
+    nightly job — under one macOS identity and therefore one Calendar grant. It is a
+    no-op when already under the bundle (the launcher sets `MEMCAL_APP`), when no
+    bundle is built, or for the commands that must not depend on it. Only reached for a
+    real shell invocation; `main(argv=...)` callers (the tests) never re-exec.
+    """
+    if not schedule._is_macos():
+        return
+    if os.environ.get("MEMCAL_APP") == "1":
+        return
+    if getattr(args, "cmd", None) in _NO_APP_COMMANDS:
+        return
+    exe = schedule.app_executable(config.load(getattr(args, "home", None)))
+    if not (exe.is_file() and os.access(exe, os.X_OK)):
+        return
+    os.environ["MEMCAL_APP"] = "1"
+    try:
+        os.execv(str(exe), [str(exe), sys.executable, "-m", "memcal", *argv])
+    except OSError:
+        # Could not hand off; run in place rather than not at all.
+        os.environ.pop("MEMCAL_APP", None)
+
+
 def main(argv: list[str] | None = None) -> int:
+    from_shell = argv is None
     argv = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
     argv = _expand_bare_handle(argv, parser.memcal_commands)
@@ -2338,6 +2394,8 @@ def main(argv: list[str] | None = None) -> int:
             print("try: memcal --help", file=sys.stderr)
         return 2
     args = parser.parse_args(argv)
+    if from_shell:
+        _maybe_reexec_under_app(args, argv)
     args._owned_connections = []
     try:
         return args.func(args)

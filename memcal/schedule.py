@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import shutil
 import subprocess
 import sys
 import time
@@ -18,6 +19,20 @@ LABEL = "com.memcal.nightly"
 ICAL_PERMISSION_LABEL = "com.memcal.ical-permission"
 DEFAULT_HOUR = 3
 DEFAULT_MINUTE = 0
+
+#: Bundle used to give scheduled work a human-readable macOS identity.
+APP_BUNDLE_ID = "com.memcal.agent"
+APP_NAME = "memcal"
+LAUNCHER_SOURCE = PROJECT_ROOT / "memcal" / "macos" / "launcher.c"
+
+
+def _is_macos() -> bool:
+    """True on the only platform the app bundle means anything on.
+
+    Patched to True in platform tests so the macOS paths are exercised off a Mac;
+    production callers use it to skip bundle work elsewhere entirely.
+    """
+    return sys.platform == "darwin"
 
 #: Interval used to catch a missed run after wake.
 WAKE_INTERVAL = 1800
@@ -45,6 +60,195 @@ LEGACY_SCRIPT_NAMES = {"nightly": ("nightly.sh",),
 
 def script_path(cfg: Config) -> Path:
     return cfg.home / SCRIPT_NAMES["nightly"]
+
+
+def app_path(cfg: Config) -> Path:
+    """Return the local launcher bundle path."""
+    return cfg.home / f"{APP_NAME}.app"
+
+
+def app_executable(cfg: Config) -> Path:
+    return app_path(cfg) / "Contents" / "MacOS" / APP_NAME
+
+
+def launch_through(cfg: Config, argv: list[str]) -> list[str]:
+    """Run through the app launcher when a usable one is installed."""
+    if not _is_macos():
+        return argv
+    executable = app_executable(cfg)
+    if executable.is_file() and os.access(executable, os.X_OK):
+        return [str(executable), *argv]
+    return argv
+
+
+def render_info_plist() -> dict:
+    """Return the launcher bundle metadata."""
+    reason = "memcal reads your calendar and reminders to build its brief."
+    return {
+        "CFBundleName": APP_NAME,
+        "CFBundleDisplayName": APP_NAME,
+        "CFBundleIdentifier": APP_BUNDLE_ID,
+        "CFBundleExecutable": APP_NAME,
+        "CFBundlePackageType": "APPL",
+        "CFBundleInfoDictionaryVersion": "6.0",
+        "CFBundleShortVersionString": "1.0",
+        "CFBundleVersion": "1",
+        # An agent, not an app with a window or a Dock icon.
+        "LSBackgroundOnly": True,
+        "LSMinimumSystemVersion": "10.15",
+        "NSAppleEventsUsageDescription": reason,
+        "NSCalendarsUsageDescription": reason,
+    }
+
+
+def _run(args: list[str], *, runner=subprocess.run) -> tuple[int, str]:
+    """One external command, as (exit code, what it said)."""
+    try:
+        proc = runner(args, capture_output=True, text=True)
+    except OSError as exc:
+        return 127, f"{args[0]} is unavailable: {exc}"
+    return proc.returncode, (proc.stdout + proc.stderr).strip()
+
+
+def _compiler_command(*, runner=subprocess.run) -> list[str] | None:
+    """Prefer the SDK-aware compiler, then fall back to one on PATH."""
+    code, _ = _run(["xcrun", "-f", "clang"], runner=runner)
+    if code == 0:
+        return ["xcrun", "clang"]
+    found = shutil.which("clang") or shutil.which("cc")
+    return [found] if found else None
+
+
+def _bundle_is_current(cfg: Config) -> bool:
+    """True when the built launcher is newer than its source."""
+    try:
+        return (app_executable(cfg).is_file()
+                and app_executable(cfg).stat().st_mtime >= LAUNCHER_SOURCE.stat().st_mtime)
+    except OSError:
+        return False
+
+
+def bundle_health(cfg: Config) -> tuple[str, str]:
+    """`(verdict, detail)` for the app-bundle wrapper: ok, stale, or fallback.
+
+    Verdicts are `ok` (built, executable, current), `stale` (built but behind the
+    source, not executable, or half-written), or `absent` (no usable bundle — the
+    nightly job and probes run under the interpreter's name, including a metadata-
+    only `.app` left by a compiler-less install). Doctor renders stale as a
+    warning with a `--rebuild` fix: every stale state still falls back to the
+    interpreter, so none of them is fatal.
+    """
+    if not _is_macos():
+        return ("ok", "app bundle is macOS-only — nothing to check here")
+    exe = app_executable(cfg)
+    tmp = exe.with_name(exe.name + ".new")
+    try:
+        if tmp.exists():
+            return ("stale", f"{tmp.name} left behind by a failed build — the live "
+                             f"{exe.name} was kept")
+        if not exe.is_file():
+            return ("absent", "no memcal.app launcher — Calendar access reads as "
+                              "the interpreter")
+        if not os.access(exe, os.X_OK):
+            return ("stale", f"{exe.name} is not executable, so the job falls back "
+                             "to the interpreter")
+        try:
+            info = plistlib.loads((app_path(cfg) / "Contents" / "Info.plist").read_bytes())
+        except Exception:
+            info = {}
+        if info.get("CFBundleIdentifier") != APP_BUNDLE_ID:
+            return ("stale", "memcal.app Info.plist does not carry the memcal bundle id")
+        try:
+            if exe.stat().st_mtime < LAUNCHER_SOURCE.stat().st_mtime:
+                return ("stale", "memcal.app is older than launcher.c — rebuild it")
+        except OSError:
+            pass
+        return ("ok", f"memcal.app current — Calendar access reads as {APP_NAME}")
+    except OSError as exc:
+        return ("stale", f"could not inspect memcal.app ({exc})")
+
+
+def plist_identity_health(cfg: Config) -> tuple[str, str]:
+    """`(verdict, detail)` for the installed plist's bundle association."""
+    if not _is_macos():
+        return ("ok", "plist identity is macOS-only — nothing to check here")
+    try:
+        with plist_path().open("rb") as fh:
+            installed = plistlib.load(fh)
+    except Exception:
+        return ("absent", "no installed plist")
+    exe = app_executable(cfg)
+    routed = exe.is_file() and os.access(exe, os.X_OK)
+    claimed = list(installed.get("AssociatedBundleIdentifiers") or [])
+    if routed and APP_BUNDLE_ID in claimed:
+        return ("ok", "nightly plist claims the memcal bundle it runs through")
+    if not routed and APP_BUNDLE_ID not in claimed:
+        return ("ok", "nightly plist runs the script directly, with no bundle to claim")
+    if routed:
+        return ("stale", "nightly plist runs through memcal.app but claims no bundle")
+    return ("stale", "nightly plist claims memcal.app that is not built")
+
+
+def build_app_bundle(cfg: Config, *, runner=subprocess.run, force: bool = False) -> list[str]:
+    """Build and ad-hoc-sign the optional launchd app wrapper."""
+    if not _is_macos():
+        return ["memcal.app is macOS-only — skipping the bundle build"]
+    out: list[str] = []
+    app = app_path(cfg)
+    contents = app / "Contents"
+    try:
+        tmp = app_executable(cfg).with_name(app_executable(cfg).name + ".new")
+        if tmp.exists() and not force:
+            # A kill between compile and rename leaves the temp output behind
+            # while the live binary is untouched. Clear it so the skip-current
+            # fast path below does not keep reporting stale forever.
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        if not force and _bundle_is_current(cfg):
+            # The grant is keyed to the bundle signature: rebuilding when nothing
+            # changed only risks invalidating the TCC grant and forcing a re-prompt.
+            return [f"{app.name} is current — Calendar access already reads as {APP_NAME}"]
+        cc = _compiler_command(runner=runner)
+        if not cc:
+            out.append("note: no C compiler; memcal.app not built — the nightly "
+                       "job will run under the interpreter's name")
+            return out
+        (contents / "MacOS").mkdir(parents=True, exist_ok=True)
+        with (contents / "Info.plist").open("wb") as fh:
+            plistlib.dump(render_info_plist(), fh)
+        (contents / "PkgInfo").write_text("APPL????", encoding="ascii")
+
+        # Compile beside the live executable and rename into place, so a failed
+        # rebuild never leaves a stale or missing binary where a working one was.
+        code, message = _run([*cc, "-O2", "-o", str(tmp),
+                              str(LAUNCHER_SOURCE)], runner=runner)
+        if code:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            out.append(f"note: could not compile the launcher ({message or code})")
+            return out
+        try:
+            tmp.replace(app_executable(cfg))
+        except OSError as exc:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            out.append(f"note: could not install the launcher ({exc})")
+            return out
+        code, message = _run(["codesign", "--force", "--sign", "-",
+                              "--identifier", APP_BUNDLE_ID, str(app)], runner=runner)
+        if code:
+            out.append(f"note: memcal.app is unsigned ({message or code}); the "
+                       "Calendar grant may not survive a rebuild")
+        out.append(f"built {app.name} — Calendar access reads as {APP_NAME}")
+    except OSError as exc:
+        out.append(f"note: could not build memcal.app ({exc})")
+    return out
 
 
 def stamp_path(cfg: Config) -> Path:
@@ -78,29 +282,36 @@ def calendar_permission_probe(cfg: Config, *, timeout: int = 45) -> tuple[bool, 
 
     Running `osascript` from a terminal can authorize the terminal/Codex responsible
     process while the 03:00 job remains unapproved. This probe uses the same user
-    launchd domain, source checkout, home, and pinned Python as the nightly agent.
+    launchd domain, source checkout, home, pinned Python, and — through the app
+    bundle — the same TCC identity as the nightly agent, so the grant it obtains is
+    the one the 03:00 job will use.
     """
     cfg.ensure_dirs()
     python = pinned_python(cfg)
     plist = cfg.home / "ical-permission.plist"
     result = cfg.home / "ical-permission-result.json"
+    argv = launch_through(cfg, [
+        python, "-m", "memcal", "ical", "probe",
+        "--context", "nightly", "--result", str(result),
+    ])
+    identity = APP_NAME if argv[0] == str(app_executable(cfg)) else python
     try:
         result.unlink(missing_ok=True)
+        payload_plist: dict = {
+            "Label": ICAL_PERMISSION_LABEL,
+            "ProgramArguments": argv,
+            "RunAtLoad": True,
+            "ProcessType": "Interactive",
+            "EnvironmentVariables": {
+                "MEMCAL_HOME": str(cfg.home),
+                "PYTHONPATH": str(PROJECT_ROOT),
+            },
+            "WorkingDirectory": str(PROJECT_ROOT),
+        }
+        if argv[0] == str(app_executable(cfg)):
+            payload_plist["AssociatedBundleIdentifiers"] = [APP_BUNDLE_ID]
         with plist.open("wb") as fh:
-            plistlib.dump({
-                "Label": ICAL_PERMISSION_LABEL,
-                "ProgramArguments": [
-                    python, "-m", "memcal", "ical", "probe",
-                    "--context", "nightly", "--result", str(result),
-                ],
-                "RunAtLoad": True,
-                "ProcessType": "Interactive",
-                "EnvironmentVariables": {
-                    "MEMCAL_HOME": str(cfg.home),
-                    "PYTHONPATH": str(PROJECT_ROOT),
-                },
-                "WorkingDirectory": str(PROJECT_ROOT),
-            }, fh)
+            plistlib.dump(payload_plist, fh)
         _launchctl("bootout", f"{_domain()}/{ICAL_PERMISSION_LABEL}")
         code, message = _launchctl("bootstrap", _domain(), str(plist))
         if code:
@@ -112,14 +323,12 @@ def calendar_permission_probe(cfg: Config, *, timeout: int = 45) -> tuple[bool, 
                     payload = json.loads(result.read_text(encoding="utf-8"))
                     ok = bool(payload.get("ok"))
                     detail = str(payload.get("message") or "no detail")
-                    return ok, (
-                        f"nightly launchd requester ({python}): {detail}"
-                    )
+                    return ok, f"nightly launchd requester ({identity}): {detail}"
                 except (OSError, ValueError):
                     pass
             time.sleep(0.25)
         return False, (
-            f"nightly launchd Calendar check timed out ({python}); "
+            f"nightly launchd Calendar check timed out ({identity}); "
             "a permission prompt may still be waiting"
         )
     finally:
@@ -211,9 +420,10 @@ exit "$INGEST"
 def render_plist(cfg: Config, *, hour: int = DEFAULT_HOUR, minute: int = DEFAULT_MINUTE,
                  interval: int = WAKE_INTERVAL) -> dict:
     """Render the calendar, interval, and login triggers for one job."""
-    return {
+    argv = launch_through(cfg, [str(script_path(cfg))])
+    plist: dict = {
         "Label": LABEL,
-        "ProgramArguments": [str(script_path(cfg))],
+        "ProgramArguments": argv,
         "StartCalendarInterval": {"Hour": int(hour), "Minute": int(minute)},
         "StartInterval": int(interval),
         "RunAtLoad": True,
@@ -224,6 +434,9 @@ def render_plist(cfg: Config, *, hour: int = DEFAULT_HOUR, minute: int = DEFAULT
         "EnvironmentVariables": {"MEMCAL_HOME": str(cfg.home)},
         "WorkingDirectory": str(PROJECT_ROOT),
     }
+    if argv[0] == str(app_executable(cfg)):
+        plist["AssociatedBundleIdentifiers"] = [APP_BUNDLE_ID]
+    return plist
 
 
 def _launchctl(*args: str, runner=subprocess.run) -> tuple[int, str]:
@@ -235,9 +448,12 @@ def _launchctl(*args: str, runner=subprocess.run) -> tuple[int, str]:
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
 
-def install(cfg: Config, *, hour: int = DEFAULT_HOUR, minute: int = DEFAULT_MINUTE) -> list[str]:
+def install(cfg: Config, *, hour: int = DEFAULT_HOUR, minute: int = DEFAULT_MINUTE,
+            force_rebuild: bool = False) -> list[str]:
     cfg.ensure_dirs()
     out = []
+
+    out.extend(build_app_bundle(cfg, force=force_rebuild))
 
     script = script_path(cfg)
     previous = script.exists() and script.read_text(encoding="utf-8")
@@ -350,6 +566,13 @@ def uninstall(cfg: Config) -> list[str]:
         if path.exists():
             path.unlink()
             out.append(f"removed {path}")
+    app = app_path(cfg)
+    if app.exists():
+        try:
+            shutil.rmtree(app)
+            out.append(f"removed {app.name}")
+        except OSError as exc:
+            out.append(f"could not remove {app.name}: {exc}")
     out.append(f"left {script_path(cfg)} and the log in place")
     return out
 
@@ -531,11 +754,18 @@ def run_now(cfg: Config, *, force: bool = True) -> int:
     if not script.exists():
         print("not installed — run `memcal schedule install` first")
         return 1
-    print(f"running {script} (output goes to {log_path(cfg)})")
+    argv = launch_through(cfg, [str(script)])
+    if argv[0] != str(script):
+        print(f"running {script} through {app_path(cfg).name} "
+              f"(output goes to {log_path(cfg)})")
+    else:
+        print(f"running {script} (output goes to {log_path(cfg)})")
     env = dict(os.environ)
     if force:
         env["MEMCAL_RUN_NOW"] = "owed"
-    # Exactly what launchd runs — the file itself, through its shebang. Invoking
-    # `/bin/sh <script>` here would still work and would stop this being a test of the
-    # thing that actually happens at 03:00, which is the whole point of the function.
-    return subprocess.run([str(script)], env=env).returncode
+    # Exactly what launchd runs — the file itself, through its shebang, routed
+    # through the app bundle when one is built so the manual run uses the same
+    # TCC identity as the 03:00 job. Invoking `/bin/sh <script>` here would still
+    # work and would stop this being a test of the thing that actually happens
+    # at 03:00, which is the whole point of the function.
+    return subprocess.run(argv, env=env).returncode
