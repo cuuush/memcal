@@ -147,7 +147,7 @@ class SignalSource(StreamSource):
             linked = client.accounts()
             if not linked:
                 raise SourceError(
-                    "signal-cli has no linked account — run `signal-cli link -n memcal` "
+                    "signal-cli has no linked account — run `memcal login signal` "
                     "and scan the QR code from Signal on your phone.")
             if len(linked) > 1:
                 raise SourceError(
@@ -162,10 +162,46 @@ class SignalSource(StreamSource):
                  report: base.IngestReport) -> str:
         return link_me(conn, report, "signal", self._me, name="me")
 
+    # ------------------------------------------------------------------ setup --
+    def setup(self, cfg: Config) -> tuple[bool, str]:
+        """Link memcal as a Signal device: prints the QR code, you scan it."""
+        from .polled import ask, credential_is_set, save_credential
+        client = self._cli(cfg)  # raises SourceError with install help if missing
+        print("Linking memcal to Signal as a new device (like Signal Desktop) — "
+              "nothing leaves your machine.")
+        print("Scan the QR code below from Signal on your phone: "
+              "Settings → Linked devices → +")
+        try:
+            # No capture: the QR code must render live in your terminal.
+            done = subprocess.run([client.binary, "link", "-n", "memcal"],
+                                  check=False)
+        except KeyboardInterrupt:
+            return False, "cancelled — re-run `memcal login signal` when ready"
+        if done.returncode != 0:
+            return False, "linking failed or was cancelled — re-run `memcal login signal`"
+        linked = client.accounts()
+        if len(linked) > 1 and not credential_is_set(cfg, "SIGNAL_ACCOUNT"):
+            print("Several Signal accounts are linked:")
+            for index, number in enumerate(linked, start=1):
+                print(f"  {index}. {number}")
+            choice = ask("Use which one for memcal? [1]: ")
+            if choice.isdigit() and 1 <= int(choice) <= len(linked):
+                save_credential(cfg, "SIGNAL_ACCOUNT", linked[int(choice) - 1])
+                return True, (f"device linked, using {linked[int(choice) - 1]} — "
+                               "`memcal sources` should now show it")
+            save_credential(cfg, "SIGNAL_ACCOUNT", linked[0])
+        return True, "device linked — `memcal sources` should now show your number"
+
     # ------------------------------------------------------------------ shape --
     def stream(self, client: SignalCli, since: str | None, limit: int):
-        """One drain. `since` is ignored: the server queue is the cursor."""
-        return client.receive()[:limit] if limit < 10 ** 9 else client.receive()
+        """One drain. `since` is ignored: the server queue is the cursor.
+
+        `limit` is ignored on purpose: `receive()` acks everything off the server
+        queue, so slicing here would drop already-acked messages with no replay.
+        Process the whole drain; `StreamSource.fetch` still sets `report.more`
+        when the drain hits the budget.
+        """
+        return client.receive()
 
     def normalize(self, raw: dict):
         envelope = raw.get("envelope") or {}
@@ -225,7 +261,7 @@ class SignalSource(StreamSource):
         except SourceError as exc:
             return False, str(exc)[:80]
         if not linked:
-            return False, "no linked account — run `signal-cli link -n memcal`"
+            return False, "no linked account — run `memcal login signal`"
         chosen = client.account or linked[0]
         groups = len(client.groups())
         return True, f"linked as {chosen}, {groups} group(s)"

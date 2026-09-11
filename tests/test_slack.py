@@ -137,5 +137,112 @@ class TestSlackNeedsNoSecondCredential(unittest.TestCase):
         self.assertEqual(slack.SlackSource.secrets, ("SLACK_TOKEN",))
 
 
+class TestSlackCliProvisioning(unittest.TestCase):
+    def test_the_manifest_is_user_scopes_only(self):
+        manifest = slack.provision_manifest()
+        user = manifest["oauth_config"]["scopes"]["user"]
+        self.assertEqual(list(user), ["im:history", "mpim:history", "channels:history",
+                                      "groups:history", "users:read", "channels:read"])
+        self.assertNotIn("bot", manifest["oauth_config"]["scopes"])
+
+    def test_the_scaffold_is_manifest_only(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            slack.scaffold_cli_project(directory)
+            manifest = json.load(open(f"{directory}/manifest.json"))
+            self.assertEqual(manifest["display_information"]["name"], "memcal")
+            config = json.load(open(f"{directory}/.slack/config.json"))
+            self.assertEqual(config["manifest"], {"source": "local"})
+            # No Bolt SDK: get-manifest prints the file directly, swallowing the
+            # --source=DIR argument the CLI appends.
+            hooks = json.load(open(f"{directory}/.slack/hooks.json"))
+            self.assertIn("manifest.json", hooks["hooks"]["get-manifest"])
+
+    def test_a_working_saved_token_ends_here_with_no_new_app(self):
+        from unittest import mock
+        cfg = mock.Mock()
+        cfg.secret.return_value = "xoxp-saved"
+        source = slack.SlackSource()
+        with mock.patch.object(source, "validate_token",
+                               return_value=(True, "connected as Ada")), \
+             mock.patch.object(source, "_provision") as provision:
+            ok, message = source.setup(cfg)
+        self.assertTrue(ok)
+        self.assertIn("already set up", message)
+        provision.assert_not_called()
+
+    def test_paste_validate_save_without_the_cli(self):
+        from unittest import mock
+        import memcal.sources.polled as polled
+        cfg = mock.Mock()
+        cfg.secret.return_value = ""
+        source = slack.SlackSource()
+        with mock.patch.object(slack.shutil, "which", return_value=None), \
+             mock.patch.object(polled, "ask", return_value="xoxp-new"), \
+             mock.patch.object(source, "validate_token",
+                               return_value=(True, "connected as Ada")), \
+             mock.patch.object(polled, "save_credential") as save:
+            ok, message = source.setup(cfg)
+        self.assertTrue(ok)
+        self.assertIn("saved", message)
+        save.assert_called_once_with(cfg, "SLACK_TOKEN", "xoxp-new")
+
+    def test_a_bot_token_is_rejected_before_any_network_call(self):
+        from unittest import mock
+        import memcal.sources.polled as polled
+        cfg = mock.Mock()
+        cfg.secret.return_value = ""
+        source = slack.SlackSource()
+        with mock.patch.object(slack.shutil, "which", return_value=None), \
+             mock.patch.object(polled, "ask",
+                               side_effect=["xoxb-bot", "xoxp-good"]), \
+             mock.patch.object(source, "validate_token",
+                               return_value=(True, "connected as Ada")) as validate, \
+             mock.patch.object(polled, "save_credential"):
+            ok, _message = source.setup(cfg)
+        self.assertTrue(ok)
+        validate.assert_called_once_with("xoxp-good")
+
+    def test_a_rejected_token_reprompts_and_an_overwrite_asks_first(self):
+        from unittest import mock
+        import memcal.sources.polled as polled
+        cfg = mock.Mock()
+        cfg.secret.return_value = "xoxp-old"
+        source = slack.SlackSource()
+        with mock.patch.object(slack.shutil, "which", return_value=None), \
+             mock.patch.object(source, "validate_token",
+                               side_effect=[(False, "revoked"),
+                                            (True, "connected as Ada")]), \
+             mock.patch.object(polled, "ask",
+                               side_effect=["xoxp-new", "n"]), \
+             mock.patch.object(polled, "save_credential") as save:
+            ok, message = source.setup(cfg)
+        self.assertFalse(ok)
+        self.assertIn("kept the existing token", message)
+        save.assert_not_called()
+
+    def test_a_failed_provision_still_reaches_the_paste(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        import memcal.sources.polled as polled
+        auth = SimpleNamespace(returncode=0, stdout="Team ID: T1", stderr="")
+        done = SimpleNamespace(returncode=1, stdout="",
+                               stderr="An error occurred\nLearn more about this command")
+        cfg = mock.Mock()
+        cfg.secret.return_value = ""
+        source = slack.SlackSource()
+        with mock.patch.object(slack.shutil, "which", return_value="/bin/slack"), \
+             mock.patch.object(slack.subprocess, "run",
+                               side_effect=[auth, done]), \
+             mock.patch.object(polled, "ask", return_value="xoxp-new"), \
+             mock.patch.object(source, "validate_token",
+                               return_value=(True, "connected as Ada")), \
+             mock.patch.object(polled, "save_credential") as save:
+            ok, _message = source.setup(cfg)
+        self.assertTrue(ok)
+        save.assert_called_once_with(cfg, "SLACK_TOKEN", "xoxp-new")
+
+
 if __name__ == "__main__":
     unittest.main()

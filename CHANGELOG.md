@@ -7,363 +7,118 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Slack, Telegram and Signal are sources, and all three read your direct messages.
-  Slack wants a user token (`slack=xoxp-...`); Telegram wants an `api_id` and `api_hash`
-  from my.telegram.org and one `memcal login telegram`; Signal links as a device through
-  `signal-cli` and reads nothing that leaves your machine. Install what you feed it with
-  `pip install -e '.[chat]'` — the core still has no dependencies of its own, and a
-  source whose library is missing says so in `memcal sources` instead of disappearing.
-- `memcal login <source>` runs a source's one-time interactive sign-in, for the sources
-  that link a device rather than take a token.
-- Sources are built on two shared shapes rather than one loop per platform.
-  `PolledSource` enumerates conversations and reads each forward from its own watermark;
-  `StreamSource` walks a single ordered stream from a single cursor. A new platform
-  implements how it authenticates, what its conversations are called, and which messages
-  are real speech — the watermark handling, dormant-chat skipping, budget spending and
-  rate-limit backoff are inherited and no longer written per connector.
-
-### Removed
-
-- Discord is no longer a source. Its API will not read a human's direct messages under
-  any token that does not violate Discord's terms, and server channels on their own were
-  not worth a connector. Nothing else changes; watermarks under `discord.*` are simply
-  never read again.
-
-- A failed dream pass can be retried. The Runs tab now says how each pass ended — ok,
-  partial, failed, running, priced only — filters on it, and puts a Retry button on the
-  ones worth re-reading; the Dream tab says the same thing above the button that spends
-  money, so a pass that read nothing is not discovered afterwards. Retrying puts the
-  spooled lines that pass claimed back in the queue and dreams over them again with
-  whatever provider and model are configured now, which is what a retry after fixing a
-  broken provider has to mean. A pass refused on its first call claimed nothing, and the
-  page says so rather than leaving the retry looking like it did nothing.
-  `memcal dream --retry RUN` does the same from the command line. A line the run read
-  that is now past the model horizon stays marked as read rather than being released:
-  a pass retires anything that old before it reads anything, so putting it back would
-  re-file it as never-read instead of re-reading it.
-- The model fields on the Settings tab are limited to what the chosen provider actually
-  serves. Antigravity's own models are offered for it — read from `agy models` where the
-  CLI is installed, and from memcal's own list otherwise — instead of the empty list that
-  left it borrowing every other provider's. Choosing a provider moves any model field
-  naming another provider's model onto the new provider's default and says which and why;
-  saving one is refused outright, because it is not a bad value in a file, it is a whole
-  pass in which every request is refused. A model memcal does not recognise at all still
-  saves: these lists lag every release. One control sets the propose, sweep and merge
-  models together, and the reasoning-effort setting says when the chosen model states its
-  own budget in its name and this is therefore ignored.
-
-- A Settings tab in the web UI: every `MEMCAL_*` setting memcal reads, grouped and
-  explained, with its default and the file its current value came from. Saving writes
-  `~/.memcal/.env` without disturbing hand-written lines and applies to the running
-  process immediately; clearing a field unsets the key and restores the default. A value
-  that is out of range, not a valid option, or a stage name that does not exist is
-  refused as a whole — no half a form lands — and a key another `.env` sets more strongly
-  is reported rather than silently ignored. The tab also shows whether the configured
-  provider is reachable, what each source still needs, which credentials are set (never
-  their values, which can be replaced but not read back), and the state of the nightly
-  agent. Nothing on it has to be typed from memory: a model field opens onto the models
-  memcal can price for the chosen provider — named the way that provider names them,
-  with their rates — plus the ones this store has already run; an executable field
-  offers the absolute path `which` finds; a calendar field offers the calendars memcal
-  has read. Choosing a provider re-asks before it is saved, so the model list follows
-  the choice being made. Propose stages are picked as chips rather than spelled as a
-  comma-separated list, every number states its range, each section can be jumped to
-  from a row of counts, and `/` searches while ⌘S saves.
-- Antigravity (`agy`) joins Codex and Claude Code as a model backend that runs on a login
-  you already have: `memcal setup --provider antigravity`, defaulting to
-  `gemini-3.8-flash-high`. Its Gemini, Claude and open-weight models are all reachable
-  with `memcal setup --model`, and the reasoning budget named in a model id is respected
-  rather than overridden.
-- Email is now included by default. Every message inside the configured folders and sync
-  range has its body fetched and archived before anything decides how relevant it is,
-  and automatic relevance sets a processing priority instead of an exclusion: mail from
-  lists, retailers and no-reply addresses is read after everything else, in bounded
-  batches, and stays searchable and available to the assistant throughout. Only an
-  explicit "no" from you keeps a sender out — and it keeps them out completely: a blocked
-  sender's body is never fetched, never stored, and never picked up by `--backfill`.
-- `memcal mail` shows what is queued by priority and how much archived mail has no body
-  on file. `memcal mail --backfill` reports what a recovery run would cover;
-  `--apply` runs it, updating rows in place so a second run cannot duplicate mail.
-  It never deletes, moves, or marks anything in your mailbox.
-- Mail is grouped into conversations by `Message-ID`, `In-Reply-To` and `References`, so
-  a reply joins the thread it answers and two unrelated messages from one sender stay two
-  conversations.
-- The queue view can be filtered to the quiet backlog and shows, per message, whether its
-  body was read whole, shortened, or never fetched.
-- A typed tool call now records the operation alongside the change it made — the row it
-  targeted, the fields that moved, the message that caused it, and the row version it
-  acted on — in the same transaction, and the nightly pass is shown those records beside
-  the conversation that produced them.
-- An observation that plainly changes something but names no target — "that's cancelled",
-  with no plan and no day — is kept with its evidence instead of being dropped or written
-  as an invented event. It is retried as later traffic arrives, and becomes a question
-  when more than one plan could be the one meant. Answering that question is what applies
-  it; answering that it was none of them puts it away.
-- `tools/benchmark_temporal.py --provider` selects the backend a run measures, and
-  Antigravity is reachable from it. The backend was fully supported and unreachable from
-  the tool: there was no flag, and the `--model` guard refused every name without an
-  `llm.ENDPOINTS` entry, which is all three CLI backends' native names. That guard now
-  applies only to OpenRouter, where its reasoning about unpinned provider routing
-  actually holds. Documented in `tools/BENCHMARK.md`.
-- A dry run against a subscription backend says the tokens are the size of the run rather
-  than telling you to add a per-token price it will never bill.
-
-### Fixed
-
-- A family alias in `Config.secret` no longer answers for a sibling credential: a
-  `secret("SLACK_TOKEN", "slack")` lookup could return `SLACK_USER_ID`, because the short
-  `slack` alias prefix-matched any sibling key. Only the most-specific name prefix-matches
-  now, so a verbose `SLACK_TOKEN_PROD` still resolves while the user id no longer stands
-  in for the token.
-
-- The Dream tab no longer buries its own button. A real pass is a hundred-odd
-  conversations, each an expandable card, and rendering them inline pushed "Dream" and
-  everything the pass wrote several screens down. The list is folded away by default and
-  scrolls inside itself when opened, so pressing Dream and reading what it wrote no
-  longer means paging past every bundle first.
-- A model this store had run under one provider is no longer offered, carrying that
-  endorsement, while a different provider is selected. That is how a pass came to be
-  configured with an Antigravity model under Codex and had all 74 of its bundles refused.
-- Antigravity requests no longer fail wholesale. `agy` runs its own five-minute clock
-  over a turn and, when it expires, returns partial output with a success exit code —
-  either an error status or a success carrying an empty response. memcal never told it
-  how long it had and waited fifteen minutes for a command that had given up at five, so
-  every propose request in a real pass failed while a one-line probe succeeded. The CLI
-  is now given the same deadline memcal is waiting out, and the "success with no
-  response" message names the deadline as the likely cause instead of only the symptom.
-- A backend reporting that its subscription allowance is spent stops the pass instead of
-  being retried. Splitting a request that failed for want of allowance produces two
-  requests that fail for want of allowance; the run now says so once, with the provider's
-  own reset window, rather than spending its wall-clock budget on the same refusal.
-- A benchmark suite for collisions between daytime writes and the nightly pass:
-  `python3 tools/benchmark_temporal.py --suite collision`. It replays timed operations,
-  grades the store at each checkpoint, reports duplicates, false merges, lost corrections
-  and missed cancellations separately, and can replay every scenario under bounded
-  perturbations with `--variants N`.
-
-- `memcal who --resolve` names unresolved handles, folds name variants into one person,
-  and drops handles with nobody behind them, in one model call over the whole roster.
-- Its merges are assumptions: `memcal who` lists them by number, `--split <n>` undoes
-  one, `--confirm <n>` stops listing it. A handle ruled out as a person stops being
-  asked about; its mail is still collected and filed.
-- The call can answer "not sure", recording a question rather than a guess. `memcal who`
-  lists those separately, and `--confirm <n>` on one performs the merge or link it would
-  not commit to.
-- A nightly pass missed because the machine was asleep, shut, or logged out now runs the
-  next time the machine is awake, instead of waiting for the following night.
-  `memcal schedule` and `memcal doctor` report when the pass last ran and whether one is
-  owed; `memcal schedule due` gives the answer on its own.
-- Source timelines now mark changes in date, channel, or conversation.
-- The web brief highlights rows created by the latest dream pass in green and rows
-  edited by it in yellow.
-- Partiful invitations record their public hosts and name them in the brief when the
-  title does not already make the host clear.
+- Slack, Telegram and Signal sources: `slack=xoxp-...`, `telegram_api_id=`/`telegram_api_hash=` +
+  `memcal login telegram`, Signal via `signal-cli` (local-only, optional `signal_account=`). See README Chat sources; `memcal sources` flags gaps.
+- `memcal login <source>` runs a source's one-time interactive device sign-in.
+- `memcal login slack` provisions the app through the Slack CLI (manifest + install);
+  only the `xoxp-` copy-paste stays human. Telegram asks for international phone format;
+  Signal prints its QR code in-terminal.
+- `memcal login` pastes, validates and saves chat credentials itself (asking before it
+  overwrites); `memcal doctor` re-tests every saved key through each source's check.
+- Shared source base: `PolledSource` (per-conversation watermarks), `StreamSource` (single cursor);
+  platforms implement auth/listing/speech, inheriting dormant-chat skipping, budgets and backoff.
+- Settings tab in web UI for every `MEMCAL_*` setting; saves `~/.memcal/.env` and applies
+  immediately. Shows provider reachability, source needs, credential presence, agent state.
+- Antigravity (`agy`) backend: `memcal setup --provider antigravity` (default `gemini-3.8-flash-high`).
+- Email bodies are fetched and archived before relevance; automatic relevance sets priority only.
+  Only an explicit ignore (`memcal senders <address> ignore`, agent, web queue) skips fetch.
+- `memcal mail` shows queue by priority and bodyless count; `memcal mail --backfill [--apply]`
+  previews and runs resumable in-place recovery.
+- Mail threads by `Message-ID`, `In-Reply-To`, `References`.
+- Queue view filters to the low-priority backlog with per-message body status.
+- Typed tool calls record operation, row, changed fields, causing message and row version.
+- Untargeted change observations are kept with evidence, retried, and raised as questions.
+- Failed dream passes are retryable from Runs/Dream tabs or `memcal dream --retry RUN`.
+- `tools/benchmark_temporal.py --provider` selects the backend (incl. Antigravity).
+- `tools/benchmark_temporal.py --suite collision [--variants N]` replays timed ops, grading
+  duplicates, false merges, lost corrections and missed cancellations separately.
+- `memcal who --resolve` names unresolved handles and folds variants in one call; `memcal who`
+  lists assumed merges and open doubts; `--split <n>` / `--confirm <n>` acts on one.
+- Missed passes run on next wake; `memcal schedule` / `memcal doctor` show last run and owed
+  state; `memcal schedule due` answers alone.
+- Subscription-backend dry runs report run-sized tokens.
 
 ### Changed
 
-- A correction made during the day is no longer undone by older evidence collected
-  later. Write precedence is decided per field and on when the evidence was said, rather
-  than on whether the row happened to be written the same calendar day. Genuinely newer
-  evidence still lands, and no row becomes permanently unchangeable.
-- Precedence now compares two source times rather than a source time against a
-  processing time. A pass applying the morning's message late at night no longer makes
-  that field look newer than a message sent at noon, which used to lose the later of two
-  messages purely because of when a batch job ran.
-- Each field is dated from the lines the pass says it read for *that field*, validated
-  against the conversation it came from. A fragment whose only fresh line was about the
-  time no longer carries that line's authority into the location, which is how a
-  hand-corrected address was overwritten. Inferring this from the text cannot work: a
-  line may quote the old arrangement, deny it, or move something without repeating a
-  single value. A field with no supporting line may add a value but not overrule one
-  already settled.
-- A cancellation whose target is not established is never applied. Establishing it means
-  a verified identifier or a recorded decision naming the row; the matcher that reunites
-  a mention with a row is deliberately not enough, because it is tuned to be forgiving
-  and a cancelled plan leaves nothing a person would think to look for. "Dental cleaning
-  on the 15th" no longer cancels a piano lesson that day, and "your physio on Friday" no
-  longer cancels Monday's. Ambiguity becomes a question; the observation is retained.
-- Sharing a title across different days no longer decides that two rows are one occasion.
-  A provider calls every appointment the same thing, so an independent second booking was
-  indistinguishable from a reschedule and the store kept only one of two real
-  appointments. A reschedule now identifies the row it moves; wording nominates a
-  candidate for the pass to judge. A restatement of a day the row has actually held still
-  finds it, so a straggler repeating the old date does not become a duplicate, and a
-  mention of a subscribed calendar event still joins it whatever day it names.
-- A retried tool call is recognised as a retry even after a later call changed the same
-  row. Operations are identified from what was requested, checked inside the transaction
-  that would mutate, and a caller may supply its own idempotency key. Replaying an
-  earlier move no longer undoes a newer one.
-- Email backfill proves a message's identity before writing anything: the stored UID is
-  trusted only alongside the UIDVALIDITY it was issued under and a matching `Message-ID`,
-  and otherwise the message is searched for by id. A message that cannot be identified
-  leaves its archive row untouched and is reported.
-- Mail already archived under the bracketed form of its `Message-ID` is recognised as the
-  same message, so re-collecting it does not write a second copy.
-- Cross-conversation merging no longer merges when it cannot tell. A model call that
-  times out, is cut off, or answers "unresolved" leaves the rows separate and says so;
-  two rows can be merged later, one row built out of two plans cannot be taken apart.
-- The nightly pass is offered a wider set of candidate rows: as well as rows this
-  conversation wrote and rows sharing its people, rows are now nominated when the message
-  names a person on them or a day they are on. Nominations are presented as questions for
-  the model to decide, never as matches, and a truncated candidate list says so.
-- `memcal dream` prints progress as the pass runs, instead of nothing until it ends.
-- The schedule is one launchd agent instead of two. It wakes at 03:00, at login, and
-  every 30 minutes, running the pass when one is owed and otherwise doing what the
-  12:00/19:00 catch-up job used to do. `memcal schedule install` retires the old
-  `com.memcal.catchup` agent.
-- The default model backend is Codex instead of OpenRouter, so a fresh install runs on a
-  login the user already has rather than waiting for an API key. An existing
-  `MEMCAL_LLM_PROVIDER` is unaffected; `memcal setup` still offers all three.
-- `memcal doctor` reports a schedule that is installed but not loaded.
-- `memcal setup` records the absolute path of the `claude` or `codex` executable, so a
-  CLI outside launchd's PATH still runs from the nightly job.
-- Proton Bridge email automatically uses implicit SSL or STARTTLS, matching the mode
-  selected in Bridge.
-- Temporal benchmarks no longer mutate a tracked score-history ledger during normal runs.
-- Event detail describes state in plain English.
-- Relevant open questions are reviewed beside their conversations and can be kept,
-  amended with a wait condition, answered, or closed through cited, version-checked
-  actions; deferred questions retain their wording history.
-- Brief, detail, and web views share concise state and change labels, with diagnostics
-  kept off the main overview.
-- Dream's cross-conversation stage is now named Merge; old recorded `resolve` stages
-  still display with the same label.
-- Standing is no longer offered to dream or Hermes as a general memory store.
-- Legacy standing rows remain readable, but new writes are rejected and normal prompts,
-  briefs, and command listings use typed identity, wiki, event, to-do, and question state.
-  Retired rows keep their old `S` handles, evidence, and explicit typed destination so
-  migration can be safely repeated.
-- Dream and live-write instructions, comments, and docstrings are shorter and focused
-  on current behavior.
-- The GitHub bug-report form now uses a conventional open-source layout.
-- Subscribed holiday calendars remain reference information in Calendar.app instead of
-  becoming Memcal events.
+- Settings model fields list only the selected provider's models (Antigravity via `agy models`);
+  cross-provider values move to the new default, unknown names still save.
+- One control sets propose/sweep/merge models; reasoning effort is ignored for models naming
+  their own budget.
+- Daytime corrections survive older evidence collected later; precedence is per field on when
+  evidence was said, comparing source time against source time.
+- Fields are dated from lines read for that field; unsupported fields can add but not overrule.
+- Cancellations without a verified identifier or recorded decision are never applied.
+- Shared titles across days don't merge; reschedules identify their row, restated old dates
+  still find it, subscribed-calendar mentions join.
+- Retried tool calls are idempotent by requested operation (optional caller key), checked
+  in-transaction; replays never undo newer moves.
+- Email backfill verifies UID + UIDVALIDITY + `Message-ID`, else searches by id; bracketed
+  `Message-ID` forms match the same mail.
+- Merge leaves rows separate on timeout, cutoff or `unresolved`, and says so.
+- Nightly pass nominates candidates by authorship, person and day as questions, noting truncation.
+- `memcal dream` prints progress while running.
+- One launchd agent (03:00, login, every 30 min); `memcal schedule install` retires `com.memcal.catchup`.
+- Default backend is Codex; existing `MEMCAL_LLM_PROVIDER` is unaffected.
+- `memcal doctor` reports installed-but-unloaded schedules and started-but-unfinished collections.
+- `memcal setup` records absolute `claude` / `codex` executable paths.
+- Proton Bridge email auto-selects implicit SSL or STARTTLS; Proton requests `Cc`.
+- Temporal benchmarks don't mutate the tracked score ledger.
+- Event detail uses plain-English state; brief, detail and web share concise labels.
+- Open questions are reviewable beside conversations (keep/amend/answer/close) with history.
+- Cross-conversation stage is named Merge; old `resolve` rows display the same.
+- Standing is retired as a general store: new writes rejected, legacy `S` rows stay readable.
+- `MEMCAL_MATCH_MODEL` selects the row-identity judge.
+- Single fitted token estimator serves packing, trimming and cost figures.
+- Reminders fire at the intended hour across DST boundaries.
+- Cost-recording failures are kept and reported by `memcal doctor` against the ledger.
+- Reactions of 3+ chars join bundles; platform mutes record as automatic.
+- Merge reports local-fallback arbitration and cutoff-vs-decline; output sized from the endpoint.
+- WhatsApp re-login no longer collides reused local IDs across accounts.
+- Proton Bridge login failures name stale mailbox credentials after password changes.
+- Overnight `happened` settlements record history.
+- Source timelines mark date/channel/conversation changes.
+- Web brief highlights latest-pass creates (green) and edits (yellow).
+- Partiful invites record public hosts, named in brief when the title omits them.
+- Dream materializes the next standing occurrence before new traffic.
+- Same-day plans with differing subject framing still reach Merge.
+- Ready-anytime pickups become open to-dos; moves keep new dates.
+- Generated series pages retire on typed-schedule rename; user-authored pages untouched.
+- Satisfied wake conditions don't duplicate when Dream already asked in better words.
+- Merge treats identical date+time as evidence, without joining unrelated same-time titles.
+- All-unresolved conversations still see wording-matched rows; name-spelling emails link.
+- Wiki lookup matches longer/shorter name forms, without first-three-letter collisions.
+- Splitting chained assumptions in display order restores original persons.
 
 ### Fixed
 
-- Dream materializes the next occurrence of a standing schedule before reading new
-  traffic, so a cancellation updates that occurrence instead of creating duplicate rows.
-- Same-day plans still reach Merge when one conversation describes the guest as the
-  subject and another describes the user's shared activity.
-- A message saying something is ready to pick up at any time produces an open to-do,
-  not an event dated on the message timestamp; moved appointments keep the new date.
-- Generated series pages are retired when a renamed typed schedule supersedes them,
-  while pages containing user-authored facts or questions remain untouched.
-- A satisfied wake condition no longer adds a mechanical duplicate when Dream already
-  asked about the same linked to-do in better words.
-- Merge now treats an identical date and clock time as evidence, so two sources
-  describing one appointment no longer land on the brief as separate contradictory rows,
-  without joining unrelated same-time appointments that merely share a generic title.
-- A conversation whose people are all unresolved is shown the calendar rows its wording
-  matches, so it can update them; an email address spelling a participant's name counts
-  as a link to that person.
-- A person is no longer reported as having no wiki page when one stands under a longer
-  or shorter form of their name, which was opening duplicate pages; names sharing only
-  their first three letters are not treated as variants.
-- Splitting chained identity assumptions in their displayed order restores every handle
-  to its original person instead of replaying a merge the user already rejected.
-- Codex and Claude Code record the model's reasoning summary and billed reasoning
-  tokens, and apply the configured per-model reasoning effort. All three were dropped,
-  so `memcal trace` showed no reasoning for any call.
-- A pass on a provider that reports no cost says so instead of printing "$0.0000".
-- A pass that recovered no longer records itself as failed. Splitting a truncated
-  request or re-asking about a skipped bundle went onto `runs.error` alongside timeouts
-  and refusals, so `memcal doctor` reported healthy nightly runs as extraction errors.
-- `memcal doctor` shows a pass's first failure in full, instead of cutting the joined
-  list off mid-word at ninety characters.
-- Schedule upgrades preserve retired scripts, retire predecessor agents only after the
-  replacement loads, and keep an agent's files if it cannot be unloaded.
-- An occurrence belonging to a schedule is no longer published to the calendar on its
-  own when its rule is not published. A row carrying a series name with no rule behind
-  it — or a rule whose publish was refused, since calendar write access is a separate
-  grant — became one standalone calendar event per occurrence, with nothing able to
-  take them back.
-- Calendar publishing can only be switched on from the store's own `.env`. A setting in
-  the checkout's `.env` used to switch it on for every store the process opened.
-
-- A source that has said nothing for longer than the overview window is listed as stale
-  rather than disappearing from the table.
-- `memcal doctor` reports a collection that started and never finished, instead of
-  printing its zero counts as a healthy quiet run.
-- Lines the user wrote earlier in an agent session are marked as such wherever they are
-  quoted — row detail and both agent search surfaces, not only the Hermes one — so they
-  are not read back as independent corroboration.
-
-- The direct chat.db reader now says when it stopped because its page filled, so a
-  catch-up can keep going. It is the fallback, used when iMessage is already behind, and
-  it was the one reader that never reported it — three collections read exactly 1000
-  lines and closed as though the source had run dry. It also counts lines skipped as
-  muted or older than the horizon separately from gate rejections, which are three
-  different situations that read as "gate passed 0".
-
-- A dream pass that crashes now records that it did. Its run row was left with no finish
-  and no error, which is what a pass still running looks like; two such rows are in the
-  store. A row an earlier pass left open is named as abandoned on the next run.
-- A state review whose reply was cut off no longer applies anything from it. It recorded
-  the truncation and then went on to drop the rows the half-reply named.
-
-- `MEMCAL_MATCH_MODEL` now selects the model that decides whether two proposed rows are
-  one occasion. It set a value nothing consulted; that stage used the propose model.
-
-- Short display names are no longer refused. A name had to be three characters, which
-  rejects complete formal names in Chinese, Japanese and Korean, and everyday ones like
-  Jo, Al and Ed; those people's rows filed under a numeral instead. The rule now asks
-  whether one character is a whole word in that script rather than counting characters,
-  so a single letter of an alphabet is still read as an initial.
-
-- Unnamed GroupMe participants now reach the "name this person" queue. The roster was
-  read off the group listing, which is fetched without memberships on purpose, so the
-  one call that could queue an unknown handle always received an empty list; the queue
-  is filled from the group detail that actually carries a roster.
-
-- An iMessage whose body is only a placeholder is no longer stored as though somebody
-  said something. The test was one character wide — an attachment marker — so a message
-  that decoded to a bare replacement character survived as a line reading `�` and was
-  sent to a model as speech. Any body with nothing visible left in it is now treated as
-  no text at all, and existing archived rows are re-derived into the same shape as an
-  attachment-only line: text emptied, taken back out of the queue, the row itself kept.
-  An emoji or a lone `?` is still a message. GroupMe now uses the same rule, and the
-  re-derivation covers every stream rather than iMessage alone, so rows any connector
-  stored as a bare placeholder are retired on the next open.
-- Token estimates no longer run short of what a request actually costs. One estimator,
-  weighted per character class and fitted against the provider's own counts for every
-  saved call, now serves packing, brief trimming, and the dry-run and web cost figures;
-  the two older rules of thumb it replaces under-counted real traffic by 15 to 18 percent
-  every single time, so briefs quietly overran their cap and quoted prices read low.
-- Reminders now fire at the intended hour on dates in a different daylight-saving
-  regime, instead of an hour early for the whole winter.
-- A failure to record what a model call cost is no longer silent: it is kept and
-  reported by `memcal doctor`, which now also compares total run cost against the
-  generation ledger.
-- Emoji reactions of three characters or more can now be pulled into a bundle
-  alongside the message they answer, instead of only the shortest ones.
-- Muting a chat because the platform muted it is now recorded as an automatic decision
-  rather than one made by hand.
-- Proton now requests the `Cc` header it reads, so people only ever CC'd are recognized
-  as correspondents.
-- Merge now reports when a paid arbitration fell back to combining rows locally, and
-  distinguishes a reply cut off at its ceiling from a model that declined to answer.
-  Its output allowance is sized from the endpoint instead of a fixed 1200 tokens, so a
-  model that thinks past that no longer truncates on every conflicted cluster.
-- Removed phone numbers and private quoted prose from comments and docstrings, with a
-  regression check to keep them out.
-- Signing out of WhatsApp and into another account no longer lets reused local message
-  IDs collide with or hide the earlier account's archive.
-- Proton Bridge login failures now identify stale mailbox credentials and explain how to
-  refresh them after a Proton account password change.
-- A past event settled to "happened" overnight now records that change in its history,
-  so its detail says what it used to be and when it changed rather than showing a state
-  nothing accounts for.
+- `Config.secret` family alias no longer prefix-matches siblings (`SLACK_TOKEN` vs `SLACK_USER_ID`).
+- Dream tab folds bundle cards by default with internal scroll.
+- Store-run models are offered only under their own provider.
+- Antigravity calls get memcal's deadline; empty successes name deadline-expiry as likely cause.
+- Subscription-allowance exhaustion stops the pass with the provider's reset window.
+- Codex/Claude Code record reasoning summaries, billed reasoning tokens and effort (`memcal trace`).
+- Costless-provider passes say so instead of `$0.0000`.
+- Recovered passes no longer record `runs.error`; `memcal doctor` stays clean.
+- `memcal doctor` shows a pass's first failure in full.
+- Schedule upgrades preserve retired scripts, retire predecessors only after replacement loads.
+- Unpublished schedule occurrences (no rule, refused publish) aren't published standalone.
+- Calendar publishing enables only from the store's own `.env`.
+- Silent sources past the overview window list as stale.
+- Agent-session user lines are attributed everywhere quoted.
+- Direct `chat.db` reader reports page-full stops; muted/over-horizon skips split from gate rejects.
+- Crashed passes record errors; previously open rows are marked abandoned on next run.
+- Truncated state reviews apply nothing.
+- Short display names allowed (CJK single-char words; `Jo`/`Al`/`Ed`); single letters stay initials.
+- Unnamed GroupMe participants queue from group detail rosters.
+- Textless bodies (bare `�`) store as attachment-only with no queued text; emoji/`?` still count.
+- Phone numbers and private quoted prose removed from comments/docstrings, with regression check.
 
 ### Removed
 
-- The `verify`, `verify_budget` and `pack_cross_reference` settings, which nothing read.
-  `MEMCAL_VERIFY_BUDGET` capped a feature that does not exist.
+- Discord source removed: no compliant token reads human DMs. `discord.*` watermarks ignored.
+- Unread `verify`, `verify_budget`, `pack_cross_reference` settings (`MEMCAL_VERIFY_BUDGET`).
+- `source.ical.last_count` no longer recorded; every `source.*` marker has a reader (tested).
 
-- The calendar no longer records `source.ical.last_count` after each read. Nothing has
-  ever read it, so the snapshot size it stored looked like a health signal — "did this
-  read come back smaller than usual" — while being a number nothing checked. A test now
-  holds every `source.*` marker a source writes to having a reader in the code.
 
 ## [0.6.0] - 2026-08-14
 

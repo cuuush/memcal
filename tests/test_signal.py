@@ -84,5 +84,76 @@ class TestSignalIsADrainNotAPoll(unittest.TestCase):
         self.assertTrue(issubclass(signal.SignalSource, StreamSource))
 
 
+class TestSignalLoginPrintsTheQrCode(unittest.TestCase):
+    def cfg(self):
+        import tempfile
+        from pathlib import Path
+        from memcal.config import Config
+        return Config(home=Path(tempfile.mkdtemp(prefix="memcal-test-")), env={})
+
+    def source_with(self, accounts=("+111",), binary="/bin/signal-cli"):
+        from types import SimpleNamespace
+        source = signal.SignalSource()
+        source._cli = lambda cfg: SimpleNamespace(binary=binary,
+                                                  accounts=lambda: list(accounts))
+        return source
+
+    def test_a_clean_link_reports_success(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        with mock.patch.object(signal.subprocess, "run",
+                               return_value=SimpleNamespace(returncode=0)) as run:
+            ok, message = self.source_with().setup(self.cfg())
+        self.assertTrue(ok)
+        self.assertIn("memcal sources", message)
+        # No capture: the QR code must render live in the user's terminal.
+        self.assertNotIn("capture_output", run.call_args.kwargs)
+
+    def test_a_failed_link_says_to_try_again(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        with mock.patch.object(signal.subprocess, "run",
+                               return_value=SimpleNamespace(returncode=1)):
+            ok, message = self.source_with().setup(self.cfg())
+        self.assertFalse(ok)
+        self.assertIn("memcal login signal", message)
+
+    def test_ctrl_c_is_a_clean_cancel(self):
+        from unittest import mock
+        with mock.patch.object(signal.subprocess, "run",
+                               side_effect=KeyboardInterrupt):
+            ok, message = self.source_with().setup(self.cfg())
+        self.assertFalse(ok)
+        self.assertIn("cancelled", message)
+
+    def test_several_accounts_offer_a_choice_and_save_it(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        import memcal.sources.polled as polled
+        cfg = self.cfg()
+        source = self.source_with(accounts=("+111", "+222"))
+        with mock.patch.object(signal.subprocess, "run",
+                               return_value=SimpleNamespace(returncode=0)), \
+             mock.patch.object(polled, "ask", return_value="2"), \
+             mock.patch.object(polled, "save_credential") as save:
+            ok, message = source.setup(cfg)
+        self.assertTrue(ok)
+        save.assert_called_once_with(cfg, "SIGNAL_ACCOUNT", "+222")
+        self.assertIn("+222", message)
+
+    def test_one_account_needs_no_choice(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        import memcal.sources.polled as polled
+        cfg = self.cfg()
+        source = self.source_with(accounts=("+111",))
+        with mock.patch.object(signal.subprocess, "run",
+                               return_value=SimpleNamespace(returncode=0)), \
+             mock.patch.object(polled, "save_credential") as save:
+            ok, _message = source.setup(cfg)
+        self.assertTrue(ok)
+        save.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

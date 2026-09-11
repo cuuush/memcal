@@ -86,11 +86,36 @@ A deferred question can carry a wait condition; loose word overlap alone does no
 | Apple Calendar | Created calendars and subscribed calendar feeds |
 | Agent conversations | Inbound user turns from the Hermes and OpenClaw integrations |
 
+### Chat sources
+
 Slack, Telegram and Signal each need something installed before they can run:
 `pip install -e '.[chat]'` covers Slack and Telegram, and Signal wants `brew install
-signal-cli`. Telegram and Signal then link a device once — `memcal login telegram`, or
-`signal-cli link -n memcal` — because a phone number and a code cannot be supplied by the
-nightly pass. `memcal sources` says which of these is still outstanding.
+signal-cli`. Credentials go in `~/.memcal/.env` — that file is read from any checkout,
+unlike a repo-root `.env` — but you never edit it by hand: each `memcal login`
+below pastes, validates, and saves for you, asking before it overwrites anything.
+`memcal sources` says which of these is still outstanding, and `memcal doctor`
+re-tests every saved key.
+
+**Slack.** `memcal login slack` drives the Slack CLI: it creates an app called `memcal`
+with read-only user scopes (`im:history`, `mpim:history`, `channels:history`,
+`groups:history`, `users:read`, `channels:read`) and installs it to your workspace.
+One step stays human — Slack issues the user token only to you: paste the User OAuth
+Token (`xoxp-...`, not the `xoxb-` bot token — bots can't see your DMs) when asked.
+It is checked with `auth_test` before anything is written. Then
+`memcal ingest slack --limit 20`.
+
+**Telegram.** `memcal login telegram` asks for the `api_id`/`api_hash` pair from
+https://my.telegram.org (API development tools), saves them, then asks for your phone
+number in international format (e.g. `+15550102030`), the code Telegram sends you,
+and your 2FA password if you have one. The session lands at
+`~/.memcal/telegram.session` and grants full account access, so guard it like a
+password. Then `memcal ingest telegram --limit 20`.
+
+**Signal.** `memcal login signal` prints a QR code — scan it from Signal on your phone
+(Settings → Linked devices → +). No token, nothing leaves the machine; with several
+linked accounts it asks which one to use and saves that choice. Then
+`memcal ingest signal --limit 50` — small on purpose, because `receive` acks messages
+off the server queue and a crash before they archive loses them.
 
 Discord is deliberately absent. Its API will not hand a human's direct messages to any
 token that does not violate its terms, and server channels alone did not earn a
