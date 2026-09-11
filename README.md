@@ -558,6 +558,11 @@ you are deliberately evaluating extraction or prompt behavior.
 Repository guidance lives in [`AGENTS.md`](AGENTS.md), with the contributor workflow in
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+## Documentation
+
+Setup guides live at [https://cuuush.github.io/memcal/](https://cuuush.github.io/memcal/):
+quickstart plus Slack, Telegram, and Signal source setup.
+
 ## Status
 
 Memcal is experimental but usable. The local archive, typed stores, source connectors, CLI,

@@ -1,0 +1,22 @@
+site_name: memcal
+site_url: https://cuuush.github.io/memcal/
+site_description: Setup guides for memcal's chat sources.
+repo_url: https://github.com/cuuush/memcal
+
+theme:
+  name: material
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Sources:
+      - Overview: sources/index.md
+      - Slack: sources/slack.md
+      - Telegram: sources/telegram.md
+      - Signal: sources/signal.md
