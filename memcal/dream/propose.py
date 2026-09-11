@@ -170,9 +170,11 @@ _FIELD_CITES = {
 EVENT_DIFF_V2 = {
     **BUNDLE_DIFF["properties"]["events"]["items"],
     "required": (BUNDLE_DIFF["properties"]["events"]["items"]["required"]
-                 + ["instead_of", "cites", "field_cites"]),
+                 + ["instead_of", "cites", "field_cites", "links"]),
     "properties": {
         **BUNDLE_DIFF["properties"]["events"]["items"]["properties"],
+        "date": {"type": ["string", "null"],
+                 "description": "yyyy-mm-dd, or null for an undated cancellation notice"},
         "field_cites": _FIELD_CITES,
         # The one field that separates "this week we meet Wednesday instead" from "we
         # meet Wednesdays now". Both arrive as a Wednesday, and without somewhere to say
@@ -180,6 +182,21 @@ EVENT_DIFF_V2 = {
         "instead_of": {**_STR, "description":
                        "yyyy-mm-dd of the series date this replaces, for a one-off move"},
         "cites": _CITES,
+        "links": {
+            "type": "array",
+            "description": "stated relationships to existing rows; usually empty",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["kind", "key"],
+                "properties": {
+                    "kind": {"type": "string",
+                             "enum": ["same_as", "replaces", "related"]},
+                    "key": {"type": "string",
+                            "description": "exact existing event key"},
+                },
+            },
+        },
     },
 }
 
@@ -1435,7 +1452,11 @@ def _route_v2(group: list[Bundle], payload: dict,
     by_entity.update({name: ids[0] for name, ids in labels.items()
                       if len(ids) == 1 and name not in by_entity})
     reviewed = payload.get("reviewed")
-    reviewed = [str(x).strip().lower() for x in reviewed] if isinstance(reviewed, list) else []
+    if not isinstance(reviewed, list):
+        errors.append("response omitted the required reviewed bundle list")
+        reviewed = []
+    else:
+        reviewed = [str(x).strip().lower() for x in reviewed]
     reviewed = [r if r in by_id else by_entity.get(_route_key(r), r) for r in reviewed]
     returned = payload.get("diffs")
     returned = returned if isinstance(returned, list) else []

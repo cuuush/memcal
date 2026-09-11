@@ -701,7 +701,7 @@ def ensure_series(conn, wiki_dir: Path, series: str, *, title: str | None = None
                       section="projects")
         page.questions = [f"{q}?" for q in SLOTS["projects"]]
     rows = conn.execute(
-        "SELECT date, location FROM events WHERE series = ? ORDER BY date DESC LIMIT 6", (series,)
+        "SELECT key, date, location FROM events WHERE series = ? ORDER BY date DESC LIMIT 6", (series,)
     ).fetchall()
     if rows:
         seen = [f"- {r['date']}" + (f" — {r['location']}" if r["location"] else "") for r in rows]
@@ -725,8 +725,20 @@ def _fill_where(conn, wiki_dir: Path, slug: str, series: str, rows) -> Page | No
     # A re-derivation may restate itself and may not overrule another source.
     if slot_claimed_by_another(conn, slug, "where", "memcal"):
         return None
-    return set_slot(wiki_dir, slug, "where", where, source="memcal",
-                    section="projects", conn=conn, inferred=True)
+    current = read(wiki_dir, slug)
+    if current and (current.slots.get("where") or {}).get("value") == where:
+        return current
+    updated = set_slot(wiki_dir, slug, "where", where, source="memcal",
+                       section="projects", conn=conn, inferred=True)
+    source_row = next((row for row in rows if row["location"] == where), None)
+    if source_row is not None:
+        from . import trace
+        archive_ids = [row["id"] for row in trace.source_rows(
+            conn, "event", source_row["key"], context=0) if row["evidence"]]
+        trace.stamp(conn, kind="wiki", ref=f"{slug}.where", verb="derived",
+                    entity=f"event:{source_row['key']}", archive_ids=archive_ids)
+        conn.commit()
+    return updated
 
 
 def link_series(conn, wiki_dir: Path) -> list[str]:

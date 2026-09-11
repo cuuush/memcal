@@ -13,16 +13,34 @@ for (const [id, key] of [["#bstream", "stream"], ["#bkind", "kind"], ["#bflag", 
 /* --------------------------------------------------------------- dream -- */
 let preview = null;
 
+/* The server admits only one background job at a time. */
+let passRunning = false;
+
+/* Retry selection handed off from the Runs tab. */
+let pinned = 0;
+let pinnedIsNew = false;
+
+function takeHandoff() {
+  if (!state.retryRun) return;
+  pinned = state.retryRun;
+  state.retryRun = 0;
+  pinnedIsNew = true;
+}
+
 export async function loadDream() {
-  preview = await api("/api/dream_preview");
+  takeHandoff();
+  const [p, job] = await Promise.all([
+    api("/api/dream_preview"), api("/api/job")]);
+  preview = p;
   if (preview.error) return;
+  passRunning = !!(job.job && !job.done);
   renderTiles(preview);
-  renderRetry(preview);
+  await renderRetry(preview);
   renderWarning(preview);
   renderPrefix(preview);
   renderRequests(preview);
   renderBundles(preview);
-  resumeJobs();
+  resumeJobs(job);
   if (state.bundleFlash) {
     const want = state.bundleFlash;
     state.bundleFlash = "";
@@ -71,34 +89,73 @@ function renderTiles(p) {
   $("#dream").disabled = !p.bundles.length;
 }
 
-/* The last pass, when it did not work. This is the tab someone is on when they decide
-   to spend money, so the fact that the previous attempt read nothing — and the button
-   that re-reads what it was given — belong here rather than only on Runs. */
-function renderRetry(p) {
-  const box = $("#dretry"); box.innerHTML = "";
+async function retryTarget(p) {
   const last = p.last_dream || {};
-  if (!last.retryable) return;
+  const followed = pinnedIsNew;
+  pinnedIsNew = false;
+  if (pinned === last.id) pinned = 0;
+  if (!pinned) return last.retryable ? last : null;
+  const d = await api("/api/run?id=" + pinned);
+  const run = d.run || {};
+  if (!run.retryable) {
+    if (followed) {
+      toast(`run #${pinned} cannot be retried any more — a later pass has read its traffic`);
+    }
+    pinned = 0;
+    return last.retryable ? last : null;
+  }
+  return run;
+}
+
+async function renderRetry(p) {
+  const box = $("#dretry"); box.innerHTML = "";
+  const target = await retryTarget(p);
+  if (!target) return;
   const n = el("div", "banner");
-  n.append(el("b", null, `Run #${last.id} ${last.outcome === "failed"
-    ? "read nothing" : "only partly landed"} — ${last.at}, ${last.model}`));
-  n.append(el("p", null, (last.error || "").slice(0, 400)));
+  n.append(el("b", null, `Run #${target.id} ${target.outcome === "failed"
+    ? "read nothing" : "only partly landed"} — ${target.at}, ${target.model}`));
+  n.append(el("p", null, (target.error || "").slice(0, 400)));
   const row = el("div", "row");
-  const go = el("button", "retrybtn", "Retry that pass");
-  go.onclick = async () => {
-    go.disabled = true;
-    await retryDream(last.id, async s => { renderOutput(s.result || {}); await loadDream(); });
-    go.disabled = false;
-  };
   const note = el("span", "note");
   note.style.margin = "0";
-  /* Whichever of the two situations it is, said plainly. They lead to the same button
-     and to very different amounts of undoing, and guessing wrong about which one you
-     are in is how a retry looks like it did nothing. */
-  note.textContent = last.claimed
-    ? `Puts the ${nf(last.claimed)} line(s) it read back in the queue, then dreams over `
+
+  if (passRunning) {
+    note.textContent = "A pass is running now — the log below is it. Retrying is offered "
+      + "again once it ends, if this run still needs it.";
+    row.append(note);
+    n.append(row);
+    box.append(n);
+    return;
+  }
+
+  const go = el("button", "retrybtn", `Retry run #${target.id} — spends money`);
+  note.textContent = target.claimed
+    ? `Puts the ${nf(target.claimed)} line(s) it read back in the queue, then dreams over `
       + `them with the provider and model set now — fix those first if that is what broke.`
     : "It claimed nothing, so everything it was given is still queued. Fix the provider "
       + "and model first if that is what broke, then this is an ordinary pass over the same traffic.";
+  go.onclick = async () => {
+    passRunning = true;
+    pinned = 0;
+    box.innerHTML = "";
+    const started = el("div", "banner");
+    started.append(el("b", null, `Retrying run #${target.id}…`));
+    started.append(el("p", null, (target.claimed
+      ? `${nf(target.claimed)} line(s) go back in the queue, then the pass runs. `
+      : "Its traffic was still queued, so the pass runs over it now. ")
+      + "Progress is under Dream below; what it writes lands in New memories."));
+    box.append(started);
+    const out = await retryDream(target.id,
+      async s => { renderOutput(s.result || {}); await loadDream(); });
+    if (!out || out.error || !out.job) {
+      // Restore the offer when the server rejects the start.
+      passRunning = false;
+      pinned = target.id;
+      await renderRetry(p);
+      return;
+    }
+    $("#dreamlog").scrollIntoView({behavior: "smooth", block: "center"});
+  };
   row.append(go, note);
   n.append(row);
   box.append(n);
@@ -359,24 +416,39 @@ function bundleCard(b) {
   d.append(raw);
   return d;
 }
-async function resumeJobs() {
-  const collect = await api("/api/job?kind=gather");
-  if (collect.job && !collect.done) {
-    watchJob(collect.job, $("#collect"), $("#collectlog"),
+/* Rejoin whatever is running. One at a time, so this is one job and its kind says
+   which button and which log it belongs to. */
+function resumeJobs(job) {
+  if (!job.job || job.done) return;
+  if (job.kind === "gather") {
+    watchJob(job.job, $("#collect"), $("#collectlog"),
       async () => { await loadDream(); });
-  }
-  const dream = await api("/api/job?kind=dream");
-  if (dream.job && !dream.done) {
-    watchJob(dream.job, $("#dream"), $("#dreamlog"),
+  } else if (job.kind === "dream") {
+    watchJob(job.job, $("#dream"), $("#dreamlog"),
       async s => { renderOutput(s.result || {}); await loadDream(); });
   }
 }
+
+/* Collect and dream take the same single job slot the retry needs, so pressing either
+   one withdraws the retry offer then and there. Left to the next `loadDream`, the
+   offer stood for the whole pass and pressing it was refused — which is what a retry
+   that does nothing looks like from the outside. */
+async function startPass(path, button, log, done) {
+  passRunning = true;
+  await renderRetry(preview || {});
+  const out = await runJob(path, button, log, done);
+  if (!out || out.error || !out.job) {
+    passRunning = false;
+    await renderRetry(preview || {});
+  }
+}
+
 // Not "/api/collect": that path is on uBlock's and EasyPrivacy's lists as an analytics
 // beacon, so the browser cancelled it before it left the page.
-$("#collect").onclick = () => runJob("/api/gather", $("#collect"), $("#collectlog"),
+$("#collect").onclick = () => startPass("/api/gather", $("#collect"), $("#collectlog"),
   async () => { await loadDream(); });
 
-$("#dream").onclick = () => runJob("/api/dream", $("#dream"), $("#dreamlog"),
+$("#dream").onclick = () => startPass("/api/dream", $("#dream"), $("#dreamlog"),
   async s => { renderOutput(s.result || {}); await loadDream(); });
 
 function renderOutput(r) {

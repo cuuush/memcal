@@ -1,21 +1,59 @@
 import { $, el, nf, api, toast, state } from "./core.js";
 
-/* ----------------------------------------------------------------- settings --
-   Every knob memcal has, said in words, with where its value came from printed
-   underneath it. The variable name is kept beside the label rather than instead of it:
-   the page is how you find the setting, `.env` is how the nightly pass reads it, and
-   both have to be legible from here. */
+/* ----------------------------------------------------------------- settings -- */
 
 let page = null;                      // the last /api/settings payload
 const pending = new Map();            // key -> the string to save; "" means unset
 
 function dirty() { return pending.size > 0; }
 
+const CHIP_VALUE = 22;
+
 function syncBar() {
   const bar = $("#setbar");
   bar.hidden = !dirty();
   $("#setbarnote").textContent = pending.size === 1
     ? "1 unsaved change" : `${pending.size} unsaved changes`;
+  disarmDiscard();
+  const what = $("#setbarwhat"); what.innerHTML = "";
+  for (const [key, to] of pending) {
+    const s = rowFor(key);
+    const chip = el("button", "chip");
+    chip.type = "button";
+    chip.append(el("span", null, s ? s.label : key));
+    const shown = to === "" ? "back to default"
+      : to.length > CHIP_VALUE ? to.slice(0, CHIP_VALUE - 1) + "…" : to;
+    chip.append(el("span", "n", shown));
+    chip.title = `${key} — go to it`;
+    chip.onclick = () => jumpTo(key);
+    what.append(chip);
+  }
+}
+
+/* Clear filters before jumping to a hidden changed row. */
+function jumpTo(key, retried = false) {
+  const row = document.querySelector(`.setrow[data-key="${key}"]`);
+  if (!row) {
+    if (retried) return;
+    $("#setq").value = "";
+    $("#setcustom").checked = false;
+    renderGroups();
+    return jumpTo(key, true);
+  }
+  row.scrollIntoView({behavior: "smooth", block: "center"});
+  row.classList.remove("found");
+  void row.offsetWidth;                       // restart the highlight on a repeat click
+  row.classList.add("found");
+  const field = row.querySelector("input, select, button");
+  if (field) field.focus({preventScroll: true});
+}
+
+let discardTimer;
+function disarmDiscard() {
+  clearTimeout(discardTimer);
+  const b = $("#setdiscard");
+  b.textContent = "discard";
+  b.classList.remove("arming");
 }
 
 /* "Use default" has something to do when the value differs from the default, when
@@ -31,8 +69,10 @@ function pendingText(s) {
   // Changing provider quietly changes what an unset model resolves to, which is the
   // one consequence of this form that is not visible in the row you edited.
   if (s.key === "MEMCAL_LLM_PROVIDER")
-    return `unsaved: ${to} — any model left on its default follows it`;
-  return to === "" ? `unsets it — back to ${s.default || "empty"}` : `unsaved: ${to}`;
+    return `unsaved: ${s.value} → ${to} — any model left on its default follows it`;
+  return to === ""
+    ? `unsaved: ${s.value || "empty"} → ${s.default || "empty"} (the default)`
+    : `unsaved: ${s.value || "empty"} → ${to}`;
 }
 
 function mark(key, value) {
@@ -43,11 +83,7 @@ function mark(key, value) {
   if (row) {
     row.classList.toggle("changed", pending.has(key));
     row.querySelector(".setpending").textContent = pendingText(setting);
-    // Typed a value into a row that was on its default: there is something to undo now,
-    // and the row is not re-rendered on every keystroke.
     row.querySelector(".setreset").disabled = nothingToReset(setting);
-    // The one thing that does have to follow every keystroke: whether what is in the
-    // box now is a model this provider refuses.
     drawModelWarning(row.querySelector(".modelwarn"), setting);
   }
   syncBar();
@@ -233,10 +269,6 @@ function control(s) {
   return input;
 }
 
-/* Said before the pass is run, rather than afterwards in an error string repeated 74
-   times. Two strengths of claim, because they are two different situations: a model
-   memcal recognises as somebody else's will not save, and one it has never heard of is
-   a new release at least as often as it is a mistake. */
 function drawModelWarning(holder, s) {
   if (!holder) return;
   holder.innerHTML = "";
@@ -296,9 +328,6 @@ function settingRow(s) {
   const hold = el("div", "modelwarn");
   if (isModel) main.append(hold);
   drawModelWarning(hold, s);
-  // Antigravity states its reasoning budget in the model name and memcal does not pass
-  // `--effort` on top of one that does, so this row is genuinely inert for most of its
-  // models. Better said here than concluded from a setting that appears not to work.
   if (s.key === "MEMCAL_REASONING_EFFORT" && m.effort_in_name) {
     main.append(el("div", "setwarn",
       "Antigravity model names carry their own budget — gemini-3.8-flash-high and "
@@ -313,9 +342,6 @@ function settingRow(s) {
   reset.disabled = nothingToReset(s);
   reset.onclick = () => { mark(s.key, ""); render(); };
   side.append(reset);
-  // Propose, sweep and merge are nearly always the same choice, and setting them one at
-  // a time through three comboboxes is three chances to leave one behind on a model the
-  // provider no longer serves.
   if (s.key === "MEMCAL_PROPOSE_MODEL" && (m.keys || []).length > 1) {
     const all = el("button", "setreset", "use for all stages");
     all.title = "Set the sweep and merge models to this one too. Nothing is saved until "
@@ -369,6 +395,9 @@ function renderGroups() {
   const total = page.groups.reduce((n, g) => n + g.settings.length, 0);
   $("#setcount").textContent = shown === total
     ? `${nf(total)} settings` : `${nf(shown)} of ${nf(total)}`;
+  const off = page.groups.reduce(
+    (n, g) => n + g.settings.filter(s => s.custom || pending.has(s.key)).length, 0);
+  $("#setcustomn").textContent = off ? `(${nf(off)})` : "(none — all on defaults)";
   if (!shown) box.append(el("div", "empty", "nothing matches that"));
 }
 
@@ -392,9 +421,8 @@ function renderRuntime() {
     card.append(el("p", "note",
       `${m.known.length} model${m.known.length === 1 ? "" : "s"} available here`
       + (m.roster_source ? ` — from ${m.roster_source}` : "")
-      + (m.closed ? ". The model fields below accept these and refuse the rest, "
-                    + "because a model this provider does not serve fails every "
-                    + "request in the pass rather than one."
+      + (m.closed ? ". Known models owned by another provider are rejected; unknown "
+                    + "names remain available for newer releases."
                   : ". OpenRouter routes more than memcal prices, so anything you type "
                     + "is still accepted.")));
   }
@@ -464,7 +492,7 @@ function renderCredentials() {
       input.type = hidden ? "text" : "password";
       peek.textContent = hidden ? "hide" : "show";
     };
-    const save = el("button", "setreset", "save");
+    const save = el("button", "setreset go", "save");
     save.onclick = () => saveSecret(c.name, input.value, input);
     input.onkeydown = e => { if (e.key === "Enter") saveSecret(c.name, input.value, input); };
     side.append(input, peek, save);
@@ -490,20 +518,25 @@ async function saveSecret(name, value, input) {
 }
 
 function renderProbe(probe) {
-  /* The roster arrives with the slow half because getting it runs `agy models`. Folding
-     it into `page.models` here means the "does not serve that" warning is checked
-     against what the provider says today, not only against memcal's own table. */
   const roster = probe.roster || {};
   if (page && page.models && roster.provider === page.models.provider
       && (roster.models || []).length) {
     page.models.known = [...new Set([...roster.models, page.models.default])];
     page.models.roster_source = roster.source;
-    // `agy models` is a subprocess and a network fetch, so this can land many seconds
-    // after the page drew — quite possibly with someone half-way through typing a model
-    // name. Rebuilding the rows then detaches the input under the caret. The data above
-    // is already updated, and `mark` redraws the warning on the next keystroke, so
-    // deferring the repaint costs nothing but a moment's staleness.
-    if (!$("#setgroups").contains(document.activeElement)) renderGroups();
+    const existing = new Map();
+    for (const key of page.models.keys || [])
+      for (const option of page.suggestions[key] || []) existing.set(option.value, option);
+    const options = roster.models.map(value =>
+      existing.get(value) || {value, note: `from ${roster.source}`});
+    for (const option of existing.values())
+      if (!options.some(row => row.value === option.value)) options.push(option);
+    for (const key of page.models.keys || []) page.suggestions[key] = options;
+    // Avoid replacing the focused input while the async probe lands.
+    if ($("#setgroups").contains(document.activeElement)) {
+      document.activeElement.addEventListener("blur", () => {
+        if (state.view === "settings") renderGroups();
+      }, {once: true});
+    } else renderGroups();
     renderRuntime();
   }
   const box = $("#setsources"); box.innerHTML = "";
@@ -590,7 +623,18 @@ async function saveChanges() {
 }
 
 $("#setsave").onclick = saveChanges;
-$("#setdiscard").onclick = () => { pending.clear(); render(); };
+$("#setdiscard").onclick = () => {
+  const b = $("#setdiscard");
+  if (!b.classList.contains("arming")) {
+    b.classList.add("arming");
+    b.textContent = pending.size === 1 ? "discard it?" : `discard all ${pending.size}?`;
+    discardTimer = setTimeout(disarmDiscard, 4000);
+    return;
+  }
+  pending.clear();
+  render();
+  toast("unsaved changes discarded");
+};
 let setTimer;
 $("#setq").oninput = () => { clearTimeout(setTimer); setTimer = setTimeout(renderGroups, 160); };
 $("#setcustom").onchange = renderGroups;
@@ -621,16 +665,7 @@ async function loadProbe() {
   if (!probe.error && state.view === "settings") renderProbe(probe);
 }
 
-/* Which models a provider serves depends on the provider, and the provider can be
-   chosen here without being saved yet. This asks what that choice would offer — with
-   `live=1`, so Antigravity is asked rather than guessed at — and then does the thing
-   the form was silently not doing: moves any model field the new provider cannot serve
-   onto one it can.
-
-   Not doing that is what broke a whole pass. The provider was switched to Codex while
-   the propose model still read `gemini-3.8-flash-high`; the form accepted both, and
-   every one of the 74 bundles came back "not supported when using Codex with a ChatGPT
-   account". The model fields are part of choosing a provider, so they move with it. */
+/* Refresh model choices before saving a provider change. */
 async function refreshSuggestions(providerName) {
   render();
   const out = await api("/api/settings?live=1&provider="
@@ -646,13 +681,7 @@ async function refreshSuggestions(providerName) {
   }
 }
 
-/* Move every model field that names *another* provider's model onto this provider's
-   default. Returns what had to be abandoned, so the page says which and why rather than
-   quietly rewriting what somebody typed.
-
-   Only the foreign ones. A model memcal does not recognise at all is far more often a
-   release newer than its price table than a mistake, and rewriting that out from under
-   someone would be the worse failure of the two. */
+/* Move known foreign models to the selected provider's default. */
 function repointModels() {
   const m = page.models || {};
   const foreign = m.foreign || {};
@@ -662,14 +691,9 @@ function repointModels() {
     const s = rowFor(key);
     if (!s) continue;
     const now = valueOf(s);
-    // Empty is "use the provider default", which is right under any provider.
     if (!now || !foreign[now]) continue;
     moved.push(`${now} (${foreign[now]}'s)`);
-    // A field that was on its default goes back to *being* unset rather than being
-    // pinned to the new default's spelling: `settings.coerce` resolves an empty model
-    // to the chosen provider's own, so unset keeps following the provider, which is
-    // what `pendingText` promises for a provider change. Pinning it here meant every
-    // later switch found a foreign model and pinned it again.
+    // Keep default-backed fields unset so they continue following the provider.
     if (s.origin === "default" && !s.custom) mark(key, "");
     else mark(key, m.default === s.value ? null : m.default);
   }

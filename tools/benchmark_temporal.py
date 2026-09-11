@@ -11,6 +11,7 @@ import shutil
 import sys
 import threading
 import time
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -686,8 +687,8 @@ def main() -> None:
     if unknown:
         parser.error(f"unknown suite(s): {', '.join(unknown)}")
 
-    base_home = Path(args.home).expanduser() if args.home else (
-        Path("/tmp") / f"memcal-temporal-{int(time.time())}")
+    base_home = (Path(args.home).expanduser() if args.home
+                 else Path(tempfile.mkdtemp(prefix="memcal-temporal-")))
     OUT.mkdir(parents=True, exist_ok=True)
 
     layers = ("integration", "model") if args.layer == "both" else (args.layer,)

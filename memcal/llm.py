@@ -577,15 +577,7 @@ def _native_model(provider: str, model: str) -> str:
     return model[len(prefix):] if prefix and model.startswith(prefix) else model
 
 
-#: Providers that serve models this repo has no `PRICES`/`ENDPOINTS` row for, listed
-#: by hand because there is no vendor prefix that would find them.
-#:
-#: Antigravity is the whole reason this exists. It serves Gemini, Claude and open-weight
-#: models from one command under names of its own, so `_VENDOR_PREFIX` cannot reach them
-#: and `catalog("antigravity")` returned nothing at all — which meant the settings page
-#: offered every *other* provider's models for it and none of its own. Run `agy models`
-#: to refresh this; `list_models` below asks the CLI directly when it is installed, and
-#: this is what a store with no `agy` on its PATH falls back to.
+#: Fallback rosters for providers whose names cannot be derived from vendor prefixes.
 STATIC_PROVIDER_MODELS: dict[str, tuple[str, ...]] = {
     "antigravity": (
         "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low",
@@ -616,13 +608,7 @@ def catalog(provider: str) -> list[tuple[str, str]]:
 
 
 def list_models(cfg, provider: str) -> tuple[list[str], str]:
-    """`(models, where that came from)` — asked of the CLI when the CLI can answer.
-
-    Only Antigravity has a listing command, and it is the only provider whose roster
-    `catalog` cannot derive by vendor prefix. Anything that goes wrong — no executable,
-    a timeout, unfamiliar output — falls back to the static table rather than raising,
-    because the settings page has to draw on a machine that never installed the CLI.
-    """
+    """List provider models, using a CLI roster when one is available."""
     provider = str(provider or "").strip().lower()
     known = [native for native, _priced in catalog(provider)]
     if provider != "antigravity":
@@ -638,8 +624,7 @@ def list_models(cfg, provider: str) -> tuple[list[str], str]:
         return known, "memcal's own table — `agy models` did not answer"
     if proc.returncode:
         return known, "memcal's own table — `agy models` failed"
-    # One model per line, `id<TAB>Human Name`. Anything that is not shaped like that is
-    # a banner ("Fetching available models…") and is skipped rather than offered.
+    # `agy models` emits `id<TAB>Human Name`; skip status banners.
     found = []
     for line in (proc.stdout or "").splitlines():
         name = line.split("\t", 1)[0].strip()
@@ -650,13 +635,7 @@ def list_models(cfg, provider: str) -> tuple[list[str], str]:
 
 
 def serves(provider: str, model: str) -> bool | None:
-    """Whether this provider's own roster names this model. None means it has no roster.
-
-    A `False` here means "memcal cannot vouch for this", not "this will fail". These
-    rosters lag the providers: a model OpenAI shipped this morning is not in `PRICES`
-    yet and Codex will serve it perfectly well. Use it to shade a suggestion or warn on
-    a form — see `belongs_elsewhere` for the stronger claim that is safe to refuse on.
-    """
+    """Return whether a provider roster names a model, or None without a roster."""
     provider = str(provider or "").strip().lower()
     if provider == "openrouter" or provider not in PROVIDER_DEFAULT_MODELS:
         return None
@@ -668,22 +647,14 @@ def serves(provider: str, model: str) -> bool | None:
 
 
 def belongs_elsewhere(provider: str, model: str) -> str:
-    """The provider this model *is* known to belong to, when that is a different one.
-
-    The narrow, positive claim, and the only one worth refusing a save over. "Not in
-    Codex's list" is weak — the list lags every release. "This is Antigravity's model
-    and you picked Codex" is not, and it is what cost run 29 all 74 of its bundles.
-    Returns "" when nothing is known either way, leaving an unheard-of model typable.
-    """
+    """Return a different provider known to serve the model, else an empty string."""
     provider = str(provider or "").strip().lower()
     model = str(model or "").strip()
     if not model or not provider or serves(provider, model) is not False:
         return ""
     for other, rows in ((name, catalog(name)) for name in PROVIDER_DEFAULT_MODELS):
         if other in (provider, "openrouter"):
-            # OpenRouter's catalog is memcal's whole price table, so it names every
-            # model and would claim all of them. It routes them all too, which is why
-            # it is never the answer to "whose model is this".
+            # OpenRouter's price catalog is not an ownership roster.
             continue
         if any(model == native for native, _priced in rows):
             return other

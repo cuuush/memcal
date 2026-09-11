@@ -159,14 +159,9 @@ before you save, so the list follows the choice you are making. An executable fi
 offers the absolute path `which` finds, which is what the nightly agent needs. A
 calendar field offers the calendars memcal has read.
 
-The model fields are the one place that does restrict. A model belonging to a different
-provider than the one selected is refused, because it does not fail one request — it
-fails every request in a pass, which is how a run once read 74 conversations and wrote
-nothing. Choosing a provider moves any model field naming another provider's model onto
-the new provider's default and tells you which and why, and one control sets the propose,
-sweep and merge models together. A model memcal simply does not recognise still saves:
-these lists lag every release, so an unfamiliar name is a new model at least as often as
-it is a mistake. Every other suggestion is a shortcut, never a restriction.
+Model fields reject names known to belong to another provider. Changing providers resets
+such fields to the new default, and one control sets the propose, sweep, and merge models
+together. Unknown model names remain valid because provider catalogs change frequently.
 
 ## Choose a model backend
 
@@ -204,16 +199,9 @@ login can reach.
 
 ## Retry a pass that failed
 
-A dream pass claims the spooled lines it reads, so a pass that broke part-way through
-leaves a queue that no longer holds what it read. The Runs tab says how each pass ended —
-ok, partial, failed, running, priced only — and offers a Retry on the ones worth
-re-reading; the Dream tab says the same above the button that spends money.
-
-Retrying puts back exactly the lines that pass claimed and dreams over them again with
-whatever provider and model are configured **now**, so fix the setting that broke it
-first. A pass refused on its first call claimed nothing at all — its traffic was never
-removed from the queue — and the page says so, rather than leaving the retry looking as
-though it did nothing.
+The Runs tab shows whether each pass was ok, partial, failed, running, or priced only.
+Retrying releases the lines that pass claimed and runs them with the provider and model
+configured now. Lines beyond the model horizon remain marked as read.
 
 ```bash
 memcal dream --retry 29
@@ -423,7 +411,8 @@ The MCP surface provides compact reads and explicit writes:
 
 Write tools do not call a model. If the user says an event moved, `memcal_update` changes
 the typed row, records the old value in history, and updates the next brief. Memcal never
-infers that a to-do is complete; it waits for an explicit completion or asks.
+infers that a to-do is complete; it waits for an explicit completion or asks. Event
+updates can add or remove named participants explicitly.
 
 ## Apple Calendar and Reminders
 
@@ -492,6 +481,10 @@ Some observations cannot be placed yet — "that's cancelled", naming no plan an
 Those are kept with their evidence rather than dropped or written as an invented event,
 retried as later traffic arrives, and turned into a question when more than one plan
 could be the one meant.
+
+Merge compares timestamped source messages when placing a cancellation. A matching time
+only nominates a candidate. Cancelling one booking and making another keeps the old row
+declined and the new row confirmed; an older notice cannot undo a newer confirmation.
 
 Durable facts belong on wiki pages. Older installations may still contain legacy standing
 rows: their `S` handles remain readable for recovery, but new standing writes are rejected.

@@ -27,7 +27,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent.parent))
 
-from memcal import config, db, identity, live, threads, todos, wiki  # noqa: E402
+from memcal import archive, config, db, identity, live, threads, todos, trace, wiki  # noqa: E402
 from memcal.sources import base, bluebubbles, groupme, ical, proton, whatsapp  # noqa: E402
 from tests.scenarios import skeleton as sk  # noqa: E402
 
@@ -70,15 +70,30 @@ def seed(home: Path) -> tuple[sqlite3.Connection, config.Config]:
         identity.link(conn, f"groupme:{gm_id}", name, source="fixture")
 
     identity.add_top_tier(conn, "Harper")
+    profile_source = archive.append(
+        conn, stream="fixture", external_id="seed-profile", ts="2026-08-01T09:00:00-04:00",
+        text="Casey lives in North End and their dog is Comet.")
     wiki.set_slot(cfg.wiki_dir, "casey", "neighborhood", "North End",
                   source="fixture", conn=conn)
     wiki.set_slot(cfg.wiki_dir, "casey", "dog", "Comet", source="fixture", conn=conn)
+    for ref in ("casey.neighborhood", "casey.dog"):
+        trace.stamp(conn, kind="wiki", ref=ref, verb="seeded", entity="fixture",
+                    archive_ids=[profile_source])
+    calendar_source = archive.append(
+        conn, stream="fixture", external_id="seed-calendar", ts="2026-08-01T09:01:00-04:00",
+        text=("The U&Me calendar is the shared calendar for Casey and Harper; "
+              "we call it our cal, shared cal, or u&me."))
     wiki.set_slot(cfg.wiki_dir, "u-and-me-calendar", "meaning",
                   "shared calendar for Casey and Harper", source="fixture",
                   section="projects", conn=conn)
+    trace.stamp(conn, kind="wiki", ref="u-and-me-calendar.meaning", verb="seeded",
+                entity="fixture", archive_ids=[calendar_source])
     for alias in ("our cal", "shared cal", "u&me"):
         wiki.add_alias(cfg.wiki_dir, "u-and-me-calendar", alias, section="projects",
                        conn=conn)
+        trace.stamp(conn, kind="wiki",
+                    ref=f"u-and-me-calendar:alias:{db.slugify(alias)}",
+                    verb="seeded", entity="fixture", archive_ids=[calendar_source])
     conn.commit()
     return conn, cfg
 
@@ -261,7 +276,15 @@ def agent_actions(conn, cfg, day: int) -> list[str]:
         db.set_today(f"{pinned}T{action.get('time', '12:00')}:00")
         fn = getattr(live, action["call"])
         try:
-            fn(conn, cfg, **action["args"])
+            source = next((row for row in sk.SIGNAL
+                           if row.get("src") == "agent"
+                           and row.get("beat") == action.get("beat")), None)
+            archived = (conn.execute(
+                "SELECT id FROM archive WHERE stream='agent' AND external_id=?",
+                (f"agent:{source['id']}",)).fetchone() if source else None)
+            origin = live.Origin.of(
+                "benchmark", [archived["id"]] if archived else (), op_id=action["id"])
+            fn(conn, cfg, origin=origin, **action["args"])
             done.append(f"{action['id']} {action['call']} at {action.get('time', '12:00')}")
         except Exception as exc:                       # noqa: BLE001 — reported, not raised
             done.append(f"{action['id']} {action['call']} FAILED: {exc}")

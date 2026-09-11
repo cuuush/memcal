@@ -533,28 +533,22 @@ story, and it is where the reported defects were.
 - **D1** `groupme` — in the smash bros chat, GroupMe itself posts `A message was
   deleted.` The sender is `groupme:system` with the display name **GroupMe**.
 - **D2** `groupme` — GroupMe posts again, and this time the notice *contains the
-  message*: `Riley Morgan edited to: "actually let's make smash 7pm Saturday"`. The
+  message*: `Riley Morgan edited to: "actually let's make smash 7pm Sunday"`. The
   platform is the speaker and a person is the author.
 - **Must not:** anything be created for "GroupMe" — no person, no page, no row, no
   question, and no handle waiting to be named. `groupme:system` sat at the top of the
   live name-this-person queue with 218 sightings behind it, which is an unanswerable
   question in the one position that guarantees it is read first.
-- **Must:** the edit's *content* still reach a row. The smash bros plan moves to 7pm
-  Saturday. This is the decoy that stops the fix being "ignore the system channel":
+- **Must:** the edit's *content* still reach a row. The smash bros plan lands at 7pm
+  Sunday. This is the decoy that stops the fix being "ignore the system channel":
   the noise and the answer arrive on the same handle, and a filter that drops the
   handle drops the plan with it.
 - **Must not:** the edit be attributed to GroupMe. Riley Morgan is named inside the
   text and is already in the roster.
 - Distinct from beat 51's marketing: that is a real sender with nothing worth keeping.
   This is a **non-sender** whose traffic sometimes carries the thing that matters.
-- **The second half is a frontier gap, and a live one.** `groupme._deliver` returns early
-  on `message.get("system")`, so the whole channel is dropped at ingest and the edit
-  notice never reaches the archive. The live store has `DELIA edited to: "This is where
-  we are planning to…"` and `Casey Morgan edited to: "No, Morgan is sitting th…"`, both
-  destroyed on the way in and recoverable from nothing. The fix is not a regex over the
-  wording: GroupMe sends `event: {type, data}` on every system message and the
-  connector's field list has never named it. Read `event.type`, drop the bookkeeping
-  kinds, keep the ones quoting a person.
+- GroupMe's structured event payload is preferred when present; the visible edit notice
+  is retained as a compatibility fallback. Bookkeeping notices remain ignored.
 
 ### 56. Work the user handed off is not work the user owes
 

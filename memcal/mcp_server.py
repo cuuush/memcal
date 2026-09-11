@@ -222,6 +222,7 @@ TOOLS = [
                             "description": "whose thing this is; only to correct a "
                                            "row filed under the wrong person"},
                 "add_participants": {"type": "array", "items": {"type": "string"}},
+                "remove_participants": {"type": "array", "items": {"type": "string"}},
                 "join_url": {"type": "string",
                              "description": "the link you attend through, for anything "
                                             "online. Not the same as where it is"},
@@ -635,7 +636,8 @@ class Server:
                 kind=args.get("kind"), subject=args.get("subject"),
                 note=args.get("note"), join_url=args.get("join_url"),
                 series=args.get("series"),
-                add_participants=args.get("add_participants") or [])
+                add_participants=args.get("add_participants") or [],
+                remove_participants=args.get("remove_participants") or [])
             return (event.one_line() + "\nchanged: "
                     + ("; ".join(changed) if changed else "nothing — it already said that"))
         if name == "memcal_schedule":

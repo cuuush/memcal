@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from memcal import archive, brief, wiki
+from memcal import archive, brief, llm, wiki
 from memcal.config import Config
 from memcal.dream import apply as apply_stage
 from memcal.dream import bundle as bundle_stage
@@ -187,10 +187,11 @@ DAY1 = {
 # --------------------------------------------------------------------------------
 
 DAY2 = {
-    # 55. No entry for `thread:groupme:smash bros`, and that is the finding rather than
-    # an omission. `_deliver` returns early on `message.get("system")`, so the edit
-    # notice never reaches the archive and there is nothing for a diff to be routed to.
-    # An oracle row here would assert the pipeline can carry something it cannot.
+    "thread:groupme:smash bros": _diff(events=[{
+        "title": "Smash", "date": SUN, "time": "19:00",
+        "kind": "opportunity", "status": "mentioned", "subject": "me",
+        "participants": ["Riley Morgan"],
+    }]),
     # 1 + 3. Moved to Saturday, and moved house. One row, two fields.
     "person:Jordan Lee": _diff(
         events=[
@@ -347,6 +348,18 @@ DAY4: dict[str, dict] = {}
 TABLES = {1: DAY1, 2: DAY2, 3: DAY3, 4: DAY4}
 
 
+class _DistinctArbiter:
+    """Resolve the corpus's intentionally similar occasions without a model call."""
+
+    def complete(self, **_kwargs) -> llm.Reply:
+        return llm.Reply(text="", data={
+            "same_event": False,
+            "pending_targets": [],
+            "observation_targets": [],
+            "why": "the integration oracle defines these as distinct occasions",
+        })
+
+
 def apply_day(conn: sqlite3.Connection, cfg: Config, day: int) -> str:
     """One fake day through Merge -> apply -> render, with no model anywhere."""
     table = TABLES[day]
@@ -354,10 +367,10 @@ def apply_day(conn: sqlite3.Connection, cfg: Config, day: int) -> str:
                                  per_entity=cfg.items_per_entity)
     proposals = [(b, table.get(b.entity, EMPTY), None) for b in bundles]
 
-    # Cross-bundle dedupe is deterministic until fragments genuinely disagree; these do
-    # not, so no client is ever reached for. Passing None makes that a crash rather than
-    # a silent network call if the corpus ever changes underneath it.
-    proposals, resolved = merge_stage.merge_all(None, cfg, proposals, conn=conn)
+    # Model quality belongs to the live layer. The integration oracle already defines
+    # the similar-looking rows here as different occasions.
+    proposals, resolved = merge_stage.merge_all(
+        _DistinctArbiter(), cfg, proposals, conn=conn)
 
     from memcal import db, todos
     before_apply = db.now()

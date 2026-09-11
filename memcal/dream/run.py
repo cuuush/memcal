@@ -360,6 +360,9 @@ def _dream(
             conn, cfg, got, written_by=f"dream:{mode}", run_id=run_id, stage="propose")
         result.log.extend(log)
         result.diffs += sum(v for k, v in counts.items() if "rejected" not in k)
+        # A wave can write the row an earlier wave's cancellation was waiting for.
+        if pending.open_items(conn):
+            result.log.extend(pending.retry(conn))
         emit("propose", "running", f"wave {index} wrote {len(log)} row(s)", wave=index)
 
     result.errors.extend(errors)

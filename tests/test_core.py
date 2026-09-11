@@ -5372,6 +5372,7 @@ class TestPrecedenceGuardsAgainstStaleness(Base):
 
     def setUp(self):
         super().setUp()
+        db.set_today("2026-08-03T12:00:00")
         self.event, _ = events.upsert(
             self.conn, {"title": "Movie with Riley", "date": self.d(7),
                         "status": "confirmed"}, written_by="live")

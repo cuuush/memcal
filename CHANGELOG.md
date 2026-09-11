@@ -7,46 +7,23 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- A failed dream pass can be retried. The Runs tab now says how each pass ended — ok,
-  partial, failed, running, priced only — filters on it, and puts a Retry button on the
-  ones worth re-reading; the Dream tab says the same thing above the button that spends
-  money, so a pass that read nothing is not discovered afterwards. Retrying puts the
-  spooled lines that pass claimed back in the queue and dreams over them again with
-  whatever provider and model are configured now, which is what a retry after fixing a
-  broken provider has to mean. A pass refused on its first call claimed nothing, and the
-  page says so rather than leaving the retry looking like it did nothing.
-  `memcal dream --retry RUN` does the same from the command line. A line the run read
-  that is now past the model horizon stays marked as read rather than being released:
-  a pass retires anything that old before it reads anything, so putting it back would
-  re-file it as never-read instead of re-reading it.
-- The model fields on the Settings tab are limited to what the chosen provider actually
-  serves. Antigravity's own models are offered for it — read from `agy models` where the
-  CLI is installed, and from memcal's own list otherwise — instead of the empty list that
-  left it borrowing every other provider's. Choosing a provider moves any model field
-  naming another provider's model onto the new provider's default and says which and why;
-  saving one is refused outright, because it is not a bad value in a file, it is a whole
-  pass in which every request is refused. A model memcal does not recognise at all still
-  saves: these lists lag every release. One control sets the propose, sweep and merge
-  models together, and the reasoning-effort setting says when the chosen model states its
-  own budget in its name and this is therefore ignored.
+- Event updates can explicitly remove named participants as well as add them.
 
-- A Settings tab in the web UI: every `MEMCAL_*` setting memcal reads, grouped and
-  explained, with its default and the file its current value came from. Saving writes
-  `~/.memcal/.env` without disturbing hand-written lines and applies to the running
-  process immediately; clearing a field unsets the key and restores the default. A value
-  that is out of range, not a valid option, or a stage name that does not exist is
-  refused as a whole — no half a form lands — and a key another `.env` sets more strongly
-  is reported rather than silently ignored. The tab also shows whether the configured
-  provider is reachable, what each source still needs, which credentials are set (never
-  their values, which can be replaced but not read back), and the state of the nightly
-  agent. Nothing on it has to be typed from memory: a model field opens onto the models
-  memcal can price for the chosen provider — named the way that provider names them,
-  with their rates — plus the ones this store has already run; an executable field
-  offers the absolute path `which` finds; a calendar field offers the calendars memcal
-  has read. Choosing a provider re-asks before it is saved, so the model list follows
-  the choice being made. Propose stages are picked as chips rather than spelled as a
-  comma-separated list, every number states its range, each section can be jumped to
-  from a row of counts, and `/` searches while ⌘S saves.
+- Events can record duplicate, replacement, and related-event links across sources.
+- One-way email threads from the same sender are grouped across changing subject lines.
+- Events named by unresolved cancellations are withheld from calendar publishing.
+
+- Failed and partial dream passes can be retried from the Dream tab or with
+  `memcal dream --retry RUN`. Runs show their outcome and retain claimed lines that have
+  aged past the model horizon.
+- Settings offer models for the selected provider, reject known cross-provider
+  mismatches, and can set all three dream-stage models together. Antigravity uses
+  `agy models` when available and a bundled fallback otherwise.
+
+- A Settings tab edits every `MEMCAL_*` option without flattening hand-written `.env`
+  content. It validates the whole save, applies changes to the running process, reports
+  stronger configuration sources, and shows provider, source, credential, schedule,
+  model, executable, and calendar status without exposing secret values.
 - Antigravity (`agy`) joins Codex and Claude Code as a model backend that runs on a login
   you already have: `memcal setup --provider antigravity`, defaulting to
   `gemini-3.8-flash-high`. Its Gemini, Claude and open-weight models are all reachable
@@ -88,14 +65,22 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- The Dream tab no longer buries its own button. A real pass is a hundred-odd
-  conversations, each an expandable card, and rendering them inline pushed "Dream" and
-  everything the pass wrote several screens down. The list is folded away by default and
-  scrolls inside itself when opened, so pressing Dream and reading what it wrote no
-  longer means paging past every bundle first.
-- A model this store had run under one provider is no longer offered, carrying that
-  endorsement, while a different provider is selected. That is how a pass came to be
-  configured with an Antigravity model under Codex and had all 74 of its bundles refused.
+- GroupMe edit notices retain the edited message and its named author while ordinary
+  platform bookkeeping remains ignored.
+- Calendar timestamps are rendered in local time, nonexistent daylight-saving wall
+  times are not stored, and weekday-plus-date phrases must agree.
+- Deterministic dream reruns no longer add duplicate audit entries; derived wiki facts
+  retain source evidence.
+
+- Merge uses timestamped source evidence to keep cancelled bookings separate from their
+  replacements. Field citations and event links survive merging and replay.
+- Cancellation candidates require an identified target, respect newer confirmations,
+  and keep clarification questions available across dream waves.
+- Sweep cannot change appointment status from a summary without source evidence.
+
+- The Dream tab folds long bundle previews into a bounded scrolling section.
+- Models previously used through another provider are no longer suggested for the
+  selected provider.
 - Antigravity requests no longer fail wholesale. `agy` runs its own five-minute clock
   over a turn and, when it expires, returns partial output with a success exit code —
   either an error status or a success carrying an empty response. memcal never told it
@@ -133,6 +118,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The brief Calendar-access check macOS runs at login now shows up as
+  `memcal-calendar-access` in Login Items rather than as the bare `python`/`osascript`
+  it happened to run through. The nightly job already read as `memcal-nightly`; this
+  gives the permission probe the same descriptive name for the seconds it exists.
 - A correction made during the day is no longer undone by older evidence collected
   later. Write precedence is decided per field and on when the evidence was said, rather
   than on whether the row happened to be written the same calendar day. Genuinely newer

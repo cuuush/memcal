@@ -241,7 +241,20 @@ def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
         "who": "me" if row["from_me"] else (row["person"] or row["handle"] or "?"),
         "text": row["text"] or "",
         "evidence": row["id"] in ids,
-    } for row in sorted(expanded.values(), key=lambda r: (str(r["ts"]), r["id"]))[:limit]]
+    } for row in sorted(expanded.values(), key=lambda r: (str(r["ts"]), r["id"]))]
+    if kind == "event":
+        current = conn.execute(
+            """SELECT h.evidence_ts FROM event_history h
+                 JOIN events e ON e.id = h.event_id
+                WHERE e.key = ? AND h.evidence_ts IS NOT NULL
+                ORDER BY h.id DESC LIMIT 1""", (ref,)
+        ).fetchone()
+        if current:
+            index = next((i for i, row in enumerate(rows)
+                          if row["evidence"] and row["ts"] == current["evidence_ts"]), None)
+            if index not in (None, 0):
+                rows.insert(0, rows.pop(index))
+    rows = rows[:limit]
     return _mark_source_shifts(conn, rows)
 
 
