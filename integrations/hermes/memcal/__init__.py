@@ -210,12 +210,8 @@ CONVERSATION = {
     },
 }
 
-# The write tools are typed and run as plain code — no model, no extraction step, no
-# waiting. There used to be one `memcal_remember(text)` that sent the sentence to a
-# model and hoped the right diff fell out. It is the wrong shape here: you are already
-# a model, you already know which field you mean, and re-deriving it downstream is
-# where "not going to the Meowser vet visit" turned into a free-text note with the
-# status left untouched. Say what changed and it changes.
+# Write tools are typed and run as plain code — no model extraction step.
+# The caller already knows which field it means; say what changed.
 
 #: Everything a row can hold, shared by add and update so the two read the same.
 _WHEN = {"type": "string",
@@ -791,10 +787,7 @@ class MemcalMemoryProvider(MemoryProvider):
                 from memcal import archive, db, gate
                 conn = db.open_db(self._cfg.db_path)
                 stamp = db.now()
-                # The user is talking to a machine, and that is the whole difference
-                # between "I will do this" and "you do this". Without it the gate calls
-                # every instruction the user issues an `own-commitment` and the nightly files
-                # their delegated work as their own — #57.
+                # User-to-machine imperatives are delegated work, not own commitments.
                 verdict = gate.gate_message(text, from_me=True, addressed_to="machine")
                 archive_id = archive.append(
                     conn, stream="agent", external_id=external_id,
@@ -835,11 +828,7 @@ class MemcalMemoryProvider(MemoryProvider):
 
     # ------------------------------------------------------------------ tools --
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        # Reading, then writing. §8 named one write tool, `remember`, taking a sentence;
-        # what shipped sent that sentence to a model to be turned back into fields the
-        # caller already had. These are the fields. One verb each, no extraction step,
-        # nothing to wait for — and the set is small enough that choosing between them
-        # is obvious from the user's own words.
+        # One verb per write tool; no extraction step.
         return [OPEN, OPEN_PAGE, OPEN_SOURCE, CONVERSATION, LIST_DAYS, LIST_MONTH,
                 SEARCH_ARCHIVE,
                 ADD_EVENT, UPDATE_EVENT, SET_SCHEDULE, MOVE_ONCE,
@@ -942,11 +931,8 @@ class MemcalMemoryProvider(MemoryProvider):
                 conn, args.get("query", ""), limit=int(args.get("limit") or 20),
                 person=args.get("person", ""), stream=args.get("stream", ""),
                 since=args.get("since", ""), until=args.get("until", ""))
-            # The "agent" stream is this conversation's own notes written back through
-            # memcal_remember — frequently the assistant's paraphrase of what the user
-            # said, stored under from_me. Unlabelled, a later search returns it looking
-            # exactly like an independent message and the model cites its own summary
-            # as corroboration for the thing the summary came from.
+            # Label agent-stream notes so later searches do not mistake the
+            # assistant's paraphrase for an independent message.
             return json.dumps({"results": [
                 {"line_id": r["id"], "when": str(r["ts"])[:16],
                  "who": "me" if r["from_me"] else (r["person"] or r["handle"] or "?"),

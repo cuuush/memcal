@@ -232,12 +232,7 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
         self.assertFalse(state["loaded"])
 
     def test_the_doctor_reports_the_launchd_it_was_given_and_not_the_machine(self):
-        """The half worth more than the red: nine findings were facts about their Mac.
-
-        Same store, same config, two different launchd answers — the finding has to
-        follow the answer. It followed `launchctl` on whatever machine was running it,
-        and was green because *their* has both agents loaded.
-        """
+        """Findings follow the injected launchd answer, not the host state."""
         loaded = self._findings(lambda *a, **kw: (0, ""))["Schedule/nightly"]
         gone = self._findings(
             lambda *a, **kw: (1, "Could not find service"))["Schedule/nightly"]
@@ -246,13 +241,7 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
         self.assertIn("not loaded", gone.detail.lower())
 
     def test_the_doctor_reads_the_launch_agents_it_was_pointed_at(self):
-        """The other host dependency, and the quieter one.
-
-        `installed` is `~/Library/LaunchAgents/com.memcal.nightly.plist` existing, so the
-        doctor tests took the *installed* branch on their Mac and the *not installed*
-        branch on CI. Nothing was red either way — the same nine tests were simply
-        exercising different code depending on who ran them.
-        """
+        """`installed` reflects the pointed-at LaunchAgents directory."""
         answer = lambda *_a, **_kw: (0, "")  # noqa: E731 - one launchd reply, twice
         here = self._findings(answer, installed=True)["Schedule/nightly"]
         away = self._findings(answer, installed=False)["Schedule/nightly"]
@@ -323,8 +312,7 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
                 str(self.cfg.home / "ical-permission-result.json")]
 
     def test_the_eventkit_request_runs_as_memcal_not_the_terminal(self):
-        """The whole bug: in-process EventKit calls resolve to the terminal's TCC
-        identity, so setup's request and account check ride the launchd agent."""
+        """EventKit calls run under the launchd agent identity."""
         captured = {}
         exe = schedule.app_executable(self.cfg)
         exe.parent.mkdir(parents=True, exist_ok=True)
@@ -350,8 +338,7 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
                          captured["plist"]["AssociatedBundleIdentifiers"])
 
     def test_the_doctor_reads_the_eventkit_stamp_not_the_terminal(self):
-        """A live in-terminal EventKit check tests the terminal's identity and fails
-        even when memcal holds full access — doctor reads setup's stamp instead."""
+        """Doctor reads the setup stamp, not the terminal identity."""
         self.cfg.publish_calendar = "memcal"
         answer = lambda *_a, **_kw: (0, "")  # noqa: E731
         # The publish switch is on, so this test must hand ical nowhere real to

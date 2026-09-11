@@ -20,7 +20,7 @@ RELATIVE = (r"tonight|tomorrow|tmr|tmrw|today|this (?:week|weekend|morning|after
             r"next (?:week|weekend|month|" + WEEKDAYS + r")|later|"
             r"(?:in|for) (?:" + COUNT + r") (?:hour|hours|day|days|week|weeks|month|months|"
             r"min|mins|minute|minutes)")
-# "at 8" is a time even with no am/pm — that's the GroupMe case ("we playing at 8?").
+# Bare hours count as times ("we playing at 8?").
 CLOCK = (r"\b\d{1,2}\s?(?:am|pm)\b|\b\d{1,2}:\d{2}\b|\bnoon\b|\bmidnight\b|"
          r"\b(?:at|by|around|til|until|after|before)\s+\d{1,2}(?::\d{2})?\b")
 DATEISH = r"\b\d{1,2}/\d{1,2}\b|\b(?:" + MONTHS + r")\.?\s+\d{1,2}\b"
@@ -38,14 +38,13 @@ COMMIT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Someone else's state — the availability rows that make lateral connections work.
+# Someone else's availability state.
 AVAILABILITY_RE = re.compile(
     r"\b(?:free|around|available|down for|in town|busy|out of town|away|back (?:on|in|from))\b",
     re.IGNORECASE,
 )
 
-# Durable entity facts. No temporal token, but exactly what a wiki slot is for, so
-# they get their own cheap signal rather than being lost as "no-signal".
+# Durable entity facts for wiki slots; no temporal token required.
 ATTRIBUTE_RE = re.compile(
     r"\b(?:favou?rite|obsessed with|allergic to|birthday|turns \d+|lives? (?:in|on|at)|"
     r"moved (?:to|in)|works? (?:at|for)|new job|got (?:a|an) (?:dog|cat|puppy|kitten)|"
@@ -59,11 +58,8 @@ INVITE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Unsolicited "product optimization" jobs are a recurring text-message scam.  iMessage
-# is otherwise read in full, so this has to run before PASS_ALL_STREAMS.  Require three
-# independent traits rather than treating ordinary recruiter language as spam: a
-# remote/flexible opening, merchant/product busywork, implausible daily compensation,
-# artificial scarcity, or an instruction to text a different number.
+# Task-scam detector; runs before PASS_ALL_STREAMS. Requires three independent
+# traits to avoid flagging legitimate recruiters.
 TASK_SCAM_RES = (
     re.compile(r"\b(?:remote recruitment team|flexible online (?:opening|job|work))\b",
                re.IGNORECASE),
@@ -107,10 +103,8 @@ _MONEY = r"invoice|receipt for|payment (?:due|received|failed)|statement is read
 _INVITE = (r"save the date|you'?re invited|invitation to|rsvp|register (?:now|for|today)"
            r"|tickets? (?:are|for|on sale)|join us|webinar|gala|fundraiser"
            r"|doors open|starts (?:in|at|on)|last chance to register")
-# "Updated: Devon's Block Party BBQ" is Partiful telling them the start time moved, and
-# it was the only place that fact existed — the GroupMe thread that created the row
-# never mentioned it again. Anchored at the start of the subject, because a bare
-# "update" anywhere in one is a newsletter more often than a change of plan.
+# Anchored at the start: a bare "update" elsewhere is usually a newsletter,
+# not a plan change.
 _CHANGE = (r"cancel+ed|postponed|rescheduled|new (?:date|time|location)|venue change"
            r"|has been moved|reminder:|^\s*(?:updated?|changed?|revised|moved)\s*:")
 
@@ -119,8 +113,7 @@ SUBJECT_EVENT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Said in a subject, these mean the opposite of an event however many event words ride
-# along with them. "Last chance — 40% off tickets" is a sale, not a show.
+# Pitch phrases in a subject override event phrases.
 SUBJECT_PITCH_RE = re.compile(
     r"\b(?:\d{1,3}% off|% off|sale|deal|deals|coupon|promo code|save (?:up to |big|now)"
     r"|clearance|bogo|free shipping|shop (?:now|the)|best sellers|new arrivals"
@@ -133,9 +126,7 @@ SUBJECT_PITCH_RE = re.compile(
 def subject_is_event(subject: str) -> bool:
     """Does this subject report something that happens, rather than sell something?
 
-    The pitch test is checked first and wins. A retailer's "Last chance to register" is
-    an event; its "Last chance — 40% off" is not, and the second phrasing is far more
-    common in an archive of ten years of marketing mail.
+    The pitch test runs first and wins.
     """
     text = (subject or "").strip()
     if not text or SUBJECT_PITCH_RE.search(text):
@@ -143,8 +134,7 @@ def subject_is_event(subject: str) -> bool:
     return bool(SUBJECT_EVENT_RE.search(text))
 
 # Addresses that cannot hold a conversation. Free to detect, and a permanent decision.
-# Local parts that cannot hold a conversation. Separators vary — chase.com uses
-# `no.reply.alerts@`, others use `no-reply` or `noreply` — so treat . - _ + alike.
+# Separators vary, so treat . - _ + alike.
 _SEP = r"[._\-+]?"
 _AUTOMATED_WORDS = (
     "no" + _SEP + "reply", "do" + _SEP + "not" + _SEP + "reply", "donotreply",
@@ -160,11 +150,8 @@ AUTOMATED_RE = re.compile(
     re.IGNORECASE,
 )
 
-# An address that says "do not reply" anywhere in its local part means it, whatever
-# prefix it carries. Anchoring at the start let `ads-account-noreply@google.com` and
-# `system-noreply@nyuce.brightspace.com` through to the model at full price. The rest
-# are words no person puts in their own address, so they are safe as substrings —
-# `upcoming-invoice+acct_1onsbv@stripe.com` is not a correspondent.
+# "Do not reply" anywhere in the local part means it. Remaining tokens never appear
+# in personal addresses, so substring match is safe.
 UNREPLYABLE_RE = re.compile(
     r"(?:no" + _SEP + r"reply|do" + _SEP + r"not" + _SEP + r"reply|donotreply"
     r"|mailer" + _SEP + r"daemon|postmaster|invoice|receipt|newsletter"
@@ -185,12 +172,9 @@ _SENDING_TOKENS = ("mail", "news", "notif", "market", "campaign", "track", "clic
 
 
 def _sending_subdomain(host: str) -> bool:
-    """Is this host a bulk-sending subdomain of some brand's real domain?
+    """Is this host a bulk-sending subdomain of a brand's real domain?
 
-    `t.target.com` was caught, but `trx.mail2.disneyplus.com`, `et.geico.com` and
-    `mynotifications.cvs.com` were not — the old pattern only looked at the label
-    immediately after the `@`. Only labels *above* the registrable domain are examined,
-    so `gmail.com` and `fidelity.com` are untouched.
+    Only labels above the registrable domain are examined.
     """
     labels = host.lower().split(".")
     for label in labels[:-2]:            # everything above example.com
@@ -214,24 +198,12 @@ def is_automated(address: str) -> bool:
                 or _sending_subdomain(host))
 
 
-# Streams read in full, no content test at all.
-#
-# The gate exists to keep a decade of newsletters from being read at $5/M — that is an
-# email problem. Texting is a few dozen lines a day, and there the gate was spending
-# judgement it did not need to spend: 76% of iMessage was skipped, and the skipped half
-# is where the answer kept turning out to be, because a reply carries no temporal token
-# of its own ("yeah", "i'm down", "cant that night"). Cheaper to read all of it than to
-# reconstruct it — which is what `add_thread_context` was already doing, badly.
+# Streams read in full, no content test at all. Short replies carry no temporal
+# token of their own, so filtering them loses answers.
 PASS_ALL_STREAMS = frozenset(("imessage",))
 
-# Anyone in Contacts, one-to-one. Naming someone is the strongest signal available and
-# it is free, so it outranks every content test: if the user took the trouble to save their
-# number, what they said to them directly is worth reading whether or not it contains a
-# clock.
-#
-# Deliberately not extended to group chats. A named contact in the gamer chat is still
-# a hundred lines a day of nothing, and there the content test is what earns its keep —
-# "we playing at 8?" passes on the clock, as it always did.
+# Anyone in Contacts, one-to-one. A saved contact outranks every content test.
+# Group chats still require a content signal.
 KNOWN_CONTACT = "known-contact"
 
 
@@ -253,11 +225,8 @@ class Verdict:
     reason: str
     #: Only meaningful when `passed`. See PRIORITIES.
     priority: str = "normal"
-    #: A *person* said no to this, as opposed to a rule guessing it was uninteresting.
-    #: The distinction the priority scheme rests on: an automatic conclusion ranks mail
-    #: and a human exclusion withholds it, so a collector must be able to tell them
-    #: apart before it spends anything — including the free-of-model-cost work of
-    #: fetching and storing a body. See `identity.sender_blocked`.
+    #: A *person* said no to this, as opposed to an automatic ranking. Excluded
+    #: senders skip fetch and storage; see `identity.sender_blocked`.
     excluded: bool = False
 
     def __bool__(self) -> bool:
@@ -278,12 +247,7 @@ def gate_message(
     is_group: bool = False,
     addressed_to: str = "person",
 ) -> Verdict:
-    """"hey" fails everything and costs nothing. "we playing at 8?" passes.
-
-    Unless the stream is read in full, or the line is from someone the user has named in a
-    one-to-one conversation — see PASS_ALL_STREAMS and KNOWN_CONTACT. Both are decided
-    before any regex runs.
-    """
+    """Gate one message. Full-stream and known-contact passes apply before any regex."""
     body = (text or "").strip()
     if not body:
         return Verdict(False, "empty")
@@ -300,12 +264,8 @@ def gate_message(
         return Verdict(False, "trivial")
 
     if from_me and COMMIT_RE.search(body):
-        # Same words, two opposite meanings, and only the addressee separates them. To a
-        # person, an imperative the user wrote is an obligation the user took on. To a machine it is
-        # one the user handed off — "apply for 5 jobs pls" was done before the pass that filed
-        # it as their. Both still pass: the agent stream is the highest-signal thing here
-        # and the recall is not in question. What changes is that the verdict stops
-        # *asserting* a commitment, so nothing downstream reads one off the reason.
+        # Directives to a person assert a commitment; directives to a machine do not.
+        # Both pass.
         return Verdict(True, "directive" if addressed_to == "machine"
                        else "own-commitment")
     if TEMPORAL_RE.search(body):
@@ -333,18 +293,14 @@ def gate_email(
     headers: dict | None = None,
     gmail_labels: list[str] | None = None,
 ) -> Verdict:
-    """Keys on the sender, using signals that are free — to prioritize, not to exclude.
+    """Key on the sender with free signals, to prioritize rather than exclude.
 
-    An automatic conclusion sets a *priority*: low-priority mail is still read, still
-    searchable, still available to the model and the user, and is read after everything
-    else within a bounded share of each pass. Only a person saying no keeps mail out
-    entirely — see `identity.sender_blocked`.
+    Automatic conclusions set a priority; only an explicit human decision excludes.
+    See `identity.sender_blocked`.
     """
     headers = {k.lower(): v for k, v in (headers or {}).items()}
 
-    # A no from them, or from the agent quoting them, is final and is checked before
-    # everything — including the subject. "I don't care about AWS events" has to mean
-    # the sender never costs another token, however the next subject line is worded.
+    # Explicit blocks are final and checked before the subject.
     if identity.sender_blocked(conn, address):
         identity.bump_sender(conn, address)
         row = identity.sender_row(conn, address)
@@ -355,20 +311,15 @@ def gate_email(
         identity.bump_sender(conn, address)
         return Verdict(True, "sender-table:process")
 
-    # Someone the user has in Contacts, mailing them for the first time. Decided before the bulk
-    # tests because a friend's address can look like anything — including a `newsletter@`
-    # local part at their own domain.
+    # First-time mail from a Contact; checked before bulk tests.
     if not known and identity.resolve(conn, address):
         identity.set_sender(conn, address, "process", KNOWN_CONTACT)
         return Verdict(True, KNOWN_CONTACT)
 
-    # Tier one, above the subject: this message was *posted to a mailing list*. See the
-    # note on LIST_POSTING_HEADERS — nothing a subject line says gets past it, because
-    # "Reminder: AWS Summit NYC networking night is tomorrow" and "reminder: poker is
-    # tomorrow" are lexically identical and the headers are the only difference.
+    # Tier one, above the subject: list-posting headers prove bulk delivery
+    # regardless of subject. See LIST_POSTING_HEADERS.
     #
-    # Read off this very message, so the second newsletter is blocked by its own headers
-    # rather than by whether the table happened to learn the sender from the first.
+    # Read off this very message, so each newsletter is judged by its own headers.
     labels = {l.lower() for l in (gmail_labels or [])}
     if labels & set(BULK_CATEGORIES):
         identity.set_sender(conn, address, "archive",
@@ -379,21 +330,17 @@ def gate_email(
         identity.set_sender(conn, address, "archive", "list-posting")
         return Verdict(True, "bulk-headers", priority="low")
 
-    # The subject, before the address tests and before honouring the gate's own earlier
-    # guess. Being unable to reply to `noreply@e.headway.co` says nothing about whether
-    # "your appointment with Harper is in 1 hour" belongs on a calendar.
+    # Subject before address tests: an unreplyable address can still carry an event.
     if subject_is_event(subject):
         identity.bump_sender(conn, address)
         return Verdict(True, "subject-event")
 
     if known:
-        # The gate's own earlier conclusion, which the subject was just given a chance to
-        # overturn. Still a lookup, still free — and now a ranking rather than a wall.
+        # Prior gate conclusion, now as a ranking.
         identity.bump_sender(conn, address)
         return Verdict(True, f"sender-table:{known}", priority="low")
 
-    # Tier two, below the subject: mass-sent or machine-sent, but not addressed to a
-    # list. Anything whose subject reported a real event was already let through above.
+    # Tier two, below the subject: bulk or automated mail without list headers.
     if any(h in headers for h in BULK_HEADERS):
         identity.set_sender(conn, address, "archive", "bulk-headers")
         return Verdict(True, "bulk-headers", priority="low")
@@ -401,14 +348,11 @@ def gate_email(
         identity.set_sender(conn, address, "archive", "auto-submitted")
         return Verdict(True, "auto-submitted", priority="low")
     if is_automated(address):
-        # A machine that cannot be replied to. One decision, then a lookup forever — and
-        # "cannot be replied to" is a fact about the address, not about whether the
-        # delivery window inside the message matters to them.
+        # Unreplyable automated address: decide once, then lookup.
         identity.set_sender(conn, address, "archive", "automated-address")
         return Verdict(True, "automated-address", priority="low")
 
-    # Unknown, non-bulk, replyable: treat as a human until told otherwise. A Partiful
-    # invite from a stranger has to survive this, so the default stays permissive.
+    # Unknown, non-bulk, replyable: treat as human; default stays permissive.
     identity.set_sender(conn, address, "process", "unknown-sender-default")
     return Verdict(True, "unknown-sender")
 
@@ -430,11 +374,7 @@ def entity_for(*, person: str | None, thread: str | None, stream: str,
                is_group: bool) -> str:
     """The bundle key for one spooled item. The only place that choice is made.
 
-    A person beats a thread — except in a group chat, where the thread *is* the
-    subject. Four call sites used to decide this independently and two of them left the
-    person in: one line of Alumni Chat, hand-queued from the gate view, filed itself
-    under `person:parker shaw` and then sat in their personal bundle next to a 2019 DM,
-    with nothing on it to say it came from a group of thirty people.
+    A person beats a thread, except in a group chat where the thread is the subject.
     """
     subject = None if is_group else person
     return bundle_entity(subject, thread if (is_group or not subject) else None, stream)

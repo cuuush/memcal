@@ -83,7 +83,6 @@ class Config:
     bundle_format: str = "v1"
 
     # Default model identifiers for propose, sweep, and match operations. `match_model`
-    # keeps its name from before the stage was renamed Merge; it is the model that
     # arbitrates whether two proposed rows are one occasion.
     propose_model: str = "openai/gpt-5.6-luna"
     sweep_model: str = "openai/gpt-5.6-luna"
@@ -151,8 +150,7 @@ class Config:
     def secret(self, *names: str) -> str | None:
         """Look up a credential by any of several names, case- and separator-insensitive.
 
-        The .env here is hand-edited, so `groupme=`, `GROUPME=`, and
-        `GROUPME_ACCESS_TOKEN=` all have to mean the same thing.
+        Hand-edited .env files use inconsistent naming, so spelling variants match.
         """
         def norm(text: str) -> str:
             return "".join(ch for ch in text.lower() if ch.isalnum())
@@ -162,13 +160,8 @@ class Config:
             for key, value in source.items():
                 if value and norm(key) in wanted:
                     return value.strip()
-        # Then a one-directional prefix match, so a verbosely-named env var still
-        # answers: BLUEBUBBLES_PASSWORD_PROD satisfies a lookup for BLUEBUBBLES_PASSWORD.
-        # Only the most-specific name may act as the prefix, never a short family alias:
-        # `secret("SLACK_TOKEN", "slack")` must not let SLACK_USER_ID answer as the token,
-        # and matching on "slack" would do exactly that. The env key is always the longer
-        # side — a short env name must never satisfy a long alias, or `_` (which
-        # normalizes to "") would answer every lookup.
+        # Then a one-directional prefix match: the env key must start with the longest
+        # alias. Short aliases never match, and short env names never satisfy long aliases.
         longest = max((len(w) for w in wanted), default=0)
         aliases = {w for w in wanted if len(w) == longest and longest >= 5}
         for source in (self.env, os.environ):
@@ -193,8 +186,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
     def _flag(raw: str) -> bool:
         """`0`/`no`/`false`/`off` are false; anything else set at all is true.
 
-        `bool("0")` is True, so casting a flag with `bool` turns every attempt to switch
-        one *off* into switching it on.
+        Parsed explicitly because `bool("0")` is True.
         """
         return raw.strip().lower() not in ("0", "no", "false", "off", "")
 
@@ -243,9 +235,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
         if raw:
             setattr(cfg, attr, str(raw))
 
-    # Provider-native defaults make `MEMCAL_LLM_PROVIDER=claude-code` sufficient on
-    # its own, and cover the default provider on a store with no `.env` at all. A
-    # stage-specific model remains authoritative when it was configured.
+    # Fill unset stage models from the provider default; explicitly configured models win.
     defaults = {
         "claude-code": "claude-sonnet-5",
         "codex": "gpt-5.6-luna",

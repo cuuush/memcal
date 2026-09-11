@@ -46,14 +46,7 @@ LIMIT ?
 
 @dataclass
 class IngestReport(base.IngestReport):
-    """`base.IngestReport` plus where this reader got to in chat.db.
-
-    It used to be a separate class carrying a subset of the fields, and the subset left
-    out `more`, `too_old` and `muted` — so the fallback, which runs exactly when a
-    stream is already behind, filled its page and reported success. `catch_up` loops on
-    `total.more`, so it could not loop: collections 11, 12 and 13 each read exactly
-    1000 and closed green with `passed 0`, over 2,990 rows that were simply old.
-    """
+    """`base.IngestReport` plus the chat.db read position."""
 
     stream: str = "imessage"
     last_rowid: int = 0
@@ -83,11 +76,8 @@ def resume_floor(conn: sqlite3.Connection) -> str | None:
     return (row[0] if row else None) or None
 
 
-#: The body of an `attributedBody` sits immediately after the `NSString` class
-#: declaration: the class name, a version byte, then `\x84\x01+` and the contents.
-#: The version byte varies (`\x94` for a plain `NSString`, `\x95` when the object is
-#: an `NSMutableString` that declares `NSString` as its superclass) and matching it
-#: exactly is half of why the old scraper missed.
+#: The body of an `attributedBody` follows the `NSString` class declaration.
+#: The version byte varies by string class; match it flexibly.
 STRING_MARKER = re.compile(rb"NSString\x01.{0,2}\x84\x01\+", re.DOTALL)
 
 
@@ -194,9 +184,7 @@ def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None 
         watermark = int(db.get_meta(conn, key, "0") or 0)
     floor = resume_floor(conn) if not backfill else None
     report.floor = floor
-    # 0 is "since the Apple epoch", i.e. no bound at all — a cold start, where walking
-    # from the beginning is the correct behaviour and the spool horizon below is what
-    # stops a first import from charging for years of texts.
+    # 0 means no lower bound (cold start); the spool horizon limits the import.
     floor_ns = apple_ns(floor) if floor else 0
 
     try:
@@ -204,8 +192,7 @@ def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None 
         src.row_factory = sqlite3.Row
         mended = repair_decoded_text(conn, src)
         if mended:
-            report.notes.append(
-                f"re-decoded {mended} line(s) the old body scraper had mangled")
+            report.notes.append(f"re-decoded {mended} line(s) with the current decoder")
         rows = src.execute(QUERY, (watermark, floor_ns, limit)).fetchall()
     except sqlite3.OperationalError as exc:
         report.error = (f"cannot read {path} ({exc}). Grant Full Disk Access to your terminal "
@@ -260,9 +247,7 @@ def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None 
         if verdict and not archive.within_horizon(ts):
             report.too_old += 1
         elif verdict:
-            # The horizon belongs here too. Without it this path spooled whatever
-            # chat.db handed back — a first import walks from rowid 0, so a fresh
-            # install queued years of texts and charged for them on the next pass.
+            # Enforce the spool horizon here as well as at the gate.
             entity = gate.entity_for(person=person, thread=thread, stream="imessage",
                                      is_group=is_group)
             archive.spool_add(conn, archive_id, entity)

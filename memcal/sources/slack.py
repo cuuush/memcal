@@ -89,10 +89,6 @@ def scaffold_cli_project(directory: str) -> None:
     dot.mkdir(exist_ok=True)
     (dot / "config.json").write_text(json.dumps(
         {"manifest": {"source": "local"}, "project_id": str(uuid.uuid4())}))
-    # `get-manifest` prints manifest.json directly — no Bolt SDK to install.
-    # (The templates point get-hooks at slack_cli_hooks, which needs its package;
-    # a token-only app has no code, so there is nothing to hook into.)
-    # The CLI appends a `--source=DIR` argument; sh swallows it, cat ignores it.
     (dot / "hooks.json").write_text(json.dumps(
         {"hooks": {"get-manifest": "sh -c 'cat manifest.json'"}}))
 
@@ -282,10 +278,8 @@ class SlackSource(PolledSource):
 
     def history(self, client, conversation: Conversation, since: str | None,
                 limit: int) -> list:
-        # Slack returns newest-first. `polled.py` sorts and advances the watermark
-        # to the max, so returning just the first page would archive the newest
-        # 200 and skip older backlog forever. Page to the end, then hand back
-        # the oldest `want` — the next round picks up where this one stopped.
+        # Slack pages newest-first; page through and return the oldest `want`
+        # so the watermark advances without skipping backlog.
         want = min(limit, PAGE)
         collected: list = []
         cursor = None
