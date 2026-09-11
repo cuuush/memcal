@@ -110,8 +110,6 @@ Publishing to Calendar or Reminders is off by default.
 - One model backend: Codex (the default), Claude Code, or OpenRouter.
 - macOS for the local Messages, WhatsApp, Calendar, and Reminders integrations.
 
-The current Python runtime has no third-party dependencies or build step.
-
 ### Install
 
 ```bash
@@ -290,10 +288,12 @@ memcal schedule install
 memcal schedule status
 ```
 
-One background item, `memcal-nightly`, listed under that name in System Settings →
-Login Items & Extensions. launchd starts it at 03:00, at login, and every 30 minutes —
-and an interval that elapsed while the machine slept fires on wake. Each time, the script
-asks whether the day's pass is owed:
+One background item, `memcal`, appears in System Settings → Login Items & Extensions.
+The installer builds a small local app wrapper so macOS attributes Calendar access to
+memcal instead of Python; if that build is unavailable, the named script remains the
+fallback. launchd starts it at 03:00, at login, and every 30 minutes, and an interval
+that elapsed while the machine slept fires on wake. Each time, the script asks whether
+the day's pass is owed:
 
 - **owed** — collect from every source, then run the extraction pass. So a laptop that
   was shut or asleep at 03:00 runs one catch-up pass when the lid opens.
