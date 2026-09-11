@@ -354,12 +354,15 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
         even when memcal holds full access — doctor reads setup's stamp instead."""
         self.cfg.publish_calendar = "memcal"
         answer = lambda *_a, **_kw: (0, "")  # noqa: E731
-        failing = self._findings(answer)["Calendar/account"]
-        self.assertEqual(failing.status, cli.FAIL)
-        self.assertIn("ical setup", failing.fix)
-        db.set_meta(self.conn, "ical.eventkit.verified", db.now())
-        passing = self._findings(answer)["Calendar/account"]
-        self.assertEqual(passing.status, cli.OK)
+        # The publish switch is on, so this test must hand ical nowhere real to
+        # write: doctor's unpublished-rows check stays in-process and transport-free.
+        with mock.patch.object(ical, "publishable", return_value=False):
+            failing = self._findings(answer)["Calendar/account"]
+            self.assertEqual(failing.status, cli.FAIL)
+            self.assertIn("ical setup", failing.fix)
+            db.set_meta(self.conn, "ical.eventkit.verified", db.now())
+            passing = self._findings(answer)["Calendar/account"]
+            self.assertEqual(passing.status, cli.OK)
 
     def test_build_app_bundle_writes_a_memcal_identity_and_signs_it(self):
         calls = []

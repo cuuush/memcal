@@ -19,7 +19,10 @@ do not add dev notes or dated narratives here.
   spine. `identity.py` is a dictionary and stays one — no model call on the per-line path.
   `whois.py` holds the one identity call there is, asked for explicitly, writing back
   through `identity.link` at an evidence rank Contacts still outranks.
-- `memcal/sources/`: transports; `memcal/sources/providers/`: platform policy on a transport.
+- `memcal/sources/`: transports; `memcal/sources/polled.py` holds the two shapes a
+  message source can have (`PolledSource`, `StreamSource`) — a new platform implements
+  hooks rather than another ingest loop. `memcal/sources/providers/`: platform policy
+  on a transport.
 - `memcal/dream/`: bundle, propose, merge, apply, sweep, run orchestration.
 - `memcal/events.py`, `memcal/series.py`, `memcal/todos.py`, `memcal/questions.py`,
   `memcal/wiki.py`: typed stores and merge rules. `memcal/legacy.py` is temporary read

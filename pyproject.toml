@@ -5,8 +5,19 @@ description = "A calendar and a to-do list that live in context, fed by the stre
 requires-python = ">=3.11"
 dependencies = []
 
+# The core stays dependency-free: every source that needs a library imports it inside
+# `connect()` and reports the gap through `check()`, so a missing extra disables one
+# source rather than breaking the registry. Install only what you actually feed it.
+#
+#   pip install -e '.[slack]'        pip install -e '.[chat]'   # all of them
+#
+# Signal is deliberately absent. `signal-cli` is a JVM program, not a Python package:
+# `brew install signal-cli`, then `memcal login signal`.
 [project.optional-dependencies]
 docs = ["mkdocs>=1.6", "mkdocs-material>=9.6"]
+slack = ["slack_sdk>=3.27"]
+telegram = ["telethon>=1.36"]
+chat = ["slack_sdk>=3.27", "telethon>=1.36"]
 
 [project.scripts]
 memcal = "memcal.cli:main"
@@ -26,7 +37,7 @@ include = ["memcal*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-memcal = ["schema.sql", "webui.html", "static/*.css", "static/*.js"]
+memcal = ["schema.sql", "webui.html", "static/*.css", "static/*.js", "static/*.png"]
 
 # Third-party sources advertise themselves here:
 #   [project.entry-points."memcal.sources"]
