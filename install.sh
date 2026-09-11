@@ -2,8 +2,7 @@
 # memcal installer.
 #
 # Puts a `memcal` on your PATH that points at *this* source tree rather than a copy,
-# so editing the code takes effect immediately with no reinstall. The current runtime has
-# no third-party dependencies, so there is nothing to compile or resolve. If dependencies
+# so editing the code takes effect immediately with no reinstall. If dependencies
 # are added to pyproject.toml, this installer must install them before the launcher runs.
 #
 #   ./install.sh                 # ~/.local/bin/memcal, and `memcal init` if this is new

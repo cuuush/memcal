@@ -1403,6 +1403,12 @@ class TestNamedLaunchdScript(unittest.TestCase):
         self.home = Path(tempfile.mkdtemp())
         self.cfg = Config(home=self.home)
         self.cfg.ensure_dirs()
+        # Bundle routing is macOS-only; exercise the macOS paths off a Mac.
+        self._macos = mock.patch.object(schedule, "_is_macos", return_value=True)
+        self._macos.start()
+
+    def tearDown(self):
+        self._macos.stop()
 
     def test_plist_executes_named_script(self):
         # With no app bundle built, the job runs the script directly — argv[0] is the
@@ -1418,8 +1424,22 @@ class TestNamedLaunchdScript(unittest.TestCase):
         exe = schedule.app_executable(self.cfg)
         exe.parent.mkdir(parents=True, exist_ok=True)
         exe.write_bytes(b"")
+        exe.chmod(0o755)
         argv = schedule.render_plist(self.cfg)["ProgramArguments"]
         self.assertEqual([str(exe), str(schedule.script_path(self.cfg))], argv)
+
+    def test_plist_associates_the_job_with_the_app_bundle(self):
+        exe = schedule.app_executable(self.cfg)
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(b"")
+        exe.chmod(0o755)
+        plist = schedule.render_plist(self.cfg)
+        self.assertEqual([schedule.APP_BUNDLE_ID],
+                         plist["AssociatedBundleIdentifiers"])
+
+    def test_plist_omits_the_association_without_the_app(self):
+        plist = schedule.render_plist(self.cfg)
+        self.assertNotIn("AssociatedBundleIdentifiers", plist)
 
     def test_script_is_executable(self):
         script = schedule.script_path(self.cfg)
@@ -1496,11 +1516,13 @@ class TestNamedLaunchdScript(unittest.TestCase):
         main = self.home / "com.memcal.nightly.plist"
         retired = [self.home / f"{label}.plist" for label in schedule.RETIRED_LABELS]
         retired[0].touch()
+        schedule.app_path(self.cfg).mkdir()
         with mock.patch.object(schedule, "plist_path", return_value=main), \
              mock.patch.object(schedule, "retired_plist_paths", return_value=retired), \
              mock.patch.object(schedule, "_launchctl", return_value=(1, "not loaded")):
             schedule.uninstall(self.cfg)
         self.assertFalse(retired[0].exists())
+        self.assertFalse(schedule.app_path(self.cfg).exists())
 
     def test_run_now_executes_installed_script(self):
         script = schedule.script_path(self.cfg)
@@ -1508,6 +1530,36 @@ class TestNamedLaunchdScript(unittest.TestCase):
         script.chmod(0o755)
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(7, schedule.run_now(self.cfg))
+
+    def test_run_now_goes_through_the_app_when_it_is_built(self):
+        script = schedule.script_path(self.cfg)
+        script.write_text("#!/bin/sh\nexit 0\n")
+        script.chmod(0o755)
+        exe = schedule.app_executable(self.cfg)
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(b"")
+        exe.chmod(0o755)
+        seen = {}
+
+        def fake_run(argv, **kw):
+            seen["argv"] = argv
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with mock.patch.object(schedule.subprocess, "run", fake_run), \
+                contextlib.redirect_stdout(io.StringIO()):
+            schedule.run_now(self.cfg)
+        self.assertEqual([str(exe), str(script)], seen["argv"])
+
+    def test_off_macos_plist_and_run_now_skip_the_app(self):
+        exe = schedule.app_executable(self.cfg)
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(b"")
+        exe.chmod(0o755)
+        with mock.patch.object(schedule, "_is_macos", return_value=False):
+            plist = schedule.render_plist(self.cfg)
+            self.assertNotIn("AssociatedBundleIdentifiers", plist)
+            self.assertEqual([str(schedule.script_path(self.cfg))],
+                             plist["ProgramArguments"])
 
 
 class TestTheCliCouldNotOpenWhatItPrinted(Base):
