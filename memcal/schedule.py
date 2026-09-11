@@ -8,6 +8,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -17,6 +18,7 @@ from .config import Config, PROJECT_ROOT
 
 LABEL = "com.memcal.nightly"
 ICAL_PERMISSION_LABEL = "com.memcal.ical-permission"
+ICAL_EVENTKIT_LABEL = "com.memcal.ical-eventkit"
 DEFAULT_HOUR = 3
 DEFAULT_MINUTE = 0
 
@@ -24,6 +26,11 @@ DEFAULT_MINUTE = 0
 APP_BUNDLE_ID = "com.memcal.agent"
 APP_NAME = "memcal"
 LAUNCHER_SOURCE = PROJECT_ROOT / "memcal" / "macos" / "launcher.c"
+#: Checked-in icon source (the [E]/[T]/[Q] handle grid). The build converts it to
+#: AppIcon.icns; when it is absent the bundle still builds, just without an icon.
+ICON_SOURCE = PROJECT_ROOT / "memcal" / "macos" / "icon.png"
+APP_ICON_NAME = "AppIcon"
+APP_ICON_FILENAME = f"{APP_ICON_NAME}.icns"
 
 
 def _is_macos() -> bool:
@@ -71,6 +78,11 @@ def app_executable(cfg: Config) -> Path:
     return app_path(cfg) / "Contents" / "MacOS" / APP_NAME
 
 
+def app_icon_path(cfg: Config) -> Path:
+    """Return where the built bundle icon lives."""
+    return app_path(cfg) / "Contents" / "Resources" / APP_ICON_FILENAME
+
+
 def launch_through(cfg: Config, argv: list[str]) -> list[str]:
     """Run through the app launcher when a usable one is installed."""
     if not _is_macos():
@@ -93,8 +105,14 @@ def render_info_plist() -> dict:
         "CFBundleInfoDictionaryVersion": "6.0",
         "CFBundleShortVersionString": "1.0",
         "CFBundleVersion": "1",
-        # An agent, not an app with a window or a Dock icon.
-        "LSBackgroundOnly": True,
+        "CFBundleIconFile": APP_ICON_NAME,
+        "CFBundleIconName": APP_ICON_NAME,
+        # An agent, not an app with a window or a Dock icon — but an agent that can
+        # still present UI. `LSBackgroundOnly` was tried first and broke consent:
+        # a background-only identity can never show a TCC dialog, so `ical setup`
+        # hung for the whole EventKit wait with no prompt ever appearing.
+        # `LSUIElement` keeps it out of the Dock while letting the grant through.
+        "LSUIElement": True,
         "LSMinimumSystemVersion": "10.15",
         "NSAppleEventsUsageDescription": reason,
         "NSCalendarsUsageDescription": reason,
@@ -120,10 +138,21 @@ def _compiler_command(*, runner=subprocess.run) -> list[str] | None:
 
 
 def _bundle_is_current(cfg: Config) -> bool:
-    """True when the built launcher is newer than its source."""
+    """True when the built launcher is newer than its sources.
+
+    The icon is a source too: a newer icon.png must trigger one rebuild (and
+    re-sign), but a missing icon toolset must not trap the bundle in a rebuild
+    loop — so freshness is measured exe-vs-sources, never icns-vs-source.
+    """
     try:
-        return (app_executable(cfg).is_file()
-                and app_executable(cfg).stat().st_mtime >= LAUNCHER_SOURCE.stat().st_mtime)
+        exe_mtime = app_executable(cfg).stat().st_mtime if app_executable(cfg).is_file() else None
+        if exe_mtime is None:
+            return False
+        if exe_mtime < LAUNCHER_SOURCE.stat().st_mtime:
+            return False
+        if ICON_SOURCE.is_file() and exe_mtime < ICON_SOURCE.stat().st_mtime:
+            return False
+        return True
     except OSError:
         return False
 
@@ -189,6 +218,59 @@ def plist_identity_health(cfg: Config) -> tuple[str, str]:
     return ("stale", "nightly plist claims memcal.app that is not built")
 
 
+#: (base size, scale) pairs needed for a complete macOS iconset.
+ICONSET_SIZES = ((16, 1), (16, 2), (32, 1), (32, 2), (128, 1),
+                 (128, 2), (256, 1), (256, 2), (512, 1), (512, 2))
+
+
+def _install_app_icon(cfg: Config, *, runner=subprocess.run) -> list[str]:
+    """Convert ICON_SOURCE to AppIcon.icns inside the bundle, best-effort.
+
+    Missing source, missing sips/iconutil, or a mocked runner that answers 0
+    without writing anything all degrade to "no icon" rather than a failed
+    build: the bundle identity (and the Calendar grant) matters more than art.
+    """
+    if not ICON_SOURCE.is_file():
+        return []
+    dest = app_icon_path(cfg)
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return [f"note: could not install the app icon ({exc})"]
+    try:
+        with tempfile.TemporaryDirectory(prefix="memcal-iconset-") as tmpdir:
+            iconset = Path(tmpdir) / f"{APP_ICON_NAME}.iconset"
+            iconset.mkdir(parents=True, exist_ok=True)
+            for base, scale in ICONSET_SIZES:
+                pixels = base * scale
+                suffix = "@2x" if scale == 2 else ""
+                cell = iconset / f"icon_{base}x{base}{suffix}.png"
+                code, message = _run(
+                    ["sips", "-z", str(pixels), str(pixels),
+                     str(ICON_SOURCE), "--out", str(cell)], runner=runner)
+                if code:
+                    return [f"note: could not resize the app icon ({message or code})"]
+                if not cell.is_file():
+                    # A test double (or a tool that answered 0 without writing)
+                    # — stay silent and iconless rather than crying failure.
+                    return []
+            tmp_icns = Path(tmpdir) / APP_ICON_FILENAME
+            code, message = _run(
+                ["iconutil", "-c", "icns", str(iconset), "-o", str(tmp_icns)],
+                runner=runner)
+            if code:
+                return [f"note: could not build the app icon ({message or code})"]
+            if not tmp_icns.is_file():
+                return []
+            try:
+                tmp_icns.replace(dest)
+            except OSError as exc:
+                return [f"note: could not install the app icon ({exc})"]
+    except OSError as exc:
+        return [f"note: could not build the app icon ({exc})"]
+    return [f"installed {APP_ICON_FILENAME}"]
+
+
 def build_app_bundle(cfg: Config, *, runner=subprocess.run, force: bool = False) -> list[str]:
     """Build and ad-hoc-sign the optional launchd app wrapper."""
     if not _is_macos():
@@ -219,6 +301,8 @@ def build_app_bundle(cfg: Config, *, runner=subprocess.run, force: bool = False)
         with (contents / "Info.plist").open("wb") as fh:
             plistlib.dump(render_info_plist(), fh)
         (contents / "PkgInfo").write_text("APPL????", encoding="ascii")
+        # Icon before codesign: Resources are part of the signature.
+        out.extend(_install_app_icon(cfg, runner=runner))
 
         # Compile beside the live executable and rename into place, so a failed
         # rebuild never leaves a stale or missing binary where a working one was.
@@ -277,28 +361,31 @@ def pinned_python(cfg: Config) -> str:
     return sys.executable
 
 
-def calendar_permission_probe(cfg: Config, *, timeout: int = 45) -> tuple[bool, str]:
-    """Request Calendar access from a temporary launchd agent.
+def launchd_memcal_call(cfg: Config, *, label: str, stem: str,
+                          memcal_argv: list[str], timeout: int = 45,
+                          ) -> tuple[dict | None, str]:
+    """Run one memcal invocation as a temporary launchd agent; return its payload.
 
-    Running `osascript` from a terminal can authorize the terminal/Codex responsible
-    process while the 03:00 job remains unapproved. This probe uses the same user
-    launchd domain, source checkout, home, pinned Python, and — through the app
-    bundle — the same TCC identity as the nightly agent, so the grant it obtains is
-    the one the 03:00 job will use.
+    The agent runs through the app bundle when one is built, with the bundle id
+    claimed — the same TCC identity as the nightly job. This routing is load-bearing,
+    not cosmetic: an `osascript` run from a terminal resolves to the *terminal's*
+    identity instead (a terminal probe of EventKit status once read the terminal's
+    denial while the launchd identity held full access), so anything that must act
+    as memcal — consent requests, account checks — goes through here. Returns the
+    parsed result-file payload, or None on timeout/startup failure, plus the
+    identity label for messages.
     """
     cfg.ensure_dirs()
     python = pinned_python(cfg)
-    plist = cfg.home / "ical-permission.plist"
-    result = cfg.home / "ical-permission-result.json"
-    argv = launch_through(cfg, [
-        python, "-m", "memcal", "ical", "probe",
-        "--context", "nightly", "--result", str(result),
-    ])
+    plist = cfg.home / f"{stem}.plist"
+    result = cfg.home / f"{stem}-result.json"
+    argv = launch_through(cfg, [python, "-m", "memcal", *memcal_argv,
+                                "--result", str(result)])
     identity = APP_NAME if argv[0] == str(app_executable(cfg)) else python
     try:
         result.unlink(missing_ok=True)
         payload_plist: dict = {
-            "Label": ICAL_PERMISSION_LABEL,
+            "Label": label,
             "ProgramArguments": argv,
             "RunAtLoad": True,
             "ProcessType": "Interactive",
@@ -312,29 +399,66 @@ def calendar_permission_probe(cfg: Config, *, timeout: int = 45) -> tuple[bool, 
             payload_plist["AssociatedBundleIdentifiers"] = [APP_BUNDLE_ID]
         with plist.open("wb") as fh:
             plistlib.dump(payload_plist, fh)
-        _launchctl("bootout", f"{_domain()}/{ICAL_PERMISSION_LABEL}")
+        _launchctl("bootout", f"{_domain()}/{label}")
         code, message = _launchctl("bootstrap", _domain(), str(plist))
         if code:
-            return False, f"could not start launchd Calendar probe: {message or code}"
+            return None, f"could not start launchd job {label}: {message or code}"
         deadline = time.monotonic() + max(1, timeout)
         while time.monotonic() < deadline:
             if result.exists():
                 try:
-                    payload = json.loads(result.read_text(encoding="utf-8"))
-                    ok = bool(payload.get("ok"))
-                    detail = str(payload.get("message") or "no detail")
-                    return ok, f"nightly launchd requester ({identity}): {detail}"
+                    return json.loads(result.read_text(encoding="utf-8")), identity
                 except (OSError, ValueError):
                     pass
             time.sleep(0.25)
+        return None, identity
+    finally:
+        _launchctl("bootout", f"{_domain()}/{label}")
+        result.unlink(missing_ok=True)
+        plist.unlink(missing_ok=True)
+
+
+def calendar_permission_probe(cfg: Config, *, timeout: int = 45) -> tuple[bool, str]:
+    """Request Calendar access from a temporary launchd agent.
+
+    Running `osascript` from a terminal can authorize the terminal/Codex responsible
+    process while the 03:00 job remains unapproved. This probe uses the same user
+    launchd domain, source checkout, home, pinned Python, and — through the app
+    bundle — the same TCC identity as the nightly agent, so the grant it obtains is
+    the one the 03:00 job will use.
+    """
+    payload, identity = launchd_memcal_call(
+        cfg, label=ICAL_PERMISSION_LABEL, stem="ical-permission",
+        memcal_argv=["ical", "probe", "--context", "nightly"], timeout=timeout)
+    if payload is None:
+        if identity.startswith("could not start"):
+            return False, identity
         return False, (
             f"nightly launchd Calendar check timed out ({identity}); "
             "a permission prompt may still be waiting"
         )
-    finally:
-        _launchctl("bootout", f"{_domain()}/{ICAL_PERMISSION_LABEL}")
-        result.unlink(missing_ok=True)
-        plist.unlink(missing_ok=True)
+    ok = bool(payload.get("ok"))
+    detail = str(payload.get("message") or "no detail")
+    return ok, f"nightly launchd requester ({identity}): {detail}"
+
+
+def eventkit_call(cfg: Config, verb: str, *, timeout: int = 90) -> tuple[bool, str]:
+    """Run one EventKit verb as memcal and report it.
+
+    The request and the account check both run *inside* the temporary agent, where
+    plain in-process calls already carry the nightly identity. Called with "request"
+    to open the consent dialog, with "where" for the passive account check.
+    """
+    payload, identity = launchd_memcal_call(
+        cfg, label=ICAL_EVENTKIT_LABEL, stem="ical-eventkit",
+        memcal_argv=["ical", "probe", "--ek", verb, "--context", "nightly"],
+        timeout=timeout)
+    if payload is None:
+        if identity.startswith("could not start"):
+            return False, identity
+        return False, (f"launchd EventKit {verb} timed out ({identity}); "
+                       "a permission prompt may still be waiting")
+    return bool(payload.get("ok")), str(payload.get("message") or "no detail")
 
 
 # ------------------------------------------------------------------ writing --
