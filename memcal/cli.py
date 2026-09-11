@@ -967,10 +967,14 @@ def cmd_reminders(args) -> int:
                 print("This opens a macOS consent dialog for Reminders access.")
                 print("Re-run with --yes to request it.")
                 return 0
+            # Announced and flushed: the request below blocks (bounded) while the
+            # dialog waits, and silence there reads as a hang.
+            print("Requesting Reminders access — answer the system dialog…",
+                  flush=True)
             ok, message = ical.request_reminders_access()
         else:
             payload = ical._reminder_call("status", name or "")
-            ok = payload.get("status") == ical.EK_FULL_ACCESS
+            ok = payload.get("status") in ical.EK_FULL_ACCESS
             message = ("Reminders access granted" if ok else
                        f"Reminders access not granted (status {payload.get('status')}) — "
                        "run `memcal reminders setup --yes`")
@@ -988,9 +992,19 @@ def cmd_ical(args) -> int:
     """Request or report macOS Calendar permission for the real requester."""
     cfg, conn = open_ctx(args)
     if args.action == "probe":
-        ok, message = ical.permission_status()
+        # `--ek` runs inside the temporary launchd agent, where these in-process
+        # calls already carry the nightly identity. From a terminal they would
+        # resolve to the terminal's instead — see `launchd_memcal_call`.
+        if args.ek == "request":
+            ok, message = ical.request_calendar_access()
+        elif args.ek == "where":
+            ok, message = ical.account_status(cfg)
+        else:
+            ok, message = ical.permission_status()
         if ok:
             db.set_meta(conn, f"ical.permission.{args.context}", db.now())
+            if args.ek:
+                db.set_meta(conn, "ical.eventkit.verified", db.now())
         if args.result:
             from pathlib import Path
             Path(args.result).write_text(
@@ -1002,7 +1016,8 @@ def cmd_ical(args) -> int:
         return 0 if ok else 1
 
     if args.action == "account":
-        ok, message = ical.account_status(cfg)
+        # Via the launchd identity: in-process this checks the terminal's.
+        ok, message = schedule.eventkit_call(cfg, "where", timeout=60)
         print(("ok " if ok else "-- ") + message)
         conn.close()
         return 0 if ok else 1
@@ -1035,6 +1050,10 @@ def cmd_ical(args) -> int:
                   "  nightly      not verified")
         else:
             print("  nightly      schedule not installed")
+        if (cfg.publish_calendar or "").strip():
+            ek = db.get_meta(conn, "ical.eventkit.verified")
+            print(f"  eventkit     last verified {ek}" if ek else
+                  "  eventkit     not verified")
         print("Run `memcal ical setup` for a live check.")
         conn.close()
         return 0 if (nightly if installed else interactive) else 1
@@ -1057,14 +1076,12 @@ def cmd_ical(args) -> int:
             return 2
 
     if installed:
-        conn.close()
         ok, message = schedule.calendar_permission_probe(cfg)
         print(("ok " if ok else "-- ") + message)
     else:
         ok, message = ical.permission_status()
         if ok:
             db.set_meta(conn, "ical.permission.interactive", db.now())
-        conn.close()
         print(("ok " if ok else "-- ") + f"interactive requester: {message}")
         print(
             "The nightly schedule is not installed. After `memcal schedule install`, "
@@ -1074,13 +1091,18 @@ def cmd_ical(args) -> int:
         # A second, separate macOS permission. Reading the calendar goes through Apple
         # Events; *naming the account* to create memcal's calendar in goes through
         # EventKit, and granting one grants nothing of the other. Only asked for when the
-        # store actually publishes.
-        granted, message = ical.request_calendar_access()
+        # store actually publishes. Through the launchd job: in-process EventKit calls
+        # resolve to the terminal's TCC identity, not memcal's. Announced: the request
+        # blocks (bounded) while its dialog waits, and silence there reads as a hang.
+        print("Requesting Calendars access for memcal — answer the system dialog…",
+              flush=True)
+        granted, message = schedule.eventkit_call(cfg, "request", timeout=90)
         print(("ok " if granted else "-- ") + message)
         if granted:
-            where_ok, where = ical.account_status(cfg)
+            where_ok, where = schedule.eventkit_call(cfg, "where", timeout=60)
             print(("ok " if where_ok else "-- ") + where)
         ok = ok and granted
+    conn.close()
     return 0 if ok else 1
 
 
@@ -1731,16 +1753,16 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
         add("Calendar", "publishing", INFO,
             "off — memcal writes nothing outside itself")
     else:
-        account_ok, account = ical.account_status(cfg)
-        if account_ok:
-            add("Calendar", "account", OK, account[:90], fix="")
-        elif "no Calendar access yet" in account:
-            # Migrating without access fails; the grant comes first.
-            add("Calendar", "account", FAIL, account[:90],
-                fix="memcal ical setup       # grants access; migrate after")
+        # Verified-or-nothing, deliberately: a live in-terminal EventKit check would
+        # test the *terminal's* TCC identity and fail even when memcal holds full
+        # access, so doctor reads the stamp setup left instead of re-checking.
+        ek = db.get_meta(conn, "ical.eventkit.verified")
+        if ek:
+            add("Calendar", "account", OK, f"full EventKit access verified {ek}",
+                fix="")
         else:
-            add("Calendar", "account", FAIL, account[:90],
-                fix="memcal ical migrate --yes")
+            add("Calendar", "account", FAIL, "EventKit access not verified as memcal",
+                fix="memcal ical setup       # grants access; migrate after")
         # Rows that should be on the real calendar and are not. This is the check that
         # would have caught the tutoring series publishing without its join link — not by
         # noticing the link, but by noticing the row's published state no longer matches.
@@ -2199,6 +2221,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--result", help=argparse.SUPPRESS)
     s.add_argument("--context", choices=["interactive", "nightly"],
                    default="interactive", help=argparse.SUPPRESS)
+    s.add_argument("--ek", choices=["request", "where"], default=None,
+                   help=argparse.SUPPRESS)
     s.add_argument("--yes", action="store_true",
                    help="setup: perform the permission request. "
                         "migrate: actually move the events, rather than say what would move")
