@@ -1732,8 +1732,15 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
             "off — memcal writes nothing outside itself")
     else:
         account_ok, account = ical.account_status(cfg)
-        add("Calendar", "account", OK if account_ok else FAIL, account[:90],
-            fix="" if account_ok else "memcal ical migrate --yes")
+        if account_ok:
+            add("Calendar", "account", OK, account[:90], fix="")
+        elif "no Calendar access yet" in account:
+            # Migrating without access fails; the grant comes first.
+            add("Calendar", "account", FAIL, account[:90],
+                fix="memcal ical setup       # grants access; migrate after")
+        else:
+            add("Calendar", "account", FAIL, account[:90],
+                fix="memcal ical migrate --yes")
         # Rows that should be on the real calendar and are not. This is the check that
         # would have caught the tutoring series publishing without its join link — not by
         # noticing the link, but by noticing the row's published state no longer matches.
