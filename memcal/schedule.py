@@ -366,14 +366,10 @@ def launchd_memcal_call(cfg: Config, *, label: str, stem: str,
                           ) -> tuple[dict | None, str]:
     """Run one memcal invocation as a temporary launchd agent; return its payload.
 
-    The agent runs through the app bundle when one is built, with the bundle id
-    claimed — the same TCC identity as the nightly job. This routing is load-bearing,
-    not cosmetic: an `osascript` run from a terminal resolves to the *terminal's*
-    identity instead (a terminal probe of EventKit status once read the terminal's
-    denial while the launchd identity held full access), so anything that must act
-    as memcal — consent requests, account checks — goes through here. Returns the
-    parsed result-file payload, or None on timeout/startup failure, plus the
-    identity label for messages.
+    The agent runs through the app bundle with the bundle id claimed: the nightly
+    job's TCC identity. A terminal `osascript` resolves to the *terminal's* identity
+    instead, so consent requests and account checks go through here. Returns the
+    parsed payload, or None on timeout/startup failure, plus the identity label.
     """
     cfg.ensure_dirs()
     python = pinned_python(cfg)

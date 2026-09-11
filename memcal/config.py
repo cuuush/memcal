@@ -162,10 +162,15 @@ class Config:
             for key, value in source.items():
                 if value and norm(key) in wanted:
                     return value.strip()
-        # Then a one-directional prefix match: BLUEBUBBLES_PASSWORD satisfies the alias
-        # "bluebubbles". Only this direction — a short env name must never satisfy a
-        # long alias, or `_` (which normalizes to "") would answer every lookup.
-        aliases = {w for w in wanted if len(w) >= 5}
+        # Then a one-directional prefix match, so a verbosely-named env var still
+        # answers: BLUEBUBBLES_PASSWORD_PROD satisfies a lookup for BLUEBUBBLES_PASSWORD.
+        # Only the most-specific name may act as the prefix, never a short family alias:
+        # `secret("SLACK_TOKEN", "slack")` must not let SLACK_USER_ID answer as the token,
+        # and matching on "slack" would do exactly that. The env key is always the longer
+        # side — a short env name must never satisfy a long alias, or `_` (which
+        # normalizes to "") would answer every lookup.
+        longest = max((len(w) for w in wanted), default=0)
+        aliases = {w for w in wanted if len(w) == longest and longest >= 5}
         for source in (self.env, os.environ):
             for key, value in source.items():
                 nk = norm(key)

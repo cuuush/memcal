@@ -120,7 +120,8 @@ def frontend_source() -> str:
     now lives in memcal/static/*.js rather than inline in webui.html.
     """
     return PAGE.read_text() + "".join(
-        p.read_text() for p in sorted(STATIC_DIR.glob("*")))
+        p.read_text() for p in sorted(STATIC_DIR.glob("*"))
+        if p.suffix in (".js", ".css"))
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "memcal"
