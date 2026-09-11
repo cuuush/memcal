@@ -84,10 +84,7 @@ class LiveError(Exception):
 
 def _refresh(conn: sqlite3.Connection, cfg: Config, *keys: str) -> None:
     brief.write(conn, cfg)
-    # A row the user just confirmed goes onto their real calendar, so it is on their
-    # phone at the door rather than in a private store they have to ask about. Only
-    # `confirmed` commitments qualify (`ical.publishable`), and a failure is logged
-    # rather than raised: memcal is the system of record and the next pass retries.
+    # Publish confirmed commitments; failures log and retry on the next pass.
     if keys:
         from .sources import ical                                   # noqa: PLC0415
         ical.publish_pending(conn, cfg, keys=[k for k in keys if k])
@@ -99,9 +96,7 @@ def find_event(conn: sqlite3.Connection, needle: str) -> events.Event:
     if not needle:
         raise LiveError("which row? give its E# handle or the words it is listed under")
 
-    # Read surfaces put E# on a row precisely so a follow-up can name that *row*, even
-    # when its title has siblings.  Do this before the loose title search below: E# is
-    # an address, not a word that happens to occur in a title.
+    # Resolve E# handles before loose title search; a handle is an address.
     handle = brief.parse_source(needle.strip("〔〕"))
     if handle:
         kind, _row_id = handle
@@ -144,12 +139,7 @@ Origin = actions.Origin
 
 @contextmanager
 def _atomic(conn: sqlite3.Connection):
-    """The state change and its operation record commit together, or neither does.
-
-    Without this the store can hold a moved event with no record of the move, which is
-    indistinguishable from a row the user never touched — and that is precisely the case
-    where the nightly pass is about to write over them.
-    """
+    """Commit state changes with their operation records, or neither."""
     if conn.in_transaction:
         conn.commit()
     conn.execute("BEGIN")
@@ -205,8 +195,7 @@ def add_event(conn: sqlite3.Connection, cfg: Config, *, title: str, when: str,
                       verb="inserted", origin=origin, request=payload, at=db.now())
     with _atomic(conn):
         if actions.seen(conn, op):
-            # Already carried out. The check is inside the transaction that would
-            # otherwise mutate, so it cannot go stale between deciding and writing.
+            # Replay inside the write transaction so the check cannot go stale.
             existing = events.find_match(conn, title=title, on=payload["date"],
                                          participants=payload.get("participants") or [])
             if existing is not None:
@@ -231,12 +220,7 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
     """Change a row the user can see. Returns it rendered, so nothing needs re-reading."""
     event = find_event(conn, which)
     payload: dict = {k: v for k, v in changes.items() if v not in (None, "", [])}
-    # An argument the caller *passed* as empty is a request to empty that field; one they
-    # omitted arrives as None and means nothing at all. `**changes` keeps the two apart,
-    # and this is the only layer that can tell — by the time it reaches `upsert` both are
-    # falsy. Confined to the typed human-initiated path on purpose: a person saying "no,
-    # there's no location for that" is a correction, while a model returning a partial
-    # diff omits fields constantly and must never be read as deleting them.
+    # Empty string means clear; omitted means untouched. Only the typed path may clear.
     wipe = tuple(name for name, value in changes.items()
                  if value == "" and name in events.CLEARABLE)
     if payload.get("when"):
@@ -253,9 +237,7 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
             (set(event.participants) | set(add_participants or []))
             - {name for name in event.participants if name.casefold() in removed})
     if not payload and not wipe:
-        # An empty value for a field that cannot be emptied is a caller trying to do
-        # something real and being told "nothing to change", which reads as a no-op
-        # rather than as a refusal. Name the fields that do accept it.
+        # Name clearable fields so a refused clear reads as a refusal, not a no-op.
         asked = [name for name, value in changes.items() if value == ""]
         if asked:
             raise LiveError(
@@ -266,14 +248,10 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
 
     before = {name: getattr(event, name) for name in events.MUTABLE}
     based_on = _version_of(conn, "event", event.key)
-    # Always by key: a row found by its words must not be re-matched by title, or a
-    # status change lands on whichever row `find_match` liked better.
+    # Always by key so re-matching cannot retarget the write.
     payload["key"] = event.key
     payload.setdefault("date", event.date)
-    # Planned from what the caller asked for, before anything moves. Hashing the row's
-    # current values instead made a replay unrecognisable exactly when it mattered:
-    # move A, move B, retry A, and A's "before" is B's result — so the retry looked like
-    # a new instruction and quietly undid B.
+    # Plan replay keys from the request, not current values, so retries stay recognisable.
     op = actions.plan(kind="event", ref=event.key, verb="updated", origin=origin,
                       request={**payload, "clear": sorted(wipe)}, at=db.now())
     with _atomic(conn):
@@ -286,10 +264,7 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
         moved = {name: [str(before[name]), str(getattr(updated, name))]
                  for name in events.MUTABLE
                  if str(before[name]) != str(getattr(updated, name))}
-        # A call that changed nothing is not a completed operation. Recording one puts a
-        # second "updated" beside the real one and makes a repeated instruction — which
-        # is how an agent behaves when it does not trust the first answer — look like
-        # two separate decisions to whatever reads the record next.
+        # Record operations only when something moved; no-op calls are not decisions.
         if moved:
             _stamp_live(conn, "event", updated.key, "updated", origin=origin,
                         fields=moved, based_on=based_on, op_id=op, commit=False)
@@ -318,8 +293,7 @@ def set_schedule(conn: sqlite3.Connection, cfg: Config, which: str, *,
         raise LiveError("which recurring thing? give its name, e.g. 'tutoring'")
     known = series.get(conn, slug)
     if known is None:
-        # Adopting an existing group of rows is the common case: the user is naming something
-        # memcal already has instances of, not inventing a new thing.
+        # Adopt existing rows with the same series slug when creating a rule.
         row = conn.execute("SELECT title FROM events WHERE series = ? ORDER BY date DESC"
                            " LIMIT 1", (slug,)).fetchone()
         title = row["title"] if row else which.strip()
@@ -353,9 +327,7 @@ def set_schedule(conn: sqlite3.Connection, cfg: Config, which: str, *,
     if starting:
         fields["effective_on"] = db.parse_when(str(starting))[0].isoformat()
     elif known is None or cadence or weekday is not None or day_of_month is not None:
-        # A new rule, or one whose *shape* changed, takes effect from today unless the user
-        # named a day. Restating the link is not a schedule change and must not move the
-        # anchor — see `apply._schedule_moved` for the same rule one surface over.
+        # New or reshaped rules take effect today; restating a link never moves the anchor.
         fields.setdefault("effective_on", db.today().isoformat())
     if len(fields) <= 3:                       # slug, title, source and nothing said
         raise LiveError("say how often it repeats, or what changed about it")
@@ -373,8 +345,7 @@ def set_schedule(conn: sqlite3.Connection, cfg: Config, which: str, *,
     log = series.roll_forward(conn, slug=slug)
     from .sources import ical                                        # noqa: PLC0415
     log += ical.publish_schedules(conn, cfg, slugs=[slug])
-    # Every upcoming occurrence, because a cadence change moves all of them and each one
-    # has its own copy on the real calendar to keep in step.
+    # Publish every upcoming occurrence after a cadence change.
     upcoming = [row["key"] for row in conn.execute(
         "SELECT key FROM events WHERE series = ? AND date >= ?",
         (slug, db.today().isoformat()))]
@@ -425,10 +396,7 @@ def merge_events(conn: sqlite3.Connection, cfg: Config, keep: str, drop: str, *,
     based_on = _version_of(conn, "event", survivor.key)
     op = actions.plan(kind="event", ref=survivor.key, verb="merged", origin=origin,
                       request={"keep": survivor.key, "drop": doomed.key}, at=db.now())
-    # The one write path that was neither atomic nor replay-safe: `events.merge`
-    # committed on its own and the record committed after it, so a crash between the two
-    # left a merged row with nothing saying it had been merged — which is exactly the
-    # state the nightly pass reads as "untouched" and writes over.
+    # Merge atomically with its record so a crash cannot leave an unrecorded merge.
     with _atomic(conn):
         if actions.seen(conn, op):
             return survivor
@@ -477,16 +445,7 @@ def open_todo(conn: sqlite3.Connection, cfg: Config, text: str, *, due: str | No
     if isinstance(remind, str) and remind.strip():
         remind_at = remind.strip()
     elif remind:
-        # What this to-do already knows counts. Adding a reminder to something that has
-        # been open for a week is the ordinary case, and reading only the arguments of
-        # *this* call made the store's own due date and event link invisible.
-        #
-        # Several things can anchor a reminder and they disagree, so try them in order
-        # of authority and take the first that still lies ahead. A to-do can outlive the
-        # occurrence it was linked to — "remind you about the tattoo session" points at
-        # the one on the 11th, which has happened, while its own due date points at the
-        # session on the 24th, which has not. Stopping at the first anchor that *exists*
-        # reads the stalest one and concludes there is nothing to remind about.
+        # Try anchors in authority order and take the first still ahead.
         existing = todos.get(conn, key or f"todo:{db.slugify(text, 64)}")
         anchors = [linked.date if linked else None, when_due]
         if existing:
@@ -559,9 +518,7 @@ def close_todo(conn: sqlite3.Connection, cfg: Config, which: str, *,
             _stamp_live(conn, "todo", todo.key, "closed", origin=origin,
                         fields={"status": ["open", "closed"]}, based_on=based_on,
                         op_id=op, commit=False)
-    # And take it back off their phone. A reminder that survives the thing it was about
-    # is an orphaned record left behind by something deleted, still
-    # asserting itself once a day — and here it asserts itself by buzzing.
+    # Retract the reminder so it stops buzzing after the to-do closes.
     if todo.reminder_uid:
         from .sources import ical                                   # noqa: PLC0415
         try:

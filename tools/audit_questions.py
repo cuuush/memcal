@@ -65,14 +65,9 @@ SPELLED_OUT = re.compile(
 
 
 def date_coverage(conn) -> dict:
-    """How many open questions can say which day they are about, and how they know.
+    """How many open questions carry a resolvable day, and by which signal.
 
-    `expire_questions` has three arms: the linked row's day, then `about_date`, then a
-    flat ten-day TTL. The middle arm only fires because the propose model happens to
-    spell the day into the question text — nothing asks it to, the diff schema has no
-    date field, and if the phrasing drifts the arm goes quiet and expiry reverts to the
-    TTL that #32 was filed to replace. That failure is `expire_questions` returning a
-    *smaller* number, which nothing reads. This is the number that would say so.
+    Covers the linked row, `about_date` read from question text, and the TTL fallback.
     """
     out = {"open": 0, "linked": 0, "dated": 0, "undated": 0, "weekday_only": [],
            "exempt": 0}
@@ -89,10 +84,8 @@ def date_coverage(conn) -> dict:
         if row["about_date"]:
             out["dated"] += 1
             if not SPELLED_OUT.search(row["text"] or ""):
-                # `dates.resolve` answers forward, so a bare weekday naming a day that
-                # has already gone resolves to the *next* one and the question sits open
-                # up to six days longer than it should. Reported rather than assumed
-                # absent: the issue that asked for this instrument had not seen one.
+                # `dates.resolve` answers forward. A past weekday resolves to the next
+                # occurrence and extends the open window.
                 out["weekday_only"].append((row["id"], row["about_date"]))
         else:
             out["undated"] += 1

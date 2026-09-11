@@ -1,10 +1,6 @@
 """Every knob memcal has, in one schema: what it means, and where its value lives.
 
-`config.load` reads `MEMCAL_*` out of three `.env` files and the environment. That is a
-fine way to read a setting and a poor way to change one: the variable's name is not the
-thing's name, the file that wins is not always the file you edited, and nothing lists
-what may be set at all. This module is the list, the validation, and the write. It
-knows nothing about HTTP or launchd — `web_settings.py` assembles those around it.
+This module lists, validates, and writes them; `config.load` reads them.
 """
 
 from __future__ import annotations
@@ -85,9 +81,7 @@ GROUPS: tuple[Group, ...] = (
           "name a destination, and both are scoped to this store."),
 )
 
-#: Short on purpose: a select shows one option at a time in a narrow control, and a
-#: label that has to be truncated to fit says less than a short one. What each provider
-#: is, is the group's own note.
+#: Short labels; the group note explains each provider.
 _PROVIDERS = (
     ("codex", "Codex"),
     ("claude-code", "Claude Code"),
@@ -244,9 +238,7 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("MEMCAL_REMIND_DEADLINES", "remind_deadlines", "Schedule deadline reminders",
             "Whether an obligation with a deadline gets a reminder timestamp at all. "
             "With no Reminders list named above, this stays internal.",
-            # Not store-scoped, unlike the two above it: `config.load` reads this one
-            # from the merged environment. Claiming otherwise would print a badge that
-            # is false and suppress the warning that a checkout's `.env` outranks this.
+            # Not store-scoped: read from the merged environment.
             "publish", kind="bool"),
 )
 
@@ -286,10 +278,7 @@ def current_text(cfg: Config, setting: Setting) -> str:
 def env_files(cfg: Config) -> list[tuple[str, Path]]:
     """Every `.env` `config.load` reads, highest precedence first.
 
-    The order matters and is easy to get backwards: `load_env` merges left to right, so
-    the *last* file read wins, which makes the working directory outrank the store. A
-    settings page that wrote the store's file and said nothing about that would be
-    lying by omission the moment someone kept a `.env` beside a checkout.
+    `load_env` merges left to right, so the last file read wins.
     """
     def canonical(path: Path) -> Path:
         try:
@@ -307,11 +296,7 @@ def env_files(cfg: Config) -> list[tuple[str, Path]]:
         if resolved in seen:
             continue
         seen.add(resolved)
-        # The store's own file answers to that name wherever else it turns up. Run
-        # `memcal web` from inside `~/.memcal` and it is also the working directory's
-        # file; labelled that way it stopped being the store row, so every save warned
-        # that the file it had just written was shadowing itself, and a store-scoped
-        # setting — which is only ever read from the store row — reported no value at all.
+        # A path resolving to the store file is labelled as the store.
         out.append(("store" if resolved == store else role, resolved))
     return out
 
@@ -438,9 +423,7 @@ def coerce(setting: Setting, raw, *, provider: str = "") -> tuple[str, object]:
                 f"{setting.label} is one of {', '.join(v or 'empty' for v in allowed)}")
         return text, text
     if setting.kind == "stages":
-        # The tab picks these rather than spelling them, but the field is still a list
-        # in a file: a value typed elsewhere, or a stage renamed since, fails the next
-        # pass at the point where it has already spent the collect.
+        # File values are still validated; unknown stages fail.
         from .dream import stages                                  # noqa: PLC0415
         try:
             stages.parse(text)
@@ -540,13 +523,7 @@ def save(cfg: Config, changes: dict) -> dict:
 
 
 def resolve_provider_models(cfg: Config) -> None:
-    """Re-run the last thing `config.load` does: fill unset models from the provider.
-
-    Changing only the provider changes three other values, because a model nobody set
-    follows whichever runtime is chosen. Without this the live config kept the previous
-    provider's model id and the next pass handed a Claude Code CLI an OpenRouter-shaped
-    name — a save that is correct on disk and wrong in the process that wrote it.
-    """
+    """Fill unset models from the provider, mirroring the last step of `config.load`."""
     from . import llm                                              # noqa: PLC0415
     native = llm.PROVIDER_DEFAULT_MODELS.get(
         str(getattr(cfg, "llm_provider", "") or "").strip().lower())

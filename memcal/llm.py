@@ -57,11 +57,9 @@ CAPACITY_BUDGET = 1800.0
 #: Longest single sleep. A provider's own `Retry-After` is believed above this.
 MAX_BACKOFF = 300.0
 
-# $/MTok, so a pass can be priced before it is spent. Sonnet 5 is on introductory
-# pricing through 2026-08-31; its standard rate is 3.00/15.00.
-# The open-weight models are priced per one specific provider endpoint, because rates
-# on OpenRouter vary several-fold across providers for the same model — glm-5.2 alone
-# spans 0.74 to 3.03 in. Each rate below is the endpoint the config actually pins.
+# $/MTok, so a pass can be priced before it is spent.
+# Open-weight rates are pinned per provider endpoint, because OpenRouter rates
+# vary several-fold across providers for the same model.
 PRICES: dict[str, tuple[float, float]] = {
     "anthropic/claude-sonnet-5": (2.00, 10.00),
     "anthropic/claude-opus-5": (5.00, 25.00),
@@ -70,11 +68,9 @@ PRICES: dict[str, tuple[float, float]] = {
     "z-ai/glm-5.2": (0.74, 2.32),                 # novita, fp8
     "stepfun/step-3.7-flash": (0.20, 1.15),       # deepinfra
     "x-ai/grok-4.5": (2.00, 6.00),                # xai (first-party, only provider)
-    # openai, standard tier. Cheaper than step-3.7-flash in both directions, which is the
-    # whole reason to look at it. `FLEX_PRICES` below is what it actually bills at, since
-    # its endpoint asks for the flex tier. Above 272k prompt tokens the rate doubles to
-    # 0.20/0.90; memcal's largest observed request was 40k, so that tier is noted and
-    # not modelled.
+    # openai, standard tier. `FLEX_PRICES` below is the billed rate, since
+    # its endpoint requests the flex tier. Rates above 272k prompt tokens
+    # are not modelled.
     "openai/gpt-5.6-luna": (0.10, 0.60),          # openai (first-party)
     # The capable end of the same family. Both pin `openai` and both ask for flex, so
     # what they actually bill is FLEX_PRICES below; these are the standard rates, kept
@@ -83,10 +79,8 @@ PRICES: dict[str, tuple[float, float]] = {
     "openai/gpt-5.6-sol": (5.00, 30.00),          # openai (first-party)
 }
 
-#: Half price, for the endpoints that ask for `service_tier: flex`. Kept as its own
-#: table rather than a 0.5 multiplier because "flex is half" is a current fact about two
-#: providers, not a permanent pricing rule — and a multiplier would misprice the first
-#: provider that discounts input and output differently.
+#: Half price, for the endpoints that request `service_tier: flex`. Kept as its own
+#: table rather than a multiplier because flex pricing may differ per direction.
 FLEX_PRICES: dict[str, tuple[float, float]] = {
     "openai/gpt-5.6-luna": (0.05, 0.30),
     "openai/gpt-5.6-terra": (0.50, 3.00),
@@ -189,13 +183,10 @@ _LEDGER = threading.Lock()
 
 
 class QuotaExhausted(RuntimeError):
-    """The account is out of allowance, and no amount of retrying changes that.
+    """The account is out of allowance; retrying cannot recover it.
 
-    Distinct from `LLMError` because the recovery is different in kind: a failed request
-    is worth splitting and re-sending, and a spent subscription is worth stopping for. A
-    pass that retries into a quota wall spends its whole budget of wall-clock producing
-    the same sentence eight times in parallel, and then reports a low score for a run
-    where no model read anything.
+    Distinct from `LLMError` because recovery differs: failed requests are
+    worth retrying, while an exhausted subscription requires stopping.
     """
 
 
@@ -233,9 +224,8 @@ class Usage:
 
     def summary(self) -> str:
         """Summarize tokens, cost, retries, failures, and backoff."""
-        # A subscription-authenticated CLI backend reports no cost at all, so "$0.0000"
-        # over a full pass reads as a free run rather than an unpriced one — the same
-        # false zero the `requests`/`failed_calls` columns exist to stop.
+        # Subscription-backed CLI backends report no cost; label that explicitly
+        # instead of printing a misleading "$0.0000".
         priced = f"${self.cost:.4f}" if self.cost or not self.calls else "cost not reported"
         line = (f"{self.calls} calls · {self.prompt_tokens} in "
                 f"({self.cached_tokens} cached) · {self.completion_tokens} out "
@@ -328,8 +318,7 @@ class OpenRouter(CompletionClient):
         super().__init__()
         self.api_key = api_key
         self.timeout = timeout
-        #: Called before any wait long enough to look like a hang. A run that waits out
-        #: a busy hour in silence is indistinguishable from one that has died.
+        #: Called before any wait long enough to resemble a hang.
         self.on_retry = on_retry
         self.headers = {
             "Authorization": f"Bearer {api_key}",
@@ -400,7 +389,7 @@ class OpenRouter(CompletionClient):
                     raise last or LLMError("request failed")
             pause = random.uniform(0.0, wait) + 0.25
             if self.on_retry and pause >= 5.0:
-                # Surface waits long enough to look like a hung run.
+                # Report waits long enough to resemble a hang.
                 self.on_retry(f"{'capacity' if capacity else 'error'}; waiting "
                               f"{pause:.0f}s ({spent:.0f}s so far) — {str(last)[:80]}")
             tally.waited += pause
@@ -464,8 +453,7 @@ class OpenRouter(CompletionClient):
         if service_tier:
             payload["service_tier"] = service_tier
         if capture_reasoning or reasoning_effort:
-            # Reading what the model actually reasoned is how we find out whether the
-            # prompt says what we think it says. Off by default — it costs tokens.
+            # Optional; costs tokens.
             payload["reasoning"] = {"effort": reasoning_effort or "low"}
         if schema:
             payload["response_format"] = {
@@ -474,14 +462,9 @@ class OpenRouter(CompletionClient):
             }
         elif json_object:
             payload["response_format"] = {"type": "json_object"}
-        # Flex trades latency for half the rate, so the default 300s read timeout is
-        # the wrong one for it: a request that would have been served in eight
-        # minutes gets abandoned at five and retried at full price. OpenAI recommends
-        # 15 minutes for the tier and that is what this is.
-        #: One logical call, however many requests it takes. Everything from here is
-        #: wrapped so that a call which never returns a Reply is still *counted*: it has
-        #: no generation id, so no `generations` row can exist for it, and the run-level
-        #: `failed` count is the only place it can ever be recorded.
+        # Flex requests need a longer read timeout than the 300s default.
+        #: One logical call, however many requests it takes. Failed calls without
+        #: a generation id are counted only in the run-level `failed` total.
         tally = Tally()
         try:
             raw = self._post("/chat/completions", payload,
@@ -490,9 +473,7 @@ class OpenRouter(CompletionClient):
             reply = _reply_from(raw, model, tally)
         except Exception as exc:
             self._charge(Usage(failed=1))
-            # The tally rides out on the exception. It is the only way an attempt count
-            # survives a raise, and the caller that catches this is the one holding the
-            # prompt, the bundles and somewhere to write them — see
+            # Attach the tally so attempt counts survive the raise; see
             # `propose._record_failure`.
             exc.tally = tally
             raise
@@ -519,9 +500,8 @@ def _programmatic_prompt(prefix: str, suffix: str,
     return "\n\n".join(parts)
 
 
-#: Event and item type names Codex has used for reasoning across CLI versions. The name
-#: has already changed once (`agent_reasoning` became an `item.completed` of type
-#: `reasoning`), and a miss is silent: no error, just an empty field.
+#: Reasoning item types emitted by Codex across CLI versions. Matching is
+#: by set because a miss yields an empty field rather than an error.
 _CODEX_REASONING_TYPES = {"reasoning", "agent_reasoning", "reasoning_summary",
                           "agent_reasoning_section_break"}
 #: Where the text sits once the item is found. `summary` is a list of parts on the
@@ -530,10 +510,10 @@ _CODEX_REASONING_FIELDS = ("text", "content", "summary_text", "delta")
 
 
 def _codex_reasoning(events: list[dict]) -> str:
-    """The readable reasoning summary out of one `codex exec --json` stream.
+    """Extract the readable reasoning summary from a `codex exec --json` stream.
 
-    Only the summary is ever readable: the chain arrives as `encrypted_content` and
-    stays encrypted in the session rollout too. Returns "" when the CLI emits none.
+    Only the summary is readable; the chain itself stays encrypted.
+    Returns "" when the CLI emits none.
     """
     parts: list[str] = []
 
@@ -563,12 +543,10 @@ def _codex_reasoning(events: list[dict]) -> str:
     return "\n\n".join(dict.fromkeys(parts)).strip()
 
 
-#: The vendor prefix `ENDPOINTS` keys on, per programmatic provider. A CLI backend is
-#: given the bare native name (`gpt-5.6-luna`), so going *back* to the prefixed key is
-#: the only way it can read the same spec the OpenRouter path reads.
-#: Antigravity is deliberately absent: it serves Gemini, Claude and open-weight models
-#: from one command, so there is no single vendor prefix that would find the right
-#: `ENDPOINTS` row. Its model names carry their own reasoning budget instead.
+#: Vendor prefix `ENDPOINTS` keys on, per programmatic provider. CLI backends
+#: use bare native names, so the prefix maps them back to the shared spec.
+#: Antigravity is absent: one command serves several model families, so no
+#: single prefix selects the right row; its names carry their own budget.
 _VENDOR_PREFIX = {"claude-code": "anthropic/", "codex": "openai/"}
 
 
@@ -662,13 +640,7 @@ def belongs_elsewhere(provider: str, model: str) -> str:
 
 
 def _spec_for(provider: str, model: str) -> Endpoint:
-    """The `ENDPOINTS` row for a model named the way a CLI backend names it.
-
-    `ENDPOINTS` is keyed on the OpenRouter id and the CLI backends are configured with
-    the bare native one, so a direct `endpoint()` lookup returns the empty default and
-    the tuned reasoning budget does not apply. Re-attaching the vendor prefix makes one
-    spec table serve both routes.
-    """
+    """Return the `ENDPOINTS` row for a model named the way a CLI backend names it."""
     native = _native_model(provider, model)
     return ENDPOINTS.get(_VENDOR_PREFIX.get(provider, "") + native) or endpoint(model)
 
@@ -857,10 +829,8 @@ class Codex(ProgrammaticClient):
         return reply
 
 
-#: Antigravity model ids end in the reasoning budget they were published with
-#: (`gemini-3.8-flash-high`). Passing `--effort` on top of one of those is asking the
-#: same question twice, so the suffix wins and the flag is only used for a model that
-#: does not state a budget of its own.
+#: Antigravity model ids end in their reasoning budget (`gemini-3.8-flash-high`).
+#: The suffix takes precedence; `--effort` applies only to models without one.
 AGY_EFFORT_SUFFIX = re.compile(r"-(low|medium|high)$")
 
 
@@ -894,20 +864,12 @@ class Antigravity(ProgrammaticClient):
             args += ["--json-schema", schema_path]
         if reasoning_effort and not AGY_EFFORT_SUFFIX.search(native):
             args += ["--effort", reasoning_effort]
-        # `agy` runs its own five-minute clock over the turn and, when it expires,
-        # returns *partial output* with returncode 0 — an `ERROR` status, or worse a
-        # `SUCCESS` with an empty response and a zeroed token count. Neither is a
-        # refusal, and memcal was politely waiting 900s for a process that had already
-        # given up at 300. A propose request with several bundles and a thinking budget
-        # routinely runs past five minutes, so every request in a real pass failed while
-        # a one-line probe succeeded.
-        #
-        # One clock, set from the same config value the subprocess timeout uses, and
-        # slightly under it so the CLI reports its own timeout rather than being killed.
+        # `agy` enforces its own five-minute print timeout and reports expiry
+        # as returncode 0 with partial or empty output. Set the CLI timeout
+        # from the same config value, slightly under the subprocess timeout.
         args += ["--print-timeout", f"{max(30, int(self.timeout) - 30)}s"]
-        # The prompt is a flag value, not stdin: bare `--print` consumes whatever comes
-        # next as the prompt, so it goes last and attached, and nothing after it can be
-        # read as the thing to ask.
+        # The prompt is a flag value, not stdin: `--print` consumes the next
+        # argument as the prompt, so it goes last and attached.
         args.append("--print=" + _programmatic_prompt(prefix, suffix, turns))
         try:
             proc = self._run(args, "")
@@ -936,12 +898,8 @@ class Antigravity(ProgrammaticClient):
         if data is None:
             data = _parse_json(text)
         if data is None and not text.strip():
-            # `SUCCESS` with an empty response and, usually, a zeroed token count. It is
-            # what a turn cut short by the CLI's print timeout looks like from out here,
-            # so say that rather than only the symptom — the previous wording sent
-            # everyone looking for a model that answers nothing, when the answer was
-            # that nobody waited for it. Counting it as a reply would apply an empty diff
-            # and call the bundle done; raising records the failed call and re-queues it.
+            # An empty SUCCESS means the turn was cut by the CLI print timeout;
+            # raising records the failed call and re-queues the bundle.
             raise self._failure(
                 proc, "Antigravity reported success with no response — usually a turn "
                       "cut off by its print timeout. Raise MEMCAL_LLM_COMMAND_TIMEOUT, "
@@ -1053,19 +1011,15 @@ def _reply_from(raw: dict, model: str, tally: Tally) -> Reply:
     return Reply(text=text, data=_parse_json(text),
                  usage=_usage_from(raw.get("usage") or {}),
                  model=raw.get("model", model), reasoning=reasoning.strip(),
-                 generation_id=raw.get("id", ""),
-                 # What the request was actually served at, which is not always what
-                 # it asked for: a model with no flex-capable endpoint is served at
-                 # standard rates with no error. Recorded rather than assumed, so
-                 # "we moved to flex" is a claim `memcal trace` can check instead of
-                 # a comment that quietly stops being true.
-                 service_tier=str(raw.get("service_tier") or ""),
-                 finish_reason=str(choices[0].get("finish_reason")
-                                   or choices[0].get("native_finish_reason") or ""),
-                 # What this one answer actually took. `requests > 1` says the reply was
-                 # retried into existence, which prices differently from the single
-                 # request the cost line implies.
-                 requests=tally.requests, waited=round(tally.waited, 1))
+                  generation_id=raw.get("id", ""),
+                  # Record the serving tier; a request may be served at
+                  # standard rates despite asking for flex.
+                  service_tier=str(raw.get("service_tier") or ""),
+                  finish_reason=str(choices[0].get("finish_reason")
+                                    or choices[0].get("native_finish_reason") or ""),
+                  # Attempts behind this reply; `requests > 1` prices
+                  # differently from a single request.
+                  requests=tally.requests, waited=round(tally.waited, 1))
 
 
 def _usage_from(raw: dict) -> Usage:

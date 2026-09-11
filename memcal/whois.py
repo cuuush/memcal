@@ -1,13 +1,11 @@
 """One model call over the whole identity picture: names, merges, and non-people.
 
-`identity.py` is a dictionary and stays one. This is the other half: a single call
-that reads the unresolved queue and the roster of known people together.
+`identity.py` is a dictionary and stays one. This call reads the unresolved queue
+and the roster of known people together, since an opaque handle is identified by
+the rest of the board.
 
-Together is the point. What identifies an opaque handle is the rest of the board.
-Asking one handle at a time discards exactly that.
-
-Nothing here is a judgement. A merge is recorded and reversible, a doubt is
-recorded as a doubt, and every link is written at a rank Contacts outranks.
+Nothing here is a judgement. Merges are recorded and reversible, doubts are
+recorded as doubts, and every link is written at a rank Contacts outranks.
 """
 
 from __future__ import annotations
@@ -19,11 +17,10 @@ from . import db, identity, trace
 from .config import Config
 from .llm import CompletionClient
 
-#: How many of each kind to put in front of the model. The queue's long tail is single
-#: sightings that no amount of context will name; the head is where the answers are.
+#: How many of each kind to put in front of the model, busiest first.
 MAX_UNRESOLVED = 120
 MAX_PEOPLE = 250
-#: Threads listed per person. Enough to show overlap, not enough to bury the roster.
+#: Threads listed per person.
 MAX_THREADS = 6
 
 SCHEMA = {
@@ -193,8 +190,7 @@ def queue(conn: sqlite3.Connection) -> list[dict]:
     """The handles nothing can name, busiest first."""
     out = []
     for row in identity.unresolved(conn, limit=MAX_UNRESOLVED):
-        # A one-to-one email thread is named after the address, so listing it says the
-        # handle twice. Co-presence is the signal here; an echo is not.
+        # Skip threads that echo the handle; one-to-one email threads are named for it.
         seen = [t for t in identity.where_seen(conn, row["handle"], limit=3)
                 if t != row["handle"]]
         out.append({"handle": row["handle"], "stream": row["stream"],
@@ -236,8 +232,7 @@ def resolve(client: CompletionClient, conn: sqlite3.Connection, cfg: Config, *,
                  reply=reply, max_tokens=room, home=cfg.home, prefix=INSTRUCTIONS,
                  suffix=suffix)
     data = reply.data if isinstance(reply.data, dict) else {}
-    # A cut-off reply is a partial list, and a partial list of merges is the one thing
-    # here that cannot be read safely: the entries that survived are arbitrary.
+    # A truncated reply is a partial merge list, which cannot be applied safely.
     if reply.truncated:
         return Resolution(truncated=True)
     return Resolution(names=list(data.get("names") or []),
@@ -248,8 +243,7 @@ def resolve(client: CompletionClient, conn: sqlite3.Connection, cfg: Config, *,
 
 # ------------------------------------------------------------ writing it down --
 
-#: Hard rails. The prompt argues; these refuse. A model that hallucinates a merge can
-#: still be wrong in a way the store can prove wrong, and the store should win.
+#: Hard rails on merges. The prompt argues; these refuse.
 def _refusal(conn: sqlite3.Connection, keep: str, also: str) -> str | None:
     """Why this merge must not happen, or None."""
     if not keep or not also or keep == also:
@@ -263,8 +257,7 @@ def _refusal(conn: sqlite3.Connection, keep: str, also: str) -> str | None:
     missing = [n for n in (keep, also) if n not in known]
     if missing:
         return f"no such person: {', '.join(missing)}"
-    # Two address-book cards are a human being saying these are two people, and the
-    # address book is better evidence about that than anything a transcript shows.
+    # Two address-book cards for distinct handles assert two people.
     cards = {}
     for name in (keep, also):
         cards[name] = {row["handle"] for row in conn.execute(
@@ -325,16 +318,14 @@ def _rebuild_merges(conn: sqlite3.Connection) -> None:
 def split(conn: sqlite3.Connection, assumption_id: int) -> str | None:
     """Undo one merge. Returns the name put back, or None if there was nothing to undo.
 
-    Exact rather than approximate: only the handles recorded at merge time go back, and
-    the archive follows the handle. Rows written under the merged name since — a page,
-    an event — keep pointing at `keep`, which is the honest outcome: they were written
-    about the merged person and nobody has said which half they belonged to.
+    Only handles recorded at merge time go back; rows written under the merged name
+    since keep pointing at `keep`.
     """
     row = conn.execute("SELECT * FROM identity_assumptions WHERE id = ?",
                        (assumption_id,)).fetchone()
     if not row or row["state"] == "split":
         return None
-    # A doubt moved nothing, so "no" is just the answer being recorded.
+    # A doubt moved nothing, so declining it only records the answer.
     if row["state"] == "unsure":
         conn.execute("UPDATE identity_assumptions SET state = 'split', decided_at = ?,"
                      " source = 'you' WHERE id = ?", (db.now(), assumption_id))
@@ -342,8 +333,8 @@ def split(conn: sqlite3.Connection, assumption_id: int) -> str | None:
         return row["also"]
     conn.execute("UPDATE identity_assumptions SET state = 'split', decided_at = ?"
                  " WHERE id = ?", (db.now(), assumption_id))
-    # Later assumptions may contain handles moved by this one. Replaying their stored
-    # lists directly would reapply a rejected earlier edge, so reconstruct the chain.
+    # Later assumptions may depend on handles this one moved; rebuild the chain
+    # instead of replaying stored lists directly.
     _rebuild_merges(conn)
     conn.commit()
     return row["also"]
@@ -351,12 +342,7 @@ def split(conn: sqlite3.Connection, assumption_id: int) -> str | None:
 
 def doubt(conn: sqlite3.Connection, kind: str, about: str, guess: str = "",
           why: str = "", source: str = "model") -> int | None:
-    """Record something suspected and not acted on, so it can be asked rather than lost.
-
-    The call is told to prefer this to a guess, which only helps if the doubt survives
-    the run that produced it: an unnamed handle is a question a person can answer in
-    two seconds and nothing else in the system can answer at all.
-    """
+    """Record something suspected and not acted on, so it can be asked rather than lost."""
     if kind not in ("merge", "name") or not about.strip():
         return None
     if conn.execute("SELECT 1 FROM identity_assumptions WHERE kind = ? AND also = ?"
@@ -371,12 +357,7 @@ def doubt(conn: sqlite3.Connection, kind: str, about: str, guess: str = "",
 
 
 def confirm(conn: sqlite3.Connection, assumption_id: int) -> str | None:
-    """"Yes." On a merge already in effect that is bookkeeping; on a doubt it acts.
-
-    A doubt did nothing when it was recorded, so confirming one is the moment the merge
-    or the link actually happens — and it can still fail, because the rails apply to a
-    person's answer for the same reason they apply to the model's.
-    """
+    """"Yes." On a merge already in effect that is bookkeeping; on a doubt it acts."""
     row = conn.execute("SELECT * FROM identity_assumptions"
                        " WHERE id = ? AND state IN ('assumed', 'unsure')",
                        (assumption_id,)).fetchone()
