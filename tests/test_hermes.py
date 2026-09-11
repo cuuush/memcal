@@ -245,7 +245,7 @@ class TestHermesProvider(unittest.TestCase):
                            ("memcal_bogus", {})):
             json.loads(provider.handle_tool_call(tool, args))   # must not raise
 
-    def test_the_brief_is_refreshed_on_every_turn(self):
+    def test_the_brief_is_reinjected_when_it_changes(self):
         provider = self._ready()
         from memcal import brief, config, db, todos
         cfg = config.load(self.tmp.name)
@@ -266,6 +266,67 @@ class TestHermesProvider(unittest.TestCase):
         second = provider.prefetch("and now?")
         self.assertIn("Second typed snapshot", second)
         self.assertNotIn("First typed snapshot", second)
+        self.assertNotEqual(first, second)
+
+    def test_an_unchanged_brief_is_not_reinjected(self):
+        # Hermes pins each injected snapshot to its turn and replays it forever,
+        # so re-emitting an unchanged brief every turn just stacks duplicates.
+        # A turn that changes nothing must inject no snapshot; the copy already
+        # in history stays authoritative.
+        provider = self._ready()
+        from memcal import brief, config, db, todos
+        cfg = config.load(self.tmp.name)
+        conn = db.open_db(cfg.db_path)
+        todos.open_todo(conn, "Only typed snapshot")
+        brief.write(conn, cfg)
+        conn.close()
+
+        first = provider.prefetch("what is coming up?")
+        self.assertIn("MEMCAL SNAPSHOT", first)
+        self.assertIn("Only typed snapshot", first)
+
+        # Nothing changed between turns → no new snapshot block.
+        second = provider.prefetch("still there?")
+        self.assertEqual(second, "")
+
+        # A change turns the hash over and the snapshot returns.
+        conn = db.open_db(cfg.db_path)
+        todos.open_todo(conn, "Newly typed snapshot")
+        conn.close()
+        third = provider.prefetch("and now?")
+        self.assertIn("Newly typed snapshot", third)
+
+    def test_a_new_session_reemits_the_snapshot(self):
+        # A fresh session has no snapshot in its history, so the gate must not
+        # suppress the first one just because this process already emitted it.
+        provider = self._ready()
+        from memcal import brief, config, db, todos
+        cfg = config.load(self.tmp.name)
+        conn = db.open_db(cfg.db_path)
+        todos.open_todo(conn, "Session boundary snapshot")
+        brief.write(conn, cfg)
+        conn.close()
+
+        self.assertIn("Session boundary snapshot", provider.prefetch("hi"))
+        self.assertEqual(provider.prefetch("again"), "")
+        provider.on_session_switch("test-2")
+        self.assertIn("Session boundary snapshot", provider.prefetch("hi"))
+
+    def test_day_rollover_turns_the_snapshot_over(self):
+        # The unchanged-turn gate hashes only the snapshot body, so a suppressed
+        # turn leaves the older-stamped copy authoritative. That is safe only
+        # because `brief.render` is deterministic per (db state, date, due
+        # reminders): a day rollover always changes the body and re-triggers.
+        from memcal import brief, config, db
+        from datetime import timedelta
+        cfg = config.load(self.tmp.name)
+        conn = db.open_db(cfg.db_path)
+        try:
+            today = db.today()
+            first = brief.render(conn, cfg, ref=today).strip()
+            second = brief.render(conn, cfg, ref=today + timedelta(days=1)).strip()
+        finally:
+            conn.close()
         self.assertNotEqual(first, second)
 
     def test_prompt_routes_real_calendar_writes_to_ical(self):

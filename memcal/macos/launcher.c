@@ -1,25 +1,13 @@
-/*
- * memcal.app launcher — the whole reason the bundle exists.
+/* Keep the app-bundle process alive while scheduled work runs beneath it.
+ * Usage: memcal <absolute-program> [args...]
  *
- * launchd runs this binary (inside memcal.app) as the top of the job, so macOS
- * treats memcal.app as the *responsible process* for everything below it. The
- * Calendar work runs through `osascript`, and TCC attributes that Apple Event to
- * the responsible process — which is why the permission prompt and the
- * Privacy > Automation / Calendars lists now read "memcal" instead of the bare
- * `python3.14` / `osascript` this used to surface. The grant is keyed to this
- * binary's code signature, so `brew upgrade python` renaming the interpreter no
- * longer invalidates it.
- *
- * It must stay alive as the parent of the real work: fork the target, wait for
- * it, and exit with its status. If it exec'd the target in place instead, the
- * bundled process would be gone and responsibility could fall back to the shell
- * or interpreter that replaced it.
- *
- * Usage: memcal <program> [args...]  — runs <program> with the given args.
- * <program> is always an absolute path (a pinned python, or the nightly script);
- * this launcher does no PATH lookup on purpose.
+ * Do not simplify this to execv in place. macOS attributes Apple Events and
+ * Calendar access to the responsible parent bundle process, so the launcher must
+ * remain alive as the parent (fork + wait): exec would hand attribution back to
+ * the interpreter or terminal that started it.
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <errno.h>
@@ -29,6 +17,11 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "memcal: need a program to run\n");
         return 64; /* EX_USAGE */
     }
+
+    /* Tell everything beneath us it is already running under the bundle, so a memcal
+     * that would otherwise re-exec itself through the app to gain this identity knows
+     * it already has it and does not loop. Inherited across the fork below. */
+    setenv("MEMCAL_APP", "1", 1);
 
     pid_t pid = fork();
     if (pid < 0) {
