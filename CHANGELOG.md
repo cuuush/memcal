@@ -7,6 +7,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A documentation site (MkDocs Material, deployed to GitHub Pages) with quickstart
+  and Slack, Telegram, and Signal source setup guides.
 - Event updates can explicitly remove named participants as well as add them.
 
 - Events can record duplicate, replacement, and related-event links across sources.
