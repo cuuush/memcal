@@ -319,8 +319,8 @@ def _calendar_snapshot(start: str, end: str, *, progress=None,
     if code:
         detail = ("\n".join(tail) or stdout or "unknown Calendar error").strip()
         raise SourceError(
-            "Calendar.app read failed. Grant Calendar access to the terminal/Python "
-            f"running memcal, then retry: {detail[:240]}"
+            "Calendar.app read failed. Grant Calendar access to memcal "
+            f"(System Settings → Privacy & Security → Calendars), then retry: {detail[:240]}"
         )
     try:
         payload = json.loads(stdout.strip() or "{}")
@@ -1099,9 +1099,17 @@ def _diverged(conn: sqlite3.Connection, event_key: str, fields: dict) -> bool:
 # in a syncing source. Require full access and reject its unauthorized virtual source.
 # This path never prompts: consent belongs to `memcal ical setup`.
 
-#: EventKit's `EKAuthorizationStatusFullAccess`. Anything less and the store is a
-#: placeholder — see above.
-EK_FULL_ACCESS = 3
+#: Values of `EKAuthorizationStatus` that mean full access. macOS 14 reports
+#: `FullAccess (4)`; older systems report `Authorized (3)` for the same grant.
+#: Anything else — not-determined (0), restricted (1), denied (2), add-only (5) —
+#: and the store is a placeholder (see above). `3` was the only value checked, so
+#: on macOS 14+ even a correct full grant read as "no access" forever.
+EK_FULL_ACCESS = (3, 4)
+
+#: `EKAuthorizationStatusWriteOnly`: the user picked "Add Events Only". Reads and
+#: account placement are unavailable, and macOS will not show the dialog again —
+#: only a manual flip to Full Access in Settings fixes it.
+EK_WRITE_ONLY = 5
 
 #: The source EventKit hands an unauthorized caller. It looks exactly like iCloud.
 EK_VIRTUAL_SOURCE = "VIRTUAL_APP_SOURCE_UUID"
@@ -1113,7 +1121,9 @@ ObjC.import('Foundation');
 const EVENT = $.EKEntityTypeEvent;
 const LOCAL = 0, CALDAV = 2, MOBILEME = 3;
 const VIRTUAL = "VIRTUAL_APP_SOURCE_UUID";
-const FULL_ACCESS = 3;
+// Full access across SDK eras: `Authorized (3)` before macOS 14, `FullAccess (4)`
+// after. Anything else is not full, whatever it is.
+const FULL_ACCESS = [3, 4];
 
 function text(value) { try { return String(value.js); } catch (_) { return ""; } }
 
@@ -1315,7 +1325,10 @@ function request(store) {
   } catch (exc) {
     return {granted: false, answered: false, error: String(exc)};
   }
-  const deadline = $.NSDate.dateWithTimeIntervalSinceNow(120);
+  // Bounded, not indefinite: with no dialog to answer this spins the whole
+  // interval in silence, which is how `ical setup` hung for two minutes. An
+  // unanswered request reports itself and setup prints the manual grant steps.
+  const deadline = $.NSDate.dateWithTimeIntervalSinceNow(45);
   while (!answered && $.NSDate.date.compare(deadline) < 0) {
     $.NSRunLoop.currentRunLoop.runModeBeforeDate(
       $.NSDefaultRunLoopMode, $.NSDate.dateWithTimeIntervalSinceNow(0.25));
@@ -1428,7 +1441,7 @@ function run(argv) {
     out = request(store);
   } else if (verb === "where") {
     out = describe(store, wanted);
-  } else if (status() !== FULL_ACCESS) {
+  } else if (!FULL_ACCESS.includes(status())) {
     // Everything below writes. Without full access the store is a placeholder and a
     // "successful" write goes nowhere at all.
     out = {error: "memcal does not have Calendar access yet"};
@@ -1456,7 +1469,8 @@ ObjC.import('EventKit');
 ObjC.import('Foundation');
 
 const REMINDER = $.EKEntityTypeReminder;
-const FULL_ACCESS = 3;
+// Same two eras as the calendar script above.
+const FULL_ACCESS = [3, 4];
 
 function text(value) { try { return String(value.js); } catch (_) { return ""; } }
 function why(ref) {
@@ -1555,7 +1569,8 @@ function run(argv) {
     store.requestFullAccessToRemindersWithCompletion(function (ok, _err) {
       granted = ok; done = true;
     });
-    const until = $.NSDate.dateWithTimeIntervalSinceNow(60);
+    // Same bound as the calendar request above: silence is the failure mode.
+    const until = $.NSDate.dateWithTimeIntervalSinceNow(45);
     while (!done && $.NSDate.date.compare(until) < 0) {
       $.NSRunLoop.currentRunLoop.runModeBeforeDate(
         $.NSDefaultRunLoopMode, $.NSDate.dateWithTimeIntervalSinceNow(0.1));
@@ -1564,8 +1579,8 @@ function run(argv) {
   } else if (verb === "status") {
     // Passive, and deliberately above the gate below: "have I been authorized" is the
     // one question that has to be answerable when the answer is no.
-    out = {granted: status() === FULL_ACCESS};
-  } else if (status() !== FULL_ACCESS) {
+    out = {granted: FULL_ACCESS.includes(status())};
+  } else if (!FULL_ACCESS.includes(status())) {
     // Everything below writes, and an unauthorized store accepts writes into a
     // placeholder that never reaches the phone — the failure `ACCOUNT_JXA` was
     // rebuilt around. Refuse rather than succeed into nowhere.
@@ -1697,16 +1712,36 @@ def request_calendar_access(*, runner=subprocess.run) -> tuple[bool, str]:
     as name an account.
     """
     try:
-        answer = _account_call("request", runner=runner, timeout=150)
+        # Just past the JXA's own 45s bound: long enough to answer a dialog that
+        # did appear, short enough that a dialog that never appears is a report,
+        # not a hang.
+        answer = _account_call("request", runner=runner, timeout=60)
     except CalendarAccountError as exc:
         return False, f"Calendar (EventKit) access failed: {exc}"
-    if answer.get("granted"):
+    if answer.get("granted") and int(answer.get("status") or 0) in EK_FULL_ACCESS:
         return True, "Calendar (EventKit) access granted — memcal can create its calendar"
+    if int(answer.get("status") or 0) == EK_WRITE_ONLY or answer.get("granted"):
+        # "Add Events Only": reads and account placement are unavailable, and
+        # macOS shows the dialog exactly once per app — re-requesting will not
+        # ask again. Only a manual flip fixes it.
+        return False, (
+            "Only Add-Only access was granted — memcal needs Full Access to read "
+            "accounts and place its calendar. Flip it by hand: System Settings → "
+            "Privacy & Security → Calendars → memcal → Full Access, then re-run "
+            "`memcal ical setup`."
+        )
     if not answer.get("answered"):
-        return False, "Calendar (EventKit) access dialog was not answered"
+        return False, (
+            "Calendar (EventKit) access dialog was not answered. Grant it by hand: "
+            "System Settings → Privacy & Security → Calendars, add memcal.app "
+            "(in ~/.memcal) and enable it, then re-run `memcal ical setup`."
+        )
+    # Denied, restricted, or anything else macOS will not re-ask about: the dialog
+    # shows once per app, so setup cannot fix this by asking again.
     return False, (
-        "Calendar (EventKit) access denied. Open System Settings → Privacy & Security → "
-        "Calendars and allow the terminal/Python running memcal."
+        "Calendar (EventKit) access not granted. Open System Settings → Privacy & "
+        "Security → Calendars and allow memcal (remove the entry first if it shows "
+        "denied, so macOS asks again), then re-run `memcal ical setup`."
     )
 
 
@@ -1724,7 +1759,11 @@ def account_status(cfg, *, runner=subprocess.run) -> tuple[bool, str]:
         where = _account_call("where", name, runner=runner, timeout=60)
     except CalendarAccountError as exc:
         return False, f"could not read Calendar accounts: {exc}"
-    if int(where.get("status") or 0) != EK_FULL_ACCESS:
+    if int(where.get("status") or 0) not in EK_FULL_ACCESS:
+        if int(where.get("status") or 0) == EK_WRITE_ONLY:
+            return False, (f"only Add-Only access, so '{name}' cannot be placed in iCloud; "
+                           "flip memcal to Full Access in System Settings → Privacy & "
+                           "Security → Calendars, then re-run `memcal ical setup`")
         return False, (f"no Calendar access yet, so '{name}' cannot be placed in iCloud; "
                        "run `memcal ical setup`")
     found = [item for item in where.get("found") or [] if isinstance(item, dict)]

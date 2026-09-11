@@ -967,10 +967,14 @@ def cmd_reminders(args) -> int:
                 print("This opens a macOS consent dialog for Reminders access.")
                 print("Re-run with --yes to request it.")
                 return 0
+            # Announced and flushed: the request below blocks (bounded) while the
+            # dialog waits, and silence there reads as a hang.
+            print("Requesting Reminders access — answer the system dialog…",
+                  flush=True)
             ok, message = ical.request_reminders_access()
         else:
             payload = ical._reminder_call("status", name or "")
-            ok = payload.get("status") == ical.EK_FULL_ACCESS
+            ok = payload.get("status") in ical.EK_FULL_ACCESS
             message = ("Reminders access granted" if ok else
                        f"Reminders access not granted (status {payload.get('status')}) — "
                        "run `memcal reminders setup --yes`")
@@ -1074,7 +1078,10 @@ def cmd_ical(args) -> int:
         # A second, separate macOS permission. Reading the calendar goes through Apple
         # Events; *naming the account* to create memcal's calendar in goes through
         # EventKit, and granting one grants nothing of the other. Only asked for when the
-        # store actually publishes.
+        # store actually publishes. Announced: the request blocks (bounded) while its
+        # dialog waits, and silence there reads as a hang.
+        print("Requesting Calendars access for memcal — answer the system dialog…",
+              flush=True)
         granted, message = ical.request_calendar_access()
         print(("ok " if granted else "-- ") + message)
         if granted:
