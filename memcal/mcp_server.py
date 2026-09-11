@@ -734,7 +734,27 @@ def _ok(request_id, result) -> dict:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
 
+def _reexec_under_app() -> None:
+    """Run the MCP server through memcal.app, like the CLI, so the calendar tools the
+    agent calls read and write under memcal's identity. No-op when already under the
+    bundle or when none is built."""
+    if os.environ.get("MEMCAL_APP") == "1":
+        return
+    from . import schedule  # noqa: PLC0415 - avoid importing launchd code at module load
+    if not schedule._is_macos():
+        return
+    exe = schedule.app_executable(config.load())
+    if not (exe.is_file() and os.access(exe, os.X_OK)):
+        return
+    os.environ["MEMCAL_APP"] = "1"
+    try:
+        os.execv(str(exe), [str(exe), sys.executable, "-m", "memcal.mcp_server"])
+    except OSError:
+        os.environ.pop("MEMCAL_APP", None)
+
+
 def main() -> int:
+    _reexec_under_app()
     server = Server()
     for line in sys.stdin:
         line = line.strip()

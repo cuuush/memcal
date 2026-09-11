@@ -1,8 +1,7 @@
 # Contributing
 
-Python 3.11 or newer. The current runtime has no third-party dependencies, but dependencies
-are allowed when they materially simplify the implementation or improve correctness. Declare
-them in `pyproject.toml` and update `install.sh` so a normal install remains sufficient.
+Python 3.11 or newer. Declare dependencies
+in `pyproject.toml` and update `install.sh` so a normal install remains sufficient.
 
 ```bash
 git clone https://github.com/cuuush/memcal && cd memcal
