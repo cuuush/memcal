@@ -339,6 +339,10 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
         self.assertEqual(info["CFBundleName"], "memcal")
         self.assertEqual(info["CFBundleIdentifier"], schedule.APP_BUNDLE_ID)
         self.assertTrue(info["NSAppleEventsUsageDescription"])
+        # An agent that can still show consent UI: background-only broke `ical
+        # setup` (TCC never displayed the dialog; the wait just expired).
+        self.assertTrue(info.get("LSUIElement"))
+        self.assertNotIn("LSBackgroundOnly", info)
         self.assertTrue(any(a[:2] == ["xcrun", "clang"] for a in calls), calls)
         self.assertTrue(any(a[0] == "codesign" for a in calls), calls)
         self.assertTrue(any("built" in line for line in out), out)
@@ -699,6 +703,59 @@ class TestCalendarIdentityReexec(unittest.TestCase):
             self.assertEqual("ok", schedule.bundle_health(self.cfg)[0])
             self.assertEqual("ok", schedule.plist_identity_health(self.cfg)[0])
             self.assertEqual(["x"], schedule.launch_through(self.cfg, ["x"]))
+
+
+class TestConsentRequestsNeverHangSilently(unittest.TestCase):
+    """`ical setup` once blocked for two silent minutes on a dialog macOS never
+    showed: the JXA spun 120s, Python waited 150s, and nothing was printed while
+    either waited. The waits are bounded now, the wait is announced by the caller,
+    and an unanswered request says how to grant by hand."""
+
+    def _request(self, payload: str):
+        seen = {}
+
+        def run(command, **kw):
+            seen.update(kw)
+            return type("Done", (), {"returncode": 0, "stdout": payload,
+                                     "stderr": ""})()
+
+        with mock.patch.object(ical, "_have_osascript", return_value=True):
+            return ical.request_calendar_access(runner=run), seen
+
+    def test_the_eventkit_wait_is_bounded(self):
+        (_, _), seen = self._request('{"granted": true, "answered": true, "status": 4}')
+        self.assertLessEqual(seen.get("timeout", 999), 60)
+
+    def test_full_access_on_either_sdk_era_counts(self):
+        for status in (3, 4):
+            (ok, message), _ = self._request(
+                '{"granted": true, "answered": true, "status": %d}' % status)
+            self.assertTrue(ok, message)
+
+    def test_add_only_is_not_full_access(self):
+        """`granted` alone lies: Add-Only grants yet reads nothing. Setup must say
+        which switch to flip instead of reporting success."""
+        (ok, message), _ = self._request(
+            '{"granted": true, "answered": true, "status": 5}')
+        self.assertFalse(ok)
+        self.assertIn("Full Access", message)
+
+    def test_an_unanswered_dialog_names_the_manual_grant(self):
+        (ok, message), _ = self._request('{"granted": false, "answered": false}')
+        self.assertFalse(ok)
+        self.assertIn("memcal.app", message)
+        self.assertIn("ical setup", message)
+
+    def test_a_denied_dialog_names_memcal_not_the_terminal(self):
+        (ok, message), _ = self._request('{"granted": false, "answered": true}')
+        self.assertFalse(ok)
+        self.assertIn("memcal", message)
+        self.assertNotIn("terminal", message.lower())
+
+    def test_the_jxa_spins_are_bounded(self):
+        for script in (ical.ACCOUNT_JXA, ical.REMINDERS_JXA):
+            self.assertNotIn("dateWithTimeIntervalSinceNow(120)", script)
+            self.assertNotIn("dateWithTimeIntervalSinceNow(60)", script)
 
 
 if __name__ == "__main__":
