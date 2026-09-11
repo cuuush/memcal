@@ -164,22 +164,11 @@ class Event:
             head, platform = split_platform(head)
             head = f'"{head}"'
         if self.needs_subject():
-            # Whose row this is, when it is not their. `subject` has been a column since
-            # `availability` existed and reached no surface but `detail` ("whose:") and
-            # the Later block, so a six-day window of somebody else's free time rendered
-            # on their week as an occasion with no owner —
-            # `〔E278〕 Sun Aug 16 "League or CS2 gaming" (until Fri Aug 21)` — and was
-            # reported as a thing that should not be there. The fact was right and the
-            # line never said whose it was.
-            #
-            # Leading, not trailing, because the tail already ends in "with Alex, Sam"
-            # and a bare name down there reads as a companion rather than as the person
-            # the row is *about*.
+            # Prefix the owner. A trailing name reads as a companion,
+            # not as the person the row is about.
             head = f"{self.subject}: {head}"
         if self.time:
-            # A title is told not to carry the fields beside it, and when one does
-            # anyway, the brief is where it shows: "Ramen, Thu 8:30pm, 8:30pm". Saying
-            # it once is the reader's interest; saying it twice is the model's.
+            # Skip the time suffix when the title already states it.
             stamp = friendly_time(self.time)
             if stamp and stamp.lower() not in head.lower():
                 head += f", {stamp}"
@@ -188,26 +177,18 @@ class Event:
         bits.append(head)
         tail = [word for word in (self.plain_state(),) if word]
         if self.rsvp_url:
-            # The act, next to the state that makes it worth doing. A declined
-            # invitation keeps its link too: a birthday you have said no to is exactly
-            # the one you still want to open and send a message through.
+            # Keep the link even when declined: the invite remains actionable.
             tail.append(f"invite: {_short_url(self.rsvp_url)}")
         if self.join_url:
-            # Rendered whole rather than shortened. A link the user has to retype is not a
-            # link, and this is the one field whose entire value is being pressable —
-            # the row it was built for said "Online" and left them hunting an email.
+            # Render in full: a shortened join link is not pressable.
             tail.append(f"join: {self.join_url}")
         if self.location and not overview:
             tail.append(self.location)
         if self.note and not overview and self.note.casefold() not in head.casefold():
-            # Seats, confirmation numbers and other occasion-specific details belong
-            # here, not in a completed to-do that disappears from the active brief.
+            # Keep occasion-specific details on the active row.
             tail.append(self.note)
         if platform:
-            # Out of the *name* and into a clause of its own. Every Partiful export
-            # carries "| Partiful" in its title, which reads as part of what the thing
-            # is called — and `dream/affinity.py` already has a comment about the word
-            # linking two unrelated birthdays because it looked distinctive.
+            # Move the export tag out of the name into its own clause.
             tail.append(f"via {platform}")
         names = self.visible_hosts()
         if names:
@@ -215,10 +196,7 @@ class Event:
             more = len(names) - len(shown)
             tail.append("hosted by " + ", ".join(shown) + (f" +{more}" if more else ""))
         if self.participants:
-            # "who is beer with" cost six tool calls — two archive searches, two wiki
-            # reads and a session search — to rebuild a list that was already a column
-            # on the row. Who is with you is not a detail of an event; for most rows it
-            # is the point of the row, and it costs a handful of characters to say.
+            # Participants are the point of most rows; always render them.
             people = self.participants[:4]
             more = len(self.participants) - len(people)
             tail.append("with " + ", ".join(people) + (f" +{more}" if more else ""))
@@ -239,8 +217,7 @@ class Event:
 
     def visible_hosts(self) -> list[str]:
         """Hosts not already identified by the event title."""
-        # Curly apostrophes otherwise turn "Katie’s" into the single token `katies`,
-        # which fails to recognize that "Katie O'Rourke" is already in the title.
+        # Strip possessives before matching so "Katie's" matches "Katie O'Rourke".
         title = re.sub(r"[’']s\b", "", self.title, flags=re.IGNORECASE)
         title_words = set(db.slugify(title).split("-"))
         return [name for name in self.hosts
@@ -261,23 +238,11 @@ class Event:
         if self.status == "declined":
             return "not going"
         if self.rsvp_url and self.status in ("mentioned", "tentative"):
-            # An invitation is a fact about how to act on it. "Could go" is memcal's
-            # guess about something a friend merely mentioned, and there is nothing to
-            # do about it but ask them; an unanswered invitation is a different thing
-            # entirely, because there is a button, and the link can be forwarded to
-            # your brother. Saying both with the same three words throws that away.
+            # Distinguish unanswered invitations ("not replied") from open mentions.
             return "not replied"
         if self.kind == "opportunity":
-            # A settled status outranks `kind`. `kind` records how the occasion came to
-            # exist — an open invitation rather than a plan made with someone — and
-            # `status` records what the user decided about it, so the decision is the later
-            # and better fact. A festival the user had said in writing the user was definitely
-            # going to rendered "could go" for days: "why is elements showing up as
-            # could go. im DEFINITLY going. thats BAD!"
-            #
-            # Only a *settled* status overrides. A subscribed holiday feed arrives as
-            # `opportunity` + `mentioned` and still reads "could go", which is what it
-            # is; nothing else in the live store renders differently for this.
+            # A settled status overrides kind: the decision outranks how the occasion
+            # arose. Mentioned opportunities still read "could go".
             if self.status == "confirmed":
                 return "confirmed"
             return "could go" if self.status != "happened" else ""
@@ -306,10 +271,7 @@ class Event:
 
 
 def _short_url(url: str) -> str:
-    """"https://partiful.com/e/abc123" -> "partiful.com/e/abc123".
-
-    The scheme is noise in a line a person reads, and the brief has a token cap.
-    """
+    """"https://partiful.com/e/abc123" -> "partiful.com/e/abc123"."""
     return re.sub(r"^https?://(?:www\.)?", "", str(url or "").strip()).rstrip("/")
 
 
@@ -343,8 +305,7 @@ def _free_key(conn: sqlite3.Connection, key: str) -> str:
         if conn.execute("SELECT 1 FROM events WHERE key = ?",
                         (candidate,)).fetchone() is None:
             return candidate
-    # A hundred rows sharing a name and a day is no longer a naming problem, but raising
-    # here would be the same lost-pass failure this function exists to prevent.
+    # Fall back to a timestamped suffix rather than failing when exhausted.
     return f"{key}~{db.now()}"
 
 
@@ -380,11 +341,8 @@ def _same_occurrence(conn: sqlite3.Connection, series_slug: str, candidate: "Eve
     rule = series_mod.get(conn, series_slug)
     if rule is None:
         return True
-    # A cadence change is a boundary in time, and the rule in force places no day before
-    # it. The Monday that already happened under the old schedule and the Wednesday that
-    # replaces the first new Tuesday sit two days apart and are not the same occasion in
-    # any sense — without this they resolve to one slot, the past absorbs the future, and
-    # the cadence change deletes the occurrence it was supposed to create.
+    # A cadence change is a boundary: days on opposite sides of effective_on
+    # are never the same occurrence.
     if rule.effective_on:
         before = [str(when) < rule.effective_on
                   for when in (on, candidate.instead_of or candidate.date)]
@@ -429,11 +387,8 @@ def find_match_scored(
 
         tier = 0
         if series and ev.series == series:
-            # Decided for the row and not for one tier. A candidate the rule places on a
-            # *different* scheduled day is a different occurrence of the same recurring
-            # thing, and refusing it only at tier 3 leaves it to be swept up at tier 2 on
-            # the strength of having the same title — which every occurrence of a series
-            # has, by construction. Skipped outright, so nothing weaker can rescue it.
+            # Skip occurrences on a different scheduled day outright;
+            # weaker tiers must not rescue them.
             if not _same_occurrence(conn, series, ev, on):
                 continue
             tier = 3
@@ -441,61 +396,22 @@ def find_match_scored(
                 ordinal == target.toordinal()
                 or on in _dates_held(conn, ev.id)
                 or _observed(ev)):
-            # Exact name, on a day this row is on *or has been on*. Not "exact name, near
-            # day": a title is what an occasion is called, and a provider calls every
-            # appointment the same thing, so matching across arbitrary days on the name
-            # alone made an independent second booking — "your physio session is
-            # confirmed for Friday" beside a stored Monday one — indistinguishable from a
-            # reschedule, and the store kept one of the two appointments the user has.
-            #
-            # A date the row has actually held is different in kind. Someone restating
-            # Saturday after the user moved it to Sunday is talking about *this* row, and
-            # it has to match so the evidence guard can refuse the stale fields; refusing
-            # to match at all turns every straggler into a duplicate.
-            #
-            # An observed row is the third case, and it is the calendar's own answer
-            # about when its event is. A friend naming the wrong week for a subscribed
-            # festival is mis-stating a known occasion, not booking a second one, so the
-            # mention must join the row and hand over its guest list — the date it got
-            # wrong is refused by the observation guard below. Nothing reaches this arm
-            # from the feed itself; a genuine second calendar event arrives with its own
-            # uid through `calendar_items`.
-            #
-            # Any other cross-date claim about identity has to come from something that
-            # asserts identity — the key the pass was shown and told to return, or the
-            # series the occurrence belongs to. Wording nominates a row
-            # (`events.candidates`); it does not decide one.
+            # Exact names match on the same day, a previously held date, or an
+            # observed row. Other cross-date identity needs a key or series claim;
+            # wording only nominates.
             tier = 2
         elif (participants and set(participants) & set(ev.participants)
               and _title_overlap(ev.title, title, participants)):
             tier = 1
-        # Same day, and one name is the other with more said. Worth tier 2, because two
-        # descriptions of one day's occasion at different lengths are one occasion —
-        # which side is richer is an accident of who happened to write first.
-        #
-        # It was gated on the other row being a calendar feed row with nobody on it,
-        # because that is the shape the bug was found in: a feed row can never reach
-        # tier 1, since `ical` has no participants to write. But nor can a model's own
-        # terse re-mention. A group chat's "BBQ" and the Partiful email's "Devon's Block
-        # Party BBQ" on one day are neither of them observed, share no guest, and stayed
-        # two rows in three of six benchmark trials on two different models.
-        #
-        # Exact date only: this tier is about the name and has
-        # no evidence about the day, so the row it matches is the row whose date already
-        # agrees. Widening it would silently hand a wording match the authority the
-        # `confidence <= 1` guard in `upsert` exists to withhold.
+        # Same-day titles where one absorbs the other match at tier 2.
+        # Exact date only: this tier carries no date evidence.
         absorbs = (tier < 2 and ordinal == target.toordinal()
                    and _title_absorbs(ev.title, title))
         if tier or absorbs:
             seen.append((ev, ordinal, abs(ordinal - target.toordinal()), tier, absorbs))
 
-    # Two rows on one day that the same shorter title could equally name are not one row
-    # and not a coin toss. "Superman movie" and "Movie with Riley" both sit on Aug 11, so
-    # a bare "Movie" answers to either. Leaving a duplicate is something a person can
-    # repair; a correct row quietly renamed and re-timed is not, and nothing downstream
-    # would ever report it. So the name stops being evidence — and each row falls back to
-    # whatever it was worth without it, which for one of those two is a real tier-1 match
-    # on its guest list.
+    # When two rows on one day both absorb the same short title, the name
+    # stops being evidence and each row falls back to its other tiers.
     ambiguous = sum(1 for entry in seen if entry[4]) > 1
 
     scored: list[tuple[int, int, Event, bool]] = []   # confidence, -distance, row, absorbed
@@ -504,20 +420,11 @@ def find_match_scored(
         confidence = 2 if absorbed else tier
         if not confidence:
             continue
-        # A weak match may not reach across today. A plan for next Sunday and something
-        # that already happened last week are different occasions however much they have
-        # in common, and letting one absorb the other loses the one still ahead of them.
+        # Weak matches must not cross today: past and future occasions stay distinct.
         if confidence < 2 and _crosses_today(ordinal, target.toordinal()):
             continue
-        # A weak match against a row that *spans* the target date is containment, not
-        # identity. "Breakfast at Elements" on the Saturday of a Friday-to-Sunday
-        # festival shares one word and one guest with it and is not it — and absorbing
-        # it renamed the festival to the breakfast and lost the whole weekend. That
-        # relationship has a column of its own now: see `link_contained`.
-        #
-        # The tier above cannot reach this case: a span only matches on its own start
-        # date, and "Breakfast at Elements" is not a subset of "Elements Music Festival"
-        # in either direction. Containment stays a property of the weak tier.
+        # Weak matches against a spanning row are containment, not identity;
+        # see `link_contained`.
         if confidence < 2 and ev.until and ev.until > ev.date \
                 and db.parse_date(ev.date) <= target <= db.parse_date(ev.until):
             continue
@@ -526,12 +433,7 @@ def find_match_scored(
             continue
         scored.append((confidence, -distance, ev, absorbed))
 
-    # Within a tier, a name that matches outright beats one that merely contains it, and
-    # only then does the nearer date decide. Both arms of tier 2 return the same
-    # confidence to the caller — they are equally a claim that this is the same row —
-    # but with "Movie" and "Movie with Riley" both on the table, the row actually called
-    # "Movie" is the one being talked about, and leaving that to SQLite's row order is
-    # not an answer.
+    # Within a tier, an exact title beats an absorbing one, then nearer dates win.
     best: tuple[int, int, Event, bool] | None = None
     rank: tuple | None = None
     for candidate in scored:
@@ -553,15 +455,7 @@ def _dates_held(conn: sqlite3.Connection, event_id: int) -> set[str]:
 
 def _field_versions(conn: sqlite3.Connection, event_id: int,
                     born: str) -> dict[str, str]:
-    """When the evidence behind each field was *said*. One clock, throughout.
-
-    `changed_at` answers a different question — when the write happened — and mixing the
-    two inverts the guard exactly when it matters: a pass applying a 10am message at
-    23:30 stamped 23:30, and the noon message read the next night compared 12:00 against
-    23:30 and was refused as stale. A field written with no evidence timestamp keeps
-    `changed_at`, which for a typed correction is the moment the user said it. `born`
-    answers the same question for the row's creation; the caller says how it is chosen.
-    """
+    """When the evidence behind each field was *said*, keyed by field."""
     versions: dict[str, str] = {}
     for row in conn.execute(
             "SELECT field, changed_at, evidence_ts FROM event_history"
@@ -667,18 +561,7 @@ def upsert(
     fields["date"] = db.parse_date(on).isoformat()
     if fields.get("time") and not db.valid_local_time(fields["date"], str(fields["time"])):
         fields["time"] = None
-    # A span that ends before it starts is a slip, never a fact about a trip, and it is
-    # not a harmless one: `window`'s predicate is `date <= hi AND coalesce(until, date)
-    # >= lo`, so an inverted span excludes the row from **every** window — including
-    # the one `brief.py` renders. The row stays real and `memcal_list_days`, `memcal_open`
-    # and the web UI all show it, while the agent's actual context never mentions it, on
-    # its own date, forever.
-    #
-    # `dream/apply` has guarded this since a model produced one. The typed writers did
-    # not, and both agent surfaces expose `until` — so one fat-fingered
-    # `memcal_update(when=…, until=…)` with the ends swapped silently deleted a plan
-    # from the brief with no error and no history row saying so. The guard belongs here,
-    # where every writer passes, rather than in the one caller that remembered.
+    # An inverted span would exclude the row from every window; keep the row, drop `until`.
     if fields.get("until"):
         try:
             fields["until"] = (fields["until"]
@@ -690,10 +573,7 @@ def upsert(
         fields["kind"] = "commitment"
     if fields.get("status") not in STATUSES and "status" in fields:
         fields["status"] = "mentioned"
-    # Defaults belong to a *new* row. Writing them into `fields` first meant every
-    # partial update also asserted them, so marking an opportunity declined promoted it
-    # to a commitment (§10 case 3, exactly backwards) and any update omitting `subject`
-    # reassigned someone else's row to the user.
+    # Defaults apply to new rows only; partial updates must not assert them.
     subject = fields.get("subject") or "me"
 
     existing: Event | None = None
@@ -715,20 +595,14 @@ def upsert(
         if scored:
             existing, confidence = scored
     if existing is None:
-        # Only a *new* occurrence inherits. An amendment that happens not to restate a
-        # location must not silently import a sibling's — the model was told to change
-        # one field and would be changing two, and on a two-member series like
-        # `poker-night` that is the most-graded row in the corpus quietly moving house.
+        # Only new occurrences inherit series qualities; amendments must not.
         _inherit_from_series(conn, fields)
         key = fields.get("key") or _free_key(
             conn,
             make_key(fields.get("title", ""), fields["date"], fields.get("series"), subject),
         )
         stamp = db.now()
-        # When what this row was built out of was *said*. The later per-field guard needs
-        # a floor for every field nothing has revised yet, and `created_at` cannot be it:
-        # it answers when the write ran. NULL for a typed write, which has no evidence
-        # older than itself.
+        # `born` floors the per-field guard below for fields nothing has revised yet.
         born = (max((str(v) for v in evidence_ts.values() if v), default=None)
                 if isinstance(evidence_ts, dict) else evidence_ts)
         conn.execute(
@@ -756,43 +630,16 @@ def upsert(
             conn.commit()
         return get(conn, key), "inserted"  # type: ignore[return-value]
 
-    # Precedence protects a settled row from a cheap pass re-reading old traffic. It is
-    # not meant to protect it from news.
-    #
-    # Told "I'm going to the movie on the 11th", an agent writes the row at `live`
-    # precedence. Riley cancels the next day, the nightly pass reads them cancelling —
-    # and the row was frozen, because the only escape hatch was "written today" and the
-    # agent had written it yesterday. Every row the user ever dictated became permanent
-    # the moment the clock rolled over, and the pass reported success while declining
-    # every update it was handed.
-    #
-    # So the test is on the evidence, not the calendar day: a lower-precedence write
-    # goes through when what it read is newer than the decision it is revising. Traffic
-    # that arrived after the agent wrote the row is the next thing that happened.
+    # Precedence guards settled rows from cheaper passes; newer evidence still applies.
+    # The test is on evidence time, not the calendar day.
     row = conn.execute(
         "SELECT updated_at, created_at, evidence_ts FROM events WHERE id = ?",
         (existing.id,)
     ).fetchone()
     last_write = str(row["updated_at"])
-    # Guarded means "a cheaper writer is revising a row somebody more authoritative
-    # settled". The question is then per *field*, not per row, and it is a question
-    # about evidence rather than about the calendar day.
-    #
-    # It used to be `written_today or fresher`, and the calendar-day half was a hole
-    # wide enough to lose a correction through every single time: the user tells the
-    # assistant at 09:01 that brunch moved to Sunday, a straggler from Saturday's group
-    # thread is collected at 20:00, and the pass at 23:30 sees a row "written today" and
-    # walks it straight back to Saturday. The row *had* been written today — by them,
-    # eleven hours earlier, which is the reason to refuse the write and not the reason
-    # to allow it.
-    #
-    # Per field, because a bundle carrying newer evidence about the time carries nothing
-    # new about the place, and a whole-row verdict decides both from whichever line
-    # happened to be newest.
-    # A mapping says "these lines are behind *this* field", which is the only comparison
-    # that means anything: a bundle whose newest cited line is about the time carries no
-    # news at all about the location, and a single pooled timestamp handed the time's
-    # authority to every other field in the diff.
+    # Guarded means a cheaper writer revises a row a more authoritative writer settled.
+    # The verdict is per field, on evidence time: a bundle's newest line about the time
+    # carries no authority about the place.
     per_field = isinstance(evidence_ts, dict)
     stamps = dict(evidence_ts) if per_field else {}
     default_ts = None if per_field else evidence_ts
@@ -801,37 +648,21 @@ def upsert(
         return stamps.get(name, default_ts)
 
     guarded = precedence(written_by) < precedence(existing.written_by)
-    # A mapping means the writer is on the per-field contract, and an *empty* mapping is
-    # an answer rather than a silence: it says nothing in what was read supports any of
-    # these fields. Falling back to the calendar day there would let exactly the fields
-    # nobody could point at a line for through the guard.
+    # An empty mapping claims no line supports these fields; never fall back to the day.
     dated = guarded and (per_field or bool(evidence_ts))
-    # The floor for a field nobody has revised yet: what the *creating* write read, not
-    # when it happened to run. `created_at` is a processing time, and using it here put
-    # the same two clocks back on opposite sides of the comparison this whole guard
-    # exists to get right — an agent filing a row at 23:30 made every message sent
-    # earlier that day permanently unable to correct it. `evidence_ts` is NULL for a
-    # typed write, and there `created_at` is the honest answer for exactly the reason it
-    # is in `_field_versions`: the user said it at the moment it was written down.
+    # Floor for fields nobody revised: the creating write's evidence time, or its
+    # run time for typed writes with no older evidence.
     born = str(row["evidence_ts"] or row["created_at"] or last_write)
     settled = _field_versions(conn, existing.id, born) if dated else {}
     stale: list[str] = []
     if guarded and not dated and last_write[:10] != db.today().isoformat():
-        # A writer that cannot say when it learned this has only the calendar day to go
-        # on, and that remains what it always was: revise what today wrote, leave
-        # yesterday's alone. Every writer that *can* date its evidence — which is every
-        # pass that reads traffic — is judged per field just below instead, because the
-        # day is the wrong unit. The user corrected the row at 09:01; a straggler
-        # collected at 20:00 and read at 23:30 is still older than the correction, and
-        # "it was written today" was answering a different question.
+        # Writers without evidence timestamps may only revise rows written today.
         return existing, "unchanged"
 
     changes: list[tuple[str, str, str]] = []
     updates: dict[str, object] = {}
     for name in clear:
-        # Before the value loop, so `clear=("location",)` beside `location="X"` is a
-        # caller contradicting itself and the *set* wins — an emptied field that some
-        # other argument immediately refills is the more confusing of the two outcomes.
+        # Clears run before sets so an explicit set beside a clear wins.
         if name not in CLEARABLE:
             raise ValueError(f"{name} cannot be cleared; one of {', '.join(CLEARABLE)}")
         if fields.get(name):
@@ -867,58 +698,21 @@ def upsert(
         if name == "title" and _says_less(new, old):
             continue  # a shorter name for what is already here is not news
         if name in inferred and _claimed_by_another(conn, existing.id, name, written_by):
-            # The missing half of the observation guard below. That one protects an
-            # observed row's date from inference; this protects everyone else's
-            # judgement from a *re*-derivation, which is the same principle pointed the
-            # other way.
-            #
-            # `partiful.event_fields` decides kind and status from "does this feed row
-            # have a location", on every scan, with no new information. Day 1: the
-            # conversation says the user is definitely going and the row becomes a confirmed
-            # commitment. Day 3: the calendar is renamed, every revision changes, the
-            # whole snapshot is re-derived from the same absent location, and the row is
-            # an opportunity again — "why is elements showing up as could go. im
-            # DEFINITLY going. thats BAD!"
-            #
-            # A re-derivation carrying no new information is not news. So a derived
-            # field may *create* a value and may never restate one over somebody else's.
-            # The legitimate path stays open in both directions: the inference still
-            # fills a field nobody has decided, and a disappearance from the feed is an
-            # *observation* (`partiful.reconcile_missing`), passes nothing as inferred,
-            # and keeps its full authority to decline the row.
+            # Derived fields may create values but never restate them
+            # over another writer's decision.
             continue
         if name == "date" and confidence <= 1:
-            # The weakest tier of match — overlapping participants and a similar title —
-            # is enough to say "these two mentions are the same event" and pool what
-            # they know. It is not enough to say "the event moved", because the only
-            # evidence it has for the new date is the very mention whose date is in
-            # question. A key, a series, or an identical title is a deliberate claim
-            # about identity; participant overlap is a guess that happened to be right.
-            #
-            # One plan discussed in three conversations arrives as three proposals,
-            # each dated from its own fragment, and whichever parallel call lands last
-            # would silently win. That is how a beer garden negotiated down to "Sunday
-            # after 6" in the group thread ended up on Saturday, moved there by a
-            # passing "next weekend" in an unrelated thread about trust paperwork.
+            # Tier-1 matches may pool knowledge but may not move the date;
+            # participant overlap asserts identity too weakly.
             continue
         if name in ("date", "until", "time") and _observed(existing) \
                 and not _observed_writer(written_by):
-            # An iCal or Partiful row *is* the calendar. Its date was read off the event
-            # itself, not inferred from someone talking about it, and inference must not
-            # overwrite an observation however confident it sounds.
-            #
-            # This is not hypothetical: a chat proposal moved a subscribed festival from
-            # 2026-08-07 to 2026-08-01 and rewrote its source to the friend who had
-            # mentioned it, and the user had to correct it by hand. What the friend
-            # actually knew was the wrong week; what the calendar knew was the answer.
-            # A conflict here is worth a question, not a write — and the row is still
-            # free to gain a location, a note, or another guest from the conversation.
+            # Only observations or the user may move an observed row's schedule.
+            # Conversations may still add location, notes, or guests.
             continue
         here = evidence_for(name)
         if dated and (not here or str(here) <= settled.get(name, "")):
-            # Older than the decision it would revise. Genuinely newer evidence still
-            # lands — that comparison is the whole guard, and it is why this is not
-            # "assistant-written rows are permanently authoritative".
+            # Older than the decision it would revise; genuinely newer evidence lands.
             stale.append(name)
             continue
         updates[name] = new
@@ -927,15 +721,8 @@ def upsert(
     if not updates:
         return existing, "unchanged"
 
-    # The row keeps the highest authority that ever wrote it, not the last one. Per-field
-    # provenance lives in `event_history`, which records the real writer of every change;
-    # this column exists only to answer "how settled is this row", and the answer does not
-    # get less settled because a nightly pass later adjusted a time on it.
-    #
-    # It used to be overwritten, which quietly disarmed the guard above: the user dictates
-    # a row through the agent, that evening's pass touches one field, the row is stamped
-    # `dream:nightly`, and from then on any cheap pass re-reading old traffic can walk it
-    # anywhere. The protection lasted until the first pass that agreed with it.
+    # The row keeps the highest authority that ever wrote it, not the last one.
+    # Per-field provenance lives in `event_history`.
     authority = (written_by if precedence(written_by) >= precedence(existing.written_by)
                  else existing.written_by)
     sets = ", ".join(f"{k} = ?" for k in updates)
@@ -1004,13 +791,7 @@ def address_keys(entities: list[str]) -> set[str]:
 
 
 def name_keys(name: str) -> set[str]:
-    """The ways one person's name compacts, for comparison against an address.
-
-    Anything after a comma is dropped: a display name carries qualifications and
-    generational suffixes there, and they are not part of the name. Matching on a
-    shape rather than on a list of them keeps this from enumerating what the store
-    happens to hold.
-    """
+    """Compaction variants of one person's name, for address comparison."""
     head = str(name or "").split(",", 1)[0]
     tokens = re.findall(r"[a-z0-9]+", head.casefold())
     if not tokens:
@@ -1081,10 +862,8 @@ def amendable_groups(conn: sqlite3.Connection, *, people: list[str],
         if event.subject and event.subject.casefold() != "me":
             who.add(event.subject.casefold())
         overlap = who & named
-        # An email address that spells a participant's name is a link to them, and for
-        # a thread whose sender resolves to no person it is the only link there is.
-        # Narrower than a lexical match: the whole compacted name must equal the whole
-        # compacted local part, so credentials and role addresses match nothing.
+        # A compacted address matching a compacted name links them. Exact whole-value
+        # match only, so role addresses match nothing.
         by_address = bool(from_address and {k for p in event.participants
                                             for k in name_keys(p)} & from_address)
         if by_address:
@@ -1093,23 +872,15 @@ def amendable_groups(conn: sqlite3.Connection, *, people: list[str],
             r"[a-z0-9']{3,}", " ".join((event.title, event.location or "",
                                          event.series or "")).casefold()))
         lexical = len(words & event_words)
-        # Title words only, for the no-roster rule below. `event_words` also spans
-        # `location` and `series`, which carry exporter placeholder text that matches
-        # arbitrary prose. The title is the part a person wrote.
+        # Title words only; location and series carry exporter text a person did not write.
         title_lexical = len(words & set(re.findall(r"[a-z0-9']{3,}", event.title.casefold())))
         if not overlap:
-            # A bundle whose people are all unresolved has no person edge, and was
-            # shown no calendar rows at all — so a thread cancelling an appointment got
-            # no key to cancel against. With no roster, shared title wording is the only
-            # edge available. Two words, not one: one generic word pulls in unrelated
-            # rows. Group threads keep the stricter rule — they do have people, so no
-            # overlap there means the people genuinely do not match.
+            # With no roster, shared title wording is the only edge; require two words.
+            # Group threads keep the stricter rule.
             if named or group_entity or title_lexical < NO_ROSTER_WORDS:
                 continue
-        # One person in a large room is a weak edge: Quinn being in both a rave chat and
-        # a dentist appointment does not make the dentist relevant to the rave chat.
-        # Two shared people are structural; one shared person needs the bundle itself to
-        # name some part of the occasion. DMs remain allowed to match on their one person.
+        # One shared person is weak in a large room without lexical overlap.
+        # DMs may still match on one person.
         if group_entity and len(overlap) == 1 and not lexical:
             continue
         related.append((len(overlap), lexical, temporal(event), event))
@@ -1138,10 +909,8 @@ def candidates(conn: sqlite3.Connection, *, people: list[str],
                ) -> tuple[list[Event], list[Event], list[Event], int]:
     """Linked rows, related rows, and rows nominated by wording, people, or a date.
 
-    The third tier reaches what the person edges cannot: a correction from someone who
-    is not on the row. A nomination is not a match — it is a row worth considering,
-    handed to the model with the decision open, while code keeps the exact identities.
-    The count of what did not fit comes back with the list.
+    Nominations are worth considering, not matches; the model judges while code
+    keeps identities. The overflow count returns with the list.
     """
     same, related = amendable_groups(
         conn, people=people, entity=entity, text=text, entities=entities,
@@ -1162,10 +931,8 @@ def candidates(conn: sqlite3.Connection, *, people: list[str],
         if event.key in seen:
             continue
         title_words = set(re.findall(r"[a-z0-9']{3,}", event.title.casefold()))
-        # Three independent edges, any one of which is enough to *nominate*. The union
-        # is the point: a correction that names nobody still names a day, and one that
-        # names no day still names a person, and requiring both is how a plan discussed
-        # in a second conversation became a second plan.
+        # Any one of wording, person, or date nominates; requiring all misses
+        # cross-conversation corrections.
         by_words = len(words & title_words) >= NOMINATION_WORDS
         by_person = bool(spoken & {p.casefold() for p in event.participants}
                          | (spoken & {(event.subject or "").casefold()} - {"me"}))
@@ -1180,12 +947,7 @@ def candidates(conn: sqlite3.Connection, *, people: list[str],
 
 
 def _people_named(conn: sqlite3.Connection, body: str) -> set[str]:
-    """Known people this text actually names, as a lowercase set.
-
-    The bundle's *speakers* are not the only people a message is about. "Alex can't get
-    there early", said by somebody who is on no row at all, is the only thing connecting
-    that message to Alex's dinner.
-    """
+    """Known people this text names, as a lowercase set."""
     out: set[str] = set()
     for row in conn.execute("SELECT DISTINCT person FROM handles"):
         person = str(row["person"] or "").strip()
@@ -1203,13 +965,7 @@ def _people_named(conn: sqlite3.Connection, body: str) -> set[str]:
 #: *and* a month or weekday word, because a bare "19" occurs in prices, addresses and
 #: phone numbers and would nominate the whole calendar.
 def _names_a_date_of(conn: sqlite3.Connection, event: "Event", body: str) -> bool:
-    """Does this text name a day this row is on, or has ever been on?
-
-    Every day the row has held counts, not only today's. A message that still says
-    Saturday is talking about the row that moved to Sunday — that is the entire reason
-    it needs to be looked at, and matching only the current date makes exactly the
-    stale-evidence case invisible.
-    """
+    """Does this text name a day this row is on, or has ever been on?"""
     days = {event.date, event.until or event.date}
     for row in conn.execute(
             "SELECT old_value, new_value FROM event_history"
@@ -1285,12 +1041,8 @@ def written_from(conn: sqlite3.Connection, key: str,
         where, args = "a.stream = ? AND a.thread = ?", [stream, thread]
     else:
         return []
-    # The two days before the write, and only the lines that carried a signal — the point
-    # is to remind the model what was decided, not to re-send the conversation.
-    #
-    # `exclude` is the bundle's own lines. Without it this hands back the amendment
-    # itself whenever the row was written in the same breath, so the model is shown "I
-    # can't do Saturday" as the evidence for what Saturday was.
+    # Remind the model what was decided, not the whole conversation;
+    # exclude the bundle's own lines.
     rows = conn.execute(
         f"""SELECT a.id, a.ts, a.person, a.from_me, a.text FROM archive a
              WHERE {where} AND a.gated = 1
@@ -1481,8 +1233,7 @@ def search(conn: sqlite3.Connection, needle: str, *, limit: int = 6) -> list[Eve
         hits = len(wanted & words)
         if not hits:
             continue
-        # Prefer the row the user is most likely looking at: near today, and matching
-        # more of what they said.
+        # Rank near today first, then by overlap size.
         away = abs((db.parse_date(event.date) - db.today()).days)
         scored.append((hits - min(away, 60) / 400.0, event))
     scored.sort(key=lambda pair: (-pair[0], pair[1].date))
@@ -1518,9 +1269,7 @@ def link_contained(conn: sqlite3.Connection) -> int:
     """Recompute explicit title-backed containment and clear stale links."""
     rows = [Event.from_row(r) for r in conn.execute(
         "SELECT * FROM events WHERE status != 'declined' ORDER BY date, id")]
-    # The corpus is every title in the store, declined ones included: what a word means
-    # in this store does not change because a plan fell through, and a threshold that
-    # moved when a row was declined would re-nest rows as a side effect of saying no.
+    # Include declined titles so the threshold stays stable when plans fall through.
     naming = _naming_words([r["title"] for r in conn.execute("SELECT title FROM events")])
     spans = [e for e in rows if e.until and e.until > e.date]
     endorsed: dict[int, int] = {}
@@ -1535,8 +1284,7 @@ def link_contained(conn: sqlite3.Connection) -> int:
                 continue
             if not (parent.date <= child.date <= parent.until):
                 continue
-            # Its own span, not a point inside this one — two overlapping trips are
-            # two trips, and neither is inside the other.
+            # Overlapping spans are siblings, not containers.
             if child.until and child.until > child.date:
                 continue
             if not (stem & _title_words(child.title)):
@@ -1544,9 +1292,8 @@ def link_contained(conn: sqlite3.Connection) -> int:
             endorsed[child.id] = parent.id
     moved = 0
     for child in rows:
-        # `None` for a row nothing endorses, which is what clears a nesting this rule no
-        # longer stands behind. Only rows loaded here are judged, so a declined row
-        # keeps whatever it had rather than being silently un-nested for being declined.
+        # `None` clears a nesting this rule no longer endorses. Declined rows keep
+        # whatever they had.
         want = endorsed.get(child.id)
         if child.part_of == want:
             continue

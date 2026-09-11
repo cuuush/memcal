@@ -121,14 +121,10 @@ def _later_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
     asked = todos.questions_by_event(conn)
     lines = ["## Later"]
     for ev in rows[:LATER_LIMIT]:
-        # Uses `needs_subject` to maintain consistent subject attribution across blocks.
         who = f" ({ev.subject})" if ev.needs_subject() else ""
-        # Includes RSVP status and link for invitations requiring action.
         invite = [ev.plain_state(), f"invite: {events._short_url(ev.rsvp_url)}"] \
             if ev.rsvp_url else []
-        # Includes video meeting join links when available.
         act = [f"join: {ev.join_url}"] if ev.join_url else []
-        # Formats title and platform consistently with the week block.
         title, platform = events.split_platform(ev.title)
         home = [f"via {platform}"] if platform else []
         hosts = ev.visible_hosts()
@@ -276,7 +272,6 @@ def _open_block(conn: sqlite3.Connection) -> str:
     lines = ["## Open"]
     for todo in items:
         lines.append(f"{source_tag('todo', todo.id)} {todo.one_line()}")
-        # Renders questions associated with a to-do directly beneath it.
         for question in evidence.get(todo.id, []):
             lines.append(f"  ↳ {source_tag('question', question['id'])} "
                          f"{presentation.question_line(question)}")

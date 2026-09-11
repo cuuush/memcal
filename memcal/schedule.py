@@ -107,11 +107,8 @@ def render_info_plist() -> dict:
         "CFBundleVersion": "1",
         "CFBundleIconFile": APP_ICON_NAME,
         "CFBundleIconName": APP_ICON_NAME,
-        # An agent, not an app with a window or a Dock icon — but an agent that can
-        # still present UI. `LSBackgroundOnly` was tried first and broke consent:
-        # a background-only identity can never show a TCC dialog, so `ical setup`
-        # hung for the whole EventKit wait with no prompt ever appearing.
-        # `LSUIElement` keeps it out of the Dock while letting the grant through.
+        # An agent without a Dock icon that can still present consent UI.
+        # `LSBackgroundOnly` cannot show TCC dialogs; `LSUIElement` can.
         "LSUIElement": True,
         "LSMinimumSystemVersion": "10.15",
         "NSAppleEventsUsageDescription": reason,
@@ -140,9 +137,8 @@ def _compiler_command(*, runner=subprocess.run) -> list[str] | None:
 def _bundle_is_current(cfg: Config) -> bool:
     """True when the built launcher is newer than its sources.
 
-    The icon is a source too: a newer icon.png must trigger one rebuild (and
-    re-sign), but a missing icon toolset must not trap the bundle in a rebuild
-    loop — so freshness is measured exe-vs-sources, never icns-vs-source.
+    Freshness compares exe-vs-sources only, so a missing icon toolset
+    does not trap the bundle in a rebuild loop.
     """
     try:
         exe_mtime = app_executable(cfg).stat().st_mtime if app_executable(cfg).is_file() else None
@@ -161,11 +157,9 @@ def bundle_health(cfg: Config) -> tuple[str, str]:
     """`(verdict, detail)` for the app-bundle wrapper: ok, stale, or fallback.
 
     Verdicts are `ok` (built, executable, current), `stale` (built but behind the
-    source, not executable, or half-written), or `absent` (no usable bundle — the
-    nightly job and probes run under the interpreter's name, including a metadata-
-    only `.app` left by a compiler-less install). Doctor renders stale as a
-    warning with a `--rebuild` fix: every stale state still falls back to the
-    interpreter, so none of them is fatal.
+    source, not executable, or half-written), or `absent` (no usable bundle).
+    Doctor renders stale with a `--rebuild` fix; every stale state still falls
+    back to the interpreter, so none is fatal.
     """
     if not _is_macos():
         return ("ok", "app bundle is macOS-only — nothing to check here")
@@ -794,14 +788,7 @@ def status(cfg: Config, *, runner=subprocess.run) -> dict:
     warning = None
     script = script_path(cfg)
     if installed and not script.exists():
-        # The failure this check exists for, and the one it originally missed: the plist
-        # was loaded and pointed at a script that was not there, launchd wrote
-        # `nightly.sh: No such file or directory` into launchd.err every night, and
-        # nothing read that file. The store went five days with one dream run in its
-        # entire life while `memcal schedule` reported the job installed and loaded.
-        #
-        # The old check only looked *inside* the script, so a missing script skipped it
-        # entirely — the one thing that actually broke was the one thing not checked.
+        # A loaded plist pointing at a missing script fails every night.
         warning = (f"{script} does not exist, so the job fails every night the moment "
                    f"launchd starts it — run `memcal schedule install` to regenerate it")
     elif script.exists():
@@ -813,8 +800,7 @@ def status(cfg: Config, *, runner=subprocess.run) -> dict:
                                f"back to python3 on PATH; reinstall to re-pin")
                 break
 
-    # launchd's own stderr, which is where a job that cannot start says so. Nothing read
-    # it before, which is why the missing script was invisible for five days.
+    # launchd's stderr, where jobs that cannot start report the cause.
     err = cfg.home / "launchd.err"
     startup_error = ""
     if err.exists():
@@ -822,16 +808,8 @@ def status(cfg: Config, *, runner=subprocess.run) -> dict:
         if startup_error and not warning:
             warning = f"launchd could not start the job: {startup_error.splitlines()[-1]}"
 
-    # launchd has been reporting `last exit code = 127` — the shell's "command not
-    # found" — every night, and it was parsed out of the listing above and then only
-    # ever printed. A nightly job that exits non-zero is failing, whatever the cause,
-    # and that is worth saying in the same breath as "installed: yes".
-    #
-    # But launchd spells "has not run yet" as `last exit code = (never exited)`, in the
-    # same field, so a freshly installed job read as a failing one the moment the
-    # missing-script warning above stopped taking priority. That is the sentinel shape
-    # exactly: the one value meaning *no value* satisfied a test for a bad value. Only
-    # an integer is an exit code; anything else is launchd saying it has nothing yet.
+    # A non-zero exit means the job is installed but failing. A non-integer
+    # value (e.g. `(never exited)`) means launchd has nothing to report yet.
     try:
         exited_with = int(str(last_exit).strip())
     except (TypeError, ValueError):
@@ -864,11 +842,9 @@ def status(cfg: Config, *, runner=subprocess.run) -> dict:
 
 
 def run_now(cfg: Config, *, force: bool = True) -> int:
-    """Run the script itself, not a reimplementation of it. If the two could drift,
-    a green result here would say nothing about what happens at 03:00.
+    """Run the scheduled script itself, not a reimplementation of it.
 
-    `force` overrides the script's own owed check; typing `memcal schedule run` has
-    already answered that question.
+    `force` overrides the script's own owed check.
     """
     script = script_path(cfg)
     if not script.exists():
@@ -883,9 +859,6 @@ def run_now(cfg: Config, *, force: bool = True) -> int:
     env = dict(os.environ)
     if force:
         env["MEMCAL_RUN_NOW"] = "owed"
-    # Exactly what launchd runs — the file itself, through its shebang, routed
-    # through the app bundle when one is built so the manual run uses the same
-    # TCC identity as the 03:00 job. Invoking `/bin/sh <script>` here would still
-    # work and would stop this being a test of the thing that actually happens
-    # at 03:00, which is the whole point of the function.
+    # Run the file itself through the app bundle when built, preserving
+    # the scheduled job's TCC identity.
     return subprocess.run(argv, env=env).returncode

@@ -153,12 +153,7 @@ def ambient_tokens(frags: list[Fragment], spread_days: int = 6) -> frozenset[str
 def common_tokens(by_entity: dict[str, list[Fragment]],
                   max_share: float = 0.08) -> frozenset[str]:
     """Words too widespread to identify anything, measured across conversations."""
-    # Document frequency is meaningless on a handful of conversations: at a floor of two,
-    # a three-bundle corpus suppresses any word all three mention, which is *the* word
-    # they are about. That is not a synthetic worry — a nightly pass is 13-15 bundles, so
-    # the pass this runs on 364 days a year sits right in the range where a low floor
-    # deletes the signal. Below the minimum, skip it entirely and let `ambient_tokens`
-    # carry the suppression on its own.
+    # Skip frequency filtering on small corpora, where shared words are the signal.
     if len(by_entity) < MIN_CORPUS_FOR_DF:
         return frozenset()
     seen: dict[str, set[str]] = {}

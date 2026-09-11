@@ -25,8 +25,7 @@ def record(conn: sqlite3.Connection, *, run_id: int | None, stage: str, label: s
            bundles: list[dict] | None = None) -> None:
     """Remember where OpenRouter filed this call, and write the call itself to disk.
 
-    The row is the index; the file is the content. Pass `home` and every caller gets
-    an offline trace for free — see `calls.py` for why that stopped being optional.
+    The row is the index; the file is the content.
     """
     generation_id = (getattr(reply, "generation_id", "") or "").strip()
     if not generation_id:
@@ -174,10 +173,9 @@ def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
                 *, context: int = 2, limit: int = 40) -> list[dict]:
     """Original archive lines behind one derived row, with a little thread context.
 
-    New writes use the explicit `evidence` link. Older writes predate that table, so
-    fall back to the spool rows consumed by the same run and entity. That fallback is
-    intentionally conservative: it returns the source bundle, never a guessed global
-    text search that could make an unrelated line look like corroboration.
+    New writes use the explicit `evidence` link. Older writes predate that table,
+    so fall back to the spool bundle consumed by the same run and entity.
+    The fallback returns only the source bundle, never a global text search.
     """
     linked = conn.execute(
         """SELECT DISTINCT a.* FROM evidence e
@@ -289,12 +287,8 @@ def _mark_source_shifts(conn: sqlite3.Connection, rows: list[dict]) -> list[dict
 def citations(conn: sqlite3.Connection, kind: str, ref: str) -> dict:
     """How well a row is backed up, in the few numbers worth saying out loud.
 
-    Every surface that shows a memory wants the same one-line answer — "3 lines, from
-    Lootbox Addicts Support Group, 31 July" — and none of them wants to fetch and count
-    the lines to get it. `narrow` is the part that matters most: it separates a row
-    pointing at the two messages that made it from one pointing at a whole conversation
-    because nothing could be narrowed, and the second is the shape that let a question
-    about a film nobody mentioned look thoroughly evidenced.
+    `narrow` separates a row citing its specific lines from one pointing at
+    a whole conversation as a fallback.
     """
     rows = conn.execute(
         """SELECT a.stream, a.thread, a.ts FROM evidence e JOIN archive a ON a.id = e.archive_id
@@ -312,14 +306,12 @@ def citations(conn: sqlite3.Connection, kind: str, ref: str) -> dict:
         "conversations": where,
         "first": stamps[0][:16] if stamps else "",
         "last": stamps[-1][:16] if stamps else "",
-        # The same two stamps with the weekday said rather than implied. Both forms,
-        # because the ISO one is what a caller sorts and compares on and the readable one
-        # is what stops a model doing the arithmetic itself — asked where a to-do came
-        # from, one read `2026-08-10T14:52` and answered "Sunday, Aug 10". Monday.
+        # Both ISO and readable forms: the first sorts, the second needs
+        # no weekday arithmetic from callers.
         "first_said": dates.said_on(stamps[0]) if stamps else "",
         "last_said": dates.said_on(stamps[-1]) if stamps else "",
-        # A handful of lines out of a conversation is a citation. The whole conversation
-        # is the fallback wearing a citation's clothes.
+        # A handful of lines is a citation; the whole conversation is the
+        # fallback, not line-level evidence.
         "narrow": bool(rows) and (spooled == 0 or len(rows) < spooled),
     }
 
@@ -335,9 +327,8 @@ def conversation(conn: sqlite3.Connection, *, stream: str, thread: str,
                  limit: int = 60) -> list[dict]:
     """The exchange around one moment, as it was actually said.
 
-    `source_rows` gives two lines either side, which is enough to read a citation and
-    not enough to answer "what were they talking about". This is the rest of it: the
-    conversation, in order, centred on the line that was cited.
+    `source_rows` shows citations with minimal context; this returns the fuller
+    conversation centred on the cited line.
     """
     if around:
         earlier = conn.execute(
@@ -412,9 +403,7 @@ def resolve_source(conn: sqlite3.Connection, token: str) -> dict:
             "ref": redirect.destination_ref,
         }
     if not cited["narrow"]:
-        # Said plainly, because the alternative is a reader assuming that forty lines of
-        # a group chat are forty pieces of evidence. They are the conversation this came
-        # out of; no line in it was ever pointed at.
+        # Un-narrowed rows cite the conversation, not specific lines.
         out["caveat"] = ("no line-level citation — these are the conversation this row "
                          "came out of, not the lines it was built from")
     return out

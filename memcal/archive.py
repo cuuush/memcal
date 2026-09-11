@@ -31,9 +31,8 @@ def append(
 ) -> int | None:
     """Append one item. Returns its archive id, or None if already present.
 
-    `collection_id` identifies the ingest pass that first recorded the row. The queue
-    view groups by this field: skipped items (`gated = 0`) never enter the spool, so
-    `collection_id` preserves which collection pass filtered them out.
+    `collection_id` is the ingest pass that first recorded the row; skipped items
+    never enter the spool, so it preserves which pass filtered them.
     """
     cur = conn.execute(
         """INSERT INTO archive(stream, external_id, ts, thread, handle, person, from_me,
@@ -73,8 +72,7 @@ def search_filtered(conn: sqlite3.Connection, query: str, *, limit: int = 20,
                     since: str = "", until: str = "") -> list[sqlite3.Row]:
     """Full-text search filtered by person, stream, thread, or date range.
 
-    Filters narrow results by participant handle/thread or temporal window. An empty
-    `query` with filters returns all matching items in that scope without text matching.
+    An empty `query` with filters returns all matching items in that scope.
     """
     where, args = [], []
     if person:
@@ -130,7 +128,7 @@ def counts_by_stream(conn: sqlite3.Connection, since: str | None = None) -> list
     return conn.execute(sql, args).fetchall()
 
 
-# Threshold in days for identifying inactive streams without false positives over weekends.
+# Threshold in days for inactive-stream reporting.
 STALE_AFTER_DAYS = 2
 
 # Internally generated streams excluded from stale-source reporting.
@@ -218,10 +216,8 @@ def spool_add(conn: sqlite3.Connection, archive_id: int, entity: str, *,
               priority: str = "normal") -> None:
     """Queue one gated line. `priority` orders the queue; it never removes anything.
 
-    An automatic judgement about a sender is a judgement about *when* to read their
-    mail, not about whether it exists. Everything queued here is read; low-priority
-    lines are read after the rest and within a bounded share of each pass, and what
-    does not fit stays pending rather than being retired unread.
+    Low-priority lines are read after the rest within a bounded share of each pass;
+    what does not fit stays pending.
     """
     conn.execute(
         "INSERT INTO spool(archive_id, entity, added_at, priority) VALUES(?,?,?,?)"
@@ -247,10 +243,7 @@ def spool_retire(conn: sqlite3.Connection, before: str) -> int:
 
 
 def spool_rekey_groups(conn: sqlite3.Connection) -> int:
-    """Reassign pending group messages previously keyed under individual speaker entities.
-
-    Only unprocessed spool rows are updated.
-    """
+    """Reassign pending group messages previously keyed under individual speakers."""
     from . import gate                      # gate imports identity, not archive
     rows = conn.execute(
         """SELECT s.id, s.entity, a.stream, a.thread, a.person, a.meta
@@ -271,14 +264,12 @@ def spool_rekey_groups(conn: sqlite3.Connection) -> int:
     return fixed
 
 
-# Maximum lines an entity may contribute to a single pass, aligned with bundle limits.
+# Maximum lines one entity may contribute to a single pass.
 ITEMS_PER_ENTITY = 60
 
 
-#: How much of one pass's item budget low-priority traffic may take. A bounded share
-#: rather than a queue behind everything, because "read after the important mail" and
-#: "never read, because there is always more important mail" are the same thing on a
-#: mailbox that receives forty newsletters a day. See `spool_pending`.
+#: Bounded share of one pass's budget reserved for low-priority traffic, so quiet
+#: backlog is always read even when ordinary traffic would fill the pass alone.
 LOW_PRIORITY_SHARE = 0.25
 
 
@@ -287,10 +278,8 @@ def spool_pending(conn: sqlite3.Connection, limit: int = 1500,
                   low_share: float = LOW_PRIORITY_SHARE) -> list[sqlite3.Row]:
     """Pending items, partitioned by entity, normal priority first.
 
-    Low-priority items are not excluded and not left to starve: they get their own
-    reserved slice of the budget, so a pass always makes progress through the quiet
-    backlog even on a day when the ordinary traffic would have filled the request on its
-    own. Whatever does not fit stays pending — `backlog()` is how that is said out loud.
+    Low-priority items get a reserved slice of the budget; whatever does not fit
+    stays pending.
     """
     def page(where: str, budget: int) -> list[sqlite3.Row]:
         if budget <= 0:
@@ -308,9 +297,7 @@ def spool_pending(conn: sqlite3.Connection, limit: int = 1500,
     reserved = int(max(0, limit) * max(0.0, min(1.0, low_share)))
     normal = page("coalesce(s.priority, 'normal') <> 'low'", limit - reserved)
     low = page("coalesce(s.priority, 'normal') = 'low'", reserved)
-    # Anything the quiet share did not claim goes back to the ordinary traffic rather
-    # than being left on the table: a day with no newsletters should read more mail, not
-    # less of everything else.
+    # Unclaimed quiet share goes back to ordinary traffic.
     spare = limit - len(normal) - len(low)
     if spare > 0 and len(normal) == limit - reserved:
         normal += [row for row in page("coalesce(s.priority, 'normal') <> 'low'",
@@ -320,7 +307,7 @@ def spool_pending(conn: sqlite3.Connection, limit: int = 1500,
 
 
 def backlog(conn: sqlite3.Connection) -> dict:
-    """What is queued and not yet read, by priority. Exposed rather than implied."""
+    """What is queued and not yet read, by priority."""
     rows = conn.execute(
         """SELECT coalesce(s.priority, 'normal') AS priority, count(*) AS n,
                   min(a.ts) AS oldest
@@ -423,7 +410,7 @@ def close_collection(conn: sqlite3.Connection, collection_id: int,
 
 
 def collections(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
-    """Return recent collection passes with queued (`waiting`), filtered (`skipped`), and processed counts."""
+    """Return recent collection passes with queued, filtered, and processed counts."""
     rows = [dict(r) for r in conn.execute(
         "SELECT * FROM collections ORDER BY id DESC LIMIT ?", (limit,))]
     for row in rows:

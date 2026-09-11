@@ -17,34 +17,18 @@ from .. import (dates, db, events, identity, pending, questions,
 from ..config import Config
 from .bundle import Bundle
 
-# How far past its own source traffic a row is allowed to land. A year-old fraternity
-# email saying "poker this Saturday" means a Saturday a year ago; nothing in it can
-# schedule anything for this week. This is the structural half of the poker-address
-# case — the model is not the thing standing between them and that answer.
+# A row may land only near its source traffic: an old message cannot
+# schedule the current week.
 MAX_LOOKAHEAD_DAYS = 45
 
-# And how far *before* its own source traffic. The mirror of the rule above, and it was
-# missing: `_horizon` returned an upper bound only, so a bundle whose newest line is
-# today could still write a row into last year and nothing objected.
-#
-# Which is not hypothetical. The first live run of tools/benchmark_temporal.py put three
-# rows — poker, an AWS event and a Smash Bros night — on 2025-08-07, 2025-08-04 and
-# 2025-08-03, from traffic timestamped 2026-08-03, with `TODAY IS Monday 2026-08-03` in
-# the prefix and `-- Mon 2026-08-03 --` above every line. The model simply wrote the
-# previous year. A row a year in the past is invisible: it renders nowhere near the
-# brief's window, so the failure looks like nothing was captured at all.
-#
-# Wider than the forward bound because looking back is legitimate — `observed` rows and
-# a late-arriving "how was dinner" both point backwards — but a bundle cannot report
-# something from before its own oldest line by any margin that matters.
+# The mirror bound before source traffic. Back-references are legitimate,
+# but a bundle cannot report from before its oldest line.
 MAX_LOOKBACK_DAYS = 120
 
 
 # ------------------------------------------------------------------ evidence --
-# Which lines a row was built from. The model cites them when it can (`cites` → an
-# archive id per `L` tag), and when it cannot, this is the difference between narrow
-# evidence and none at all — the alternative, attaching the whole conversation, produced
-# a question about Spider-Man carrying 1,725 lines of Taco Bell orders as its receipt.
+# Which lines a row was built from. Uncited rows attach minimal derived
+# evidence rather than the whole conversation.
 
 #: Words too common to prove two sentences are about the same thing.
 _EVIDENCE_STOP = frozenset("""
@@ -66,10 +50,8 @@ MAX_DERIVED_EVIDENCE = 12
 #: it, and a plan is rarely made in a single message.
 PER_CLAIM = 2
 
-#: Capitalised words that name nothing — the calendar vocabulary every question is full
-#: of, plus the words a question opens with. Left in, "Sunday" and "Aug" would count as
-#: things a conversation must mention, and "When" would match almost any conversation
-#: there is, which is how the check quietly passed everything.
+#: Capitalised words that name nothing — calendar vocabulary and question
+#: openers. Excluded so date words and interrogatives do not count as matches.
 _NOT_A_PROPER_NOUN = frozenset(
     [*dates.WEEKDAYS, *dates.MONTHS,
      "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
@@ -98,11 +80,8 @@ def _asked_itself(text: str) -> str:
 def _content_words(text: str) -> set[str]:
     """The words in a sentence that could identify what it is about.
 
-    A hyphenated name is indexed both ways — "Spider-Man" yields `spiderman` and
-    `spider` — because nobody types a name the same way twice, and the row and the line
-    that produced it are exactly the two places that disagree. Matching them literally,
-    "Spider-Man" found nothing in a thread that said "Spiderman" and "Spider man", so the
-    question kept 1,593 lines of Taco Bell instead of the two messages it came from.
+    Hyphenated names are indexed both whole and split, so spelling
+    variants still match.
     """
     out: set[str] = set()
     for raw in re.findall(r"[a-z0-9'’-]+", (text or "").lower()):
@@ -662,12 +641,8 @@ def _standalone_question(bundle: Bundle, proposed: str) -> str:
         body = " ".join(str(row["text"] or "").split()).strip()
         if not body:
             continue
-        # Shared words are what make this line the one the question came out of; the
-        # question mark only breaks ties between lines that already qualify. Scored the
-        # other way round, the highest-scoring line in a bundle with no relevant line at
-        # all is whoever last typed "?" — which is how "Morgan asked:" came to be
-        # attached to a question about a film they never mentioned. An attribution is a
-        # claim about who said something, and inventing one is worse than omitting it.
+        # Shared words select the source line; the question mark only breaks
+        # ties. Attribution requires overlap — never invent a speaker.
         overlap = len(set(re.findall(r"[a-z0-9']{3,}", text.lower()))
                       & set(re.findall(r"[a-z0-9']{3,}", body.lower())))
         if not overlap:
@@ -685,9 +660,8 @@ def _standalone_question(bundle: Bundle, proposed: str) -> str:
         len(part) >= 3 and re.search(rf"\b{re.escape(part)}\b", text, re.IGNORECASE)
         for part in re.findall(r"[\w'-]+", speaker))
     if speaker and not speaker_named:
-        # Preserve the distinction between a literal question and a question memcal
-        # inferred it should ask. "Rowan is back — did you return the pass?" came from
-        # their arrival message; claiming "Rowan asked" would fabricate speech.
+        # Preserve the literal-vs-inferred distinction: only "X asked" when
+        # the source line itself asked.
         if row is not None and "?" in str(row["text"] or ""):
             return f"{speaker} asked: {text}"
         return f"From {speaker}'s messages: {text}"

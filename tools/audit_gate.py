@@ -76,9 +76,7 @@ if not only or only == "email":
 print("\n" + "=" * 78)
 print("CHAT: WHAT THE GATE DROPPED, AND WHETHER IT WAS AN ANSWER")
 print("=" * 78)
-# The case the user raised: "beer garden?" is a proposal, and "yeah i'm down" a day later is
-# the only thing that settles it. A dropped line sitting next to a kept one is a line
-# whose meaning was in the pair.
+# A dropped line beside a kept line may carry meaning only in the pair.
 for stream in ("groupme", "whatsapp", "imessage"):
     if only and stream != only:
         continue
