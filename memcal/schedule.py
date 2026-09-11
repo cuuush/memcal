@@ -93,8 +93,12 @@ def render_info_plist() -> dict:
         "CFBundleInfoDictionaryVersion": "6.0",
         "CFBundleShortVersionString": "1.0",
         "CFBundleVersion": "1",
-        # An agent, not an app with a window or a Dock icon.
-        "LSBackgroundOnly": True,
+        # An agent, not an app with a window or a Dock icon — but an agent that can
+        # still present UI. `LSBackgroundOnly` was tried first and broke consent:
+        # a background-only identity can never show a TCC dialog, so `ical setup`
+        # hung for the whole EventKit wait with no prompt ever appearing.
+        # `LSUIElement` keeps it out of the Dock while letting the grant through.
+        "LSUIElement": True,
         "LSMinimumSystemVersion": "10.15",
         "NSAppleEventsUsageDescription": reason,
         "NSCalendarsUsageDescription": reason,

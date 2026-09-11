@@ -5,6 +5,16 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `memcal ical setup` accepts full Calendar access on macOS 14+, where EventKit
+  reports it as `4` rather than the `3` that was the only value checked — a correct
+  grant read as "no access" forever. Add-Only is detected as its own state with the
+  manual flip to Full Access spelled out, since macOS asks only once per app.
+- The EventKit consent wait is bounded (45s) and announced instead of hanging
+  silently, and memcal.app runs as an agent that can show the consent dialog
+  rather than background-only, which could not.
+
 ## [0.7.0] - 2026-09-11
 
 ### Added
