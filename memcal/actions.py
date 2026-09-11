@@ -1,29 +1,9 @@
-"""Completed typed actions: what the assistant did, in a form the nightly pass can read.
+"""Completed typed actions for replay safety and nightly context.
 
-The collision this exists for is small and expensive. The user tells their assistant
-"move poker to Saturday"; the assistant calls `memcal_update` and the row moves at
-11:04. That evening the pass reads the same sentence out of the same conversation, has
-no way to know it has already been carried out, and writes a second poker night — or
-worse, re-derives the *old* Friday from the group thread and quietly undoes it.
-
-`provenance` cannot answer this. It records which model call wrote a row, which is a
-different question from "was this instruction already executed, and what did executing
-it change". So one record per completed operation, carrying the five things a later
-reader needs:
-
-* the **stable target** (`kind` + `ref`), which survives a change of title or date,
-* the **operation's identity** (`op_id`), so a retry is a no-op and a real second
-  instruction is not,
-* the **changed fields**, so "this moved the date" is distinguishable from "this added
-  a note",
-* the **source message ids** available to the caller, or an explicit note saying why
-  there were none, and
-* the **state version it acted on** (`based_on`), so a proposal formed against an older
-  version can be recognised as stale instead of applied over an intervening correction.
-
-`Origin` is how a surface supplies the first-hand half of that. It is passed explicitly
-rather than read from module state on purpose: sessions overlap, and "the latest global
-user message" is exactly the wrong guess about what caused a given tool call.
+Each record identifies the operation, its stable target, changed fields, source message
+ids, and the state version it acted on. This lets a retry remain a no-op and prevents a
+nightly reread from duplicating or undoing a daytime correction. Surfaces pass `Origin`
+explicitly because concurrent sessions make global "latest message" state ambiguous.
 """
 
 from __future__ import annotations
@@ -117,18 +97,11 @@ class Action:
 
 def plan(*, kind: str, ref: str, verb: str, origin: Origin, request: dict,
          at: str) -> str:
-    """The operation's identity, computed from the *request* and before anything moves.
+    """Identify an operation from its request before state changes.
 
-    The caller's own key wins when it has one. Otherwise the digest covers what was
-    asked for — the target, the verb, the fields the caller supplied — and never what
-    the row happened to say beforehand. Hashing before-values made a retry unrecognisable
-    exactly when recognising it mattered: move A, then move B, then retry A, and A's
-    "before" is now B's result, so the replay hashed differently, ran again, and quietly
-    undid B.
-
-    Without a turn to attribute it to, the moment goes into the digest instead: two
-    identical instructions from an unknown caller are two instructions, and there is
-    nothing available to say otherwise.
+    A caller key wins. Otherwise the digest covers the target, verb, supplied fields,
+    and source turn—not mutable before-values—so retries keep one identity. With no
+    attributable turn, the timestamp keeps identical unknown calls distinct.
     """
     if origin.op_id:
         return str(origin.op_id)[:64]

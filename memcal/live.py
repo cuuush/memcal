@@ -225,6 +225,7 @@ def add_event(conn: sqlite3.Connection, cfg: Config, *, title: str, when: str,
 
 def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
                  add_participants: list[str] | None = None,
+                 remove_participants: list[str] | None = None,
                  origin: Origin = actions.UNKNOWN,
                  **changes) -> tuple[events.Event, list[str]]:
     """Change a row the user can see. Returns it rendered, so nothing needs re-reading."""
@@ -246,8 +247,11 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
         raise LiveError(f"status must be one of {', '.join(events.STATUSES)}")
     if payload.get("kind") and payload["kind"] not in events.KINDS:
         raise LiveError(f"kind must be one of {', '.join(events.KINDS)}")
-    if add_participants:
-        payload["participants"] = sorted(set(event.participants) | set(add_participants))
+    if add_participants or remove_participants:
+        removed = {name.casefold() for name in (remove_participants or [])}
+        payload["participants"] = sorted(
+            (set(event.participants) | set(add_participants or []))
+            - {name for name in event.participants if name.casefold() in removed})
     if not payload and not wipe:
         # An empty value for a field that cannot be emptied is a caller trying to do
         # something real and being told "nothing to change", which reads as a no-op
@@ -276,7 +280,9 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
         if actions.seen(conn, op):
             return event, []
         updated, _verb = events.upsert(conn, payload, written_by="live", match=False,
-                                       clear=wipe, commit=False)
+                                       clear=wipe,
+                                       replace_participants=bool(remove_participants),
+                                       commit=False)
         moved = {name: [str(before[name]), str(getattr(updated, name))]
                  for name in events.MUTABLE
                  if str(before[name]) != str(getattr(updated, name))}

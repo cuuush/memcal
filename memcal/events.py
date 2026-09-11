@@ -654,6 +654,7 @@ def upsert(
     evidence_ts: "str | dict[str, str] | None" = None,
     inferred: tuple[str, ...] = (),
     clear: tuple[str, ...] = (),
+    replace_participants: bool = False,
     commit: bool = True,
 ) -> tuple[Event, str]:
     """Insert or update one event, preserving history and write precedence."""
@@ -664,6 +665,8 @@ def upsert(
     if not on:
         raise ValueError("event needs a date")
     fields["date"] = db.parse_date(on).isoformat()
+    if fields.get("time") and not db.valid_local_time(fields["date"], str(fields["time"])):
+        fields["time"] = None
     # A span that ends before it starts is a slip, never a fact about a trip, and it is
     # not a harmless one: `window`'s predicate is `date <= hi AND coalesce(until, date)
     # >= lo`, so an inverted span excludes the row from **every** window — including
@@ -843,7 +846,8 @@ def upsert(
             continue
         new = fields[name]
         if name == "participants":
-            merged = sorted(set(existing.participants) | set(new or []))
+            merged = sorted(set(new or []) if replace_participants
+                            else set(existing.participants) | set(new or []))
             if merged != sorted(existing.participants):
                 updates[name] = db.jdump(merged)
                 changes.append((name, db.jdump(existing.participants), db.jdump(merged)))
@@ -1316,6 +1320,72 @@ def delete(conn: sqlite3.Connection, key: str, *, commit: bool = True) -> bool:
     return cur.rowcount > 0
 
 
+LINK_KINDS = ("same_as", "replaces", "related")
+
+
+def link(conn: sqlite3.Connection, from_key: str, to_key: str, kind: str,
+         *, written_by: str = "", commit: bool = True) -> bool:
+    """Record a stated relationship between two rows. Unknown keys are a no-op."""
+    if kind not in LINK_KINDS or from_key == to_key:
+        return False
+    here, there = get(conn, from_key), get(conn, to_key)
+    if here is None or there is None:
+        return False
+    # `replaces` is directional; the symmetric kinds are stored one way only.
+    pair = (here.id, there.id)
+    if kind != "replaces":
+        pair = tuple(sorted(pair))
+    cur = conn.execute(
+        "INSERT INTO event_links(from_id, to_id, kind, written_by, created_at)"
+        " VALUES(?,?,?,?,?) ON CONFLICT(from_id, to_id, kind) DO NOTHING",
+        (*pair, kind, written_by, db.now()))
+    if commit:
+        conn.commit()
+    return cur.rowcount > 0
+
+
+def linked_pairs(conn: sqlite3.Connection) -> set[frozenset]:
+    """Every linked pair, as keys. Kind-agnostic: all three force co-evaluation."""
+    out: set[frozenset] = set()
+    for row in conn.execute(
+            "SELECT a.key AS one, b.key AS two FROM event_links l"
+            "  JOIN events a ON a.id = l.from_id JOIN events b ON b.id = l.to_id"):
+        out.add(frozenset((row["one"], row["two"])))
+    return out
+
+
+def links_for(conn: sqlite3.Connection, key: str, kind: str = "") -> list[Event]:
+    """Rows linked to this one, newest first."""
+    found = get(conn, key)
+    if found is None:
+        return []
+    sql = ("SELECT e.* FROM event_links l JOIN events e"
+           "  ON e.id = CASE WHEN l.from_id = ? THEN l.to_id ELSE l.from_id END"
+           " WHERE (l.from_id = ? OR l.to_id = ?)")
+    args: list = [found.id, found.id, found.id]
+    if kind:
+        sql += " AND l.kind = ?"
+        args.append(kind)
+    return [Event.from_row(r) for r in conn.execute(sql + " ORDER BY e.date DESC", args)]
+
+
+def set_status(conn: sqlite3.Connection, key: str, status: str, *,
+               written_by: str, evidence_ts: str | dict[str, str] | None = None,
+               commit: bool = True) -> bool:
+    """Correct one row's status through the normal evidence and authority checks."""
+    if status not in ("mentioned", "tentative", "confirmed", "declined", "happened"):
+        return False
+    found = get(conn, key)
+    if found is None or found.status == status:
+        return False
+    if written_by in ("sweep", "dream:nightly") and evidence_ts is None:
+        return False
+    _event, verb = upsert(
+        conn, {"key": key, "date": found.date, "status": status},
+        written_by=written_by, evidence_ts=evidence_ts, match=False, commit=commit)
+    return verb == "updated"
+
+
 def merge(conn: sqlite3.Connection, keep_key: str, drop_key: str,
           *, written_by: str = "live", commit: bool = True) -> Event | None:
     """Pool two duplicate rows onto the survivor and retain merge history."""
@@ -1356,6 +1426,22 @@ def merge(conn: sqlite3.Connection, keep_key: str, drop_key: str,
 
     # A merge removes only a duplicate row, not anything that explained or referred to
     # it. Repoint every durable edge before the cascading delete.
+    linked = conn.execute(
+        "SELECT from_id, to_id, kind, written_by, created_at FROM event_links"
+        " WHERE from_id = ? OR to_id = ?", (drop.id, drop.id)).fetchall()
+    conn.execute("DELETE FROM event_links WHERE from_id = ? OR to_id = ?",
+                 (drop.id, drop.id))
+    for edge in linked:
+        source = keep.id if edge["from_id"] == drop.id else edge["from_id"]
+        target = keep.id if edge["to_id"] == drop.id else edge["to_id"]
+        if source == target:
+            continue
+        if edge["kind"] != "replaces":
+            source, target = sorted((source, target))
+        conn.execute(
+            "INSERT OR IGNORE INTO event_links"
+            " (from_id, to_id, kind, written_by, created_at) VALUES(?,?,?,?,?)",
+            (source, target, edge["kind"], edge["written_by"], edge["created_at"]))
     conn.execute("UPDATE event_history SET event_id = ? WHERE event_id = ?",
                  (keep.id, drop.id))
     conn.execute("UPDATE events SET part_of = ? WHERE part_of = ? AND id != ?",

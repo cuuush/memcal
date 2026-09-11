@@ -8,6 +8,7 @@ deduplication structural.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -19,6 +20,9 @@ MAX_ITEMS_PER_BUNDLE = 2_000
 SPOOL_LIMIT = 20_000
 CONTEXT_MINUTES = 120      # how far around a gated line to look for its neighbours
 MAX_CONTEXT_PER_BUNDLE = 8
+DISTANT_CONTEXT_DAYS = 30
+_NEEDS_REFERENT = re.compile(
+    r"\b(?:there|that|those|it|same|still|again|then)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -40,6 +44,7 @@ class Bundle:
     #: Readable names for each conversation in this bundle, so a multi-conversation
     #: bundle labels its lines "Crystal Harbor" rather than a chat guid.
     convo_titles: dict = field(default_factory=dict)
+    context_ids: set[int] = field(default_factory=set)
 
     @property
     def label(self) -> str:
@@ -167,7 +172,11 @@ def _render_v1(bundle: "Bundle", head: str | None = None) -> str:
         body = str(row["text"] or "").strip()
         first, *rest = body.split("\n")
         # Line tags are compact citations resolved to archive ids by `Bundle.cite`.
-        lines.append(f"  L{index} {when.strftime('%H:%M')} ({where}) {who}: {first}")
+        role = ""
+        if bundle.context_ids:
+            role = "[context] " if int(row["id"]) in bundle.context_ids else "[new] "
+        lines.append(
+            f"  L{index} {role}{when.strftime('%H:%M')} ({where}) {who}: {first}")
         # A message with a newline in it would otherwise look like a second message
         # with no speaker.
         lines.extend(f"      {part.strip()}" for part in rest if part.strip())
@@ -330,6 +339,26 @@ def add_thread_context(conn: sqlite3.Connection, bundle: Bundle) -> None:
             if any(abs(when - anchor) <= window for anchor in times):
                 seen.add(neighbour["id"])
                 extra.append(neighbour)
+                bundle.context_ids.add(int(neighbour["id"]))
+
+        here = [row for row in bundle.items
+                if row["stream"] == stream and row["thread"] == thread]
+        earliest = min(here, key=lambda row: (str(row["ts"]), int(row["id"])))
+        if _NEEDS_REFERENT.search(str(earliest["text"] or "")):
+            prior = conn.execute(
+                """SELECT * FROM archive
+                     WHERE stream = ? AND thread = ?
+                       AND (ts < ? OR (ts = ? AND id < ?))
+                     ORDER BY ts DESC, id DESC LIMIT 1""",
+                (stream, thread, earliest["ts"], earliest["ts"], earliest["id"]),
+            ).fetchone()
+            if prior is not None and prior["id"] not in seen:
+                gap = db.parse_ts(str(earliest["ts"])) - db.parse_ts(str(prior["ts"]))
+                if timedelta(0) <= gap <= timedelta(days=DISTANT_CONTEXT_DAYS) \
+                        and len(extra) < MAX_CONTEXT_PER_BUNDLE:
+                    seen.add(prior["id"])
+                    extra.append(prior)
+                    bundle.context_ids.add(int(prior["id"]))
     if extra:
         bundle.items = sorted(bundle.items + extra, key=lambda r: str(r["ts"]))
     else:

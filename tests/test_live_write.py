@@ -102,6 +102,13 @@ class TestUpdating(Base):
                                             add_participants=["Avery Morgan"])
         self.assertEqual(event.participants, ["Avery Morgan", "Jamie"])
 
+    def test_a_participant_can_be_removed(self):
+        self.add("Beer garden", participants=["Avery Morgan", "Jamie"])
+        event, changed = live.update_event(
+            self.conn, self.cfg, "beer garden", remove_participants=["Jamie"])
+        self.assertEqual(event.participants, ["Avery Morgan"])
+        self.assertTrue(any("participants" in item for item in changed))
+
     def test_a_no_op_says_so_rather_than_reporting_success(self):
         """An agent told only "written" re-sent the same correction three times, harder
         each time, because nothing in the reply distinguished done from ignored."""

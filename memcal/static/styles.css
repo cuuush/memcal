@@ -550,6 +550,9 @@
               color: var(--ink-3); }
   .setreset:hover:not(:disabled) { border-color: var(--ink-3); color: var(--ink); }
   .setreset:disabled { opacity: .4; cursor: default; }
+  /* Four grey buttons in a row and one of them is the one that commits a token. */
+  .setreset.go { border-color: var(--pass); color: var(--pass); }
+  .setreset.go:hover:not(:disabled) { background: var(--pass); color: #fff; }
   .setpending { flex: 1 0 100%; text-align: right; color: var(--pass);
                 font: 11px/1.5 var(--mono); }
   /* ---- a text box that knows the usual answers ---- */
@@ -593,16 +596,27 @@
   .setfile:first-of-type { border-top: 0; }
   .setfile .note { margin: 0; }
   /* Bottom right, because the toast owns bottom centre. */
-  #setbar { position: fixed; bottom: 18px; right: 18px;
-            display: flex; gap: 10px; align-items: center; z-index: 45;
+  #setbar { position: fixed; bottom: 18px; right: 18px; max-width: min(380px, 92vw);
+            display: flex; flex-direction: column; gap: 8px; align-items: stretch; z-index: 45;
             background: var(--surface-1); border: 1px solid var(--line);
             border-radius: 10px; padding: 9px 12px;
             box-shadow: 0 8px 28px rgb(0 0 0 / .18); }
   /* `display:flex` above outranks the user-agent rule for `[hidden]`, so without this
      the bar sits there saying "0 unsaved changes" on a page nobody has touched. */
   #setbar[hidden] { display: none; }
-  #setbarnote { font-size: 12.5px; color: var(--ink-2);
+  #setbarnote { font-size: 12.5px; color: var(--ink-2); margin-right: auto;
                 font-variant-numeric: tabular-nums; }
+  #setbar .row { display: flex; gap: 10px; align-items: center; }
+  #setbarwhat { margin: 0; max-height: 33vh; overflow-y: auto; }
+  #setbarwhat .chip { max-width: 100%; }
+  #setbarwhat .chip .n { font: 11px/1.6 var(--mono); opacity: .8;
+                         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #setdiscard.arming { border-color: var(--warn); color: var(--warn); }
+  /* Where the save bar and the section chips land you. Two seconds of highlight is
+     enough to find the row without leaving a colour on the page. */
+  @keyframes setfound { from { background: color-mix(in srgb, var(--focus) 22%, transparent); }
+                        to   { background: transparent; } }
+  .setrow.found { animation: setfound 2s ease-out; }
   @media (max-width: 720px) {
     .setrow { grid-template-columns: 1fr; }
     .setctl { justify-content: flex-start; }
@@ -706,6 +720,13 @@
               background: transparent; cursor: pointer; white-space: nowrap; }
   .retrybtn:hover:not(:disabled) { background: var(--warn); color: #fff; }
   .retrybtn:disabled { opacity: .5; cursor: default; }
+  /* Not a retry — a way to the tab that has one. Drawn as a link rather than as a
+     button, because pressing it spends nothing and a control that looks like the
+     spending one is exactly the confusion this replaced. */
+  .retrylink { font-size: 12px; padding: 2px 0; border: 0; background: none;
+               color: var(--warn); cursor: pointer; white-space: nowrap;
+               text-decoration: underline; text-underline-offset: 2px; }
+  .retrylink:hover { color: var(--ink); }
 
   @media (max-width: 560px) {
     .bundlescroll { max-height: 70vh; }

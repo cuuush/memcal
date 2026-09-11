@@ -143,6 +143,20 @@ def resolve(phrase: str, said_on) -> str | None:
                 index = _ABBREV[short]
                 break
     if index is not None:
+        ordinal = _ORDINAL_RE.search(text)
+        if ordinal:
+            day = int(ordinal.group(1))
+            for offset in (0, 1):
+                month = anchor.month + offset
+                year = anchor.year + (month - 1) // 12
+                month = (month - 1) % 12 + 1
+                try:
+                    candidate = date(year, month, day)
+                except ValueError:
+                    continue
+                if candidate >= anchor and candidate.weekday() == index:
+                    return candidate.isoformat()
+            return None
         ahead = (index - anchor.weekday()) % 7
         # "Saturday" said on a Saturday means today; every other weekday means the next
         # one. "next saturday" skips a week — which is what people mean often enough to

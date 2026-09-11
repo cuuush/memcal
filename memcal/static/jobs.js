@@ -3,23 +3,20 @@ import { el, api, toast } from "./core.js";
 /* Collect and dream both outlive their request, so poll the job the server hands back. */
 const watchedJobs = new Set();
 export async function runJob(path, button, logEl, done, body = {}) {
-  const {job, error} = await api(path, body);
-  if (error) { toast(error); return; }
-  if (!job) return;
-  watchJob(job, button, logEl, done, true);
+  const out = await api(path, body);
+  if (out.error) { toast(out.error); return out; }
+  if (!out.job) return out;
+  watchJob(out.job, button, logEl, done, true);
+  return out;
 }
 
-/* Retry one failed pass, from wherever it was offered. Both the Dream tab's banner and
-   the Runs table start the same job and it reports into the same place — the Dream
-   tab's log — because that is where a pass in flight is already drawn. Retrying from
-   the Runs tab therefore sends you there rather than leaving a spinner behind on a
-   table that cannot show progress. */
+/* Retry into the Dream tab's existing progress UI. */
 export async function retryDream(runId, onDone) {
   const log = document.getElementById("dreamlog");
   const button = document.getElementById("dream");
-  if (!log || !button) { toast("open the Dream tab to retry"); return; }
+  if (!log || !button) { toast("open the Dream tab to retry"); return {error: "no dream tab"}; }
   if (location.hash.slice(1) !== "dream") location.hash = "dream";
-  await runJob("/api/dream_retry", button, log, onDone || (() => {}), {run: runId});
+  return runJob("/api/dream_retry", button, log, onDone || (() => {}), {run: runId});
 }
 
 export function watchJob(job, button, logEl, done, clearLog = false) {

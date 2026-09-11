@@ -1,44 +1,44 @@
 import { $, el, nf, api, toast, state } from "./core.js";
 import { openTrace, seatRow } from "./trace.js";
-import { retryDream } from "./jobs.js";
 
 /* ---------------------------------------------------------------- runs -- */
-/* The last payload, kept so the outcome filter redraws without re-asking. The list is
-   forty rows and each one costs a `generations` count and a `spool` count on the
-   server; filtering is a question about rows already in hand. */
+/* Cached for client-side outcome filtering. */
 let allRuns = [];
 let outcomeFilter = "";
+let passRunning = false;
 
-export function retryPill(run, after) {
-  /* The one control that turns "this pass failed" into something you can do about it.
-     It says what it will put back, because that is the part that is not obvious: a run
-     refused on its first call claimed nothing and retrying it is an ordinary pass. */
-  const b = el("button", "retrybtn", "Retry this pass");
+function quietNote(text) {
+  const n = el("span", "note", text);
+  n.style.margin = "0";
+  return n;
+}
+
+export function retryLink(run, label = "Retry it on the Dream tab →") {
+  const b = el("button", "retrylink", label);
   b.title = run.claimed
-    ? `Puts the ${nf(run.claimed)} line(s) this pass read back in the queue, then dreams `
-      + `over them with whatever is configured now.`
-    : "This pass never claimed anything, so its traffic is still queued. Dreams over it "
-      + "again with whatever is configured now.";
-  b.onclick = async e => {
+    ? `Opens the Dream tab with run #${run.id} chosen. Retrying there puts the `
+      + `${nf(run.claimed)} line(s) it read back in the queue and dreams over them again `
+      + `with whatever is configured then — so fix the provider or model first.`
+    : `Opens the Dream tab with run #${run.id} chosen. It claimed nothing, so its traffic `
+      + `is still queued and a retry is an ordinary pass over the same lines.`;
+  b.onclick = e => {
     e.stopPropagation();
-    b.disabled = true;
-    await retryDream(run.id, after);
-    b.disabled = false;
+    state.retryRun = run.id;
+    location.hash = "dream";
   };
   return b;
 }
 
 export async function loadRuns() {
-  const {runs} = await api("/api/runs?limit=40");
-  allRuns = runs || [];
+  const [listed, job] = await Promise.all([
+    api("/api/runs?limit=40"), api("/api/job")]);
+  allRuns = listed.runs || [];
+  passRunning = !!(job.job && !job.done);
   $("#rundetail").innerHTML = "";
   renderRuns();
   if (state.run) openRun(state.run);
 }
 
-/* The newest pass that is worth retrying, called out above the table. Scanning twelve
-   numeric columns for the one row that failed is exactly the work the tab should be
-   doing for you, and the failure people care about is nearly always the last one. */
 function renderRetryBanner() {
   const box = $("#runretry"); box.innerHTML = "";
   const broken = allRuns.find(r => r.retryable);
@@ -48,13 +48,18 @@ function renderRetryBanner() {
     ? "wrote nothing" : "only partly landed"} — ${broken.at}, ${broken.model}`));
   n.append(el("p", null, (broken.error || "").slice(0, 400)));
   const row = el("div", "row");
-  row.append(retryPill(broken, () => loadRuns()));
-  const note = el("span", "note");
-  note.style.margin = "0";
-  note.textContent = broken.claimed
-    ? `${nf(broken.claimed)} line(s) go back in the queue first.`
-    : "Nothing to put back — the traffic it was given is still queued.";
-  row.append(note);
+  if (passRunning) {
+    const watch = el("button", "retrylink", "Watch it on the Dream tab →");
+    watch.title = "The Dream tab draws the pass that is running, step by step.";
+    watch.onclick = e => { e.stopPropagation(); location.hash = "dream"; };
+    row.append(watch,
+               quietNote("A pass is running right now — nothing can be retried until it ends."));
+  } else {
+    row.append(retryLink(broken),
+               quietNote(broken.claimed
+                 ? `Retrying puts ${nf(broken.claimed)} line(s) back in the queue first.`
+                 : "Nothing to put back — the traffic it was given is still queued."));
+  }
   n.append(row);
   box.append(n);
 }
@@ -81,12 +86,9 @@ function renderRuns() {
               el("td", "num", nf(r.bundles)), el("td", "num", nf(r.items)), el("td", "num", nf(r.diffs)),
               el("td", "num", nf(r.prompt)), el("td", "num", nf(r.cached)), el("td", "num", nf(r.completion)),
               el("td", "num", "$" + r.cost.toFixed(4)));
-    // Both, when there are both: the banner above quotes only the newest failure, so
-    // for any older one this cell is the only place its error is visible without
-    // opening the run.
     const err = el("td");
     if (r.error) err.append(el("div", "flag", r.error.slice(0, 80)));
-    if (r.retryable) err.append(retryPill(r, () => loadRuns()));
+    if (r.retryable && !passRunning) err.append(retryLink(r, "retry on the Dream tab →"));
     tr.append(err);
     tr.onclick = () => {
       const open = tr.getAttribute("aria-expanded") === "true";
@@ -146,13 +148,14 @@ async function openRun(id) {
              el("p", null, d.run.error));
     if (d.run.retryable) {
       const row = el("div", "row");
-      row.append(retryPill({...d.run}, () => loadRuns()));
-      const note = el("span", "note");
-      note.style.margin = "0";
-      note.textContent = d.run.claimed
-        ? `${nf(d.run.claimed)} line(s) this pass read go back in the queue first.`
-        : "It claimed nothing, so everything it was given is still queued.";
-      row.append(note);
+      if (passRunning) {
+        row.append(quietNote("A pass is running right now — watch it on the Dream tab."));
+      } else {
+        row.append(retryLink({...d.run}),
+                   quietNote(d.run.claimed
+                     ? `${nf(d.run.claimed)} line(s) this pass read go back in the queue first.`
+                     : "It claimed nothing, so everything it was given is still queued."));
+      }
       w.append(row);
     }
     box.append(w);

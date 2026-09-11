@@ -7,6 +7,7 @@ relevance across all active conversations regardless of user participation frequ
 from __future__ import annotations
 
 import random
+import re
 import sqlite3
 import threading
 import time
@@ -399,6 +400,31 @@ def message_text(message: dict) -> str:
     return ""
 
 
+_EDIT_NOTICE = re.compile(
+    r"^\s*(?P<name>.+?)\s+edited to:\s*[\"“](?P<text>.*?)[\"”]\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _edited_message(message: dict) -> tuple[str, str, str] | None:
+    """Recover authored text carried inside a platform edit notice."""
+    if not message.get("system"):
+        return None
+    event = message.get("event") if isinstance(message.get("event"), dict) else {}
+    data = event.get("data") if isinstance(event.get("data"), dict) else {}
+    visible = message_text(message)
+    match = _EDIT_NOTICE.match(visible)
+    event_type = str(event.get("type") or "").casefold()
+    if not match and "edit" not in event_type:
+        return None
+    text = str(data.get("text") or data.get("message") or
+               (match.group("text") if match else "")).strip()
+    name = str(data.get("name") or data.get("nickname") or
+               (match.group("name") if match else "")).strip()
+    user_id = str(data.get("user_id") or data.get("sender_id") or "").strip()
+    return (textclean.clean_message(text), user_id, name) if text else None
+
+
 def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 500,
            include_dms: bool = True, progress=None) -> base.IngestReport:
     report = base.IngestReport.opened("groupme", cfg)
@@ -590,13 +616,18 @@ def _fetch(report, chunk: list, call, describe) -> tuple[list, bool]:
 
 def _deliver(conn, report, message: dict, *, thread: str, my_id: str, tier: set[str],
              is_group: bool) -> None:
-    text = message_text(message)
-    if not text or message.get("system"):
+    edit = _edited_message(message)
+    if message.get("system") and edit is None:
         return
-    user_id = str(message.get("user_id") or "")
+    text = edit[0] if edit else message_text(message)
+    if not text:
+        return
+    user_id = edit[1] if edit else str(message.get("user_id") or "")
+    seen_name = edit[2] if edit else str(message.get("name") or "")
     from_me = bool(my_id and user_id == my_id)
     handle = f"groupme:{user_id}" if user_id else None
-    person = identity.resolve(conn, handle) if handle else None
+    person = (identity.resolve(conn, handle) if handle else None) \
+        or identity.spelling_in_use(conn, seen_name)
     base.deliver(
         conn, report,
         stream="groupme",
@@ -609,7 +640,7 @@ def _deliver(conn, report, message: dict, *, thread: str, my_id: str, tier: set[
         from_me=from_me,
         is_group=is_group,
         top_tier=tier,
-        meta={"seen_name": message.get("name"), "group": is_group,
+        meta={"seen_name": seen_name, "group": is_group,
               "likes": len(message.get("favorited_by") or [])},
     )
 

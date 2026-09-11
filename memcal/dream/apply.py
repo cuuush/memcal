@@ -311,6 +311,9 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
     seen_slots: set[tuple[str, str]] = set()
     for proposal in proposals:
         bundle, diff = proposal[0], proposal[1]
+        for target in diff.get("_pending_targets") or ():
+            pending.settle(conn, target["id"], target["key"],
+                           decided_by="merge:source-evidence", commit=False)
         generation_id = proposal[2] if len(proposal) > 2 else None
         source = bundle.entity
         archive_ids = [int(row["id"]) for row in bundle.items
@@ -332,6 +335,8 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
             if not outcome:
                 return
             verb, label = outcome[0], outcome[1]
+            if verb == "unchanged":
+                return
             counts[f"{bucket}{verb}"] += 1
             log.append(f"{verb:9} {label}")
             ref = outcome[2] if len(outcome) > 2 else ""
@@ -357,15 +362,31 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
                  generation=row.get("_generation_id") if isinstance(row, dict) else None)
         for row in diff.get("events") or []:
             cited = row.get("cite_ids") if isinstance(row, dict) else None
-            note("event", _apply_event(conn, row, source=source, written_by=written_by,
-                                       horizon=_horizon(bundle, cited),
-                                       evidence_ts=_evidence_by_field(
-                                           bundle, cited, row),
-                                       join_url=_join_link(bundle, cited),
-                                       named_only_by_thread=_named_only_by_thread(bundle, row),
-                                       commit=False),
-                 "event:", cites=cited, about=_claims(row, "title"),
+            outcome = _apply_event(conn, row, source=source, written_by=written_by,
+                                   horizon=_horizon(bundle, cited, row),
+                                   evidence_ts=_evidence_by_field(bundle, cited, row),
+                                   join_url=_join_link(bundle, cited),
+                                   named_only_by_thread=_named_only_by_thread(bundle, row),
+                                   commit=False)
+            note("event", outcome, "event:", cites=cited, about=_claims(row, "title"),
                  generation=row.get("_generation_id") if isinstance(row, dict) else None)
+            for verb, label in _apply_links(conn, row, outcome,
+                                            written_by=written_by, commit=False):
+                counts[f"link:{verb}"] += 1
+                log.append(f"{verb:9} {label}")
+            if outcome and len(outcome) >= 3:
+                for pending_id in row.get("_pending_ids") or ():
+                    if isinstance(pending_id, int):
+                        pending.settle(conn, pending_id, str(outcome[2]),
+                                       decided_by="merge:source-evidence", commit=False)
+                for observation in row.get("_resolved_observations") or ():
+                    pending.note(
+                        conn, kind="cancellation",
+                        observation=str(observation.get("observation") or ""),
+                        observed_at=str(observation.get("observed_at") or "") or None,
+                        entity=str(observation.get("entity") or source),
+                        target_key=str(outcome[2]), decided_by="merge:source-evidence",
+                        commit=False)
         for row in diff.get("todos") or []:
             note("todo", _apply_todo(conn, row, source=source, written_by=written_by,
                                      auto_remind=cfg.remind_deadlines, commit=False),
@@ -442,8 +463,11 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
             # The bundle's newest line, not now: "on Sunday" means the Sunday near
             # whoever said it, and a nightly pass reads traffic that is already a day
             # or more old. `_dated_occasion` above anchors on the same moment.
+            before = conn.total_changes
             key = todos.ask(conn, text, said_on=db.parse_ts(newest) if newest else None,
                             written_by=written_by, commit=False)
+            if not key or conn.total_changes == before:
+                continue
             counts["question"] += 1
             log.append(f"{'ask':9} {text}")
             trace.stamp(conn, kind="question", ref=key, verb="asked", entity=source,
@@ -483,7 +507,7 @@ def _day_words(value) -> str:
     return f"{dates.WEEKDAYS[when.weekday()]} {dates.MONTHS[when.month - 1]}"
 
 
-def _horizon(bundle: Bundle, cites=None) -> tuple:
+def _horizon(bundle: Bundle, cites=None, row: dict | None = None) -> tuple:
     """The window this row's own evidence can plausibly reach, (earliest, latest).
 
     Anchored on the lines the row actually cites when it names any, and on the whole
@@ -498,7 +522,14 @@ def _horizon(bundle: Bundle, cites=None) -> tuple:
         wanted = {int(i) for i in cites if isinstance(i, int)}
         cited = [r for r in bundle.items
                  if "id" in r.keys() and int(r["id"]) in wanted]
-        rows = cited or bundle.items
+        extra = (row or {}).get("_evidence_times") or {}
+        extra_stamps = [str(extra[str(i)] if str(i) in extra else extra[i])
+                        for i in wanted if i in extra or str(i) in extra]
+        if cited or extra_stamps:
+            stamps = [db.parse_ts(str(item["ts"])).date() for item in cited]
+            stamps += [db.parse_ts(stamp).date() for stamp in extra_stamps]
+            return (min(stamps) - timedelta(days=MAX_LOOKBACK_DAYS),
+                    max(stamps) + timedelta(days=MAX_LOOKAHEAD_DAYS))
     if not rows:
         today = db.today()
         return (today - timedelta(days=MAX_LOOKBACK_DAYS),
@@ -525,9 +556,15 @@ def _evidence_ts(bundle: Bundle, cited, claims) -> str | None:
     return _newest(bundle)
 
 
-def _line_times(bundle: Bundle) -> dict[int, str]:
-    return {int(row["id"]): str(row["ts"]) for row in bundle.items
-            if "id" in row.keys() and row["id"] and row["ts"]}
+def _line_times(bundle: Bundle, row: dict | None = None) -> dict[int, str]:
+    out = {int(item["id"]): str(item["ts"]) for item in bundle.items
+           if "id" in item.keys() and item["id"] and item["ts"]}
+    for archive_id, stamp in ((row or {}).get("_evidence_times") or {}).items():
+        try:
+            out[int(archive_id)] = str(stamp)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def _evidence_by_field(bundle: Bundle, cited, row: dict) -> dict[str, str] | None:
@@ -540,7 +577,7 @@ def _evidence_by_field(bundle: Bundle, cited, row: dict) -> dict[str, str] | Non
     no timestamp and cannot overrule a settled value. A diff citing nothing keeps the
     older, weaker row-level behaviour.
     """
-    by_id = _line_times(bundle)
+    by_id = _line_times(bundle, row)
     if not by_id:
         # No lines to cite, so citing none of them says nothing. A bundle with no items
         # is a direct diff — a connector, a test, a repair — and it stays on the
@@ -762,7 +799,13 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
             if said:
                 pending.note(conn, kind="cancellation", observation=said,
                              entity=source, observed_at=said_at,
-                             title=title, date=date_value, commit=False)
+                             title=title, date=date_value,
+                             time=_clean(row.get("time")),
+                             location=_clean(row.get("location")),
+                             target_key=_clean(row.get("_target_key")) or "",
+                             decided_by=("merge:source-evidence"
+                                         if row.get("_target_key") else ""),
+                             commit=False)
                 return ("pending", f"cancellation with no target yet: {said[:60]}")
         return None
     try:
@@ -846,7 +889,8 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
     }
     fields["instead_of"] = _stands_in_for(conn, fields, _clean(row.get("instead_of")))
     fields = {k: v for k, v in fields.items() if v is not None}
-    if status == "declined" and not key and not events.find_match(
+    if status == "declined" and not key and not row.get("_allow_declined_insert") \
+            and not events.find_match(
             conn, title=title, on=date_value, series=fields.get("series"),
             participants=participants, subject=subject):
         # A brand-new row whose only content is that it is off. Nobody can act on a
@@ -855,6 +899,7 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
         pending.note(conn, kind="cancellation",
                      observation=f"{title} on {date_value}", entity=source,
                      observed_at=said_at, title=title, date=date_value,
+                     time=fields.get("time") or "", location=fields.get("location") or "",
                      # `key` above is already validated against the store, so when the
                      # diff named one it is a stable identifier rather than a guess. It
                      # is empty here by construction — this branch is the no-key case —
@@ -863,9 +908,27 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
         return ("pending", f"cancellation with no matching row: {title}")
     event, verb = events.upsert(conn, fields, written_by=written_by,
                                 evidence_ts=evidence_ts, commit=commit)
-    if verb == "unchanged":
-        return None
     return verb, f"{event.date} {event.title} [{event.key}]", event.key
+
+
+def _apply_links(conn: sqlite3.Connection, row, outcome, *, written_by: str,
+                 commit: bool = True) -> list[tuple[str, str]]:
+    """Record stated relationships between the row just written and existing rows."""
+    if not isinstance(row, dict) or not outcome or len(outcome) < 3:
+        return []
+    here = str(outcome[2] or "")
+    if not here:
+        return []
+    written = []
+    for item in row.get("links") or []:
+        if not isinstance(item, dict):
+            continue
+        kind, target = str(item.get("kind") or ""), _clean(item.get("key"))
+        if not target or not events.link(conn, here, target, kind,
+                                         written_by=written_by, commit=commit):
+            continue
+        written.append(("linked", f"{here} {kind} {target}"))
+    return written
 
 
 def _stands_in_for(conn: sqlite3.Connection, fields: dict, claimed: str | None) -> str | None:
@@ -1018,10 +1081,12 @@ def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None =
             if seen is None or marker not in seen:
                 if seen is not None:
                     seen.add(marker)
+                before = conn.total_changes if conn is not None else None
                 wiki.set_slot(cfg.wiki_dir, slug, slot, value, source=source,
                               section=section, conn=conn, commit=commit)
-                out.append(("slot", f"{slug}.{slot} = {value}",
-                            f"{slug}.{slot.lower()}"))
+                if before is None or conn.total_changes != before:
+                    out.append(("slot", f"{slug}.{slot} = {value}",
+                                f"{slug}.{slot.lower()}"))
 
     if alias and not _is_a_name(alias):
         out.append(("rejected-alias", f"{slug}: {alias!r} is not a name"))
@@ -1030,19 +1095,23 @@ def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None =
         # merge is the user's call — `add_alias` refuses it, and the refusal becomes a
         # question on the page rather than a silent no-op.
         try:
+            before = conn.total_changes if conn is not None else None
             wiki.add_alias(cfg.wiki_dir, slug, alias, section=section, conn=conn,
                            commit=commit)
-            out.append(("alias", f"{slug} is also {alias}",
-                        f"{slug}:alias:{db.slugify(alias)}"))
+            if before is None or conn.total_changes != before:
+                out.append(("alias", f"{slug} is also {alias}",
+                            f"{slug}:alias:{db.slugify(alias)}"))
         except ValueError:
             wiki.add_question(cfg.wiki_dir, slug, f"{slug}: same person as {alias}?",
                               section=section, conn=conn, commit=commit)
             out.append(("question", f"{slug}: same person as {alias}?", slug))
 
     if question and _is_a_question(question):
+        before = conn.total_changes if conn is not None else None
         wiki.add_question(cfg.wiki_dir, slug, question, section=section, conn=conn,
                           commit=commit)
-        out.append(("question", f"{slug}: {question}", slug))
+        if before is None or conn.total_changes != before:
+            out.append(("question", f"{slug}: {question}", slug))
     return out
 
 

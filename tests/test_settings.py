@@ -115,7 +115,7 @@ class TestSavingWritesTheFileAndTheRunningProcess(Base):
         settings.save(self.cfg, {"MEMCAL_DAYS_BACK": "5"})
         row = self.find("MEMCAL_DAYS_BACK")
         self.assertEqual(row["origin"], "store")
-        self.assertEqual(row["origin_path"], str(self.home / ".env"))
+        self.assertEqual(row["origin_path"], str((self.home / ".env").resolve()))
         self.assertTrue(row["custom"])
 
 
@@ -178,12 +178,7 @@ class TestClearingAFieldRestoresTheDefault(Base):
 
 
 class TestTheProcessAgreesWithTheFileItJustWrote(Base):
-    """A save that is right on disk and wrong in memory is the worst of both.
-
-    The tab applies to the running process precisely so a pass started from it uses what
-    was just saved. Every derived value has to be re-derived, or the process keeps a
-    number nobody chose and no restart would produce.
-    """
+    """Saved settings take effect without a restart."""
 
     def test_changing_provider_moves_the_models_that_followed_the_old_one(self):
         settings.save(self.cfg, {"MEMCAL_LLM_PROVIDER": "claude-code"})
@@ -203,8 +198,7 @@ class TestTheProcessAgreesWithTheFileItJustWrote(Base):
 
 
 class TestAModelBelongingToAnotherProviderIsRefused(Base):
-    """Run 29 read none of its 74 bundles: Codex was selected while the propose model
-    still named an Antigravity model, and every request came back refused."""
+    """Known cross-provider model names are rejected before a pass."""
 
     def test_another_providers_model_does_not_save(self):
         with self.assertRaises(settings.SettingsError) as caught:
@@ -221,8 +215,6 @@ class TestAModelBelongingToAnotherProviderIsRefused(Base):
         self.assertEqual(config.load(self.home).llm_provider, before)
 
     def test_a_model_nobody_recognises_still_saves(self):
-        """These rosters lag every release. A name memcal has never seen is a new model
-        far more often than it is a mistake, and locking it out is the worse failure."""
         settings.save(self.cfg, {"MEMCAL_LLM_PROVIDER": "codex",
                                  "MEMCAL_PROPOSE_MODEL": "gpt-6-something-new"})
         self.assertEqual(config.load(self.home).propose_model, "gpt-6-something-new")
@@ -231,6 +223,13 @@ class TestAModelBelongingToAnotherProviderIsRefused(Base):
         settings.save(self.cfg, {"MEMCAL_LLM_PROVIDER": "antigravity",
                                  "MEMCAL_PROPOSE_MODEL": "gemini-3.8-flash-high"})
         self.assertEqual(config.load(self.home).propose_model, "gemini-3.8-flash-high")
+
+    def test_changing_only_the_provider_cannot_strand_a_foreign_model(self):
+        settings.save(self.cfg, {"MEMCAL_LLM_PROVIDER": "antigravity",
+                                 "MEMCAL_PROPOSE_MODEL": "gemini-3.8-flash-high"})
+        with self.assertRaises(settings.SettingsError):
+            settings.save(self.cfg, {"MEMCAL_LLM_PROVIDER": "codex"})
+        self.assertEqual(config.load(self.home).llm_provider, "antigravity")
 
     def test_a_setting_is_store_scoped_exactly_where_config_load_scopes_it(self):
         """`store_scoped` is a claim about `config.load`, printed as a badge on the row.
@@ -262,7 +261,7 @@ class TestAFileThatOutranksTheStoreIsSaidSo(Base):
         os.chdir(elsewhere)
         try:
             self.assertEqual(self.find("MEMCAL_DAYS_BACK")["shadowed_by"],
-                             str(elsewhere / ".env"))
+                             str((elsewhere / ".env").resolve()))
             out = settings.save(self.cfg, {"MEMCAL_DAYS_BACK": "4"})
             self.assertTrue(any("wins the next time" in w for w in out["warnings"]))
             self.assertEqual(self.cfg.days_back, 4)          # this process, now
@@ -420,12 +419,6 @@ class TestTheUsualAnswersAreOffered(Base):
         self.assertIn("used here", used[0]["note"])
 
     def test_a_model_this_store_ran_under_another_provider_is_not_offered(self):
-        """"Used here" is an endorsement, and it was being made across providers.
-
-        The store had run `gemini-3.8-flash-high` happily under Antigravity, so it was
-        offered — with that endorsement on it — to someone configuring Codex, which
-        refuses it. That is how run 29 read none of its 74 bundles.
-        """
         self.cfg.llm_provider = "codex"
         self.conn.execute(
             """INSERT INTO generations

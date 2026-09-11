@@ -231,11 +231,8 @@ VACUOUS_ON_AN_EMPTY_STORE = {
     # Paired with `nameless.plan-survives-its-proposer`, which is a real positive and
     # does fail on an empty store — so the beat cannot go green on nothing.
     'nameless.no-page-for-a-number', 'nameless.no-unanswerable-question',
-    # 55. Nothing may be created for GroupMe itself. These three have no non-vacuous
-    # partner **on purpose**: the beat's two positives are frontier, because
-    # `groupme._deliver` drops the whole system channel at ingest and the notice that
-    # carries the plan goes with it. The challenge is therefore never counted as fully
-    # green, which is the honest reading and the reason not to invent a positive here.
+    # 55. Nothing may be created for GroupMe itself. The positive checks separately
+    # require authored text inside an edit notice to survive.
     'platform.no-row-for-the-app', 'platform.no-page-for-the-app',
     'platform.not-in-the-name-queue',
     'poker.no-friday', 'state.no-question-a-row-answers',

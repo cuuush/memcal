@@ -59,21 +59,12 @@ def store(cfg: Config) -> dict:
     }
 
 
-#: The three settings that name a model. One list serves all of them, and one control
-#: on the page can set all of them at once — they are nearly always the same choice.
+#: Model settings managed by the shared selector.
 MODEL_KEYS = ("MEMCAL_PROPOSE_MODEL", "MEMCAL_SWEEP_MODEL", "MEMCAL_MATCH_MODEL")
 
 
 def _models_for(name: str, roster: list[str] | None = None) -> list[dict]:
-    """The models this provider serves, priced where memcal has a price on file.
-
-    `roster` is a live listing when one could be had — see `llm.list_models` — and the
-    static catalog otherwise. Either way every entry here is something the chosen
-    provider will actually accept, which is the point: the previous version merged
-    memcal's whole price table into every provider's list, so Codex was offered
-    `gemini-3.8-flash-high`, and a pass configured that way had all 74 of its bundles
-    refused with "not supported when using Codex with a ChatGPT account".
-    """
+    """List this provider's models with price or subscription notes."""
     priced = dict(llm.catalog(name))
     out = []
     for native in (roster if roster is not None else list(priced)):
@@ -83,13 +74,7 @@ def _models_for(name: str, roster: list[str] | None = None) -> list[dict]:
         if llm.endpoint(priced_as).service_tier == "flex":
             note += " · flex tier"
         if not note and name in llm.PROVIDER_COMMANDS:
-            # A CLI backend bills against a subscription, so there is no per-token price
-            # to be missing. Saying nothing here reads as "we forgot"; saying this is the
-            # actual answer.
             note = "billed against your subscription"
-        # Antigravity states its reasoning budget in the model name, so the effort
-        # setting has nothing to add for one of these. Worth saying beside the name
-        # rather than only in the effort row three fields down.
         if llm.AGY_EFFORT_SUFFIX.search(native):
             note = (note + " · " if note else "") + "effort is in the name"
         out.append({"value": native, "note": note})
@@ -107,12 +92,7 @@ def _all_known_models() -> list[str]:
 
 
 def _models_used(conn, name: str) -> list[dict]:
-    """Models this store has run, minus any that belong to a different provider.
-
-    "Used here" is a strong recommendation and it was being made across providers: a
-    model this store ran happily under Antigravity was offered, carrying that
-    endorsement, to someone configuring Codex — which refuses it.
-    """
+    """Models used by this store that are compatible with the selected provider."""
     if conn is None:
         return []
     try:
@@ -163,12 +143,7 @@ def previewed_provider(cfg: Config, provider_name: str = "") -> str:
 
 def models(cfg: Config, conn=None, provider_name: str = "",
            roster: list[str] | None = None) -> dict:
-    """Everything the page needs to offer a model choice for one provider.
-
-    Kept together rather than spread across `suggestions`, because the three model
-    fields, the "set all three" control and the warning about a model this provider
-    cannot serve are all answers to the same question and they have to agree.
-    """
+    """Return the shared model-selector state for one provider."""
     name = previewed_provider(cfg, provider_name)
     default = llm.PROVIDER_DEFAULT_MODELS.get(name, "")
     options = _dedupe(
@@ -179,19 +154,11 @@ def models(cfg: Config, conn=None, provider_name: str = "",
         "default": default,
         "keys": list(MODEL_KEYS),
         "options": options,
-        # Whether this provider has a roster at all. OpenRouter routes far more than
-        # this repo prices, so nothing there is ever shaded as unrecognised.
         "closed": llm.serves(name, "not-a-real-model") is False,
         "known": [o["value"] for o in options],
-        # Models memcal recognises as *another* provider's. Not merely absent from this
-        # one's list — these rosters lag every release, and a model nobody recognises is
-        # a new one far more often than it is a mistake. This is the set a save actually
-        # refuses, and the set the form moves off a field when the provider changes.
         "foreign": {model: owner for model, owner in (
             (m, llm.belongs_elsewhere(name, m))
             for m in _all_known_models()) if owner},
-        # Antigravity says its budget in the model name, and `--effort` is not passed
-        # when it does. The effort row has to say so or it reads as being ignored.
         "effort_in_name": name == "antigravity",
     }
 
@@ -256,9 +223,6 @@ def probe(cfg: Config) -> dict:
         nightly = schedule.status(cfg)
     except Exception as exc:          # launchd is macOS; a Linux store is not broken
         nightly = {"error": f"{type(exc).__name__}: {exc}"}
-    # Asking the provider what it serves runs `agy models`, which is a subprocess and a
-    # network round trip — exactly the kind of thing this half exists for. The page has
-    # already drawn with the static roster by the time this lands.
     roster, roster_from = llm.list_models(cfg, _chosen(cfg))
     return {"sources": found, "load_errors": list(sources.load_errors()),
             "plugin_dir": str(cfg.plugin_dir), "schedule": nightly,
