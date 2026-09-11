@@ -5,6 +5,28 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- memcal.app carries the handle-grid icon ([E]/[T]/[Q] pills over a calendar and
+  store) instead of a generic executable glyph, and the web UI serves the same
+  art as its favicon. `memcal schedule install` converts `memcal/macos/icon.png`
+  to `AppIcon.icns` before signing; a missing icon toolset still builds an
+  iconless bundle rather than failing.
+
+### Fixed
+
+- `memcal ical setup` accepts full Calendar access on macOS 14+, where EventKit
+  reports it as `4` rather than the `3` that was the only value checked — a correct
+  grant read as "no access" forever. Add-Only is detected as its own state with the
+  manual flip to Full Access spelled out, since macOS asks only once per app.
+- The EventKit consent wait is bounded (45s) and announced instead of hanging
+  silently, and memcal.app runs as an agent that can show the consent dialog
+  rather than background-only, which could not.
+- EventKit consent and account checks run as memcal through a temporary launchd
+  agent instead of in-process: from a terminal they resolved to the terminal's
+  identity, granting or failing the wrong app. Doctor reads setup's stamp rather
+  than re-checking the wrong identity live.
+
 ## [0.7.0] - 2026-09-11
 
 ### Added
