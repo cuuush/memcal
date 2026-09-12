@@ -48,7 +48,20 @@ answer and an immediate correct answer are never confused. See
 | Antigravity programmatic mode | `gemini-3.8-flash-high` | Existing Antigravity login |
 | OpenRouter | `openai/gpt-5.6-luna` | OpenRouter API key |
 
-The three CLI backends run one-shot structured completions with no persistent
-sessions or hidden history. Prefer a flash model on Antigravity: its print mode
-wraps every prompt in an agent preamble that bills far more input tokens per call.
+The three CLI backends run as one-shot structured completions. Claude Code uses
+print mode without persistent sessions or tools. Codex uses ephemeral `exec`
+sessions with a read-only sandbox and approvals disabled. Antigravity (`agy`)
+uses print mode with the sandbox on and slash commands disabled, and asks for
+structured output with `--json-schema`. All three replay staged extraction
+turns explicitly, so a pass does not depend on hidden session history. Prefer
+a flash model on Antigravity: its print mode wraps every prompt in an agent
+preamble that bills tens of thousands more input tokens per call — quota rather
+than money on a subscription, but the reason to prefer flash here. Antigravity
+model names carry their own reasoning budget (`gemini-3.8-flash-high` and
+`gemini-3.8-flash-low` are separate selections), so memcal leaves `--effort`
+alone for those and sets it only for a model that does not state one; `agy
+models` lists what the login can reach. Antigravity returns `SUCCESS` with an
+empty response often enough to notice — roughly one call in five in a small
+sample. Memcal treats that as a failed call rather than an empty answer, so it
+shows up in a pass's `failed` count and the bundle stays available.
 See [Configuration](../hosting/configuration.md).

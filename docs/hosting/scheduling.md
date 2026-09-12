@@ -2,7 +2,8 @@
 
 One background item, `memcal`, appears in System Settings → Login Items &
 Extensions. The installer builds a small local app wrapper so macOS attributes
-Calendar access to memcal instead of Python. launchd starts it at 03:00, at
+Calendar access to memcal instead of Python; if that build is unavailable, the
+named script remains the fallback. launchd starts it at 03:00, at
 login, and every 30 minutes; an interval that elapsed while the machine slept
 fires on wake.
 

@@ -11,7 +11,16 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   store) instead of a generic executable glyph, and the web UI serves the same
   art as its favicon. `memcal schedule install` converts `memcal/macos/icon.png`
   to `AppIcon.icns` before signing; a missing icon toolset still builds an
-  iconless bundle rather than failing.
+   iconless bundle rather than failing.
+
+### Changed
+
+- The README is a short pointer: the first three paragraphs plus Getting
+  started, with everything else living in the documentation site
+  (https://cuuush.github.io/memcal/). Details previously only in the README —
+  CLI backend behavior, Settings-tab model fields, benchmark variant defaults
+  and live-layer progress, the launchd fallback, and project status — moved
+  into their docs pages.
 
 ### Fixed
 

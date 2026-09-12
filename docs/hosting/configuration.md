@@ -32,7 +32,8 @@ the store.
 Provider natives: Codex → `gpt-5.6-luna`, Claude Code → `claude-sonnet-5`,
 Antigravity → `gemini-3.8-flash-high`. Authenticate the selected CLI first
 (`codex login`, `claude auth login`, a signed-in `agy` session); OpenRouter needs
-`OPENROUTER_API_KEY`. Unknown model names stay valid — catalogs change faster
+`OPENROUTER_API_KEY`. Memcal checks that the command exists; the CLI itself
+reports authentication trouble on the first real completion. Unknown model names stay valid — catalogs change faster
 than validation lists.
 
 ### Brief
@@ -86,6 +87,8 @@ Scripted setup:
 
 ```bash
 memcal setup --provider codex
+memcal setup --provider claude-code
+memcal setup --provider antigravity
 memcal setup --provider codex --model gpt-5.6-luna
 memcal setup --provider openrouter --api-key "sk-or-..."
 ```

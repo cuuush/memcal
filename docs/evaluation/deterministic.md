@@ -48,8 +48,14 @@ email written Monday, collected Tuesday" is expressible. Results report by
 category — duplicates, false merges, lost corrections, missed cancellations,
 missing evidence, identity, retrieval, replay, and brief. `--variants N` retells
 each scenario differently (`wording`, `distractor`, `dupe`, `reorder`, `batch`,
-`sparse`) and prints the seed and first failing checkpoint;
-deliberate unmet expectations stay counted apart as frontier gaps.
+`sparse`) and prints the seed and first failing checkpoint; it defaults to 1,
+and to 0 under `--layer model`, where every retelling is a paid model run. Six
+is the maximum. Deliberate unmet expectations stay counted apart as frontier gaps.
+
+The live model layer prints its provider, model, fake day, dream stage,
+dispatched requests, and completed bundle count. If a CLI model call stays
+quiet, a flushed heartbeat reports the active stage every 15 seconds so a slow
+answer does not look like a hung process.
 
 Scratch stores only — never `~/.memcal`. Runs print current results; no tracked
 score ledger. Full knob list: `tools/BENCHMARK.md` in the repo.
