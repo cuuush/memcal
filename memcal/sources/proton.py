@@ -1,11 +1,9 @@
 """Proton Mail via the local Bridge (IMAP on 127.0.0.1:1143, STARTTLS).
 
-Proton has no public mail API; Bridge is the supported way in, and it decrypts
-locally, so nothing leaves the machine to read it.
+Proton has no public mail API; Bridge is the supported path and decrypts locally.
 
-Headers decide priority, never inclusion. Every message in scope has its body fetched
-and archived before relevance is assigned: the one thing that could overturn an
-automatic verdict used to be the one thing never read.
+Headers decide priority, never inclusion. Every in-scope message has its body
+fetched and archived before relevance is assigned.
 """
 
 from __future__ import annotations
@@ -217,14 +215,10 @@ def _decode(part: email.message.Message) -> str:
         return ""
 
 
-#: `<a href="X">Y</a>` → `Y (X)`. An anchor keeps the URL in an attribute and the words
-#: in the body, so a stripper that keeps text keeps "Tutoring Meeting Room Link" and
-#: throws away the meeting room. That is what happened to a tutoring appointment: the
-#: reschedule mail carried the link, the calendar entry said "Online", and between
-#: the two of them the store ended up with no way to attend.
+#: `<a href="X">Y</a>` → `Y (X)`. Preserves link targets that text-only
+#: stripping would drop.
 #:
-#: Only `http(s)`, and only when the label does not already contain the URL — otherwise
-#: every plain-text link in a mail gets printed twice.
+#: Only `http(s)`, and only when the label does not already contain the URL.
 _ANCHOR = re.compile(
     r"""(?is)<a\b[^>]*\bhref\s*=\s*["']?(https?://[^"'\s>]+)["']?[^>]*>(.*?)</a>""")
 
@@ -285,11 +279,8 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 300,
 
                 if progress:
                     progress(f"{target}: checking for new messages…", phase="checking")
-                # A first run of this folder has no watermark, so the search would be
-                # the whole mailbox. Floor it at the horizon the spool would apply
-                # anyway, and say so in the report rather than doing it silently —
-                # `IngestReport.too_old` exists because a backfill that quietly drops
-                # most of what it read is the shape of bug that hides for weeks.
+                # A first run has no watermark; floor the search at the spool
+                # horizon and report it.
                 first_run = last_uid == 0
                 window = int(getattr(cfg, "email_backfill_days", 0) or
                              report.horizon_days) if first_run else 0
@@ -462,22 +453,11 @@ def _handle_message(conn, cfg, report, bridge, uid, headers, folder,
         header_map = {k: v for k, v in headers.items()}
         verdict = gate.gate_email(conn, address=address, subject=subject, headers=header_map)
 
-    # The body is fetched *before* relevance is settled, for every message in scope.
-    # It used to be fetched only for mail that had already passed, which made the
-    # automatic verdict unreviewable: the one thing that could have overturned it was
-    # the one thing never read, and a subject-only archive row cannot become evidence
-    # later however the rules change. Fetching is free of model cost; only the spool
-    # priority decides what a pass spends on.
-    #
-    # "In scope" stops at a person's own no. An automatic conclusion is a guess about
-    # *when* to read someone's mail and is worth keeping reviewable; a block is the user
-    # saying they do not want this sender read at all, and honouring that has to mean the
-    # body is never decrypted into the archive — otherwise "blocked" would quietly become
-    # "stored and shown in the queue, just not proposed on".
+    # Fetch bodies before settling relevance so automatic verdicts stay
+    # reviewable. User blocks stop the fetch entirely: blocked bodies are
+    # never decrypted into the archive.
     if verdict.excluded:
-        # Recorded, not merely absent: "nobody fetched this" and "you said not to" are
-        # different states, and only the first is something `backfill_bodies` should
-        # ever try to repair.
+        # Record the exclusion distinctly; backfill repairs only unfetched rows.
         text, body_meta = subject, {"body_excluded": verdict.reason}
     else:
         text, body_meta = _with_body(bridge, uid, subject)
@@ -523,13 +503,7 @@ def _body_of(message: email.message.Message, subject: str) -> tuple[str, dict]:
 
 
 def _with_body(bridge, uid, subject: str) -> tuple[str, dict]:
-    """Subject plus body, and an honest record of what happened to the body.
-
-    Three outcomes and all three are worth writing down: it was read whole, it was
-    shortened for model input, or it could not be read at all. The third used to be
-    indistinguishable from "this mail has no body", so a bridge that dropped a
-    connection left behind rows that looked complete forever.
-    """
+    """Subject plus body, with a record of truncation or fetch failure."""
     try:
         raw = bridge.body(uid) or ""
     except Exception as exc:                        # noqa: BLE001 — recorded, not fatal

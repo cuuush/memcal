@@ -222,19 +222,13 @@ class TestDropping(Base):
 
 
 class TestAReadHandleCanTargetTheSameRowForWriting(Base):
-    """A handle a read returns is the exact row a later write must change.
-
-    Titles are deliberately duplicated: accepting the handle is not a convenience for
-    a unique title, it is what prevents a correction from landing on its sibling.
-    """
+    """A read handle addresses the exact row a later write changes."""
 
     def test_a_listed_event_handle_updates_its_duplicate_title_only(self):
         from memcal import mcp_server
 
         first = self.add("Studio appointment", when="2031-03-03")
-        # The normal add path deliberately coalesces likely duplicate plans. Build the
-        # existing duplicate-title state directly, because that is the dangerous store
-        # state a correction must survive.
+        # Build duplicate-title state directly; the add path coalesces duplicates.
         second, _ = events.upsert(
             self.conn,
             {"title": "Studio appointment", "date": "2031-03-07", "status": "mentioned"},

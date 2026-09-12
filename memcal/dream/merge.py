@@ -1087,13 +1087,7 @@ def _corroborate(row: dict, voices: int) -> None:
         return
     if not row.get("status") or row.get("status") == "mentioned":
         row["status"] = "tentative"
-    # The docstring above is right and the code used to disagree with it: having argued
-    # that corroboration belongs in `status` because that is what the brief and every
-    # downstream filter read, it then *also* appended "2 sources mention this" to the
-    # note. The count is memcal's own bookkeeping, and a note is the one field written
-    # for the user to read — the user saw "Beer garden · Bohemian Hall, Astoria · 2 sources
-    # mention this" on their calendar and called the line silly, which it is. The status
-    # nudge carries the same fact where something can act on it.
+    # Corroboration lives in `status`, not the user-visible note.
 
 
 def _collapse(group: list[Mention], merged: dict) -> None:

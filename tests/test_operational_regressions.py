@@ -219,15 +219,8 @@ class TestANudgeNeedsSomebodyOnTheOtherEndOfIt(Base):
         self.assertLess(todo.remind_at[:10], self.d(3), "and it lands before the table")
 
     def test_its_own_deadline_beats_the_events_when_it_has_one(self):
-        # A reservation may have to be made days ahead. The deadline is the booking, not
-        # the dinner, and the row says so.
-        #
-        # The clock is pinned because this assertion is only true while there is usable
-        # evening left: opened at 22:00 for tomorrow, the honest answer really is 08:00
-        # on the due day, and asserting otherwise was a bet that the suite runs before
-        # the evening. It was red between 19:00 and midnight and green the other
-        # nineteen hours, and `clock_sweep.py` swept days while taking the hour from
-        # whenever it happened to run, so nothing could see it.
+        # The deadline is the booking, not the dinner.
+        # Pin the clock to the morning: the assertion needs usable evening left.
         db.set_today(f"{db.today().isoformat()}T09:00")
         self.addCleanup(db.set_today, None)
         todo, _ = todos.open_todo(self.conn, "Book the prix-fixe", due=self.d(1),
@@ -236,9 +229,7 @@ class TestANudgeNeedsSomebodyOnTheOtherEndOfIt(Base):
         self.assertLess(todo.remind_at[:10], self.d(1))
 
     def test_the_evening_is_usable_up_to_the_hour_it_ends(self):
-        """`WAKING_HOURS = (8, 21)` and the rule is "after 21:00". A to-do opened at
-        19:00 for tomorrow used to skip the entire evening, because `>= high` moved
-        21:00 itself out of range."""
+        """`WAKING_HOURS = (8, 21)` excludes times after 21:00."""
         db.set_today(f"{db.today().isoformat()}T19:00")
         self.addCleanup(db.set_today, None)
         todo, _ = todos.open_todo(self.conn, "Book the prix-fixe", due=self.d(1),
@@ -247,8 +238,7 @@ class TestANudgeNeedsSomebodyOnTheOtherEndOfIt(Base):
         self.assertEqual(f"{db.today().isoformat()}T21:00:00", todo.remind_at[:19])
 
     def test_late_at_night_it_says_the_morning_of_rather_than_nothing(self):
-        """The other side of the same rule, asserted rather than assumed. At 23:00 the
-        evening really is gone and 08:00 on the due day is the honest answer."""
+        """At 23:00 the evening is gone; the answer is 08:00 on the due day."""
         db.set_today(f"{db.today().isoformat()}T23:00")
         self.addCleanup(db.set_today, None)
         todo, _ = todos.open_todo(self.conn, "Book the prix-fixe", due=self.d(1),
@@ -257,8 +247,7 @@ class TestANudgeNeedsSomebodyOnTheOtherEndOfIt(Base):
         self.assertEqual(f"{self.d(1)}T08:00:00", todo.remind_at[:19])
 
     def test_a_deadline_with_nobody_behind_it_says_nothing(self):
-        """The NYU case, and the one the user asked for by name. A date, a real one, and no
-        person on the other end of it — so no poke, ever."""
+        """A dated commitment with no other person sets no reminder."""
         todo, _ = todos.open_todo(self.conn, "Complete NYU Tandon Bridge coursework",
                                   due=self.d(80), written_by="dream:nightly")
         self.assertIsNone(todo.remind_at)
@@ -352,11 +341,8 @@ class TestAReminderLandsAtAReasonableHour(unittest.TestCase):
         self.assertIsNone(todos.remind_when("not a date"))
 
     def test_something_already_past_gets_no_reminder_at_all(self):
-        # Found on live data. "Remind you about the hand-poke tattoo session" matched
-        # the occurrence on the 11th instead of the one on the 24th, and every clamp
-        # above dutifully moved the target forward until the answer was *this second*.
-        # A reminder about something that already happened is worse than silence,
-        # because the user will act on it.
+        # A past occurrence gets no reminder. Reminding about a past event is
+        # worse than silence.
         self.assertIsNone(todos.remind_when("2026-08-11",
                                             now=self.at("2026-08-13T15:34:00")))
 
@@ -386,7 +372,7 @@ class TestAReactionIsRescuedByWhatItIsNotByWhatItWasCalled(Base):
             gated=bool(verdict), gate_reason=verdict.reason)
 
     def test_a_five_emoji_reaction_is_reachable(self):
-        # The live row this was found on. Five characters, so never `trivial`.
+        # Five characters, so never `trivial`.
         self._reaction("🦖🦖🦖🦖🦖", f"{self.d(0)}T10:00:00")
         rescued = base._rescue_recent_reactions(
             self.conn, "groupme", "Lootbox", f"{self.d(0)}T10:20:00", "thread:x", 30)
@@ -459,8 +445,7 @@ class TestProtonOnlyReadsHeadersItAskedFor(unittest.TestCase):
                 arg = node.args[0]
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     names.add(arg.value.upper())
-        # `for field in ("To", "Cc"): headers.get(field)` is the form the Cc bug hid in,
-        # and a scan that only reads constant arguments walks straight past it.
+        # Include loop-variable header names, not only constant arguments.
         for node in ast.walk(ast.parse(source)):
             if not isinstance(node, ast.For) or not isinstance(node.iter, (ast.Tuple, ast.List)):
                 continue
@@ -619,9 +604,7 @@ class TestAPokeIsNotProofHeWasTold(unittest.TestCase):
         self.assertEqual(todos.due_reminders(self.conn, now=db.now()), [])
 
     def test_a_poke_the_agent_ignored_comes_back(self):
-        # The whole reason `reminded_at` is a snooze and not a tombstone. The agent may
-        # have replied [SILENT]; nothing here can see that, and a reminder dropped on
-        # the strength of a judgement to *wait* is a judgement to forget.
+        # `reminded_at` is a snooze, not a tombstone. An ignored poke returns.
         todo = self.open("book the restaurant", remind_at="2026-08-12T09:00:00")
         self.conn.execute("UPDATE todos SET reminded_at = ? WHERE key = ?",
                           ("2026-08-12T09:00:00", todo.key))
@@ -632,7 +615,7 @@ class TestAPokeIsNotProofHeWasTold(unittest.TestCase):
         self.assertEqual(todos.due_reminders(self.conn, now=soon), [], "still snoozed")
         self.assertEqual([t.text for t in todos.due_reminders(self.conn, now=after)],
                          ["book the restaurant"], "should come back")
-        # And the brief carries it the whole time, because the poke told nobody.
+        # The brief carries the todo while snoozed.
         self.assertEqual(
             [t.text for t in todos.due_reminders(self.conn, now=later, snooze=False)],
             ["book the restaurant"])
@@ -643,13 +626,8 @@ class TestAPokeIsNotProofHeWasTold(unittest.TestCase):
         self.assertEqual(todos.due_reminders(self.conn, now="2026-08-12T10:00:00"), [])
 
     def test_a_reminder_added_later_reads_the_todo_the_store_already_has(self):
-        # The ordinary case, and the one that refused outright: a to-do opened days ago
-        # with a due date, given a reminder now. `live.open_todo` read only the
-        # arguments of *this* call, so the row's own due date was invisible and the
-        # anchor came back empty.
-        # Dated forward from today rather than written down: the anchor has to be ahead
-        # of now for there to be anything to count back from, so a literal due date is a
-        # test that expires — this one raised LiveError from 2026-09-02 onwards.
+        # `live.open_todo` reads the stored row, not only the call arguments.
+        # Date the fixture forward from today so the anchor stays ahead of now.
         due = db.today() + timedelta(days=19)
         live.open_todo(self.conn, self.cfg, "renew the passport", due=due.isoformat())
         todo, verb = live.open_todo(self.conn, self.cfg, "renew the passport",
@@ -660,14 +638,7 @@ class TestAPokeIsNotProofHeWasTold(unittest.TestCase):
 
 
 class TestAReminderNeverReachesAPhoneByDefault(unittest.TestCase):
-    """Reminder publishing defaults to off.
-
-    `publish_calendar` shipped set to "memcal" once and the next test run put ten
-    fixtures in a real Mac's Calendar.app, syncing to a phone. A reminder is worse: it
-    does not sit quietly in a calendar, it makes the phone buzz at an hour memcal chose.
-    Every test builds a Config and none of them asks for a reminder, so the default has
-    to be off and `publish_reminder` has to be the one place that decides it.
-    """
+    """Reminder publishing defaults to off."""
 
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
@@ -675,10 +646,7 @@ class TestAReminderNeverReachesAPhoneByDefault(unittest.TestCase):
         self.cfg.ensure_dirs()
         self.conn = db.open_db(self.cfg.db_path)
         self.addCleanup(self.conn.close)
-        # A reminder is timed by counting back from something that has not happened yet,
-        # so a literal due date makes the test an appointment: `due="2026-08-14"` was
-        # fine on the 13th and raised LiveError from the 15th on, in three tests that are
-        # about the switch and not about dates at all.
+        # Date the fixture forward so the due date stays in the future.
         self.due = (db.today() + timedelta(days=7)).isoformat()
 
     def test_the_default_is_off(self):
@@ -690,8 +658,7 @@ class TestAReminderNeverReachesAPhoneByDefault(unittest.TestCase):
             todo, _ = live.open_todo(self.conn, self.cfg, "book the restaurant",
                                      due=self.due, remind=True)
         called.assert_not_called()
-        # The reminder is still *recorded* — it just does not leave the process. Turning
-        # the switch on later has to be enough to start delivering them.
+        # The reminder is recorded locally and not delivered.
         self.assertTrue(todo.remind_at)
         self.assertIsNone(todo.reminder_uid)
 
@@ -726,10 +693,7 @@ class TestNeverRunIsNotAFailedRun(unittest.TestCase):
         cfg = Config(home=home)
         cfg.ensure_dirs()
         schedule.script_path(cfg).write_text("#!/bin/sh\nPY=/usr/bin/python3\n")
-        # The plist is pointed at this test's home: `plist_path()` reads
-        # `~/Library/LaunchAgents`, and this class was green only on a machine where the
-        # agent happened to be installed. On CI these two assertions — which are about
-        # the *exit code* field — failed for a reason they say nothing about.
+        # Point the plist at the test home. `plist_path()` reads `~/Library/LaunchAgents`.
         with mock.patch.object(schedule, "_launchctl", return_value=(0, listing)), \
              mock.patch.object(schedule, "plist_path",
                                return_value=home / "com.memcal.nightly.plist"):
@@ -746,8 +710,7 @@ class TestNeverRunIsNotAFailedRun(unittest.TestCase):
         self.assertIsNone(self._status("\tlast exit code = 0\n")["warning"])
 
     def test_a_job_that_exited_nonzero_is_still_warned_about(self):
-        # The failure the check was written for: 127 is the shell's "command not found",
-        # which is what eleven nights of a missing nightly.sh looked like.
+        # 127 is the shell's "command not found".
         state = self._status("\tlast exit code = 127\n")
         self.assertIn("127", state["warning"] or "")
 
@@ -767,8 +730,7 @@ class TestAnIndexOfNamesCannotBeUsedToDecideAnything(Base):
         self.assertIn("casey-morgan (current resume, education)", line)
 
     def test_the_reported_question_can_be_routed_from_the_brief_alone(self):
-        # The whole point, stated as the report stated it: the words the user is going
-        # to use have to appear in the file that is always in context.
+        # The brief carries the vocabulary the user addresses.
         self._slots("casey-morgan",
                     current_resume="documents/casey-morgan-resume.pdf")
         text = brief.render(self.conn, self.cfg)
@@ -1070,18 +1032,10 @@ class TestAPassThatReportedSuccessWithASourceDown(Base):
 
 
 class TestACommandThatWasNeverOnceRun(Base):
-    """`memcal who` crashed on `NameError: threads` and had done for as long as git
-    remembers — the module was used in the function and never imported.
-
-    It is the command `doctor` recommends for the queue it complains about, so the one
-    path from "247 handles have no name" to doing anything about it was a traceback. No
-    test called it; every other test called functions, and a missing import is invisible
-    until the line that uses it runs.
-    """
+    """Every `cmd_*` function references only names the module defines or imports."""
 
     def test_no_command_reaches_for_a_name_the_module_does_not_have(self):
-        """A NameError at module scope is caught by importing. This is the other kind:
-        a global referenced inside a function body that nothing ever executed."""
+        """A global referenced inside an unexecuted function body is not caught by import."""
         import builtins
         source = (Path(cli.__file__)).read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -1091,10 +1045,7 @@ class TestACommandThatWasNeverOnceRun(Base):
             if not isinstance(node, ast.FunctionDef) or not node.name.startswith("cmd_"):
                 continue
             local = set()
-            # Everything the function itself binds: parameters, assignments, loop and
-            # `with` targets, comprehension variables, `except … as`, nested defs and
-            # their parameters, and imports. Anything left over is a global, and a
-            # global the module does not have is the bug.
+            # Collect locally bound names. An unbound loaded name is a module global.
             for sub in ast.walk(node):
                 if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                     spec = sub.args
@@ -1121,7 +1072,7 @@ class TestACommandThatWasNeverOnceRun(Base):
         self.assertEqual([], sorted(set(missing)))
 
     def test_who_actually_runs_with_something_in_the_queue(self):
-        """The narrow version, on the command it happened to."""
+        """`memcal who` runs with a queued handle."""
         identity.note_unresolved(self.conn, "+19175550123", "imessage",
                                  seen_name=None, sample="hey")
         self.conn.commit()
@@ -1134,12 +1085,7 @@ class TestACommandThatWasNeverOnceRun(Base):
 
 
 class TestANumeralIsNotAName(Base):
-    """247 unnamed handles, 47 of them carrying 25+ messages, and GroupMe had been
-    telling us most of those names the whole time.
-
-    Bundling is by entity, so every one of those was a person whose rows
-    filed under a numeral and joined up with nothing.
-    """
+    """Unnamed handles carrying messages join by platform name, not by numeral."""
 
     def test_the_platform_name_is_taken_verbatim(self):
         identity.note_unresolved(self.conn, "groupme:24687395", "groupme",
@@ -1151,17 +1097,12 @@ class TestANumeralIsNotAName(Base):
                          identity.resolve(self.conn, "groupme:24687395"))
 
     def test_it_never_goes_through_the_first_name_guess(self):
-        """The seven wrong merges this was one step away from making.
-
-        `guess_person` matches on first name and is documented as a prompt pre-fill.
-        On this very queue it offered *joe coleman* for Joe Navarro and *jack kirkland*
-        for Jack Bartley — the collision beat 7 of the benchmark exists for.
-        """
+        """`guess_person` is a prompt pre-fill. Adoption ignores it."""
         identity.link(self.conn, "+19175550001", "Joe Coleman", source="contacts")
         identity.note_unresolved(self.conn, "groupme:6014661", "groupme",
                                  seen_name="Joe Navarro")
         self.conn.commit()
-        # The guess is wrong, and is still offered to a human who can see it is wrong.
+        # The guess stays visible to a human reviewer.
         row = self.conn.execute(
             "SELECT * FROM unresolved WHERE handle = 'groupme:6014661'").fetchone()
         self.assertEqual("Joe Coleman", identity.guess_person(self.conn, row))
@@ -2010,7 +1951,7 @@ class TestTwoCasingsOfOneNameAreTwoPeople(Base):
             "SELECT person FROM archive WHERE external_id = 'g1'").fetchone()["person"])
 
     def test_the_better_evidence_picks_the_surviving_spelling(self):
-        """Contacts beats the platform's display name — the answer issue #2 asked for."""
+        """Contacts evidence outranks the platform display name."""
         self.conn.executemany(
             "INSERT INTO handles(handle, person, source, updated_at) VALUES(?,?,?,?)",
             [("groupme:1", "SID", "groupme:profile", db.now()),
@@ -2029,17 +1970,14 @@ class TestTwoCasingsOfOneNameAreTwoPeople(Base):
         self.assertEqual([], identity.collapse_split_spellings(self.conn))
 
     def test_an_invisible_mark_is_not_a_second_person(self):
-        """WhatsApp wraps a display name in bidi marks, so `"\u200eFoo"` and `"Foo"`
-        are two entities that look identical in every log you would read."""
+        """Bidi marks do not create a distinct person."""
         identity.link(self.conn, "+19175550001", "Morgan", source="contacts")
         self.conn.commit()
         self.assertEqual("Morgan", identity.adopt_seen_name(
             self.conn, "whatsapp:lid:1", "\u202aMorgan\u202c", source="whatsapp:profile"))
 
     def test_a_platform_field_holding_a_blob_is_not_a_name(self):
-        """WhatsApp's push name is occasionally `+GJXsntMGIAE=`. Adopting one makes a
-        person whose page is titled with an encoding artefact — and unlike a wrong
-        merge, it is not even wrong about anybody."""
+        """Encoded artefacts are not names."""
         for junk in ("+GJXsntMGIAE=", "+EAA=", "+1 (313) 555-0002"):
             self.assertFalse(identity.name_shaped(junk), junk)
             self.assertIsNone(identity.adopt_seen_name(
@@ -2048,31 +1986,21 @@ class TestTwoCasingsOfOneNameAreTwoPeople(Base):
             self.assertTrue(identity.name_shaped(real), real)
 
     def test_a_name_one_character_long_in_its_script_is_a_name(self):
-        """A three-character floor stood in for "is there enough here to be a name", and
-        length is the wrong proxy where one character is a word. 李雷 and 王芳 are
-        complete formal names; the platform sent them and memcal declined to hear them,
-        leaving short valid names without an identity."""
+        """Single characters form complete names in some scripts."""
         for name in ("李雷", "李", "王芳", "김", "ひろ", "Jo", "Al", "Ed"):
             self.assertTrue(identity.name_shaped(name), name)
 
     def test_a_single_letter_of_an_alphabet_is_still_an_initial(self):
-        """The other edge, and why this is not "lower the number to one". An alphabet
-        spells a name out of phonemes, so one of them is an initial — which is what the
-        old floor was really rejecting, one notch too high."""
+        """A single alphabet letter is an initial, not a name."""
         for junk in ("J", "J.", "?", "—", "", "  ", "😀"):
             self.assertFalse(identity.name_shaped(junk), junk)
 
     def test_a_two_letter_initialism_is_now_accepted_on_purpose(self):
-        """It was not before, and this is the one behaviour that got looser. Nothing
-        separates "JD the nickname" from "JD the initials", and `adopt_seen_name` states
-        the asymmetry that settles it: a duplicate page is recoverable by `memcal
-        merge`, an unnaming is silent and permanent."""
+        """Two-letter initialisms are accepted. Duplicates merge; unnamings do not recover."""
         self.assertTrue(identity.name_shaped("JD"))
 
     def test_a_short_name_reaches_the_store_rather_than_stopping_at_the_gate(self):
-        """The predicate is one thing now. `spelling_in_use` and `adopt_seen_name` each
-        carried their own copy of the floor, so fixing `name_shaped` alone would have
-        left the adopt path rejecting the same name two lines later."""
+        """`name_shaped` gates both `spelling_in_use` and `adopt_seen_name`."""
         self.assertEqual("李雷", identity.adopt_seen_name(
             self.conn, "whatsapp:lid:7", "李雷", source="whatsapp:profile"))
         identity.link(self.conn, "+19175550002", "Jo", source="contacts")
@@ -2112,8 +2040,7 @@ class TestAMessageBodyWasScrapedInsteadOfParsed(unittest.TestCase):
             _attributed(b"we playing at 8?", mutable=False)))
 
     def test_an_apostrophe_survives(self):
-        """The last-resort scrub deleted every non-ASCII byte, so "It's OK" was
-        archived as "It s OK" — the text reached the model with the wrong words."""
+        """Non-ASCII bytes decode; curly apostrophes survive."""
         body = "Also I get to WFH Thursday bc it\u2019s my bday".encode()
         self.assertEqual("Also I get to WFH Thursday bc it\u2019s my bday",
                          imessage.decode_attributed(_attributed(body)))
@@ -2123,20 +2050,17 @@ class TestAMessageBodyWasScrapedInsteadOfParsed(unittest.TestCase):
         self.assertEqual("dinner at 8 \U0001f355", imessage.decode_attributed(_attributed(body)))
 
     def test_a_long_body_reads_its_two_byte_length(self):
-        """`+\x81\xc9\x04` is 1,225 bytes, not 129. A one-byte read truncates the
-        longest messages in the store, which are the ones carrying plans."""
+        """Bodies over 0x80 bytes use the two-byte length."""
         body = ("Just wanted to update you guys on Maisy. " * 30).encode()
         self.assertGreater(len(body), 0x81)
         self.assertEqual(body.decode().strip(), imessage.decode_attributed(_attributed(body)))
 
     def test_an_attachment_only_message_has_no_text(self):
-        """2,587 of the 2,605 blobs that now decode to empty have
-        `cache_has_attachments` set. An object-replacement character is not a message,
-        and saying so lets `deliver` drop it as it drops any empty line."""
+        """An object-replacement character carries no message text."""
         self.assertEqual("", imessage.decode_attributed(_attributed("\ufffc".encode())))
 
     def test_nothing_it_returns_carries_the_serialisation(self):
-        """The property the 424 rows violated, stated directly."""
+        """Decoded text contains no serialisation markers."""
         for body in (b"hi", b"we playing at 8?", "\u2019".encode(), b"a" * 300):
             got = imessage.decode_attributed(_attributed(body))
             for noise in ("NSMutableString", "NSString", "streamtyped", "NSDictionary",
@@ -2144,18 +2068,13 @@ class TestAMessageBodyWasScrapedInsteadOfParsed(unittest.TestCase):
                 self.assertNotIn(noise, got, f"{noise!r} survived in {got!r}")
 
     def test_a_blob_it_cannot_read_yields_nothing_rather_than_debris(self):
-        """Returning the scrubbed bytes was worse than returning nothing: it archived
-        a line that looks like a message and is not one."""
+        """Unreadable blobs decode to empty, not to debris."""
         self.assertEqual("", imessage.decode_attributed(b"\x04\x0bstreamtyped\x81\xe8\x03"))
         self.assertEqual("", imessage.decode_attributed(b""))
         self.assertEqual("", imessage.decode_attributed(None))
 
     def test_a_message_that_merely_mentions_kim_is_not_debris(self):
-        """The first version of the repair selected rows with `text LIKE '%__kIM%'`.
-        `_` is a single-character wildcard in SQL LIKE, so that matches "Definitely
-        **Kim**'s song". Searching for known-bad output is the same hand-grown list the
-        bug was made of; the repair re-derives instead, so there is no pattern to get
-        wrong."""
+        """Name matches use literal matching, not SQL LIKE wildcards."""
         self.assertNotIn("_", imessage.DECODER_KEY.replace("imessage.decoder_generation", ""))
         self.assertEqual("Definitely Kim\u2019s song", imessage.decode_attributed(
             _attributed("Definitely Kim\u2019s song".encode())))

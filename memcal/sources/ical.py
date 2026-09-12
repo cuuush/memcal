@@ -52,60 +52,33 @@ def _unavailable(transport) -> bool:
     return any(transport is real for real in _REAL_TRANSPORT) and not _have_osascript()
 
 
-#: How far ahead an ordinary run looks. Every read of Calendar.app costs one Apple Event
-#: per event and they are ~60ms each, so the window *is* the runtime: a year ahead is 115
-#: events and 17 seconds of a person waiting for the Collect button. Six months covers
-#: everything the brief, the Later block and a normal lookup ever touch.
+#: How far ahead an ordinary run looks. Calendar.app reads cost ~60ms per
+#: event, so the window determines runtime.
 NEAR_LOOKAHEAD_DAYS = 180
 
 #: …and the rest of the year is still read, just not on every run. A thing booked eight
 #: months out is real and must not go missing; it also does not change hourly.
 FULL_SCAN_HOURS = 20
 
-#: The three phases of a read, and roughly what share of the wait each one is.
-#:
-#: Measured rather than assumed, and the assumption was wrong: querying the calendars is
-#: not free next to reading the events. A 60-day window spent 2.4s on ten `whose` queries
-#: and 0.9s on 23 property reads — ~240ms per calendar against ~40ms per event. The
-#: per-calendar cost is roughly fixed while the per-event cost scales with the window, so
-#: on the 300 days a real run asks for, reading pulls ahead again but not by the order of
-#: magnitude the ~60ms-per-event note alone suggests.
-#:
-#: They stay estimates — the phases count unlike things and no single weighting is right
-#: for both a quiet Tuesday and a cold start. What they buy is a bar that moves the whole
-#: time and never restarts. `filing` is deliberately over-weighted: finishing early reads
-#: as a fast run, and stalling at 95% reads as a hang.
+#: Estimated read-phase weights for progress reporting. `filing` is
+#: over-weighted so early completion reads as speed, not a stall.
 SNAPSHOT_PHASES = (("checking", 25), ("reading", 60), ("filing", 15))
 
 # JXA gives us JSON without adding PyObjC.
 #
-# `calendar.properties()` is not used and must not be reintroduced. On macOS 26 it
-# returns an empty object — no exception, no name, and `writable` undefined, which is
-# falsy — so every calendar read as a read-only subscription and 70 events the user
-# created on their own calendars were filed as `opportunity`/`mentioned` instead of
-# `commitment`/`confirmed`. It also spent time failing, once per calendar. The
-# individual accessors below work and are the whole fix.
+# Do not use `calendar.properties()`; on current macOS it returns an empty
+# object, misclassifying owned calendars as read-only subscriptions. The
+# individual accessors below are the supported path.
 #
-# Per-*event* `properties()` stays: it is one Apple Event returning everything, and
-# every alternative measured worse. Reading properties one at a time is ten round trips
-# instead of one; reading them in bulk off a `whose` specifier re-runs the filter for
-# each property (84s against 17s); and bulk `properties()` on a specifier is not
-# supported at all ("Can't get object").
+# Per-*event* `properties()` stays: one Apple Event returns everything, and
+# the alternatives cost more round trips.
 #
-# The two loops are one pass split in half so that this can *count*. Every calendar is
-# queried first — cheap, and it is what turns "some unknown number of events" into a
-# denominator — and only then are the properties read, which is where the seconds go.
-# Without that the whole read is a single opaque subprocess and the only honest bar for
-# it is an indeterminate stripe. `tick` goes to stderr; stdout is the JSON payload and
-# must stay clean.
+# Calendars are queried before event properties so the read has a denominator
+# for progress. `tick` goes to stderr; stdout carries only the JSON payload.
 #
-# **Every `catch` that drops events names the calendar it dropped them from.** They used
-# to swallow: one subscription mid-refresh or one CalDAV account offline contributed zero
-# events, the process still exited 0, and a partial read arrived downstream shaped exactly
-# like a complete one — where `reconcile_deleted` reads absence as deletion and writes a
-# decline per row. A read that cannot say "I did not read everything" must not be allowed
-# to drive a deletion, so the payload carries `unreadable` beside `events` and the
-# reconciliation stages stand down when it is non-empty.
+# Every `catch` that drops events names its calendar. The payload carries
+# `unreadable` beside `events`; reconciliation stands down when non-empty,
+# since a partial read must not drive deletions.
 JXA = r"""
 function run(argv) {
   const app = Application("Calendar");
@@ -375,17 +348,8 @@ def _normalized(item: dict) -> dict | None:
     end_raw = str(item.get("end") or "")
     end = db.parse_ts(end_raw).astimezone() if end_raw else start
     all_day = bool(item.get("all_day"))
-    # RFC 5545 says DTEND is exclusive, and it is — in an .ics file. The scan does not
-    # read .ics: it reads Calendar.app's `end date` property, which reports 23:59:59 of
-    # the last day the event actually occupies. Subtracting a day from that stored every
-    # multi-day all-day event one day short — "big trip" ran Apr 17-19 on the calendar
-    # and Apr 17-18 here, "Julian's graduation" May 21-24 and May 21-23 — and nothing
-    # caught it, because the publish path was a day long in the opposite direction and
-    # the round trip agreed with itself.
-    #
-    # Both conventions are still in play, so decide on the value rather than assume:
-    # midnight is an exclusive end and belongs to the next day, anything later is the
-    # last day itself.
+    # Calendar.app reports the inclusive last day (23:59:59); midnight is an
+    # exclusive end belonging to the next day.
     until = None
     if end.date() > start.date():
         last = end.date()
@@ -394,12 +358,8 @@ def _normalized(item: dict) -> dict | None:
         if last > start.date():
             until = last.isoformat()
     where = " ".join(str(item.get("location") or "").split()) or None
-    # A link in the `location` field, which is where calendar apps put it when the event
-    # has no other home for it — and where the store had no other home for it either.
-    # The live calendar had "location: https://meet.google.com/dcp-uqon-ibe" and, on
-    # another row, "141 Worth St, New York, NY 10013, USA; https://meet.google.com/…":
-    # an address and a join link sharing one field because only one field existed. Lift
-    # the link out and leave the address behind.
+    # Calendar apps share one field for address and join link; lift the link
+    # out and leave the address behind.
     from_where = join_link(where)
     if from_where:
         rest = where.replace(from_where, "").strip(" ;,·|-")
@@ -410,10 +370,7 @@ def _normalized(item: dict) -> dict | None:
         "until": until,
         "time": None if all_day else start.strftime("%H:%M"),
         "location": where,
-        # The JXA has lifted `description` and `url` since it was written and this
-        # narrowed them straight back out, so a join link sitting in the calendar event
-        # itself could not reach the store, the archived line, or a model. A connector
-        # that reads a field and then drops it is a missing column wearing a disguise.
+        # Keep description/url join links; dropping a read field loses the column.
         "join_url": join_link(item.get("description"), item.get("url")) or from_where,
         "note": _description_note(item.get("description")),
     }
@@ -435,8 +392,7 @@ def recurrence_rule(text: str | None) -> dict | None:
     days = [_RRULE_DAYS[d[-2:]] for d in (parts.get("BYDAY") or "").split(",")
             if d[-2:] in _RRULE_DAYS]
     if freq == "WEEKLY" and len(days) == 1 and interval in (1, 2):
-        # More than one BYDAY is a thing that meets twice a week, which the vocabulary
-        # cannot say. Recording it as one of the two days would be quietly wrong forever.
+        # Multi-day weekly cadences have no vocabulary; record only single days.
         return {"cadence": "weekly" if interval == 1 else "fortnightly",
                 "weekday": days[0]}
     if freq == "MONTHLY" and interval == 1 and not days:
@@ -489,14 +445,9 @@ def _description_note(description: str | None) -> str | None:
     return text[:NOTE_CHARS].rstrip() or None
 
 
-#: A link you *attend through*, as opposed to a link about the thing. Deliberately a
-#: fixed list of hosts rather than "any URL in the description": descriptions are full
-#: of maps, agendas, dial-ins and unsubscribe footers, and picking the wrong one puts a
-#: marketing page where the join button should be. This is deterministic URL selection.
-#: The scheme is optional because a model strips it. One trial in three wrote
-#: `location: us02web.zoom.example/j/8842119` with no `https://` on the front, which the
-#: scheme-anchored version read as ordinary text and left sitting in the location field.
-#: Hosts this specific are unambiguous bare; a general URL regex would not be.
+#: A link attended through, as opposed to a link about the thing. A fixed
+#: host list avoids selecting marketing or map URLs from descriptions.
+#: The scheme is optional since bare host links are unambiguous here.
 CONFERENCE_HOSTS = re.compile(
     r"(?:https?://)?[^\s<>\"'/]*(?:"
     r"zoom\.us|zoom\.example|zoomgov\.com"
@@ -530,10 +481,8 @@ def join_link(*candidates: str | None) -> str | None:
     return None
 
 
-#: How a link and a place share one field on the way back out. Semicolon-space, which
-#: is the separator Calendar.app's own rows already use — `fields()` was written against
-#: a live event reading "141 Worth St, New York, NY 10013, USA; https://meet.google.com/…"
-#: — so what memcal writes is a shape it already knows how to read.
+#: How a link and a place share one field on the way back out. Semicolon-space,
+#: matching the separator Calendar.app rows already use.
 LOCATION_JOIN = "; "
 
 
@@ -543,8 +492,7 @@ def publish_location(location: str | None, join_url: str | None) -> str:
     link = " ".join(str(join_url or "").split())
     if not link:
         return where
-    # Already carrying the link — a row whose `location` was never split, or a second
-    # pass over our own output. Composing again would print it twice.
+    # Skip composition when the location already carries the link.
     if link in where:
         return where
     return f"{where}{LOCATION_JOIN}{link}" if where else link

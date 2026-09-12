@@ -30,10 +30,7 @@ class Bundle:
     entity: str
     items: list[sqlite3.Row] = field(default_factory=list)
     spool_ids: list[int] = field(default_factory=list)
-    #: A readable name for the conversation, filled in by `build`. The entity key is not
-    #: one: an iMessage group chat with no display name keys as
-    #: `thread:imessage:9858b62c161544bca4342589e0344bbe`, and that string was what the
-    #: model and the UI both got told the bundle was called.
+    #: A readable name for the conversation, filled in by `build`.
     title: str = ""
     #: How many pending items this entity has in total, when more were waiting than the
     #: per-entity share allowed. 0 means the bundle is everything there is.
@@ -82,9 +79,7 @@ class Bundle:
     def _shape(self) -> str:
         """One line saying what this bundle is and what it is not.
 
-        The `waiting` half matters more than it looks: without it a bundle that holds the
-        newest 44 of 339 lines reads as the whole relationship, and a three-week silence
-        that is really a truncation becomes evidence of a three-week silence.
+        The `waiting` count keeps a truncated bundle from reading as complete.
         """
         convos = {(r["stream"], r["thread"]) for r in self.items}
         streams = sorted({r["stream"] for r in self.items})
@@ -114,15 +109,8 @@ class Bundle:
 
 # ------------------------------------------------------------------ formats --
 #
-# What a bundle looks like on the wire. Separated from the Bundle itself so the corpus
-# a benchmark feeds in stays neutral — structured records of who said what, where and
-# when — and the question "does the model do better without the stream tag on every
-# line" is answered by re-rendering the same data, not by regenerating it.
-#
-# Every format must keep two things, because code depends on them rather than taste:
-# whatever `head` it is handed, alone on the first line (v1 routing echoes the default
-# one; v2 supplies its own id and any second name for the bundle is a routing failure
-# waiting to happen), and one line per message.
+# Bundle renderers. Every format keeps `head` on the first line and one line
+# per message, which routing and citations depend on.
 
 
 def _addressed_to(row) -> str:
@@ -135,10 +123,8 @@ def _addressed_to(row) -> str:
 
 def _render_v1(bundle: "Bundle", head: str | None = None) -> str:
     """Render the original readable bundle format with dated conversation gaps."""
-    # The entity line is what the model echoes back to route its diff under v1, so it
-    # stays exactly as it is. The name goes beside it — an opaque chat id tells the
-    # model as little as it told us, and "Me, Quinn, and Jamie" is the difference
-    # between reading a group chat as a group chat and reading it as a stranger.
+    # entity line is echoed back for v1 routing, so it stays exact; the
+    # readable title goes beside it.
     if head is None:
         head = f"BUNDLE {bundle.entity}"
         if bundle.title and bundle.title != bundle.entity.split(":", 1)[-1]:
@@ -224,15 +210,9 @@ def cold_start_order(conn: sqlite3.Connection, bundles: list["Bundle"]) -> list[
 
 
 def _render_v2_quiet_stream(bundle: "Bundle", head: str | None = None) -> str:
-    """v1 with the per-line stream tag dropped wherever the header already said it.
+    """v1 with the per-line stream tag dropped where the header already states it.
 
-    The hypothesis worth measuring: on a single-stream bundle `(imessage)` is on every
-    line and carries nothing the shape line did not already say, so it is pure repeated
-    tokens between the time and the speaker.
-
-    The exception is not negotiable. The `agent` stream is them talking to their assistant,
-    which the instructions call the most reliable source in the system — that tag is
-    required for attribution and stays on the line even when it is the only stream present.
+    The `agent` stream tag is always kept, since it determines attribution.
     """
     text = _render_v1(bundle, head)
     streams = {r["stream"] for r in bundle.items}
@@ -263,11 +243,8 @@ def build(conn: sqlite3.Connection, limit: int = SPOOL_LIMIT,
         bundle = grouped.setdefault(key, Bundle(entity=key))
         if key != row["entity"] and row["entity"] not in bundle.merged:
             bundle.merged.append(row["entity"])
-        # The spool id goes on the bundle only when the line goes into it. These two used
-        # to be separate: every pending row was marked read, but only the first 60 per
-        # bundle were rendered, so raising `items_per_entity` — the knob the config offers
-        # for exactly this — silently retired the surplus unread. A line is marked read
-        # when a model has seen it, and not before.
+        # Spool ids attach only to rendered lines: a line is marked read when
+        # a model has seen it.
         if per_entity <= 0 or len(bundle.items) < per_entity:
             bundle.items.append(row)
             bundle.spool_ids.append(row["spool_id"])

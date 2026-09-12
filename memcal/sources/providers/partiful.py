@@ -208,22 +208,12 @@ class Partiful:
             # "could go" — an invitation has a button, and saying both with the same
             # three words throws that away.
             fields.update(kind="opportunity", status="mentioned")
-        # `note` is *not* touched. It carries what the invitation said about itself,
-        # which `ical._normalized` lifts from the calendar description, and this used to
-        # overwrite it with the string "Partiful RSVP yes" — so 17 of 18 live rows held
-        # that phrase where "Doors 6:30, ask for Nadia at the desk" should have been,
-        # destroyed at ingest and absent from the archive too. RSVP state is a fact
-        # about the row and it already has typed homes above.
+        # `note` is not touched; it carries the invitation text. RSVP state
+        # uses the typed kind/status fields above.
         return fields
 
     def describe(self, item: dict, fields: dict) -> list[str]:
-        """What the *feed* said, for the line a model reads.
-
-        Only ever a statement about disclosure. The previous version wrote "Partiful
-        RSVP yes" whenever the location field was non-empty, so an unanswered invitation
-        carried a false RSVP into the archive as well as onto the row — and the archive
-        is the thing that is never rewritten.
-        """
+        """What the *feed* said about disclosure, for the line a model reads."""
         if fields.get("location"):
             return ["Partiful disclosed the location, which it does once you RSVP yes"]
         return ["Partiful has not disclosed the location, which means no RSVP yet"]

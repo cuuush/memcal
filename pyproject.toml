@@ -26,12 +26,8 @@ memcal = "memcal.cli:main"
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
-# The filesystem is the declaration. An explicit `packages` list does not walk
-# subpackages of the entries in it, so `memcal.sources.providers` — a real package that
-# `ical.py` imports unconditionally — was on disk and absent from every wheel, and the
-# iCal connector raised ImportError on any `pip install .`. Nothing caught it because
-# nothing does that: `install.sh` runs from the checkout with PYTHONPATH. Naming the
-# fourth package would have fixed this instance; `find` makes a fifth impossible.
+# Use find to include subpackages. An explicit list omits nested packages
+# such as `memcal.sources.providers`, which breaks wheels.
 [tool.setuptools.packages.find]
 include = ["memcal*"]
 namespaces = false

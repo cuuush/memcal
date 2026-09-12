@@ -19,10 +19,7 @@ KINDS = ("event", "todo", "question", "standing")
 def open_handle(conn: sqlite3.Connection, cfg: Config, token: str) -> str:
     """The whole record behind a brief handle, as text a model reads.
 
-    Takes what the brief actually prints — `E258`, `〔T2〕`, `q12` — because asking for
-    a stable key the agent has never been shown is our schema leaking into their
-    reasoning. `memcal_source` already learned that lesson; this one is born with it,
-    which is also why there is no `kind` argument to get wrong.
+    Accepts printed handles (`E258`, `T2`, `Q12`); no `kind` argument needed.
     """
     handle = brief.parse_source(str(token or "").strip().strip("〔〕"))
     if not handle:
@@ -44,11 +41,7 @@ def open_handle(conn: sqlite3.Connection, cfg: Config, token: str) -> str:
 # --------------------------------------------------------------------- events --
 
 def event_record(conn: sqlite3.Connection, cfg: Config, ref: str) -> dict:
-    """The structured payload. `web.why` renders this; `open_handle` writes it out.
-
-    Moved here from `web._event_detail` unchanged in substance, so the browser panel
-    and the agent cannot drift apart the way the two tool schemas already have.
-    """
+    """The structured payload shared by web and agent surfaces."""
     row = conn.execute("SELECT * FROM events WHERE key = ?", (ref,)).fetchone()
     if not row:
         return {}
@@ -100,18 +93,14 @@ def event_record(conn: sqlite3.Connection, cfg: Config, ref: str) -> dict:
             "id": row["id"], "subject": row["subject"],
             "participants": participants, "hosts": hosts, "series": row["series"] or "",
             "note": row["note"] or "", "source": row["source"] or "",
-            # The two fields whose whole value is being pressable, and the reason a
-            # reader opens a row at all. `_event_summary` never carried them, so the
-            # browser panel could not show a join link either.
+            # Full pressable URLs omitted from the one-line summary.
             "rsvp_url": row["rsvp_url"] or "", "join_url": row["join_url"] or "",
             "part_of": row["part_of"],
             "written_by": row["written_by"], "created_at": str(row["created_at"])[:19],
             "updated_at": str(row["updated_at"])[:19],
         },
         "wiki": wiki_links,
-        # No `related` block. Every facet of every event was resolved here whether or
-        # not a pill was ever clicked, which is where the N+2 scans came from; the
-        # pills fetch `/api/events` for the one facet the user actually asked about.
+        # Facets load on demand via `/api/events`.
         "timeline": {
             "created": {"at": str(row["created_at"])[:19], "by": row["written_by"]},
             "changes": changes,
@@ -140,9 +129,7 @@ def _event_text(conn: sqlite3.Connection, cfg: Config, ref: str) -> str:
         ("when", _when(row)),
         ("state", row["state"]),
         ("where", row["location"]),
-        # Spelled out rather than shortened. The whole reason to open a row is to get
-        # the thing the one-line summary could not carry, and a link a reader has to
-        # reconstruct is not a link.
+        # Full URLs; the detail view carries what the summary cannot.
         ("join", row["join_url"]),
         ("rsvp", row["rsvp_url"]),
         ("who", ", ".join(row["participants"])),
@@ -175,12 +162,7 @@ def _when(row: dict) -> str:
 
 
 def _series_lines(conn: sqlite3.Connection, row: dict) -> list[str]:
-    """The rule behind an occurrence, which is the thing that answers "and next week".
-
-    An occurrence knows its own day and the *rule* knows the cadence, where it meets and
-    how to join it. That arrow only started pointing back recently, and a
-    reader opening one Tuesday still cannot see the schedule from the row alone.
-    """
+    """The rule behind an occurrence: cadence, place, and join link live on the rule."""
     if not row["series"]:
         return []
     rule = series.get(conn, row["series"])
@@ -195,7 +177,7 @@ def _series_lines(conn: sqlite3.Connection, row: dict) -> list[str]:
 
 
 def _containment_lines(conn: sqlite3.Connection, ref: str) -> list[str]:
-    """`part_of`, both directions. Three rows called "Elements" were three plans."""
+    """`part_of` in both directions."""
     row = conn.execute("SELECT id, part_of FROM events WHERE key = ?", (ref,)).fetchone()
     if row is None:
         return []
@@ -256,8 +238,7 @@ def _question_text(conn: sqlite3.Connection, cfg: Config, ref: str) -> str:
     out.extend(_fields([
         ("state", presentation.question_state(row)),
         ("asked", str(row["created_at"])[:10]),
-        # The day it dies with when no row answers that — otherwise a question that
-        # vanishes overnight has nothing on its own page saying why it was going to.
+        # The day it expires with when no row answers it.
         ("about day", row["about_date"] if "about_date" in columns else ""),
         ("answer", row["answer"] if "answer" in columns else ""),
         ("waiting for", row["wake_condition"] if "wake_condition" in columns else ""),
@@ -308,22 +289,14 @@ def _standing_text(conn: sqlite3.Connection, cfg: Config, ref: str) -> str:
 # ------------------------------------------------------------------- shared --
 
 def _fields(pairs: list[tuple[str, object]]) -> list[str]:
-    """`label: value`, one per line, empties dropped.
-
-    Labelled rather than run together with separators. The line this whole change came
-    out of read `…, 7pm — confirmed · invite: … · Location available once RSVP'd ·
-    Partiful RSVP yes` — four clauses, four delimiter styles, and no way for a reader
-    to tell which fragment was a field and which was prose about a field.
-    """
+    """`label: value`, one per line, empties dropped."""
     return [f"{label}: {value}" for label, value in pairs if value]
 
 
 def _sources_text(conn: sqlite3.Connection, kind: str, ref: str) -> str:
-    """The lines somebody actually said, which is the point of opening anything.
+    """Cited source lines with neighbours for context; `*` marks evidence.
 
-    Marked, not filtered: `evidence` rows are what the row was built from and the rest
-    is neighbouring context, which is what makes a two-word "yeah" readable. Truncated
-    here because this is a summary view — `memcal_source` returns them whole.
+    Truncated here; `memcal_source` returns them whole.
     """
     rows = trace.source_rows(conn, kind=kind, ref=ref)
     if not rows:

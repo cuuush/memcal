@@ -13,19 +13,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from memcal import config  # noqa: E402
 
-#: Written by a model, so a replay has to remove them or it is scoring a store that
-#: already contains its own answer. `ical`/`partiful` rows stay: those came from a real
-#: calendar, they are what run 1 started from, and one of the outcomes under test is
-#: whether a chat proposal is allowed to overwrite them.
+#: Model-written rows. Remove on replay to avoid scoring stored answers.
+#: Keep `ical`/`partiful` rows as the cold-start baseline.
 MODEL_WRITERS = ("dream:%", "live", "sweep")
 
-#: A feed row keeps its key from the day the feed minted it, and `make_key` is
-#: title+date — so `ical-7ff0a4b829ec3391@2026-08-07` still states the date the calendar
-#: gave it, however far a later writer moved the `date` column. That is what makes the
-#: reconstruction below trustworthy rather than a guess.
+#: Feed keys embed the minted date (title+date). Restore the `date` column from the key.
 FEED_KEY_PREFIXES = ("ical-", "partiful-")
 
-#: Emptied wholesale because every row in them is downstream of a model call.
+#: Derived tables. Contain only model-call output.
 DERIVED_TABLES = ("todos", "questions", "standing", "event_history",
                   "provenance", "evidence", "slot_history", "generations", "runs")
 
@@ -77,13 +72,9 @@ def _restore_feed_rows(conn: sqlite3.Connection) -> int:
                 continue
             feed = origin or source or ""
             if not feed.startswith(("ical:", "partiful:")):
-                # A model overwrote the source too, so the origin is gone from the row.
-                # The key prefix is still proof of where it came from.
+                # Fall back to the key prefix when origin was overwritten.
                 feed = f"{prefix.rstrip('-')}:subscribed:restored"
-            # `written_by` is rewritten even when the row is otherwise untouched: a row
-            # the user corrected by hand is stamped `live`, `live` is in MODEL_WRITERS,
-            # and skipping the update here left it to be deleted two lines later — which
-            # is the whole failure this function exists to stop.
+            # Rewrite `written_by` so hand-corrected (`live`) feed rows are kept.
             conn.execute(
                 "UPDATE events SET date=?, source=?, origin=?, written_by=? WHERE id=?",
                 (minted, feed, feed, prefix.rstrip("-"), row_id))

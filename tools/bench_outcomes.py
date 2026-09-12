@@ -12,10 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-#: Senders whose mail is a receipt or a broadcast. An event sourced to one of these is
-#: almost always the system serving marketing back to the user — the failure that
-#: `_PLANNING_REASONS` already excludes `subject-event` for (M34), checked here at the
-#: other end of the pipeline.
+#: Senders whose mail is a receipt or a broadcast. Events sourced to these senders
+#: are excluded as marketing; mirrors the `_PLANNING_REASONS` subject-event exclusion.
 BULK_SENDERS = ("noreply", "no-reply", "venmo@", "squareup", "freshdirect", "shakeshack",
                 "chipotle", "hulumail", "dice.com", "axs.com", "tixr", "aegpresents",
                 "mail.metmuseum", "email.")
@@ -313,9 +311,7 @@ def p4_poker_history(conn) -> tuple[bool, str]:
     saturday = [r for r in rows if str(r["date"]) == "2026-08-01"]
     if not saturday:
         return True, "no Saturday row yet — nothing to over-merge (see R2)"
-    # Counting rows cannot catch this: an over-merge produces *fewer* rows, so the naive
-    # version passed by being unfailable. What proves it is the evidence — a Saturday row
-    # that cites the night of the 17th has swallowed a different game.
+    # Count rows and check evidence: an over-merged Saturday row cites a July game.
     leaked = _rows(conn, """
         SELECT DISTINCT e.key, v.archive_id FROM events e
         JOIN evidence v ON v.kind='event' AND v.ref = e.key
@@ -379,9 +375,7 @@ def p7_asks_what_it_knows(conn) -> tuple[bool, str]:
     Cheap to detect and worth detecting, because a list of questions is only read while
     it stays short: one silly entry costs attention on the five real ones.
     """
-    # Wiki pages are files, not a table. The first version queried a `pages` table that
-    # does not exist, got an empty set, matched nothing and passed — a vacuous pass in
-    # the very file whose rewrite was about removing vacuous passes.
+    # Wiki pages are files. Read page stems from the wiki directory.
     known = {p.stem.split("-")[0].lower()
              for p in Path(conn.execute("PRAGMA database_list").fetchall()[0][2])
              .parent.glob("wiki/*/*.md")}
@@ -403,9 +397,7 @@ def p8_no_bookkeeping_in_notes(conn) -> tuple[bool, str]:
     process inside their calendar. The prompt's "the user is not this system's proofreader" rule
     exists only under *questions*, so notes have no equivalent and collect it instead.
     """
-    # Only rows a model wrote. "Partiful RSVP yes (inferred from location)" comes from
-    # the iCal importer and is a deliberate, honest provenance note; scoring it here
-    # buried the two that matter under fourteen that do not.
+    # Score only model-written rows. Exclude importer provenance notes.
     rows = _rows(conn, "SELECT key, note FROM events "
                        "WHERE note IS NOT NULL AND written_by LIKE 'dream:%'")
     pattern = re.compile(r"(\b\d+ sources?\b|sources? mention|mentioned by \d+|"
@@ -472,19 +464,15 @@ def h1_same_day_dupes(conn) -> tuple[bool, str]:
     rows = _rows(conn, "SELECT key, date, title, written_by FROM events "
                        "WHERE date >= '2026-07-25'")
 
-    # Keyed on the key rather than on `written_by`: a row the user corrected by hand is
-    # stamped `live`, which lost the exclusion and put the two subscribed-calendar copies
-    # of Elements back in the report. The key prefix is minted by the feed and nothing
-    # re-mints it, so it survives every later writer.
+    # Match feed rows by key prefix, which persists across writers. `written_by`
+    # changes on user correction.
     def from_feed(row) -> bool:
         return str(row["key"]).startswith(("ical-", "partiful-"))
 
     pairs = []
     for i, a in enumerate(rows):
         for b in rows[i + 1:]:
-            # Two subscribed calendars both carrying the same festival is the feeds
-            # disagreeing, not the pipeline duplicating. Counting it here made the check
-            # unfixable by any change to the pipeline, which is the definition of noise.
+            # Skip pairs where both rows come from subscribed feeds.
             if from_feed(a) and from_feed(b):
                 continue
             if a["date"] == b["date"] and _tokens(a["title"]) & _tokens(b["title"]):
