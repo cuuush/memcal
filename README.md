@@ -312,6 +312,20 @@ Collect everything currently configured:
 memcal ingest all
 ```
 
+Recheck only sources due for another look (every five minutes by default):
+
+```bash
+memcal ingest all --due
+```
+
+`--due` skips sources checked within the interval, even when their newest message
+is old: a quiet inbox checked at 11:00 becomes due again at 11:05. When nothing is
+due it does nothing — no contact refresh, collection record, or brief rewrite. An
+explicit `memcal ingest` without `--due` always runs. Collection reports
+distinguish a complete check from an incomplete one (`[complete]` vs
+`[incomplete — more waiting]`) and from failures; the queue view keeps the same
+per-source outcome.
+
 Preview the size and estimated cost of an extraction pass, then run it:
 
 ```bash
@@ -335,14 +349,37 @@ the day's pass is owed:
 
 - **owed** — collect from every source, then run the extraction pass. So a laptop that
   was shut or asleep at 03:00 runs one catch-up pass when the lid opens.
-- **not owed** — collect only from sources that are behind *and* reachable right now.
-  Cheap, and it cannot cost a model call, which is why it is safe on every wake-up.
+- **not owed** — collect only from sources due for another check. Cheap, and it
+  cannot cost a model call, which is why it is safe on every wake-up.
+
+Only one collection runs per store at a time — manual, web, and scheduled callers
+share a lock, and a caller that arrives while another holds it is told the store
+is busy rather than fetching twice over the same cursors.
 
 ```bash
 memcal schedule          # includes when the pass last ran, and whether one is owed
 memcal schedule run      # run it now regardless
 memcal schedule due      # just the answer
 ```
+
+### New activity on known plans
+
+Dream stays nightly. Daytime collection archives new messages without running a
+model, and the brief flags plans whose sources moved since their last review —
+"This plan may have changed", never a replacement date or address. Read the
+flagged messages before giving current details for that plan:
+
+```bash
+memcal activity E42      # new messages behind one plan, oldest first
+memcal activity          # new traffic not linked to any plan yet
+memcal reviewed E42 --source-ids '12 13'   # read them; the plan still stands
+```
+
+A correction should cite the lines it is based on (the tools accept
+`source_ids`); only the cited lines stop raising hints. Collecting, rendering,
+and reading never cost a model call — the nightly pass is where reviewed
+material is applied. A rendered brief is prepared context, not proof that all
+current source material has been reviewed.
 
 ### Mail memcal has not read yet
 

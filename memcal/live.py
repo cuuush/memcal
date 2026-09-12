@@ -162,6 +162,50 @@ def _version_of(conn: sqlite3.Connection, kind: str, ref: str) -> str:
     return str(row["updated_at"]) if row and row["updated_at"] else ""
 
 
+def _valid_citations(conn: sqlite3.Connection,
+                     origin: Origin) -> tuple[Origin, int]:
+    """Keep only cited lines naming real archived observations.
+
+    A typed write may only acknowledge lines that exist. Invented ids are
+    dropped (and counted) rather than stored, so a hallucinated citation can
+    neither fabricate evidence nor clear pending activity it never read. The
+    authorship turn is not evidence and passes through untouched.
+    """
+    if not origin.cited:
+        return origin, 0
+    have = {row["id"] for row in conn.execute(
+        f"""SELECT id FROM archive WHERE id IN
+            ({",".join("?" * len(origin.cited))})""", origin.cited)}
+    kept = tuple(i for i in origin.cited if i in have)
+    if len(kept) == len(origin.cited):
+        return origin, 0
+    return actions.Origin.of(origin.surface, origin.archive_ids, cited=kept,
+                             session=origin.session, note=origin.note,
+                             op_id=origin.op_id), \
+        len(origin.cited) - len(kept)
+
+
+def _cited_ts(conn: sqlite3.Connection, ids: tuple[int, ...]) -> str | None:
+    """When the cited observations were *said*: the newest source timestamp.
+
+    Precedence runs on evidence time, so a source-backed correction carries
+    its messages' hour — never the tool invocation's. Unparseable rows fall
+    back to the archive, never to now: inventing an instant would mint
+    authority from nothing.
+    """
+    stamps = []
+    for row in conn.execute(
+            f"""SELECT ts FROM archive WHERE id IN
+                ({",".join("?" * len(ids))})""", ids):
+        try:
+            stamps.append(db.parse_ts(str(row["ts"] or "")))
+        except (TypeError, ValueError):
+            continue
+    if not stamps:
+        return None
+    return max(stamps).isoformat(timespec="seconds")
+
+
 def _stamp_live(conn: sqlite3.Connection, kind: str, ref: str, verb: str, *,
                 origin: Origin = actions.UNKNOWN, fields: dict | None = None,
                 based_on: str = "", op_id: str = "", commit: bool = True) -> None:
@@ -169,11 +213,14 @@ def _stamp_live(conn: sqlite3.Connection, kind: str, ref: str, verb: str, *,
 
     Provenance says which writer touched the row; evidence points at the lines the user
     was looking at when they said it, which a caller can only supply if it knows its own
-    turn; and the action record is the part the nightly pass reads.
+    turn; and the action record is the part the nightly pass reads. Only explicitly
+    cited lines count as reviewed — the authorship turn never does.
     """
+    origin, _dropped = _valid_citations(conn, origin)
     trace.stamp(conn, kind=kind, ref=ref, verb=verb, entity="agent:live",
                 stage="live", run_id=None, generation_id=None,
-                archive_ids=list(origin.archive_ids))
+                archive_ids=[*origin.archive_ids, *origin.cited],
+                review_ids=list(origin.cited))
     actions.record(conn, kind=kind, ref=ref, verb=verb, origin=origin,
                    fields=fields or {}, based_on=based_on, op_id=op_id,
                    commit=commit)
@@ -251,6 +298,25 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
     # Always by key so re-matching cannot retarget the write.
     payload["key"] = event.key
     payload.setdefault("date", event.date)
+    # Citations are validated before the mutation, and only cited lines count as
+    # reviewed: the authorship turn proves who asked, never what was considered.
+    origin, dropped = _valid_citations(conn, origin)
+    # A source-backed correction carries its messages' hour into precedence: an
+    # old line cannot undo a newer settlement, while a genuinely newer line
+    # applies whenever it was read. A plain user correction carries its turn's
+    # hour the same way — what the user said at 11:00 outranks a 10:00 message
+    # and yields to genuinely newer evidence either side of it. Only a write
+    # with neither turn nor citation keeps the old run-time semantics. One
+    # stamp covers the changed fields — per-line field attribution is not
+    # recoverable from text — while untouched fields keep whatever evidence
+    # time they already hold.
+    evidence_ts = None
+    support = list(origin.cited) or list(origin.archive_ids)
+    if support:
+        said_at = _cited_ts(conn, tuple(support))
+        if said_at is not None:
+            evidence_ts = {name: said_at for name in payload
+                           if name in events.MUTABLE}
     # Plan replay keys from the request, not current values, so retries stay recognisable.
     op = actions.plan(kind="event", ref=event.key, verb="updated", origin=origin,
                       request={**payload, "clear": sorted(wipe)}, at=db.now())
@@ -258,12 +324,19 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
         if actions.seen(conn, op):
             return event, []
         updated, _verb = events.upsert(conn, payload, written_by="live", match=False,
-                                       clear=wipe,
+                                       clear=wipe, evidence_ts=evidence_ts,
                                        replace_participants=bool(remove_participants),
                                        commit=False)
         moved = {name: [str(before[name]), str(getattr(updated, name))]
                  for name in events.MUTABLE
                  if str(before[name]) != str(getattr(updated, name))}
+        if not moved and evidence_ts and _would_change(before, payload, wipe):
+            # Everything asked for lost on evidence time: the cited lines are
+            # older than what settled these fields. Say so plainly instead of
+            # reporting a no-op — and record nothing, so no mark moves either.
+            raise LiveError(
+                "those lines are older than what's stored — they can't revise it. "
+                "Cite newer evidence, or restate this as a new correction.")
         # Record operations only when something moved; no-op calls are not decisions.
         if moved:
             _stamp_live(conn, "event", updated.key, "updated", origin=origin,
@@ -271,6 +344,48 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
     _refresh(conn, cfg, updated.key)
     changed = [f"{name}: {old} → {new}" for name, (old, new) in sorted(moved.items())]
     return updated, changed
+
+
+def _would_change(before: dict, payload: dict, wipe: tuple) -> bool:
+    """Did the request ask for anything different from the stored row?"""
+    if wipe:
+        return True
+    for name, value in payload.items():
+        if name == "key":
+            continue
+        if name == "participants" and set(value or []) - set(before.get(name) or []):
+            return True
+        if name in events.MUTABLE and name != "participants" \
+                and str(value) != str(before.get(name)):
+            return True
+    return False
+
+
+def reviewed(conn: sqlite3.Connection, cfg: Config, which: str, *,
+             origin: Origin = actions.UNKNOWN) -> str:
+    """Record that the cited activity was read and changes nothing about this row.
+
+    The explicit no-change path: new messages were opened, the stored plan still
+    stands, and only the lines actually cited stop raising hints. Cites nothing,
+    clears nothing — a review with no stated scope is not a review.
+    """
+    event = find_event(conn, which)
+    origin, dropped = _valid_citations(conn, origin)
+    if not origin.cited:
+        raise LiveError("cite the activity lines this review covered"
+                        + (" — unknown lines were dropped" if dropped else "")
+                        + " (source_ids from the activity read)")
+    based_on = _version_of(conn, "event", event.key)
+    op = actions.plan(kind="event", ref=event.key, verb="reviewed", origin=origin,
+                      request={"key": event.key}, at=db.now())
+    with _atomic(conn):
+        if actions.seen(conn, op):
+            return f"{event.one_line()} — already marked reviewed"
+        _stamp_live(conn, "event", event.key, "reviewed", origin=origin,
+                    fields={}, based_on=based_on, op_id=op, commit=False)
+    _refresh(conn, cfg, event.key)
+    return (f"{event.one_line()} — reviewed, no change"
+            + (f" ({dropped} unknown line(s) ignored)" if dropped else ""))
 
 
 _WEEKDAY_WORDS = {

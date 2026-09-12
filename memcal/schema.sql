@@ -489,6 +489,10 @@ CREATE TABLE IF NOT EXISTS collection_sources (
     error         TEXT,
     note          TEXT,
     finished_at   TEXT NOT NULL,
+    -- Terminal outcome of this source attempt: complete (exhausted), incomplete
+    -- (more work remained), failed (fetch error), unavailable (preflight check
+    -- failed, fetch never started), unknown (legacy row without outcome evidence).
+    status        TEXT NOT NULL DEFAULT 'unknown',
     PRIMARY KEY(collection_id, stream)
 );
 
@@ -525,6 +529,22 @@ CREATE TABLE IF NOT EXISTS evidence (
 );
 CREATE INDEX IF NOT EXISTS evidence_ref_idx ON evidence(kind, ref);
 CREATE INDEX IF NOT EXISTS evidence_archive_idx ON evidence(archive_id);
+
+-- What has actually been reviewed for each typed fact: exactly which
+-- collected observations were considered, one row each, including explicitly
+-- valid no-change reviews. Collection health (`collection_sources`) and render
+-- time say nothing here; only a stamp carrying evidence, or a reviewed bundle,
+-- adds a row. A high-water mark would pretend a later citation covered the
+-- earlier lines it skipped, so coverage is the set itself and holes stay holes.
+CREATE TABLE IF NOT EXISTS reviewed_lines (
+    kind         TEXT NOT NULL,        -- event | todo | question | wiki | …
+    ref          TEXT NOT NULL,        -- that row's stable key
+    archive_id   INTEGER NOT NULL REFERENCES archive(id) ON DELETE CASCADE,
+    reviewed_at  TEXT NOT NULL,
+    by_run       INTEGER,
+    by_stage     TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(kind, ref, archive_id)
+);
 
 -- -------------------------------------------------------------- slot history --
 -- Prior wiki slot values, mirroring `event_history`. Kept in SQLite so user-edited

@@ -99,6 +99,9 @@ ADDED_COLUMNS = (
     # The same split for a row's creation. NULL on older rows and on typed writes, where
     # `created_at` is authoritative.
     ("events", "evidence_ts", "TEXT"),
+    # Terminal collection outcome per source attempt. Legacy rows predate the outcome
+    # contract and stay 'unknown' so they never read as a successful check.
+    ("collection_sources", "status", "TEXT NOT NULL DEFAULT 'unknown'"),
 )
 
 
@@ -160,7 +163,10 @@ def _retire_unspoken_rows(conn: sqlite3.Connection) -> int:
 
 
 #: Tables from removed features.
-LEGACY_TABLES = ("visits", "places", "location_samples")
+LEGACY_TABLES = ("visits", "places", "location_samples",
+                 # Renamed before it ever shipped: per-observation coverage replaced
+                 # the high-water mark while the branch was still uncommitted.
+                 "review_marks")
 
 
 def _drop_empty_legacy_tables(conn: sqlite3.Connection) -> None:
