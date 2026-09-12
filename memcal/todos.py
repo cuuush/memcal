@@ -894,23 +894,37 @@ def open_questions(conn: sqlite3.Connection, limit: int = 10) -> list[sqlite3.Ro
     ).fetchall()
 
 
-def resolve(conn: sqlite3.Connection, needle: str, answer_text: str) -> tuple[bool, str]:
+def resolve(conn: sqlite3.Connection, needle: str, answer_text: str,
+            *, close_todo=None) -> tuple[bool, str]:
     """Resolve a question or to-do by one verb; already-settled repeats count as done.
+
+    `close_todo(needle) -> bool` closes a matching open to-do and records the act
+    in the provenance ledger; the agent surfaces pass `live.close_todo` so a close
+    reached this way is as accountable as one through `memcal_todo done`. When it is
+    omitted the bare `close` is used, which stamps nothing — CLI and fixture use only.
 
     Returns (resolved, what_kind).
     """
     if answer(conn, needle, answer_text):
         return True, "question"
 
-    todo = find(conn, needle)
-    if todo:
-        # Closing is still a conversational act — the user said so, we are recording it.
-        close(conn, todo.key)
-        return True, "todo"
-
-    # Nothing open matched, but a repeat of an already-settled fact still counts.
+    # A repeat of an already-settled fact counts before we reach for a loose to-do
+    # match. Otherwise answering a question that is already closed (so `answer` above
+    # found nothing open) falls through to `find`, whose substring match can close an
+    # unrelated open to-do that merely shares a word — the destructive reading of an
+    # ambiguous needle. "Already settled" is the safe one.
     if _already_settled(conn, needle):
         return True, "already"
+
+    if close_todo is not None:
+        if close_todo(needle):
+            return True, "todo"
+    else:
+        todo = find(conn, needle)
+        if todo:
+            # Closing is still a conversational act — the user said so, we are recording it.
+            close(conn, todo.key)
+            return True, "todo"
     return False, ""
 
 

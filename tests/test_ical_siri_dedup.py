@@ -17,9 +17,9 @@ from memcal import db, events
 from memcal.sources import ical
 
 
-def _item(uid, title, days, *, calendar="Calendar", writable=True):
+def _item(uid, title, days, *, calendar="Calendar", writable=True, hour=19):
     start = datetime.combine(db.today() + timedelta(days=days),
-                             datetime.min.time(), tzinfo=timezone.utc).replace(hour=19)
+                             datetime.min.time(), tzinfo=timezone.utc).replace(hour=hour)
     return {
         "calendar_name": calendar,
         "calendar_uid": f"cal-{calendar.lower().replace(' ', '-')}",
@@ -72,6 +72,34 @@ class TestSameIdentityResyncUpdatesInPlace(Base):
         self.assertEqual(
             self.conn.execute("SELECT count(*) AS n FROM calendar_items"
                               "  WHERE event_uid = 'uid-9'").fetchone()["n"], 1)
+
+
+class TestSameTitleDifferentTimesStaySeparate(Base):
+    """Two occasions can share a title on one day. A different clock time is
+    proof they are distinct, not a Siri shadow to fold together."""
+
+    def test_same_title_and_date_but_different_hours_make_two_rows(self):
+        db.set_today("2026-08-01")
+        _snapshot(self, [
+            _item("morning-1v1", "1:1", 3, hour=10),
+            _item("afternoon-1v1", "1:1", 3, hour=15),
+        ])
+        rows = [r for r in events.window(self.conn, 0, 10) if r.title == "1:1"]
+        self.assertEqual(len(rows), 2,
+                         "a 10:00 and a 15:00 meeting are two occasions, not one")
+        self.assertEqual({r.time for r in rows}, {"10:00", "15:00"})
+
+    def test_a_timeless_entry_still_corroborates_a_timed_one(self):
+        # A missing time on either side has nothing to disagree on, so the exact
+        # title+date signal still folds the Siri shadow onto the real row.
+        db.set_today("2026-08-01")
+        real = _item("real-blk", "Focus block", 4, hour=9)
+        shadow = _item("siri-blk", "Focus block", 4,
+                       calendar="Siri Suggestions", writable=False)
+        shadow["all_day"], shadow["start"], shadow["end"] = True, "", ""
+        _snapshot(self, [real, shadow])
+        rows = [r for r in events.window(self.conn, 0, 10) if r.title == "Focus block"]
+        self.assertEqual(len(rows), 1, "a timeless shadow still corroborates")
 
 
 class TestNearDuplicateTitlesStaySeparate(Base):

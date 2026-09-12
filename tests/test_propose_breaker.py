@@ -22,7 +22,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from memcal import archive, config, db, llm, settings  # noqa: E402
 from memcal.config import Config  # noqa: E402
-from memcal.dream import propose as propose_stage  # noqa: E402
 from memcal.dream import run as dream_run  # noqa: E402
 
 
@@ -245,14 +244,35 @@ class TestBreakerMechanics(unittest.TestCase):
         self.assertFalse(breaker.opened)
         self.assertEqual(breaker.consecutive, 2)
 
-    def test_truncated_replies_do_not_count(self):
+    def _truncated(self):
+        # As the provider hands it back: a returned reply with finish_reason "length".
+        # The inner client never *raises* Truncated — propose does, upstream in the
+        # worker, after inspecting this flag — so the breaker only ever sees the flag.
+        return llm.Reply(text="{", data={}, usage=llm.Usage(calls=1),
+                         model="m", generation_id="gen-cut", finish_reason="length")
+
+    def test_truncated_replies_stay_neutral(self):
+        # Neither a failure nor a health signal: a truncated reply must not count
+        # toward opening the circuit, and must not reset a real failure streak.
         breaker, inner = self._breaker(2)
-        inner.complete.side_effect = propose_stage.Truncated("cut off at 1200")
+        calls = {"n": 0}
+
+        def complete(**kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise llm.LLMError("boom")      # one real failure on the streak
+            return self._truncated()            # then only truncations
+
+        inner.complete.side_effect = complete
+        with self.assertRaises(llm.LLMError):
+            breaker.complete(model="m", prefix="p", suffix="s")
+        self.assertEqual(breaker.consecutive, 1)
         for _ in range(5):
-            with self.assertRaises(propose_stage.Truncated):
-                breaker.complete(model="m", prefix="p", suffix="s")
+            reply = breaker.complete(model="m", prefix="p", suffix="s")
+            self.assertTrue(reply.truncated)
+        # The streak neither grew (no new failure) nor reset (no healthy reply).
+        self.assertEqual(breaker.consecutive, 1)
         self.assertFalse(breaker.opened)
-        self.assertEqual(breaker.consecutive, 0)
 
     def test_an_open_breaker_fails_fast_as_an_llm_error(self):
         breaker, inner = self._breaker(2)

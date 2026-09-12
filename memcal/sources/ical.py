@@ -534,7 +534,8 @@ def _text(item: dict, fields: dict, *, policy, subscribed: bool) -> str:
 
 
 def _exact_same_day_event(
-    conn: sqlite3.Connection, title: str, on: str, subject: str = "me"
+    conn: sqlite3.Connection, title: str, on: str, subject: str = "me",
+    *, at: str | None = None,
 ):
     """Existing row with the exact same normalized title on the same date, if any.
 
@@ -544,6 +545,13 @@ def _exact_same_day_event(
     `find_match`'s absorption tier, so "Elements" never absorbs into
     "Breakfast at Elements" and near-duplicates ("deep block"/"light block")
     stay separate rows.
+
+    A shared title on one day is not proof of one occasion, though: a "1:1" at
+    10:00 and another at 15:00 are two meetings, not a shadow to fold together.
+    When both the incoming item and a candidate row carry a clock time, that
+    time has to agree. A missing time on either side (an all-day or timeless
+    entry) still corroborates — there is no time to disagree on, and the Siri
+    shadow of a real occasion carries the same start when it carries one.
     """
     want = db.slugify(title or "")
     if not want:
@@ -552,8 +560,11 @@ def _exact_same_day_event(
         "SELECT * FROM events WHERE date = ? AND subject = ? ORDER BY id",
         (on, subject),
     ).fetchall():
-        if db.slugify(row["title"]) == want:
-            return events.Event.from_row(row)
+        if db.slugify(row["title"]) != want:
+            continue
+        if at and row["time"] and str(at) != str(row["time"]):
+            continue
+        return events.Event.from_row(row)
     return None
 
 
@@ -795,6 +806,7 @@ def ingest_snapshot(
                 exact = _exact_same_day_event(
                     conn, fields["title"], fields["date"],
                     fields.get("subject") or "me",
+                    at=fields.get("time"),
                 )
                 if exact is not None:
                     fields["key"] = exact.key

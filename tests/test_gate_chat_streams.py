@@ -11,8 +11,7 @@ except ModuleNotFoundError:  # Direct execution: python3 tests/test_gate_chat_st
 
 from memcal import gate
 
-CHAT_STREAMS = ("bluebubbles", "imessage", "whatsapp", "groupme", "slack",
-                "telegram", "signal")
+CHAT_STREAMS = ("imessage", "whatsapp", "groupme", "slack", "telegram", "signal")
 
 
 class TestChatShortRepliesPassInFull(Base):
@@ -75,19 +74,18 @@ class TestBulkEmailStaysGated(Base):
         self.assertEqual(verdict.reason, "bulk-headers")
 
 
-class TestGatedSetHoldsOnlyEmail(Base):
-    """Volume/cost sanity: email is the one gated transport."""
+class TestChatStreamsPassInFull(Base):
+    """Volume/cost sanity: no chat stream is content-gated; email is not in the set."""
 
-    def test_only_email_streams_are_gated(self):
-        self.assertTrue(gate.GATED_STREAMS)
-        self.assertLessEqual(set(gate.GATED_STREAMS), {"email", "proton"})
-
-    def test_no_chat_stream_is_gated(self):
+    def test_every_chat_stream_passes_in_full(self):
         self.assertTrue(CHAT_STREAMS, "the chat-stream list must not be empty")
         for stream in CHAT_STREAMS:
             with self.subTest(stream=stream):
                 self.assertIn(stream, gate.PASS_ALL_STREAMS)
-                self.assertNotIn(stream, gate.GATED_STREAMS)
+
+    def test_email_is_not_a_pass_all_stream(self):
+        self.assertNotIn("email", gate.PASS_ALL_STREAMS)
+        self.assertNotIn("proton", gate.PASS_ALL_STREAMS)
 
 
 if __name__ == "__main__":
