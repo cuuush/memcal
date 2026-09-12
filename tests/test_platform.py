@@ -278,9 +278,10 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
 
         def answer(*args, **_kw):
             if args[0] == "bootstrap":
-                captured["plist"] = plistlib.loads(
-                    (self.cfg.home / "ical-permission.plist").read_bytes())
-                (self.cfg.home / "ical-permission-result.json").write_text(
+                probed = plistlib.loads(Path(args[2]).read_bytes())
+                captured["plist"] = probed
+                argv = probed["ProgramArguments"]
+                Path(argv[argv.index("--result") + 1]).write_text(
                     json.dumps({"ok": True, "message": "granted"}), encoding="utf-8")
             return (0, "")
 
@@ -297,7 +298,9 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
         argv = plist["ProgramArguments"]
         self.assertTrue(ok)
         self.assertEqual(argv[0], str(exe))
-        self.assertEqual(argv[1:], self._probe_python_call())
+        self.assertEqual(argv[1:-1], self._probe_python_call()[:-1])
+        self.assertEqual(Path(argv[-1]).name[:16], "ical-permission-")
+        self.assertTrue(str(argv[-1]).endswith("-result.json"))
         self.assertEqual([schedule.APP_BUNDLE_ID],
                          plist["AssociatedBundleIdentifiers"])
         self.assertIn("memcal", msg)
@@ -305,7 +308,8 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
     def test_the_probe_falls_back_to_python_without_the_app(self):
         ok, _msg, plist = self._run_probe()
         self.assertTrue(ok)
-        self.assertEqual(plist["ProgramArguments"], self._probe_python_call())
+        self.assertEqual(plist["ProgramArguments"][:-1], self._probe_python_call()[:-1])
+        self.assertTrue(str(plist["ProgramArguments"][-1]).endswith("-result.json"))
         self.assertNotIn("AssociatedBundleIdentifiers", plist)
 
     def test_the_probe_ignores_a_non_executable_launcher(self):
@@ -314,7 +318,8 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
         exe.write_bytes(b"")
         ok, _msg, plist = self._run_probe()
         self.assertTrue(ok)
-        self.assertEqual(plist["ProgramArguments"], self._probe_python_call())
+        self.assertEqual(plist["ProgramArguments"][:-1], self._probe_python_call()[:-1])
+        self.assertTrue(str(plist["ProgramArguments"][-1]).endswith("-result.json"))
         self.assertNotIn("AssociatedBundleIdentifiers", plist)
 
     def _probe_python_call(self):
@@ -333,9 +338,10 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
 
         def answer(*args, **_kw):
             if args[0] == "bootstrap":
-                captured["plist"] = plistlib.loads(
-                    (self.cfg.home / "ical-eventkit.plist").read_bytes())
-                (self.cfg.home / "ical-eventkit-result.json").write_text(
+                probed = plistlib.loads(Path(args[2]).read_bytes())
+                captured["plist"] = probed
+                argv = probed["ProgramArguments"]
+                Path(argv[argv.index("--result") + 1]).write_text(
                     json.dumps({"ok": True, "message": "granted"}), encoding="utf-8")
             return (0, "")
 
@@ -354,12 +360,120 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
         even when memcal holds full access — doctor reads setup's stamp instead."""
         self.cfg.publish_calendar = "memcal"
         answer = lambda *_a, **_kw: (0, "")  # noqa: E731
-        failing = self._findings(answer)["Calendar/account"]
-        self.assertEqual(failing.status, cli.FAIL)
-        self.assertIn("ical setup", failing.fix)
+
+        def refuse(*_a, **_kw):
+            raise AssertionError("doctor reached EventKit; it must read the stamp")
+
+        with mock.patch.object(ical, "_account_call", side_effect=refuse):
+            failing = self._findings(answer)["Calendar/account"]
+            self.assertEqual(failing.status, cli.FAIL)
+            self.assertIn("ical setup", failing.fix)
+            db.set_meta(self.conn, "ical.eventkit.verified", db.now())
+            passing = self._findings(answer)["Calendar/account"]
+            self.assertEqual(passing.status, cli.OK)
+
+    def test_the_doctor_stops_trusting_a_stale_eventkit_stamp(self):
+        """The stamp is a memory of a grant, not the grant: past its TTL it fails
+        and names setup again instead of passing forever."""
+        self.cfg.publish_calendar = "memcal"
+        answer = lambda *_a, **_kw: (0, "")  # noqa: E731
+
+        def refuse(*_a, **_kw):
+            raise AssertionError("doctor reached EventKit; it must read the stamp")
+
+        with mock.patch.object(ical, "_account_call", side_effect=refuse):
+            db.set_meta(self.conn, "ical.eventkit.verified",
+                        (db.now_dt() - timedelta(days=ical.EVENTKIT_VERIFIED_TTL_DAYS + 1)
+                         ).isoformat(timespec="seconds"))
+            stale = self._findings(answer)["Calendar/account"]
+            self.assertEqual(stale.status, cli.FAIL)
+            self.assertIn("ical setup", stale.fix)
+            db.set_meta(self.conn, "ical.eventkit.verified",
+                        (db.now_dt() - timedelta(days=ical.EVENTKIT_VERIFIED_TTL_DAYS - 1)
+                         ).isoformat(timespec="seconds"))
+            fresh = self._findings(answer)["Calendar/account"]
+            self.assertEqual(fresh.status, cli.OK)
+
+    def _run_ical_probe(self, ek):
+        """Run `ical probe` against this test's config without touching macOS.
+
+        The command owns the connection it was handed and closes it, so the test
+        reopens afterwards.
+        """
+        args = argparse.Namespace(action="probe", ek=ek, context="nightly",
+                                  result=None, home=str(self.cfg.home))
+        with mock.patch.object(cli, "open_ctx", return_value=(self.cfg, self.conn)):
+            rc = cli.cmd_ical(args)
+        self.conn = db.open_db(self.cfg.db_path)
+        return rc
+
+    def test_probe_where_without_publishing_stamps_nothing(self):
+        """`where` with publishing off answers without touching EventKit, so an ok
+        answer is no verification and stamps none — previously it stamped one."""
+        self.cfg.publish_calendar = ""
+
+        def refuse(*_a, **_kw):
+            raise AssertionError("probe reached EventKit with publishing off")
+
+        with mock.patch.object(ical, "_account_call", side_effect=refuse):
+            rc = self._run_ical_probe("where")
+        self.assertEqual(rc, 0)
+        self.assertIsNone(db.get_meta(self.conn, "ical.eventkit.verified"))
+
+    def test_probe_where_with_publishing_still_stamps(self):
+        """The setup path keeps its stamp: a real `where` check that passed."""
+        self.cfg.publish_calendar = "memcal"
+        with mock.patch.object(ical, "account_status",
+                               return_value=(True, "'memcal' is in iCloud and syncs")):
+            rc = self._run_ical_probe("where")
+        self.assertEqual(rc, 0)
+        self.assertIsNotNone(db.get_meta(self.conn, "ical.eventkit.verified"))
+
+    def test_probe_request_still_stamps(self):
+        """The consent step stamps too: a granted request is a real check."""
+        self.cfg.publish_calendar = "memcal"
+        with mock.patch.object(ical, "request_calendar_access",
+                               return_value=(True, "access granted")):
+            rc = self._run_ical_probe("request")
+        self.assertEqual(rc, 0)
+        self.assertIsNotNone(db.get_meta(self.conn, "ical.eventkit.verified"))
+
+    def test_a_failed_eventkit_check_clears_the_stamp(self):
+        """Revocation without a live doctor check: the next real probe that fails
+        drops the stamp, so doctor fails instead of trusting it to its TTL."""
+        self.cfg.publish_calendar = "memcal"
         db.set_meta(self.conn, "ical.eventkit.verified", db.now())
-        passing = self._findings(answer)["Calendar/account"]
-        self.assertEqual(passing.status, cli.OK)
+        with mock.patch.object(ical, "account_status",
+                               return_value=(False, "no Calendar access yet")):
+            rc = self._run_ical_probe("where")
+        self.assertEqual(rc, 1)
+        self.assertIsNone(db.get_meta(self.conn, "ical.eventkit.verified"))
+
+    def test_a_failed_bare_probe_keeps_the_stamp(self):
+        """The bare probe checks the Apple Events path, not EventKit: its failure
+        says nothing about the stamp and must not clear it."""
+        self.cfg.publish_calendar = "memcal"
+        db.set_meta(self.conn, "ical.eventkit.verified", db.now())
+        with mock.patch.object(ical, "permission_status",
+                               return_value=(False, "no Apple Events access")):
+            rc = self._run_ical_probe(None)
+        self.assertEqual(rc, 1)
+        self.assertIsNotNone(db.get_meta(self.conn, "ical.eventkit.verified"))
+
+    def test_reminder_status_is_read_as_a_number(self):
+        """The status check coerces like its siblings: a string "4" grants, and
+        garbage denies instead of raising."""
+        self.cfg.publish_reminders = "memcal"
+        cases = [({"status": "4"}, 0), ({"status": 3}, 0),
+                 ({"status": "bogus"}, 1), ({}, 1)]
+        for payload, want in cases:
+            args = argparse.Namespace(action="status", home=str(self.cfg.home))
+            with mock.patch.object(cli, "open_ctx",
+                                   return_value=(self.cfg, self.conn)), \
+                 mock.patch.object(ical, "_reminder_call", return_value=payload):
+                rc = cli.cmd_reminders(args)
+            self.conn = db.open_db(self.cfg.db_path)
+            self.assertEqual(rc, want, payload)
 
     def test_build_app_bundle_writes_a_memcal_identity_and_signs_it(self):
         calls = []
@@ -399,6 +513,7 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
 
         schedule.build_app_bundle(self.cfg, runner=runner)
         exe = schedule.app_executable(self.cfg)
+        exe.chmod(0o755)
         # Make the build unambiguously newer than every source without touching
         # the tracked source files themselves.
         src = max(
@@ -478,7 +593,10 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
             parents=True, exist_ok=True)
         with (schedule.app_path(self.cfg) / "Contents" / "Info.plist").open("wb") as fh:
             plistlib.dump(schedule.render_info_plist(), fh)
-        src = schedule.LAUNCHER_SOURCE.stat().st_mtime
+        src = max(
+            schedule.LAUNCHER_SOURCE.stat().st_mtime,
+            schedule.ICON_SOURCE.stat().st_mtime if schedule.ICON_SOURCE.is_file() else 0,
+        )
         os.utime(exe, (src + 60, src + 60))
         verdict, _ = schedule.bundle_health(self.cfg)
         self.assertEqual("ok", verdict)
@@ -543,6 +661,7 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
 
         schedule.build_app_bundle(self.cfg, runner=runner)
         exe = schedule.app_executable(self.cfg)
+        exe.chmod(0o755)
         src = max(
             schedule.LAUNCHER_SOURCE.stat().st_mtime,
             schedule.ICON_SOURCE.stat().st_mtime if schedule.ICON_SOURCE.is_file() else 0,
@@ -866,17 +985,25 @@ class TestAppBundleIconWiring(unittest.TestCase):
         exe.parent.mkdir(parents=True, exist_ok=True)
         exe.write_bytes(b"launcher")
         exe.chmod(0o755)
+        (schedule.app_path(self.cfg) / "Contents" / "Info.plist").parent.mkdir(
+            parents=True, exist_ok=True)
+        with (schedule.app_path(self.cfg) / "Contents" / "Info.plist").open("wb") as fh:
+            plistlib.dump(schedule.render_info_plist(), fh)
         launcher_mtime = schedule.LAUNCHER_SOURCE.stat().st_mtime
-        icon_mtime = (schedule.ICON_SOURCE.stat().st_mtime
-                      if schedule.ICON_SOURCE.is_file() else launcher_mtime)
         os.utime(exe, (launcher_mtime - 60, launcher_mtime - 60))
         # Older than the launcher alone is stale regardless of the icon.
         self.assertFalse(schedule._bundle_is_current(self.cfg))
-        os.utime(exe, (launcher_mtime + 60, launcher_mtime + 60))
-        if schedule.ICON_SOURCE.is_file() and icon_mtime > launcher_mtime + 60:
-            self.assertFalse(schedule._bundle_is_current(self.cfg))
-        else:
-            self.assertTrue(schedule._bundle_is_current(self.cfg))
+        # A newer icon source must trip staleness on its own, without touching
+        # the tracked icon file: stand in a controlled icon newer than the exe.
+        with tempfile.TemporaryDirectory() as tmp:
+            icon = Path(tmp) / "icon.png"
+            icon.write_bytes(b"icon")
+            os.utime(icon, (launcher_mtime + 120, launcher_mtime + 120))
+            with mock.patch.object(schedule, "ICON_SOURCE", icon):
+                os.utime(exe, (launcher_mtime + 60, launcher_mtime + 60))
+                self.assertFalse(schedule._bundle_is_current(self.cfg))
+                os.utime(exe, (launcher_mtime + 180, launcher_mtime + 180))
+                self.assertTrue(schedule._bundle_is_current(self.cfg))
 
 
 if __name__ == "__main__":

@@ -24,7 +24,8 @@ from .dream import retry as dream_retry
 
 PAGE = Path(__file__).with_name("webui.html")
 STATIC_DIR = Path(__file__).with_name("static")
-STATIC_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
+STATIC_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+                ".png": "image/png"}
 MAX_REQUEST_BYTES = 64 * 1024
 CSRF_COOKIE = "memcal_csrf"
 
@@ -120,7 +121,8 @@ def frontend_source() -> str:
     now lives in memcal/static/*.js rather than inline in webui.html.
     """
     return PAGE.read_text() + "".join(
-        p.read_text() for p in sorted(STATIC_DIR.glob("*")))
+        p.read_text() for p in sorted(STATIC_DIR.glob("*"))
+        if p.suffix in (".js", ".css"))
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "memcal"
