@@ -23,7 +23,8 @@ include = ["memcal*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-memcal = ["schema.sql", "webui.html", "static/*.css", "static/*.js"]
+memcal = ["schema.sql", "webui.html", "macos/icon.png", "macos/launcher.c",
+          "static/*.css", "static/*.js", "static/icon.png"]
 
 # Third-party sources advertise themselves here:
 #   [project.entry-points."memcal.sources"]
