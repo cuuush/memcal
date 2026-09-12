@@ -21,8 +21,8 @@ from datetime import date, timedelta
 from functools import wraps
 
 from . import (archive, brief, calls, config, db, detail, events, identity, live,
-               llm, schedule, series, settings, textclean, todos, trace, web, whois,
-               wiki)
+               llm, lock, schedule, series, settings, textclean, todos, trace, web,
+               whois, wiki)
 from .config import Config
 from .dream import bundle as bundle_stage
 from .dream import propose as propose_stage
@@ -338,6 +338,51 @@ def cmd_open(args) -> int:
     text = detail.open_handle(conn, cfg, args.ref)
     sys.stdout.write(text if text.endswith("\n") else text + "\n")
     return 1 if text.startswith("(not a memcal handle") or text.startswith("no row") else 0
+
+
+@_closes_direct_connections
+def cmd_activity(args) -> int:
+    """Read the new messages behind one plan, or the unlinked backlog."""
+    from . import activity as activity_mod
+    cfg, conn = open_ctx(args)
+    if not args.ref:
+        items = activity_mod.unlinked_backlog(conn, limit=args.limit)
+        if not items:
+            print("(no unlinked traffic waiting)")
+            return 0
+        for item in items:
+            print(f"{item['stream']}/{item['thread']} — {item['waiting']} waiting,"
+                  f" newest {item['newest']}")
+        return 0
+    try:
+        kind, ref = activity_mod.resolve_handle(conn, args.ref)
+    except LookupError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    page = activity_mod.read(conn, kind, ref, cursor=args.cursor or 0,
+                             limit=args.limit)
+    weak = activity_mod.associations(conn, kind, ref)["weak"]
+    print(activity_mod.format_read(page, weak, label=args.ref))
+    return 0
+
+
+@_closes_direct_connections
+def cmd_reviewed(args) -> int:
+    """Mark cited activity lines as reviewed with no change to the row."""
+    cfg, conn = open_ctx(args)
+    try:
+        ids = [int(part) for part in str(args.source_ids or "").replace(",", " ").split()]
+    except ValueError:
+        print("source_ids must be archive line ids, e.g. --source-ids '12 13'",
+              file=sys.stderr)
+        return 2
+    try:
+        print(live.reviewed(conn, cfg, args.ref,
+                            origin=live.Origin.of("cli", cited=ids)))
+    except live.LiveError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    return 0
 
 
 @_closes_direct_connections
@@ -838,6 +883,11 @@ def _behind_and_reachable(conn: sqlite3.Connection, cfg: Config, candidates: lis
 @_closes_direct_connections
 def cmd_ingest(args) -> int:
     cfg, conn = open_ctx(args)
+    stale = bool(getattr(args, "stale", False))
+    due = bool(getattr(args, "due", False))
+    if stale and due:
+        print("ingest: --due and --stale cannot be combined", file=sys.stderr)
+        return 2
     if args.stream == "all":
         chosen = [s for s in sources.all_sources(cfg) if s.in_all]
     else:
@@ -848,12 +898,43 @@ def cmd_ingest(args) -> int:
             return 1
         chosen = [source]
 
-    if args.stale:
+    if stale:
         chosen = _behind_and_reachable(conn, cfg, chosen)
         if not chosen:
             print("nothing stale that is reachable right now")
             return 0
         print(f"catching up: {', '.join(s.name for s in chosen)}")
+
+    if due:
+        # Due selection is DB state plus `db` time only: no source checks, no
+        # network, so an idle inbox still becomes due on its interval. This is
+        # the pre-lock fast path; ownership is taken below and eligibility is
+        # rechecked once it is held.
+        wanted = archive.select_due(conn, cfg, chosen)
+        if not wanted:
+            print("nothing due for another check right now")
+            return 0
+        print(f"collecting due: {', '.join(s.name for s in wanted)}")
+        chosen = wanted
+
+    try:
+        with lock.held(cfg):
+            return _ingest_locked(args, cfg, conn, chosen, due=due)
+    except lock.Busy as exc:
+        print(f"ingest: {exc} — try again shortly", file=sys.stderr)
+        return 75
+
+
+def _ingest_locked(args, cfg: Config, conn: sqlite3.Connection, chosen: list,
+                   *, due: bool) -> int:
+    if due:
+        # Another collector may have run while this one waited on the lock. A
+        # skipped invocation is not a completed check: re-evaluate, record
+        # nothing, and leave quietly when there is nothing left to do.
+        chosen = archive.select_due(conn, cfg, chosen)
+        if not chosen:
+            print("nothing due for another check right now")
+            return 0
 
     # Resolve before ingesting, not after: a handle named today is a person on every
     # row read in the next minute, and an unnamed one is a bundle keyed on a phone
@@ -862,18 +943,40 @@ def cmd_ingest(args) -> int:
     if linked:
         print(f"contacts: {message}")
 
-    failed = []
+    failed: list[str] = []
+    incomplete: list[str] = []
+    unavailable: list[str] = []
     collection_id = archive.open_collection(conn, mode="cli")
     for source in chosen:
+        if due:
+            try:
+                ok, why = source.check(cfg)
+            except Exception as exc:  # a plugin check must not take down the pass
+                ok, why = False, f"{type(exc).__name__}: {exc}"
+            if not ok:
+                archive.record_unavailable(conn, collection_id, source.name, why)
+                print(f"{source.name}: unavailable — {why}")
+                unavailable.append(source.name)
+                continue
         report = sources.catch_up(source, conn, cfg, limit=args.limit,
                                   rounds=args.rounds, collection_id=collection_id)
         print(report.summary())
         if report.error:
             failed.append(source.name)
+        elif report.more:
+            incomplete.append(source.name)
     archive.close_collection(conn, collection_id)
     brief.write(conn, cfg)
     # Any source failure fails the command, including `ingest all`, so
     # unattended runs report errors instead of exiting 0.
+    if due and (failed or unavailable or incomplete):
+        problems = ([f"{n} failed" for n in failed]
+                    + [f"{n} unavailable" for n in unavailable]
+                    + [f"{n} incomplete — more waiting, run again or raise --rounds"
+                       for n in incomplete])
+        print(f"\n{len(problems)} source(s) need attention: "
+              f"{', '.join(problems)}", file=sys.stderr)
+        return 1
     if failed:
         print(f"\n{len(failed)} source(s) failed: {', '.join(failed)}", file=sys.stderr)
         return 1
@@ -1564,7 +1667,7 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
         if source.name in behind and usable:  # noqa: SIM114 — three distinct verdicts
             # Reachable now but behind: the scheduled attempt misses its dependency.
             add("Sources", source.name, FAIL, f"{_ago(seen['newest'])} behind — but reachable right now",
-                fix="memcal ingest --stale   # the schedule also does this on every wake-up")
+                fix="memcal ingest --stale   # the daytime tick also retries this on its interval")
         elif source.name in behind:
             add("Sources", source.name, FAIL, f"{age} behind — {message[:70]}",
                 fix=f"fix the connector above, then `memcal ingest {source.name}`")
@@ -1947,6 +2050,20 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("ref", help="a handle from the brief, `week` or `todos`")
     s.set_defaults(func=cmd_open)
 
+    s = sub.add_parser("activity", help="new messages behind one plan, or the backlog")
+    s.add_argument("ref", nargs="?",
+                   help="a brief handle (E42); omit to list unlinked traffic")
+    s.add_argument("--cursor", type=int, default=0,
+                   help="an archive id to read after (for paging)")
+    s.add_argument("--limit", type=int, default=20, help="messages to show")
+    s.set_defaults(func=cmd_activity)
+
+    s = sub.add_parser("reviewed", help="mark cited lines reviewed with no row change")
+    s.add_argument("ref", help="a brief handle (E42)")
+    s.add_argument("--source-ids", default="",
+                   help="archive line ids this review covered, e.g. '12 13'")
+    s.set_defaults(func=cmd_reviewed)
+
     s = sub.add_parser("brief", help="print brief.md")
     s.add_argument("--write", action="store_true", help="also write it to disk")
     s.add_argument("--tokens", action="store_true", help="report the token count")
@@ -2134,6 +2251,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("stream", nargs="?", default="all", help="source name, or 'all'")
     s.add_argument("--stale", action="store_true",
                    help="only sources that are behind and reachable right now")
+    s.add_argument("--due", action="store_true",
+                   help="only sources due for another check (default: every 5 minutes)")
     s.add_argument("--limit", type=int, default=1000, help="items per round")
     s.add_argument("--rounds", type=int, default=sources.DEFAULT_ROUNDS,
                    help="how many rounds to spend catching a stale source up")

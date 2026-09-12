@@ -373,6 +373,9 @@ def every_row_has_a_handle(ctx):
         if (not stripped or stripped.startswith(("#", "[", "Pages:"))
                 or stripped.startswith("Casey")):
             continue
+        if stripped.startswith("↳ New activity:") or stripped.startswith("↳ …and "):
+            # Annotations on rows, not rows: see `brief_sources_open`.
+            continue
         if not brief_mod.SOURCE_RE.search(line):
             missing.append(stripped[:48])
     return not missing, ("every row opens" if not missing
@@ -532,6 +535,10 @@ def brief_sources_open(ctx):
     data_lines = []
     for line in text.splitlines():
         if not line or line.startswith(("## ", "[", "(")) or line.startswith("Pages:"):
+            continue
+        if line.startswith("  ↳ New activity:") or line.startswith("  ↳ …and "):
+            # Activity annotations, not rows: the hint names its
+            # `memcal_activity(handle=E..)` call instead of carrying a handle.
             continue
         data_lines.append(line)
     missing = [line for line in data_lines if not brief_mod.SOURCE_RE.search(line)]

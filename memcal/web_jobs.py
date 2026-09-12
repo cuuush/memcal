@@ -243,6 +243,22 @@ COLLECT_WORKERS = 4
 
 
 def collect_work(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
+    """Every source that can run, run to exhaustion — the spool for the next dream.
+
+    Takes this store's collection lock first, so a scheduled tick racing a manual
+    `ingest` gets an explicit busy result instead of a second concurrent fetch.
+    """
+    from . import lock
+
+    try:
+        with lock.held(cfg):
+            return _collect_inner(conn, cfg, job)
+    except lock.Busy as exc:
+        job.say(f"busy: {exc} — try again shortly")
+        return {"error": f"busy: {exc}", "busy": True}
+
+
+def _collect_inner(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
     """Every source that can run, run to exhaustion — the spool for the next dream."""
     from . import sources
 
@@ -262,11 +278,20 @@ def collect_work(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
     job.step("contacts", "done", f"{linked} linked" if linked else "fresh")
 
     def collect_one(source) -> dict:
-        ok, reason = source.check(cfg)
+        try:
+            ok, reason = source.check(cfg)
+        except Exception as exc:  # a plugin check must not take down the pass
+            ok, reason = False, f"{type(exc).__name__}: {exc}"
         if not ok:
             job.say(f"skip {source.name}: {reason}")
             job.step(source.name, "skipped", reason, phase="skipped")
-            return {"stream": source.name, "skipped": reason}
+            own = db.open_db(cfg.db_path)
+            try:
+                archive.record_unavailable(own, collection_id, source.name, reason)
+            finally:
+                own.close()
+            return {"stream": source.name, "skipped": reason,
+                    "status": "unavailable", "error": reason}
         job.step(source.name, "running", phase="starting")
         job.say(f"{source.name}: reading…")
         own = db.open_db(cfg.db_path)
@@ -280,11 +305,19 @@ def collect_work(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
         job.say(report.summary())
         for note in report.notes:
             job.say(f"  {source.name}: {note}")
-        job.step(source.name, "failed" if report.error else "done",
-                 report.error or f"{report.archived} new, {report.passed} queued")
+        status = "failed" if report.error else "incomplete" if report.more else "complete"
+        if report.error:
+            note = report.error
+        elif report.more:
+            note = (f"incomplete — {report.archived} new, {report.passed} queued — "
+                    f"more waiting")
+        else:
+            note = f"{report.archived} new, {report.passed} queued"
+        job.step(source.name, "failed" if report.error else "done", note)
         return {"stream": source.name, "read": report.read,
                 "archived": report.archived, "passed": report.passed,
-                "muted": report.muted, "error": report.error}
+                "muted": report.muted, "error": report.error,
+                "status": status, "more": bool(report.more)}
 
     reports = []
     if wanted:
@@ -297,7 +330,18 @@ def collect_work(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
                     message = f"{type(exc).__name__}: {exc}"
                     job.step(source.name, "failed", message)
                     job.say(f"{source.name}: {message}")
-                    reports.append({"stream": source.name, "error": message})
+                    own = db.open_db(cfg.db_path)
+                    try:
+                        from .sources.base import IngestReport as _Report
+                        _failed = _Report(stream=source.name)
+                        _failed.error = message
+                        archive.record_source(own, collection_id, _failed)
+                    except Exception:
+                        pass
+                    finally:
+                        own.close()
+                    reports.append({"stream": source.name, "error": message,
+                                    "status": "failed"})
 
     archive.close_collection(conn, collection_id)
 

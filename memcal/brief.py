@@ -7,7 +7,7 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import archive, db, events, presentation, series, textclean, threads, todos, wiki
+from . import activity, archive, db, events, presentation, series, textclean, threads, todos, wiki
 from .config import Config
 
 SOURCE_RE = re.compile(r"〔([ETQS]\d+)〕")
@@ -73,6 +73,122 @@ def render(conn: sqlite3.Connection, cfg: Config, ref: date | None = None,
     return _trim(legend(surface) + text, cfg.brief_token_cap)
 
 
+#: Inline activity hints are the exception path, not the rule: past this many in
+#: one block the rest fold into a single overflow line rather than burying plans.
+MAX_HINTS_PER_BLOCK = 8
+
+
+def _activity_hint(conn: sqlite3.Connection, event) -> str | None:
+    """One compact warning when a plan's sources moved since its last review.
+
+    Says the plan *may* have changed and names how to read the messages. It
+    never invents a replacement date, address, or status.
+    """
+    found = activity.pending(conn, "event", event.key, limit=3)
+    if not found["strong_total"]:
+        return None
+    first = found["strong"][0]
+    where = (f"{first['stream']}/{first['thread']}" if first["thread"]
+             else first["stream"])
+    extra = f" (+{found['strong_total'] - len(found['strong'])} more)" \
+        if found["strong_total"] > len(found["strong"]) else ""
+    return (f"  ↳ New activity: {where} — {found['strong_total']} message(s)"
+            f"{extra} since this plan was reviewed. It may have changed;"
+            f" open with memcal_activity(handle={source_tag('event', event.id).strip('〔〕')})"
+            f" before giving current details.")
+
+
+def _collection_line(conn: sqlite3.Connection, cfg: Config) -> str | None:
+    """What collection knows it does not know, in one line.
+
+    Failed and unavailable attempts are coverage holes. Incomplete ones are a
+    different, milder gap — more is waiting, not lost — and read that way. A
+    source that never ran on a store that otherwise collects is named rather
+    than silently counted as checked; on a virgin store there is nothing to
+    contrast it with, and setup (not this line) is the authority.
+    """
+    try:
+        from . import sources as sources_pkg
+        known = sorted(s.name for s in sources_pkg.all_sources(cfg) if s.in_all)
+    except Exception:
+        return None
+    if not known:
+        return None
+    in_use = conn.execute(
+        "SELECT 1 FROM collections WHERE finished_at IS NOT NULL LIMIT 1"
+    ).fetchone() is not None
+    bad = []
+    for stream in known:
+        attempt = archive.last_source_attempt(conn, stream)
+        if attempt is None:
+            if in_use:
+                bad.append(f"{stream} (not yet checked)")
+            continue
+        status = attempt.get("status") or ""
+        if status in ("failed", "unavailable"):
+            bad.append(f"{stream} ({str(attempt.get('error') or 'unavailable')[:60]})")
+        elif status == "incomplete":
+            bad.append(f"{stream} (incomplete — more waiting)")
+    if not bad:
+        return None
+    shown = ", ".join(bad[:3]) + (f" +{len(bad) - 3} more" if len(bad) > 3 else "")
+    return f"[COLLECTION: {shown} — recent messages may be missing]"
+
+
+def _backlog_lines(conn: sqlite3.Connection) -> list[str]:
+    """Unreviewed traffic no plan is associated with, compactly and honestly."""
+    out = []
+    for item in activity.unlinked_backlog(conn):
+        out.append(f"[UNREVIEWED: {item['stream']}/{item['thread']} "
+                   f"({item['waiting']} waiting) — new traffic not linked to any plan; "
+                   f"not a confirmed opportunity]")
+    return out
+
+
+def _block_hints(conn: sqlite3.Connection, ordered) -> dict:
+    """Precompute one block's hints in emission order, children included.
+
+    One `pending` lookup per event up front, so the overflow line below can
+    name exactly which retained rows it stands in for.
+    """
+    hints = {}
+    for ev in ordered:
+        hint = _activity_hint(conn, ev)
+        if hint:
+            hints[ev.id] = hint
+    return {"hints": hints,
+            "flagged": [ev.id for ev in ordered if ev.id in hints],
+            "shown": 0, "overflow_done": False}
+
+
+def _hint_after(lines: list[str], event, state: dict) -> None:
+    """An inline hint right under its event, so trimming keeps or drops both.
+
+    Past the per-block cap a single overflow line names the remaining affected
+    retained rows instead of leaving them warning-less. It is emitted beside
+    the last inline hint, so trimming drops named rows before the line naming
+    them — never the reverse. `state` comes from `_block_hints`.
+    """
+    hint = state["hints"].get(event.id)
+    if hint is None:
+        return
+    if state["shown"] < MAX_HINTS_PER_BLOCK:
+        lines.append(hint)
+        state["shown"] += 1
+        return
+    if state["overflow_done"]:
+        return
+    try:
+        rest = state["flagged"][state["flagged"].index(event.id):]
+    except ValueError:
+        rest = [event.id]
+    names = " ".join(source_tag("event", i).strip("〔〕") for i in rest[:10])
+    extra = f" (+{len(rest) - 10} more)" if len(rest) > 10 else ""
+    lines.append(f"  ↳ …and {len(rest)} more row(s) with new activity:"
+                 f" {names}{extra}")
+    state["overflow_done"] = True
+
+
 def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
     rows = events.window(conn, cfg.days_back, cfg.days_forward, ref)
     # Anchors the reference date explicitly to prevent incorrect date inference.
@@ -83,14 +199,18 @@ def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
         via = attribution(conn)
         asked = todos.questions_by_event(conn)
         nested = {e.id for e in rows if e.part_of}
-        for ev in rows:
-            if ev.id in nested:
-                continue          # Rendered under parent event below.
+        mains = [ev for ev in rows if ev.id not in nested]
+        ordered = list(mains)
+        for ev in mains:
+            ordered.extend(events.children_of(conn, ev.id))
+        state = _block_hints(conn, ordered)
+        for ev in mains:
             marker = "· " if db.parse_date(ev.date) < ref else ""
             lines.append(f"{source_tag('event', ev.id)} {marker}"
                          + ev.one_line(extra=[via.get(ev.key, "")], overview=True))
+            _hint_after(lines, ev, state)
             lines.extend(_question_lines(asked.get(ev.id, [])))
-            lines.extend(_child_lines(conn, ev, asked))
+            lines.extend(_child_lines(conn, ev, asked, state))
     # Explicit date bounds signal completeness to avoid unnecessary range lookups.
     first = (ref - timedelta(days=cfg.days_back)).strftime("%a %-d %b")
     last = (ref + timedelta(days=cfg.days_forward)).strftime("%a %-d %b")
@@ -100,6 +220,10 @@ def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
     if stale:
         behind = ", ".join(f"{name} {age}" for name, age in stale)
         lines.append(f"[STALE: no {behind} — this week may be incomplete]")
+    collection = _collection_line(conn, cfg)
+    if collection:
+        lines.append(collection)
+    lines.extend(_backlog_lines(conn))
     return "\n".join(lines)
 
 
@@ -120,7 +244,9 @@ def _later_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
     via = attribution(conn)
     asked = todos.questions_by_event(conn)
     lines = ["## Later"]
-    for ev in rows[:LATER_LIMIT]:
+    shown = rows[:LATER_LIMIT]
+    state = _block_hints(conn, shown)
+    for ev in shown:
         who = f" ({ev.subject})" if ev.needs_subject() else ""
         invite = [ev.plain_state(), f"invite: {events._short_url(ev.rsvp_url)}"] \
             if ev.rsvp_url else []
@@ -134,6 +260,7 @@ def _later_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
                             _duration(ev), via.get(ev.key, "")) if t]
         lines.append(f"{source_tag('event', ev.id)} {_when_phrase(ev)}  \"{title}\"{who}"
                      + (" — " + " · ".join(tail) if tail else ""))
+        _hint_after(lines, ev, state)
         lines.extend(_question_lines(asked.get(ev.id, [])))
     if len(rows) > LATER_LIMIT:
         lines.append(f"[{len(rows) - LATER_LIMIT} more beyond this; ask for a date]")
@@ -174,12 +301,15 @@ def _duration(event: events.Event) -> str:
     return f"{days} days"
 
 
-def _child_lines(conn: sqlite3.Connection, parent: events.Event, asked: dict) -> list[str]:
+def _child_lines(conn: sqlite3.Connection, parent: events.Event, asked: dict,
+                 state: dict | None = None) -> list[str]:
     """Formats child events and associated questions nested under a parent event."""
     out: list[str] = []
     for child in events.children_of(conn, parent.id):
         out.append(f"  ↳ {source_tag('event', child.id)} "
                    + child.one_line(overview=True))
+        if state is not None:
+            _hint_after(out, child, state)
         out.extend(f"  {line}" for line in _question_lines(asked.get(child.id, [])))
     return out
 
@@ -330,7 +460,12 @@ def _pages_line(cfg: Config) -> str:
 
 
 def _trim(text: str, token_cap: int) -> str:
-    """Trims brief text to fit within token_cap by dropping trailing lines from lower-priority sections."""
+    """Trims brief text to fit within token_cap by dropping trailing lines from lower-priority sections.
+
+    An event row and its activity warning drop as one unit: a retained row never
+    loses its freshness qualification to trimming, and a dropped row takes its
+    warning with it. Coverage footers survive whenever anything they cover does.
+    """
     if textclean.estimate_tokens(text) <= token_cap:
         return text
     lines = text.splitlines()
@@ -339,23 +474,32 @@ def _trim(text: str, token_cap: int) -> str:
         drop = _dropped_index(lines)
         if drop is None:
             break
-        lines.pop(drop)
+        del lines[drop[0]:drop[1]]
     out = "\n".join(lines).rstrip() + "\n"
     if textclean.estimate_tokens(out) > token_cap:
-        # Shrinks toward the cap by the overshoot ratio; the estimate only grows with
-        # length, so each pass cuts at least one character and the loop terminates.
-        marker = "\n… (trimmed)\n"
-        room = len(out)
-        while room > 0:
-            over = textclean.estimate_tokens(out[:room] + marker)
-            if over <= token_cap:
-                break
-            room = min(room - 1, int(room * token_cap / over))
-        out = out[:max(0, room)].rstrip() + marker
+        out = _hard_cut(lines, token_cap)
     return out
 
 
-def _dropped_index(lines: list[str]) -> int | None:
+def _is_event_line(line: str) -> bool:
+    text = line.lstrip()
+    return text.startswith("〔") or text.startswith("↳ 〔")
+
+
+def _is_hint_line(line: str) -> bool:
+    return line.startswith("  ↳ New activity:")
+
+
+def _is_protected(line: str) -> bool:
+    """Coverage footers: trimming eats events first.
+
+    The overflow notice is deliberately not protected — it names retained rows,
+    and once trimming reaches it those rows are going too.
+    """
+    return line.startswith("[") or line.startswith("Pages: ")
+
+
+def _dropped_index(lines: list[str]) -> tuple[int, int] | None:
     prefer = ("## People and facts", "## Ask about", "## Open", "## This week")
     for header in prefer:
         try:
@@ -368,9 +512,45 @@ def _dropped_index(lines: list[str]) -> int | None:
         # Keep the wiki index at the end of the people-and-facts block.
         while end - 1 > start and lines[end - 1].startswith("Pages: "):
             end -= 1
-        if end - start > 2:
-            return end - 1
+        if end - start <= 2:
+            continue
+        # Walk down past coverage footers: they outlive the rows they qualify.
+        candidate = end - 1
+        while candidate > start + 1 and _is_protected(lines[candidate]):
+            candidate -= 1
+        if _is_protected(lines[candidate]):
+            continue
+        # An event row and its warning are one unit, whichever side we land on.
+        if _is_hint_line(lines[candidate]) and candidate > start + 1 \
+                and _is_event_line(lines[candidate - 1]):
+            return (candidate - 1, candidate + 1)
+        if _is_event_line(lines[candidate]) and candidate + 1 < end \
+                and _is_hint_line(lines[candidate + 1]):
+            return (candidate, candidate + 2)
+        return (candidate, candidate + 1)
     return None
+
+
+def _hard_cut(lines: list[str], token_cap: int) -> str:
+    """Last resort for tiny budgets: keep whole leading lines plus a marker.
+
+    Cutting mid-line could strand an event row without its warning (or a
+    warning without its row), so the cut backtracks to a line boundary and
+    then drops a trailing orphaned half-unit if one remains.
+    """
+    marker = "\n… (trimmed)\n"
+    keep = len(lines)
+    while keep > 0 and textclean.estimate_tokens(
+            "\n".join(lines[:keep]).rstrip() + marker) > token_cap:
+        keep -= 1
+    kept = lines[:keep]
+    if kept and _is_event_line(kept[-1]):
+        # Its warning line did not fit; the row goes too rather than reading
+        # as freshly verified.
+        kept = kept[:-1]
+    if kept and _is_hint_line(kept[-1]):
+        kept = kept[:-1]
+    return "\n".join(kept).rstrip() + marker
 
 
 def write(conn: sqlite3.Connection, cfg: Config, ref: date | None = None) -> Path:

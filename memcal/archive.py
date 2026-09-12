@@ -362,23 +362,134 @@ def open_collection(conn: sqlite3.Connection, mode: str = "cli") -> int:
     return int(cur.lastrowid)
 
 
-def record_source(conn: sqlite3.Connection, collection_id: int, report) -> None:
-    """Record source metrics and error state for a collection pass."""
+def _outcome_for(report, status: str | None = None) -> str:
+    """Terminal outcome for one source attempt. Explicit status wins; otherwise the
+    report decides: an error is a failure, remaining work is incomplete, anything
+    else exhausted the source and is complete."""
+    if status:
+        return status
+    if getattr(report, "error", None):
+        return "failed"
+    if getattr(report, "more", False):
+        return "incomplete"
+    return "complete"
+
+
+def record_source(conn: sqlite3.Connection, collection_id: int, report,
+                   *, status: str | None = None) -> None:
+    """Record the final aggregate outcome for one source attempt.
+
+    `catch_up` owns this write: it persists all-page totals once, so a quiet final
+    page cannot erase earlier pages. Per-page writes must not call this with the
+    live collection id (see `Source.run(record=False)`).
+    """
+    if not collection_id:
+        return
+    outcome = _outcome_for(report, status)
+    conn.execute(
+        """INSERT INTO collection_sources(collection_id, stream, read, archived, passed,
+                                          muted, too_old, error, note, finished_at,
+                                          status)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(collection_id, stream) DO UPDATE SET
+               read=excluded.read, archived=excluded.archived, passed=excluded.passed,
+               muted=excluded.muted, too_old=excluded.too_old, error=excluded.error,
+               note=excluded.note, finished_at=excluded.finished_at,
+               status=excluded.status""",
+        (collection_id, report.stream, report.read, report.archived, report.passed,
+         report.muted, report.too_old, report.error or None,
+         "; ".join(report.notes)[:400] or None, db.now(), outcome),
+    )
+    conn.commit()
+
+
+def record_unavailable(conn: sqlite3.Connection, collection_id: int, stream: str,
+                       reason: str) -> None:
+    """Record a preflight skip without starting login. Same durable contract as a
+    fetch outcome, so due selection and reporting see it as an attempt."""
     if not collection_id:
         return
     conn.execute(
         """INSERT INTO collection_sources(collection_id, stream, read, archived, passed,
-                                          muted, too_old, error, note, finished_at)
-           VALUES(?,?,?,?,?,?,?,?,?,?)
+                                          muted, too_old, error, note, finished_at,
+                                          status)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(collection_id, stream) DO UPDATE SET
                read=excluded.read, archived=excluded.archived, passed=excluded.passed,
                muted=excluded.muted, too_old=excluded.too_old, error=excluded.error,
-               note=excluded.note, finished_at=excluded.finished_at""",
-        (collection_id, report.stream, report.read, report.archived, report.passed,
-         report.muted, report.too_old, report.error or None,
-         "; ".join(report.notes)[:400] or None, db.now()),
+               note=excluded.note, finished_at=excluded.finished_at,
+               status=excluded.status""",
+        (collection_id, stream, 0, 0, 0, 0, 0, (reason or "unavailable")[:400],
+         f"preflight: {(reason or 'unavailable')[:300]}", db.now(), "unavailable"),
     )
     conn.commit()
+
+
+#: Outcomes that count as a trustworthy previous attempt for due selection.
+#: 'unknown' covers legacy rows written before the outcome contract.
+TRUSTWORTHY_OUTCOMES = frozenset({"complete", "incomplete", "failed", "unavailable"})
+
+
+def last_source_attempt(conn: sqlite3.Connection, stream: str) -> dict | None:
+    """Most recent attempt for one source, by write order. None when never checked."""
+    row = conn.execute(
+        "SELECT * FROM collection_sources WHERE stream = ?"
+        " ORDER BY collection_id DESC LIMIT 1", (stream,)).fetchone()
+    return dict(row) if row else None
+
+
+def last_complete_check(conn: sqlite3.Connection, stream: str) -> dict | None:
+    """Most recent complete check for one source. A later failure never erases this;
+    an interrupted attempt writes no row and so never appears here."""
+    row = conn.execute(
+        "SELECT * FROM collection_sources WHERE stream = ? AND status = 'complete'"
+        " ORDER BY collection_id DESC LIMIT 1", (stream,)).fetchone()
+    return dict(row) if row else None
+
+
+def _due_interval_minutes(cfg=None) -> int:
+    try:
+        value = int(getattr(cfg, "collect_interval_minutes", 5) or 5)
+    except (TypeError, ValueError):
+        value = 5
+    return max(1, value)
+
+
+def source_due(conn: sqlite3.Connection, stream: str, cfg=None, *,
+               now=None) -> tuple[bool, str]:
+    """Is this source due for another check? Pure DB state plus `db` time: no
+    network, no sleep, no source import.
+
+    Returns (due, reason). Reasons are short machine-readable phrases for tests
+    and CLI messages, never parsed back into a decision.
+    """
+    interval = _due_interval_minutes(cfg)
+    attempt = last_source_attempt(conn, stream)
+    if not attempt:
+        return True, "never checked"
+    status = (attempt.get("status") or "unknown")
+    finished = (attempt.get("finished_at") or "")
+    if status not in TRUSTWORTHY_OUTCOMES or not finished:
+        return True, "no trustworthy previous state"
+    moment = now or db.now_dt()
+    try:
+        stamp = db.parse_ts(finished)
+    except Exception:
+        return True, "no trustworthy previous state"
+    if stamp > moment:
+        # Clock moved backwards (or a future write): collecting again is the
+        # conservative direction; suppressing on a future stamp could wait forever.
+        return True, "clock moved — collecting rather than trusting a future stamp"
+    elapsed_minutes = (moment - stamp).total_seconds() / 60.0
+    if elapsed_minutes < interval:
+        return False, f"checked {elapsed_minutes:.1f}m ago (< {interval}m)"
+    return True, f"interval elapsed ({elapsed_minutes:.1f}m >= {interval}m)"
+
+
+def select_due(conn: sqlite3.Connection, cfg, candidates: list) -> list:
+    """Filter candidate sources (objects with `.name`) down to those due now."""
+    return [s for s in candidates
+            if source_due(conn, getattr(s, "name", s), cfg)[0]]
 
 
 def failed_sources(conn: sqlite3.Connection, collection_id: int) -> list[str]:

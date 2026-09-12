@@ -377,6 +377,16 @@ def apply_day(conn: sqlite3.Connection, cfg: Config, day: int) -> str:
     counts, log = apply_stage.apply_diffs(conn, cfg, proposals,
                                           written_by=f"dream:integration-day{day}",
                                           stage="propose")
+    # The `_dream` half of a read: every bundle here was considered in full —
+    # oracle diffs for some, an explicitly empty diff for the rest — so the
+    # facts evidenced in its conversations are reviewed through what was read.
+    # Without this the deterministic layer asserts a store production never
+    # exhibits: spool marked read with review marks standing still and hints
+    # over everything.
+    from memcal import activity  # noqa: PLC0415
+    for bundle in bundles:
+        activity.advance_thread(conn, bundle.items, by_stage="dream",
+                                commit=False)
     archive.spool_mark(conn, [sid for b in bundles for sid in b.spool_ids], None)
 
     for todo in todos.check_wakes(conn, bundle_stage.all_text(bundles),

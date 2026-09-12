@@ -130,30 +130,65 @@ def catch_up(source: Source, conn, cfg, *, limit: int = 1000,
 
     `limit` sets page size per request. Ingest continues while the source indicates
     additional records remain, stopping when exhausted or when the round cap is reached.
+
+    This layer owns the final aggregate outcome: intermediate pages stamp rows with
+    `collection_id` but never finalize `collection_sources` (new plugins via
+    `record=False`); the all-page totals are persisted exactly once at the end, so a
+    quiet final page cannot erase earlier pages and a failure preserves its partial
+    counts. Legacy plugins without the `record` flag still write per page; the final
+    overwrite corrects them.
     """
+    from .. import archive as _archive
+
+    try:
+        accepted = inspect.signature(source.run).parameters
+    except (TypeError, ValueError):
+        accepted = {}
+    supports_record = "record" in accepted
+
     def run_once() -> IngestReport:
         # Inspect source signature to pass only supported keyword arguments for backward compatibility.
-        accepted = inspect.signature(source.run).parameters
         extra = {}
         if progress is not None and "progress" in accepted:
             extra["progress"] = progress
         if collection_id is not None and "collection_id" in accepted:
             extra["collection_id"] = collection_id
+        if supports_record:
+            # Suppress per-page finalization; `catch_up` persists the aggregate once.
+            extra["record"] = False
         return source.run(conn, cfg, limit=limit, **extra)
 
-    total = run_once()
-    used, stalled = 1, False
-    while total.more and not total.error and used < rounds:
-        total.more = False
-        this_round = run_once()
-        total.absorb(this_round)
-        used += 1
-        if not this_round.archived:
-            # Stop if a round stores no new records, preventing infinite loops or rate-limit saturation.
-            total.more, stalled = False, True
-            break
+    try:
+        total = run_once()
+    except Exception as exc:  # a custom `run` that raises instead of reporting
+        total = IngestReport(stream=getattr(source, "name", ""))
+        total.error = f"{type(exc).__name__}: {exc}"
+        total.notes.append(f"collecting {total.stream} failed before it started: {exc}")
+        used, stalled = 0, False
+    else:
+        used, stalled = 1, False
+        while total.more and not total.error and used < rounds:
+            total.more = False
+            try:
+                this_round = run_once()
+            except Exception as exc:
+                total.error = total.error or f"{type(exc).__name__}: {exc}"
+                total.notes.append(f"collecting {total.stream} failed mid-pass: {exc}")
+                break
+            total.absorb(this_round)
+            used += 1
+            if total.error:
+                break
+            if not this_round.archived and this_round.more:
+                # No new rows while more work remains: incomplete, not exhausted.
+                # Keep `more` set; a quiet exhausted page (no rows, no more) stays
+                # complete and exits the loop naturally below.
+                total.more, stalled = True, True
+                break
 
-    if stalled:
+    if total.error:
+        pass  # failure preserves partial counts; status derives from the error
+    elif stalled:
         total.notes.append(f"stopped after {used} rounds — the last one added nothing "
                            f"(rate limited, or genuinely done)")
     elif total.more:
@@ -161,4 +196,9 @@ def catch_up(source: Source, conn, cfg, *, limit: int = 1000,
                            f"run again, or raise --rounds")
     elif used > 1:
         total.notes.append(f"caught up over {used} rounds")
+    if collection_id:
+        try:
+            _archive.record_source(conn, collection_id, total)
+        except Exception:
+            pass
     return total

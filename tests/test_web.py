@@ -539,7 +539,8 @@ class TestSchedule(Base):
         # `RunAtLoad` and `StartInterval` are what recover a pass the machine was
         # asleep or off for; the script decides whether one is owed.
         self.assertTrue(data["RunAtLoad"])
-        self.assertEqual(schedule.WAKE_INTERVAL, data["StartInterval"])
+        self.assertEqual(schedule.effective_interval(self.cfg),
+                         data["StartInterval"])
         # Must survive a real plist round-trip, or launchd rejects the job at load.
         self.assertEqual(plistlib.loads(plistlib.dumps(data)), data)
 

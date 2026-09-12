@@ -58,8 +58,15 @@ class Source:
     # ------------------------------------------------------------------ runner --
     def run(self, conn: sqlite3.Connection, cfg: Config, *, limit: int = 1000,
             progress: Callable[[str], None] | None = None,
-            collection_id: int | None = None) -> IngestReport:
-        """Wraps fetch so one broken plugin can never take down a whole `ingest all`."""
+            collection_id: int | None = None,
+            record: bool = True) -> IngestReport:
+        """Wraps fetch so one broken plugin can never take down a whole `ingest all`.
+
+        `collection_id` stamps archived rows for queue grouping. `record` controls
+        whether this page writes `collection_sources`: `catch_up` passes
+        `record=False` for intermediate pages and finalizes the all-page aggregate
+        once itself, so a quiet last page cannot erase earlier pages.
+        """
         report = IngestReport(stream=self.name,
                               horizon_days=getattr(cfg, "spool_horizon_days",
                                                    IngestReport.horizon_days),
@@ -81,11 +88,13 @@ class Source:
                     pass
             # Recorded whether it worked or not — especially when it did not, since a
             # source that failed is the case with nothing else to show for itself.
-            try:
-                from .. import archive                          # noqa: PLC0415
-                archive.record_source(conn, collection_id, report)
-            except sqlite3.Error:
-                pass
+            # Intermediate `catch_up` pages skip this; the orchestrator finalizes once.
+            if record:
+                try:
+                    from .. import archive                          # noqa: PLC0415
+                    archive.record_source(conn, collection_id, report)
+                except sqlite3.Error:
+                    pass
             try:
                 conn.commit()
             except sqlite3.Error:
