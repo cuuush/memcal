@@ -59,12 +59,17 @@ A generated snapshot looks roughly like this:
 〔Q4〕 Is dinner with Jordan Saturday or Sunday?
 
 ## People and facts
+About you (open with memcal_open_page me): home: 14 Example Lane · works at: Acme
 Pages: jordan (address, birthday) · beacon-dental (phone)
 ```
 
 The handles—`E12`, `T7`, and `Q4`—open the full row, evidence, and history. The brief stays
 small enough to include on ordinary agent turns, while deeper detail remains one tool call
 away.
+
+Your own durable facts ride the `About you` line, drawn from a single page for you that
+every reference to `me` or your name resolves to. The rest of the wiki is named on the
+`Pages:` line; both stay one `memcal_open_page` call away from their full detail.
 
 Open questions are durable typed state. When a new conversation may affect one, Memcal shows
 the question beside that evidence and records an explicit keep, amendment, answer, or closure.
@@ -442,7 +447,7 @@ The MCP surface provides compact reads and explicit writes:
 |---|---|
 | Current context | `memcal_brief`, `memcal_list_days`, `memcal_list_month` |
 | Detail and evidence | `memcal_open`, `memcal_open_page`, `memcal_source`, `memcal_conversation` |
-| Archive search | `memcal_search_archive` |
+| Fact and archive search | `memcal_search_wiki`, `memcal_search_archive` |
 | Events | `memcal_add`, `memcal_update`, `memcal_merge`, `memcal_drop` |
 | Recurrence | `memcal_schedule`, `memcal_move_once` |
 | Tasks and facts | `memcal_todo`, `memcal_note`, `memcal_alias`, `memcal_answer` |
@@ -451,6 +456,14 @@ Write tools do not call a model. If the user says an event moved, `memcal_update
 the typed row, records the old value in history, and updates the next brief. Memcal never
 infers that a to-do is complete; it waits for an explicit completion or asks. Event
 updates can add or remove named participants explicitly.
+
+Facts already in the brief answer directly. When the brief names a page but not the value,
+`memcal_open_page` reads it—it accepts `me`, a page name, or a recorded alias, and `page='me'`
+(or `memcal_note` with `page='me'`) resolves to your single self page rather than opening a
+second one. When the page is unknown, `memcal_search_wiki` finds a stored fact by name,
+alias, label, value, or prose; only then does `memcal_search_archive` go back to the original
+messages. A search that finds nothing means no stored fact matched, not that you never
+mentioned it.
 
 ## Apple Calendar and Reminders
 
