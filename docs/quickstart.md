@@ -67,3 +67,25 @@ To collect and update automatically, install the nightly job:
 ```bash
 memcal schedule install
 ```
+
+## Connect an agent
+
+```bash
+memcal openclaw setup
+openclaw gateway restart
+```
+
+```bash
+ln -s /path/to/memcal/integrations/hermes/memcal ~/.hermes/plugins/memcal
+hermes memory setup
+```
+
+Any other harness: read `brief.md` and connect `python3 -m memcal.mcp_server`.
+See [Integrations](integrations/index.md).
+
+## Next steps
+
+- [Architecture](architecture/index.md) — observe, gate, dream, brief.
+- [Remember](api/remember.md), [Recall](api/recall.md), [Correct](api/correct.md) — the tool surface.
+- [Sources](sources/index.md) — every input memcal reads.
+- [Evaluation](evaluation/index.md) — how memory quality is measured.

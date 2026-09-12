@@ -45,7 +45,14 @@ instead of breaking the registry.
 
 ## Credential setup
 
-Slack has no `memcal login` step — the token is the login.
+Fastest path is the interactive login, which provisions through the Slack CLI,
+validates with `auth_test`, and saves the token:
+
+```bash
+memcal login slack
+```
+
+Or create the app by hand and paste the token. The token is the login either way:
 
 1. Go to [https://api.slack.com/apps](https://api.slack.com/apps) and click
    **Create New App → From scratch**. Give it a name (e.g. `memcal`) and pick your
@@ -77,7 +84,7 @@ Slack has no `memcal login` step — the token is the login.
 | Key | Required | Notes |
 |---|---|---|
 | `slack` / `SLACK_TOKEN` | yes | User OAuth token (`xoxp-…`). Either spelling works — lookup is case- and separator-insensitive (see below), so `SLACK_TOKEN=`, `slack=`, `Slack-Token=` all match. |
-| `SLACK_USER_ID` | no — do not set | There is deliberately no such setting: `auth_test()` already returns your user id. A `slack` + `slack_user_id` pair trips the prefix match in `Config.secret`, so setting one can shadow the token lookup. |
+| `SLACK_USER_ID` | no — do not set | There is deliberately no such setting: `auth_test()` already returns your user id, and the name cannot shadow the token lookup — it is simply ignored. |
 
 The file is `~/.memcal/.env` (or `$MEMCAL_HOME/.env` when `MEMCAL_HOME` is set).
 Memcal loads `.env` from three paths — `<checkout>/.env`, then `$HOME/.env`, then
@@ -90,9 +97,8 @@ variable still answers — but a short key never satisfies a long lookup.
 
 ## Login + verify
 
-There is no interactive login. Verify with:
-
 ```bash
+memcal login slack
 memcal sources
 ```
 
@@ -158,8 +164,8 @@ How to read it:
   when the budget or round cap stopped the run before exhaustion.
 - `42 conversations, 30 with anything new` — the listing found 42 readable
   conversations; 30 had no watermark yet-anew or a newer message than the watermark.
-  Conversations whose listing already reports the watermarked newest id cost no
-  request at all.
+  The listing carries no newest-message id, so every listed conversation costs one
+  history call (unlike Telegram's newest-id shortcut).
 - `12 dormant skipped on initial load` — see below. Only appears when nonzero.
 
 Then collect everything and run a pass as usual:
@@ -187,11 +193,12 @@ from its own per-conversation watermark (`slack.<channel_id>` → Slack `ts`).
   `stopped at 25 rounds with more waiting — run again, or raise --rounds` when the
   cap is hit. Multiple rounds print `caught up over N rounds`.
 - **Paging inside one conversation.** Slack returns `conversations.history`
-  newest-first with `limit=200` per page. memcal pages up to 50 pages (≈10k
-  messages) per conversation per round, sorts oldest-first, and hands back only the
-  oldest `want` — returning just the first page would archive the newest 200 and
-  strand older backlog behind the watermark forever. Past 10k, the next round
-  continues from the advanced watermark.
+  newest-first with `limit=200` per page. memcal pages to cursor exhaustion,
+  sorts oldest-first, and hands back only the oldest `want` (at most
+  `min(limit, 200)` per conversation per round) — returning just the first page
+  would archive the newest 200 and strand older backlog behind the watermark
+  forever. The next round continues from the advanced watermark. There is no page
+  cap.
 - **Re-runs.** Idempotent. The watermark advances in platform order (`ts` as float),
   so a partial round cannot skip past messages; already-archived
   `(slack, <channel>:<ts>)` rows deduplicate. A second run with nothing new reads
@@ -229,7 +236,7 @@ the round continues.
 
 ## Troubleshooting
 
-1. **`slack: no Slack token. Add \`slack=xoxp-...\` to memcal/.env …`** — no key
+1. **`slack: no Slack token — run `memcal login slack``** — no key
    matched `SLACK_TOKEN`/`slack` in the merged `.env` or environment. Check the file
    path (`~/.memcal/.env`, or `$MEMCAL_HOME/.env`), one `key=value` per line, no
    quotes needed. Run `memcal sources` first — it shows the same message.
@@ -276,12 +283,14 @@ the new User OAuth Token.
 
 **Will a re-run duplicate everything?**
 No. Archive rows deduplicate on `(stream, external_id)` = `(slack,
-<channel>:<ts>)`, and per-conversation watermarks mean unchanged conversations cost
-zero history calls on the next run.
+<channel>:<ts>)`, and per-conversation watermarks resume forward — but the
+listing carries no newest-message id, so every listed conversation still costs
+one history call to confirm nothing is new.
 
 **Does memcal read my whole Slack history on day one?**
 Almost: every non-dormant conversation (active within 30 days) is read from the
-oldest available message, up to ~10k messages per conversation per round, across up
+oldest available message, keeping the oldest `want` (page 200, bounded by
+`--limit`) per conversation per round, across up
 to 25 rounds by default. Dormant chats are skipped until they speak again. Old lines
 are still archived and searchable; only the last 30 days (`spool_horizon_days`) are
 queued for the model.
