@@ -49,12 +49,10 @@ Link `signal-cli` as a device. On the phone: Signal → Settings → Linked devi
 **Link New Device**, then scan the QR code this prints:
 
 ```bash
-signal-cli link -n memcal
+memcal login signal
 ```
 
-There is no `memcal login signal` step — the link is the login. (`memcal login
-signal` answers `<name> needs no interactive login` for sources without an
-interactive `setup()`; Signal is one of them.)
+(`signal-cli link -n memcal` run by hand works identically.)
 
 If `signal-cli` holds several accounts, choose one in `~/.memcal/.env`:
 
@@ -100,7 +98,7 @@ Expected failure shapes:
 
 ```text
 -- signal        Signal DMs and groups (signal-cli, linked device)
-   no linked account — run `signal-cli link -n memcal`
+   no linked account — run `memcal login signal`
 ```
 
 ## First ingest
@@ -226,8 +224,8 @@ subset. One home per linked account; pick it with `signal_account` if the machin
 links several numbers.
 
 **Is `memcal login signal` a thing?**
-No. Linking (`signal-cli link -n memcal` + phone scan) is the login, and `memcal
-sources` is the verification. There is no interactive `setup()` on this source.
+Yes — it prints the link QR and runs the link step. `memcal sources` is the
+verification.
 
 ## Safety
 
