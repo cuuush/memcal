@@ -290,14 +290,19 @@ class SlackSource(PolledSource):
         want = min(limit, PAGE)
         oldest: deque = deque(maxlen=want)
         cursor = None
+        seen_cursors: set[str] = set()
         while True:
             page = client.conversations_history(
                 channel=conversation.id, oldest=since, limit=PAGE,
                 inclusive=False, cursor=cursor)
             oldest.extend(m for m in _items(page, "messages") if isinstance(m, dict))
             cursor = _next_cursor(page)
-            if not cursor:
+            # Terminate on the end of the history, or on a cursor Slack has already
+            # handed back — a repeat is an API loop, not more pages, and without this
+            # guard the unbounded paging above would spin forever on one.
+            if not cursor or cursor in seen_cursors:
                 break
+            seen_cursors.add(cursor)
         return sorted(oldest, key=lambda m: _float(m.get("ts"), 0.0))
 
     def normalize(self, raw: dict, conversation: Conversation) -> Message | None:
