@@ -94,6 +94,10 @@ class TestHermesProvider(unittest.TestCase):
         provider.initialize("test", hermes_home="x", platform="cli", agent_context=context)
         return provider
 
+    def tearDown(self):
+        from memcal import db
+        db.set_today(None)
+
     def test_it_satisfies_the_abc(self):
         sys.path.insert(0, str(HERMES))
         from agent.memory_provider import MemoryProvider
@@ -312,22 +316,75 @@ class TestHermesProvider(unittest.TestCase):
         provider.on_session_switch("test-2")
         self.assertIn("Session boundary snapshot", provider.prefetch("hi"))
 
+    def test_concurrent_sessions_each_get_the_snapshot(self):
+        # Same DB state, two live sessions: B's first prefetch must not be
+        # suppressed by A's emit.
+        provider = self._ready()
+        from memcal import brief, config, db, todos
+        cfg = config.load(self.tmp.name)
+        conn = db.open_db(cfg.db_path)
+        todos.open_todo(conn, "Concurrent sessions snapshot")
+        brief.write(conn, cfg)
+        conn.close()
+
+        first_a = provider.prefetch("what is coming up?", session_id="sess-A")
+        self.assertIn("MEMCAL SNAPSHOT", first_a)
+        first_b = provider.prefetch("what is coming up?", session_id="sess-B")
+        self.assertIn("MEMCAL SNAPSHOT", first_b)
+        self.assertIn("Concurrent sessions snapshot", first_b)
+        # Per-session suppression still holds on the repeat.
+        self.assertEqual(provider.prefetch("again?", session_id="sess-A"), "")
+        self.assertEqual(provider.prefetch("again?", session_id="sess-B"), "")
+
+    def test_resume_branch_does_not_duplicate_the_snapshot(self):
+        provider = self._ready()
+        from memcal import brief, config, db, todos
+        cfg = config.load(self.tmp.name)
+        conn = db.open_db(cfg.db_path)
+        todos.open_todo(conn, "Resume branch snapshot")
+        brief.write(conn, cfg)
+        conn.close()
+
+        self.assertIn("Resume branch snapshot", provider.prefetch("hi"))
+        self.assertEqual(provider.prefetch("again"), "")
+        # Branch continuing the same conversation inherits suppression.
+        provider.on_session_switch("test-branch", parent_session_id="test",
+                                   reset=False)
+        self.assertEqual(provider.prefetch("hi again"), "")
+        # A genuine restart re-emits.
+        provider.on_session_switch("test-fresh", reset=True)
+        self.assertIn("Resume branch snapshot", provider.prefetch("hi"))
+        # And an end->start bracket without a switch re-emits too.
+        self.assertEqual(provider.prefetch("again"), "")
+        provider.on_session_end([])
+        self.assertIn("Resume branch snapshot", provider.prefetch("hi"))
+
     def test_day_rollover_turns_the_snapshot_over(self):
         # The unchanged-turn gate hashes only the snapshot body, so a suppressed
         # turn leaves the older-stamped copy authoritative. That is safe only
         # because `brief.render` is deterministic per (db state, date, due
         # reminders): a day rollover always changes the body and re-triggers.
-        from memcal import brief, config, db
+        # Exercise the gate itself, not just the render: prefetch, suppress,
+        # roll the clock a day, and prefetch again.
         from datetime import timedelta
-        cfg = config.load(self.tmp.name)
-        conn = db.open_db(cfg.db_path)
-        try:
-            today = db.today()
-            first = brief.render(conn, cfg, ref=today).strip()
-            second = brief.render(conn, cfg, ref=today + timedelta(days=1)).strip()
-        finally:
-            conn.close()
-        self.assertNotEqual(first, second)
+        provider = self._ready()
+        # Import after `_ready`: initializing the provider reloads memcal when
+        # the source turned over, so an earlier import would pin an orphaned
+        # clock the provider no longer reads.
+        from memcal import db
+        start = db.today()
+        db.set_today(start)
+        self.addCleanup(db.set_today, None)
+
+        first = provider.prefetch("what is coming up?")
+        self.assertIn("MEMCAL SNAPSHOT", first)
+        # Nothing changed between turns → no new snapshot block.
+        self.assertEqual(provider.prefetch("still there?"), "")
+
+        db.set_today(start + timedelta(days=1))
+        third = provider.prefetch("and now?")
+        self.assertIn("MEMCAL SNAPSHOT", third)
+        self.assertNotEqual(first, third)
 
     def test_prompt_routes_real_calendar_writes_to_ical(self):
         block = self._ready().system_prompt_block()

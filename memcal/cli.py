@@ -974,7 +974,11 @@ def cmd_reminders(args) -> int:
             ok, message = ical.request_reminders_access()
         else:
             payload = ical._reminder_call("status", name or "")
-            ok = payload.get("status") in ical.EK_FULL_ACCESS
+            try:
+                reminder_status = int(payload.get("status") or 0)
+            except (TypeError, ValueError):
+                reminder_status = 0
+            ok = reminder_status in ical.EK_FULL_ACCESS
             message = ("Reminders access granted" if ok else
                        f"Reminders access not granted (status {payload.get('status')}) — "
                        "run `memcal reminders setup --yes`")
@@ -1001,10 +1005,21 @@ def cmd_ical(args) -> int:
             ok, message = ical.account_status(cfg)
         else:
             ok, message = ical.permission_status()
+        # Only a real EventKit check stamps EventKit verification: `where` with
+        # publishing off answers without touching EventKit at all, and the bare
+        # probe checks the Apple Events path instead.
+        checked_eventkit = args.ek == "request" or (
+            args.ek == "where" and bool((cfg.publish_calendar or "").strip()))
         if ok:
             db.set_meta(conn, f"ical.permission.{args.context}", db.now())
-            if args.ek:
+            if checked_eventkit:
                 db.set_meta(conn, "ical.eventkit.verified", db.now())
+        elif checked_eventkit:
+            # A real check just ran and failed — access was revoked or never
+            # granted — so drop the stamp rather than trusting it to its TTL.
+            conn.execute("DELETE FROM meta WHERE key = ?",
+                         ("ical.eventkit.verified",))
+            conn.commit()
         if args.result:
             from pathlib import Path
             Path(args.result).write_text(
@@ -1017,7 +1032,7 @@ def cmd_ical(args) -> int:
 
     if args.action == "account":
         # Via the launchd identity: in-process this checks the terminal's.
-        ok, message = schedule.eventkit_call(cfg, "where", timeout=60)
+        ok, message = schedule.eventkit_call(cfg, "where", timeout=75)
         print(("ok " if ok else "-- ") + message)
         conn.close()
         return 0 if ok else 1
@@ -1099,7 +1114,9 @@ def cmd_ical(args) -> int:
         granted, message = schedule.eventkit_call(cfg, "request", timeout=90)
         print(("ok " if granted else "-- ") + message)
         if granted:
-            where_ok, where = schedule.eventkit_call(cfg, "where", timeout=60)
+            # 75 > the inner 60s `_account_call`, itself over the 45s JXA bound:
+            # a slow answer reports instead of racing the inner call.
+            where_ok, where = schedule.eventkit_call(cfg, "where", timeout=75)
             print(("ok " if where_ok else "-- ") + where)
         ok = ok and granted
     conn.close()
@@ -1755,13 +1772,18 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
     else:
         # Verified-or-nothing, deliberately: a live in-terminal EventKit check would
         # test the *terminal's* TCC identity and fail even when memcal holds full
-        # access, so doctor reads the stamp setup left instead of re-checking.
-        ek = db.get_meta(conn, "ical.eventkit.verified")
-        if ek:
-            add("Calendar", "account", OK, f"full EventKit access verified {ek}",
+        # access, so doctor reads the stamp setup left instead of re-checking. The
+        # stamp expires: a grant remembered from long ago says nothing about today.
+        fresh, detail = ical.eventkit_verified(conn)
+        if fresh:
+            add("Calendar", "account", OK, f"full EventKit access verified {detail}",
                 fix="")
-        else:
+        elif detail == "not verified":
             add("Calendar", "account", FAIL, "EventKit access not verified as memcal",
+                fix="memcal ical setup       # grants access; migrate after")
+        else:
+            add("Calendar", "account", FAIL,
+                f"EventKit access {detail} — re-run to confirm memcal still holds it",
                 fix="memcal ical setup       # grants access; migrate after")
         # Rows that should be on the real calendar and are not. This is the check that
         # would have caught the tutoring series publishing without its join link — not by
