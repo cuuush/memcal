@@ -230,8 +230,9 @@ in `load.ingest_day` before that day's dream — the order it happens in real li
 ### 22. An emoji can belong to the plan — `reaction-context`
 - **D1** Jose sends only `👀`; six minutes later the group starts scheduling board
   game night.
-- **Must:** the emoji remain recorded as `trivial` in the immutable gate audit, but be
-  pulled into the same bundle once the substantive scheduling line arrives.
+- **Must:** the emoji be recorded as `all-of` in the gate audit (chat passes in
+  full, issue #31) and land in the same bundle once the substantive scheduling
+  line arrives.
 
 ### 23. A terse event keeps its association and source — `aspca-context`
 - **D1** a Doggo Park WhatsApp group says the ASPCA mobile clinic is at their run,

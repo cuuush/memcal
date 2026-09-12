@@ -3409,7 +3409,7 @@ class TestWhatsApp(Base):
         report = whatsapp.ingest(self.conn, self.cfg, db_path=path)
         self.assertIsNone(report.error)
         self.assertEqual(report.archived, 2)
-        self.assertEqual(report.passed, 1, "only the temporal line should pass the gate")
+        self.assertEqual(report.passed, 2, "chat passes in full per issue #31 — even 'haha'")
 
     def test_the_sender_in_a_group_is_the_member_not_the_group(self):
         identity.link(self.conn, "+19175550001", "Mum")
