@@ -24,7 +24,8 @@ from .dream import retry as dream_retry
 
 PAGE = Path(__file__).with_name("webui.html")
 STATIC_DIR = Path(__file__).with_name("static")
-STATIC_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
+STATIC_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+                ".png": "image/png"}
 MAX_REQUEST_BYTES = 64 * 1024
 CSRF_COOKIE = "memcal_csrf"
 

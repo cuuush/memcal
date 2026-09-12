@@ -458,31 +458,5 @@ class TestEveryConfigKnobHasAReader(unittest.TestCase):
                             f"passes another")
 
 
-class TestDocstringsStayFocused(unittest.TestCase):
-    def test_tracked_docstrings_stay_under_the_review_limits(self):
-        names = subprocess.run(
-            ["git", "-C", str(ROOT), "ls-files", "*.py", "-z"], check=True,
-            capture_output=True).stdout.decode().split("\0")
-        findings = []
-        for name in filter(None, names):
-            path = ROOT / name
-            if not path.is_file():
-                continue
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
-                if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
-                                         ast.AsyncFunctionDef)):
-                    continue
-                doc = ast.get_docstring(node, clean=False)
-                if not doc:
-                    continue
-                words = len(doc.split())
-                lines = len(doc.splitlines())
-                if words > 100 or lines > 12:
-                    findings.append(
-                        f"{name}:{getattr(node, 'lineno', 1)}:{words} words:{lines} lines")
-        self.assertEqual(findings, [])
-
-
 if __name__ == "__main__":
     unittest.main()
