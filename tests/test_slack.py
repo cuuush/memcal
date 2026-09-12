@@ -244,5 +244,53 @@ class TestSlackCliProvisioning(unittest.TestCase):
         save.assert_called_once_with(cfg, "SLACK_TOKEN", "xoxp-new")
 
 
+class TestSlackHistoryReachesTheOldest(unittest.TestCase):
+    """history() must page to the true oldest, never stop at a fixed cap and let the
+    watermark leap past unread older messages."""
+
+    def fake_client(self, messages):
+        # `messages` is the full channel, newest-first (ts descending). Serve it in
+        # pages the size of the `limit` requested, honouring `oldest` and a cursor that
+        # is a simple offset — the shape conversations_history has.
+        from types import SimpleNamespace
+        calls = {"pages": 0}
+
+        def history(channel, oldest=None, limit=None, inclusive=False, cursor=None):
+            calls["pages"] += 1
+            after = [m for m in messages
+                     if oldest is None or float(m["ts"]) > float(oldest)]
+            start = int(cursor or 0)
+            chunk = after[start:start + int(limit)]
+            nxt = start + int(limit)
+            meta = ({"response_metadata": {"next_cursor": str(nxt)}}
+                    if nxt < len(after) else {})
+            return SimpleNamespace(data={"messages": chunk, **meta})
+
+        return SimpleNamespace(conversations_history=history), calls
+
+    def test_it_pages_past_any_fixed_cap_to_the_true_oldest(self):
+        from unittest import mock
+        chat = Conversation(id="C1", name="Acme #general", is_group=True)
+        # More pages than the old hard 50-page cap, at a small page size.
+        with mock.patch.object(slack, "PAGE", 2):
+            messages = [{"ts": f"{n}.0000"} for n in range(102, 0, -1)]  # 102 down to 1
+            client, calls = self.fake_client(messages)
+            got = slack.SlackSource().history(client, chat, None, limit=2)
+        # The two oldest (ts 1, 2), in ascending order — not ts 3,4 that a 50-page cap
+        # over the newest 100 would have surfaced.
+        self.assertEqual([m["ts"] for m in got], ["1.0000", "2.0000"])
+        self.assertEqual(calls["pages"], 51)          # 102 / 2, every page walked
+
+    def test_incremental_reads_only_what_is_newer_than_the_watermark(self):
+        from unittest import mock
+        chat = Conversation(id="C1", name="Acme #general", is_group=True)
+        with mock.patch.object(slack, "PAGE", 200):
+            messages = [{"ts": f"{n}.0000"} for n in range(5, 0, -1)]  # 5 down to 1
+            client, _calls = self.fake_client(messages)
+            got = slack.SlackSource().history(client, chat, "3.0000", limit=200)
+        # Only ts 4 and 5 are newer than the watermark, oldest-first.
+        self.assertEqual([m["ts"] for m in got], ["4.0000", "5.0000"])
+
+
 if __name__ == "__main__":
     unittest.main()
