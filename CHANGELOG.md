@@ -19,6 +19,9 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   Hermes and the CLI: saying a to-do is done closes it instead of answering "no
   matching open question". Hermes `ADD_TODO` accepts `done=true` to close, mirroring
   `memcal_todo(done=true)` on MCP, which previously could only open.
+- Dream `--dry-run` prices multi-wave cold starts as multi-wave: the shared prompt
+  prefix is stable within a wave and rebuilt across waves by design, and the estimate
+  now counts each wave's cache writes instead of quoting a single wave.
 - `memcal ical setup` accepts full Calendar access on macOS 14+, where EventKit
   reports it as `4` rather than the `3` that was the only value checked — a correct
   grant read as "no access" forever. Add-Only is detected as its own state with the

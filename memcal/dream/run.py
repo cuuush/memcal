@@ -224,15 +224,21 @@ def _dream(
         prefix = propose_stage.build_prefix(conn, cfg)
         groups = propose_stage.pack(cfg, bundles, conn)
         prefix_tokens = textclean.estimate_tokens(prefix)
+        # The live path splits cold starts into waves (_wave_count) and rebuilds
+        # the prefix once per wave, so each wave pays its own cache writes. Price
+        # the run that will actually happen, not a single-wave packing of it.
+        waves = _wave_count(cfg, mode, len(bundles))
         # Whether the shared prefix is actually cached is a property of the endpoint,
         # not of the packing. Saying "cached" for a model that has no prompt cache
         # under-reports the bill by the prefix times every request, which on this
         # backlog is most of the input.
         cached = cfg.propose_model not in llm.NO_PROMPT_CACHE
+        wave_note = f" in {waves} waves" if waves > 1 else ""
         result.log.append(
-            f"{len(bundles)} bundles pack into {len(groups)} request(s); "
+            f"{len(bundles)} bundles pack into {len(groups)} request(s){wave_note}; "
             f"shared prefix ~{prefix_tokens} tokens, "
-            + ("cached across all of them" if cached
+            + ("cached within each wave" if cached and waves > 1
+               else "cached across all of them" if cached
                else f"re-sent with each ({cfg.propose_model} has no prompt cache)"))
         total = prefix_tokens * len(groups)
         suffix_total = 0
@@ -262,7 +268,8 @@ def _dream(
             suffix_tokens=suffix_total * turns,
             output_tokens=sum(propose_stage.model_ceiling(cfg, group)
                               for group in groups) * turns,
-            requests=len(groups) * turns, max_parallel=cfg.max_parallel)
+            requests=len(groups) * turns, max_parallel=cfg.max_parallel,
+            waves=waves)
         if estimate["priced"]:
             result.log.append(
                 f"~${estimate['input']:.4f} input; up to "
