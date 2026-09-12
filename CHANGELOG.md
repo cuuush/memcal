@@ -15,6 +15,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `memcal_answer` on the MCP surface resolves to-dos as well as questions, matching
+  Hermes and the CLI: saying a to-do is done closes it instead of answering "no
+  matching open question". Hermes `ADD_TODO` accepts `done=true` to close, mirroring
+  `memcal_todo(done=true)` on MCP, which previously could only open.
 - `memcal ical setup` accepts full Calendar access on macOS 14+, where EventKit
   reports it as `4` rather than the `3` that was the only value checked — a correct
   grant read as "no access" forever. Add-Only is detected as its own state with the
