@@ -267,8 +267,9 @@ class TestReportedMemoryFailures(Base):
             """SELECT a.gated, a.gate_reason, s.entity FROM archive a
                  LEFT JOIN spool s ON s.archive_id = a.id WHERE a.id = ?""", (first,)
         ).fetchone()
-        self.assertEqual((row["gated"], row["gate_reason"]), (0, "trivial"),
-                         "the archive keeps the gate's honest original decision")
+        self.assertEqual((row["gated"], row["gate_reason"]), (1, "all-of:groupme"),
+                          "chat passes in full per issue #31 — even a bare reaction; "
+                          "the later context only decides the bundle")
         self.assertEqual(row["entity"], "thread:groupme:PSK IRL BGN",
                          "the later context, not the emoji alone, makes it model input")
 
