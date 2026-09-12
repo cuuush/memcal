@@ -19,6 +19,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   Hermes and the CLI: saying a to-do is done closes it instead of answering "no
   matching open question". Hermes `ADD_TODO` accepts `done=true` to close, mirroring
   `memcal_todo(done=true)` on MCP, which previously could only open.
+- iCal ingestion no longer creates a second event row for a Siri Suggestions shadow
+  copy: a different Apple UID with the exact same title on the same date corroborates
+  the existing row and links the second calendar identity to it. Near-duplicate
+  titles still stay separate rows.
 - Dream `--dry-run` prices multi-wave cold starts as multi-wave: the shared prompt
   prefix is stable within a wave and rebuilt across waves by design, and the estimate
   now counts each wave's cache writes instead of quoting a single wave.
