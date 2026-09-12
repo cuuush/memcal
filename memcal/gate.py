@@ -198,9 +198,27 @@ def is_automated(address: str) -> bool:
                 or _sending_subdomain(host))
 
 
-# Streams read in full, no content test at all. Short replies carry no temporal
-# token of their own, so filtering them loses answers.
-PASS_ALL_STREAMS = frozenset(("imessage",))
+# Chat is high-signal and passes in full (issue #31) — do not
+# filter chat streams. Short replies ("yeah", "can't that night") carry no
+# temporal token of their own, so content-gating them only loses answers, for
+# ~9% token cost. The gate's actual target is email: a decade of newsletters
+# and retail mail, which stays content-gated via `gate_email` (sender priority,
+# never permanent exclusion) — see GATED_STREAMS. `ical` is calendar, not chat:
+# it never reaches this content test (an explicit `calendar-structured` verdict
+# at the call site), so it sits in neither set and is unchanged here.
+#
+# GATED_STREAMS names the one gated transport: `email` is the stream name the
+# Proton bridge writes, `proton` the builtin module name for the same mail.
+GATED_STREAMS = frozenset(("email", "proton"))
+PASS_ALL_STREAMS = frozenset((
+    "bluebubbles",
+    "imessage",
+    "whatsapp",
+    "groupme",
+    "slack",
+    "telegram",
+    "signal",
+))
 
 # Anyone in Contacts, one-to-one. A saved contact outranks every content test.
 # Group chats still require a content signal.
@@ -256,6 +274,9 @@ def gate_message(
         return Verdict(False, "task-scam")
 
     if stream in PASS_ALL_STREAMS:
+        # Chat passes in full (issue #31), including a bare reaction on its own.
+        # A lone thumbs-up an hour later with no convo around it is still
+        # someone saying something.
         return Verdict(True, f"all-of:{stream}")
     if person and person != "me" and not is_group:
         return Verdict(True, KNOWN_CONTACT)

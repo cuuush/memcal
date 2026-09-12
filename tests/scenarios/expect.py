@@ -995,8 +995,8 @@ CHECKS: list[Check] = [
     Check("d1.car-not-standing", "25 transient context", 1,
           lambda c: (not c.standing(r"quinn.*(?:borrow|use).*car"),
                      f"standing: {[r['value'] for r in c.standing(r'quinn|car')]}")),
-    Check("d1.reaction-without-context", "28 reaction counterexample", 1,
-          lambda c: (len(c.spooled(r"^👀$")) == 1,
+    Check("d1.reaction-without-context", "28 lone reaction still spools", 1,
+          lambda c: (len(c.spooled(r"^👀$")) == 2,
                      f"eyes spooled = "
                      f"{[(r['thread'], r['gate_reason']) for r in c.spooled(r'^👀$')]}")),
     Check("d1.ticket", "33 confirmation source", 1,
