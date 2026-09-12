@@ -1388,6 +1388,15 @@ class TestACapacityRefusalWasTreatedAsAFault(Base):
     of a benchmark run, exhausted the budget, and four bundles were left unread — which
     grades identically to the model reading the traffic and understanding none of it."""
 
+    def setUp(self):
+        super().setUp()
+        # The waiting itself is not under test and a real backoff curve would put
+        # ~25 seconds of sleep in the suite. Neutralise it so the *loop* is
+        # exercised (same pattern as TestARateLimit... below).
+        from memcal import llm
+        real_sleep, llm.time.sleep = llm.time.sleep, lambda _s: None
+        self.addCleanup(setattr, llm.time, "sleep", real_sleep)
+
     def _client(self, status, *, headers=None):
         import io
         import urllib.error
@@ -3303,6 +3312,8 @@ class TestARateLimitArrivedAsASuccessAndWasNeverRetried(Base):
         answer = {"choices": [{"message": {"content": "ok"}}]}
         client, calls, _llm = self._client(
             lambda n: self.UPSTREAM if n < 3 else answer)
+        real_sleep, _llm.time.sleep = _llm.time.sleep, lambda _s: None
+        self.addCleanup(setattr, _llm.time, "sleep", real_sleep)
         self.assertEqual(client._post("/x", {}, capacity_budget=30.0), answer)
         self.assertEqual(calls["n"], 3)
 
