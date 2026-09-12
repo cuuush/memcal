@@ -16,7 +16,9 @@ rest.
 | Calendar | [Setup](calendar.md) | macOS permission via `memcal ical setup` |
 | Agent conversations | [Setup](conversations.md) | None — flows from the integrations |
 
-Credentials live in `~/.memcal/.env` (one `key=value` per line). `memcal sources`
+Credentials live in `~/.memcal/.env` (one `key=value` per line) — you never
+edit it by hand for these: each `memcal login` pastes, validates, and saves
+for you, asking before it overwrites anything. `memcal sources`
 reports what each source still needs; `memcal doctor` checks the whole setup.
 
 ## Comparison

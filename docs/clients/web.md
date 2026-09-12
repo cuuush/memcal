@@ -21,5 +21,11 @@ The **Settings tab** is the full list of what memcal can be told. Saving writes
 `~/.memcal/.env` — leaving hand-written lines alone — and applies to the running
 process immediately. Clearing a field unsets the key and restores the built-in
 default. Credentials report presence only, never values. Model fields open onto
-priced provider models; executable fields offer resolved paths; calendar fields
-offer calendars memcal has read.
+the models memcal can price for the provider you have chosen — named the way
+that provider names them, with their rates — plus any this store has already
+run. Picking a provider re-asks before you save, so the list follows the choice
+you are making; one control sets the propose, sweep, and merge models together.
+Model fields reject names known to belong to another provider, and changing
+providers resets such fields to the new default. Executable fields offer
+resolved paths; calendar fields offer calendars memcal has read. The tab also
+reports what each source still needs and what the nightly job is doing.

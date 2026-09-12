@@ -119,3 +119,11 @@ integrations; anything MCP-speaking works through the generic server.
 - [**Hosting**](hosting/installation.md) — install, configure, schedule, publish.
 - [**Evaluation**](evaluation/index.md) — how memory quality is measured, from
   deterministic checks to full seven-day lives.
+
+## Status
+
+Memcal is experimental but usable. The local archive, typed stores, source
+connectors, CLI, web UI, MCP server, Hermes integration, and OpenClaw
+integration are implemented. Extraction accuracy remains the main frontier:
+the architecture can preserve and reconcile only what the configured model
+notices correctly.

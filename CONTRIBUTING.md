@@ -49,7 +49,8 @@ Key requirements:
 
 ## Documentation
 
-User-facing setup and operation live in `README.md`. Keep durable explanations there rather
+User-facing setup and operation live in `docs/` (published to GitHub Pages)
+with a short pointer in `README.md`. Keep durable explanations there rather
 than in isolated logs or dated narrative sections.
 
 ## Citing code from an issue or a report
