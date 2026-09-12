@@ -44,6 +44,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   replies ("yeah", "can't that night") no longer depend on carrying a temporal
   token. Bare emoji-only reactions pass too: a lone thumbs-up with no convo
   around it is still someone saying something.
+- Schedule rows written through the live path record a real origin pointer
+  (turn/session/thread) in `source` instead of the writer identity `agent:live`.
 - `memcal ical setup` accepts full Calendar access on macOS 14+, where EventKit
   reports it as `4` rather than the `3` that was the only value checked — a correct
   grant read as "no access" forever. Add-Only is detected as its own state with the

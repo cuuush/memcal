@@ -2840,7 +2840,7 @@ class TestAnAgentCanReachTheMessageBehindARow(Base):
             (event.key,)).fetchall()
         self.assertTrue(rows, "a write the user made is worth tracing too")
         self.assertEqual(rows[0]["stage"], "live")
-        self.assertEqual(rows[0]["entity"], "agent:live")
+        self.assertEqual(rows[0]["entity"], live.LIVE_DIRECT_SOURCE)
 
 
 class TestTraceRecording(Base):
