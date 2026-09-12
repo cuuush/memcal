@@ -171,6 +171,50 @@ class TestReminderDeliveryAppendsOneSessionTurn(unittest.TestCase):
 
 
 @unittest.skipUnless(HERMES.is_dir(), "Hermes not installed")
+class TestReminderRowPersistsWhenThereIsNothingToMark(unittest.TestCase):
+    """A payload whose entries carry no key marks nothing, but the archive row
+    must still commit. Reporting `delivered` while the row rolls back on close —
+    because the commit was tied to the marking loop — is the bug this guards."""
+
+    def setUp(self):
+        from memcal import config, db
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = str(Path(self.tmp.name))
+        self.cfg = config.load(self.home)
+        self.cfg.ensure_dirs()
+        self.conn = db.open_db(self.cfg.db_path)
+        db.set_today("2026-08-12T09:00:01")
+        self.session = "chat-session-keyless"
+
+    def tearDown(self):
+        import contextlib
+        from memcal import db
+        with contextlib.suppress(Exception):
+            self.conn.close()
+        db.set_today(None)
+        self.tmp.cleanup()
+
+    def test_keyless_payload_row_survives_a_connection_close(self):
+        from memcal import db
+        module = _load_delivery()
+        payload = {"reminders": [{"text": "call the vet", "line": '"call the vet"'}],
+                   "asOf": "2026-08-12T09:00"}
+        result = module.deliver_due_reminders(self.conn, self.session, payload)
+        self.assertTrue(result["delivered"])
+        self.assertEqual(result["keys"], [], "this payload has no keys to mark")
+        thread = f"hermes:{self.session}"
+        self.conn.close()
+        # Only committed rows survive a fresh connection to the same file.
+        fresh = db.open_db(self.cfg.db_path)
+        try:
+            n = fresh.execute("SELECT count(*) AS n FROM archive WHERE thread = ?",
+                              (thread,)).fetchone()["n"]
+        finally:
+            fresh.close()
+        self.assertEqual(n, 1, "the reminder row must be committed, not rolled back")
+
+
+@unittest.skipUnless(HERMES.is_dir(), "Hermes not installed")
 class TestReminderDeliveryAppendsNothingWhenNothingDue(unittest.TestCase):
     """The wakeAgent-false path appends no turn anywhere."""
 

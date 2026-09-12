@@ -185,11 +185,16 @@ class _ProposeBreaker:
             raise self._refuse()
         try:
             reply = self._client.complete(*args, **kwargs)
-        except propose_stage.Truncated:
-            raise
         except Exception:
             self._failed()
             raise
+        # A truncated reply is a packing problem, not a dead provider: the client
+        # returned and the network is alive. It stays neutral — neither counted as a
+        # failure nor allowed to reset a real failure streak. Truncation is a flag on
+        # the returned reply (raised as `propose_stage.Truncated` upstream, in the
+        # worker, never out of `complete`), so it is read here, not caught.
+        if getattr(reply, "truncated", False):
+            return reply
         self._succeeded()
         return reply
 

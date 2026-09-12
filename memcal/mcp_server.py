@@ -453,6 +453,19 @@ class Server:
                                 session_id=self.session),
             session=self.session)
 
+    def _close_todo_for_answer(self, which: str) -> bool:
+        """Close the to-do `memcal_answer` resolved, with a provenance stamp.
+
+        `live.close_todo` raises when nothing matches; here that is not an error —
+        it just means the needle was a question, not a to-do — so it maps to False
+        and `resolve` reports "no matching open question".
+        """
+        try:
+            live.close_todo(self.conn, self.cfg, which, origin=self.origin())
+            return True
+        except live.LiveError:
+            return False
+
     # ------------------------------------------------------------------ tools --
     def call(self, name: str, args: dict) -> str:
         if name == "memcal_brief":
@@ -578,10 +591,12 @@ class Server:
         if name == "memcal_answer":
             # Same verb as the Hermes surface and the CLI: a conversational close
             # resolves a question or a to-do, and an already-settled repeat counts.
-            # Stays outside WRITE_TOOLS like its Hermes twin — neither stamps an
-            # origin/action record for an answer.
-            ok, _kind = todos.resolve(self.conn, args.get("question", ""),
-                                      args.get("answer", ""))
+            # Answering a question stamps nothing (like its Hermes twin), but closing
+            # a to-do goes through `live.close_todo` so the closure carries the same
+            # origin/action record a `memcal_todo done` would — never a silent close.
+            ok, _kind = todos.resolve(
+                self.conn, args.get("question", ""), args.get("answer", ""),
+                close_todo=self._close_todo_for_answer)
             brief.write(self.conn, self.cfg)
             return "recorded" if ok else "no matching open question"
 

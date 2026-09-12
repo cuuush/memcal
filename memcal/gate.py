@@ -203,15 +203,14 @@ def is_automated(address: str) -> bool:
 # temporal token of their own, so content-gating them only loses answers, for
 # ~9% token cost. The gate's actual target is email: a decade of newsletters
 # and retail mail, which stays content-gated via `gate_email` (sender priority,
-# never permanent exclusion) — see GATED_STREAMS. `ical` is calendar, not chat:
-# it never reaches this content test (an explicit `calendar-structured` verdict
-# at the call site), so it sits in neither set and is unchanged here.
+# never permanent exclusion). `ical` is calendar, not chat: it never reaches
+# this content test (an explicit `calendar-structured` verdict at the call
+# site), so it sits outside this set and is unchanged here.
 #
-# GATED_STREAMS names the one gated transport: `email` is the stream name the
-# Proton bridge writes, `proton` the builtin module name for the same mail.
-GATED_STREAMS = frozenset(("email", "proton"))
+# One entry per stream name a source actually archives under: the iMessage
+# bridge (BlueBubbles) writes stream="imessage", so there is no "bluebubbles"
+# stream to list.
 PASS_ALL_STREAMS = frozenset((
-    "bluebubbles",
     "imessage",
     "whatsapp",
     "groupme",

@@ -1007,8 +1007,25 @@ class MemcalMemoryProvider(MemoryProvider):
                 for r in rows]})
 
         if tool_name == "memcal_answer":
-            from memcal import brief, todos
-            ok, kind = todos.resolve(conn, args.get("question", ""), args.get("answer", ""))
+            from memcal import brief, live, todos
+
+            def _close_todo(which: str) -> bool:
+                # A to-do closed while answering is still a change to the ledger, so
+                # it carries the same provenance a `memcal_todo done` would — the turn
+                # that caused it, and a completed-operation record. A miss just means
+                # the needle named a question, not a to-do.
+                origin = live.Origin.of(
+                    "hermes",
+                    [self._turn_archive_id] if self._turn_archive_id else [],
+                    session=self._session_id)
+                try:
+                    live.close_todo(conn, self._cfg, which, origin=origin)
+                    return True
+                except live.LiveError:
+                    return False
+
+            ok, kind = todos.resolve(conn, args.get("question", ""),
+                                     args.get("answer", ""), close_todo=_close_todo)
             if ok:
                 brief.write(conn, self._cfg)
                 if kind == "already":
@@ -1168,8 +1185,11 @@ def deliver_due_reminders(conn, session_id: str, payload, *,
     if mark:
         for key in keys:
             todos.mark_reminded(conn, key)
-    else:
-        conn.commit()
+    # Persist the archive row unconditionally. `archive.append` does not commit,
+    # and `mark_reminded` is what commits in the marking path — so a mark=True
+    # call with no keys (a payload whose entries carry none) would otherwise
+    # roll the row back on close while still reporting delivered.
+    conn.commit()
     return {"delivered": True, "wakeAgent": True, "archive_id": archive_id,
             "session_id": sid, "keys": keys, "turn": turn,
             "wakeText": turn["content"]}
