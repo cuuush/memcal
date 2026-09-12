@@ -398,7 +398,8 @@ ADD_TODO = {
         "Something the user said they would do. Short imperative, their words. Use "
         "wake_condition when it should wait on something ('Rowan is back from Italy') "
         "rather than on a date. Use event to link an obligation to an existing occasion; "
-        "it then expires when that event is over."),
+        "it then expires when that event is over. done=true closes one they say they have "
+        "finished — any distinctive words from it will find it."),
     "parameters": {
         "type": "object",
         "properties": {
@@ -408,6 +409,8 @@ ADD_TODO = {
                                "description": "what has to become true before asking"},
             "event": {"type": "string",
                       "description": "event E# handle, key, or distinctive words naming it"},
+            "done": {"type": "boolean",
+                     "description": "close the to-do named by text instead of opening one"},
             "remind": {
                 "type": "string",
                 "description": (
@@ -555,6 +558,13 @@ def _w_drop(live, conn, cfg, args, origin):
 
 
 def _w_todo(live, conn, cfg, args, origin):
+    if args.get("done"):
+        # Closing, not opening. Check first so a done=true call can never open
+        # a duplicate of the thing it was asked to close; mirrors memcal_todo
+        # done=true on the MCP surface. A miss raises through live.close_todo
+        # and is reported as an error, never stored.
+        todo = live.close_todo(conn, cfg, args.get("text", ""), origin=origin)
+        return {"closed": todo.text}, [("todo", todo.key, "closed")]
     # "yes"/"true" means *you pick the hour*; anything else is taken as an explicit time
     # and handed straight through. A model that writes "tomorrow morning" gets an error
     # naming what it needs rather than a reminder at a time nobody chose.
