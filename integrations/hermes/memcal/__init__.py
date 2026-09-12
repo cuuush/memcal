@@ -1071,6 +1071,110 @@ class MemcalMemoryProvider(MemoryProvider):
         return [str(self._home)]
 
 
+# --------------------------------------- reminder delivery (issue #56) --
+# Separate from the write tools above: this is the wake path, not a user
+# instruction. A due reminder is delivered AS a turn inside the chat session
+# transcript — an assistant message authored by the reminder/wake path — so
+# the next user reply ("yeah I'll do it tomorrow") has a referent in
+# context. It is never archived as the owner's own words (person "me" /
+# from_me True) and never as a fake user instruction; the archive row and
+# the turn metadata both record the reminder/wake origin.
+#
+# The outside-repo cron feeds this path with `tools/due_reminders.py
+# --format json`. See tools/README.md for the old command versus the new one.
+
+#: Role the reminder turn carries in the session transcript.
+REMINDER_ROLE = "assistant"
+#: Authorship recorded on the archive row and the turn metadata.
+REMINDER_ORIGIN = "memcal-reminder"
+#: Archive persona for the wake turn. Never "me": that name is the owner's.
+REMINDER_PERSON = "hermes"
+
+
+def build_reminder_turn(reminders, *, as_of: str = "") -> Optional[Dict[str, Any]]:
+    """Build the assistant turn that wakes the session, or None when nothing is due.
+
+    `reminders` is the `reminders` list from `due_reminders --format json`
+    (each entry carrying at least `text`, plus `line`/`key`/`kind`). The
+    returned turn keeps the todo/question keys in metadata so a follow-up
+    can map back without parsing prose; the content itself carries the
+    human-readable lines verbatim so the referent is in context.
+    """
+    items = list(reminders or [])
+    if not items:
+        return None
+    lines = [str(item.get("line") or f'"{item.get("text", "")}"') for item in items]
+    keys = [str(item.get("key") or "") for item in items if item.get("key")]
+    head = (f"Reminder — {len(items)} thing(s) came due"
+            + (f" (as of {as_of[:16]})" if as_of else "") + ":")
+    content = head + "\n" + "\n".join(lines)
+    return {
+        "role": REMINDER_ROLE,
+        "content": content,
+        "metadata": {
+            "origin": REMINDER_ORIGIN,
+            "wake": True,
+            "keys": keys,
+        },
+    }
+
+
+def deliver_due_reminders(conn, session_id: str, payload, *,
+                           mark: bool = True,
+                           transcript: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Append one reminder turn to the chat session and mark the poke delivered.
+
+    `payload` is the parsed `due_reminders --format json` document (or its
+    `reminders` list directly). Appends exactly one `agent`-stream archive
+    row in `hermes:<session>` with the reminder/wake authorship — never as
+    the user's words — and, when `transcript` is given, one assistant message
+    to that list (the in-test stand-in for the Hermes session transcript;
+    in production the caller hands the returned `wakeText` to the gateway
+    wake path so the agent turn runs inside the real session).
+
+    The row is archived but not spooled: the reminder restates store state
+    the dream pass already knows, so spooling it would re-extract old news
+    as new evidence. Marking happens after a successful append, so a failed
+    delivery does not snooze the reminder away.
+    """
+    if isinstance(payload, dict):
+        items = list(payload.get("reminders") or [])
+        as_of = str(payload.get("asOf") or "")
+    else:
+        items = list(payload or [])
+        as_of = ""
+    sid = (session_id or "").strip()
+    if not items:
+        return {"delivered": False, "reason": "nothing-due", "wakeAgent": False}
+    if not sid:
+        return {"delivered": False, "reason": "no-session", "wakeAgent": True}
+    turn = build_reminder_turn(items, as_of=as_of)
+    assert turn is not None  # non-empty items always build
+    from memcal import archive, db, todos                       # noqa: PLC0415
+    keys = list(turn["metadata"].get("keys") or [])
+    slug = hashlib.sha1(",".join(sorted(keys)).encode("utf-8")).hexdigest()[:12]
+    archive_id = archive.append(
+        conn, stream="agent",
+        external_id=f"hermes:{sid}:reminder:{slug}:{time.time_ns()}",
+        ts=db.now(), text=turn["content"], thread=f"hermes:{sid}",
+        person=REMINDER_PERSON, from_me=False, addressed_to="person",
+        meta={"session": sid, "origin": REMINDER_ORIGIN, "wake": True,
+              "keys": keys},
+        gated=False, gate_reason="reminder-wake",
+    )
+    if transcript is not None:
+        transcript.append({"role": turn["role"], "content": turn["content"],
+                           "metadata": dict(turn["metadata"])})
+    if mark:
+        for key in keys:
+            todos.mark_reminded(conn, key)
+    else:
+        conn.commit()
+    return {"delivered": True, "wakeAgent": True, "archive_id": archive_id,
+            "session_id": sid, "keys": keys, "turn": turn,
+            "wakeText": turn["content"]}
+
+
 def register(ctx) -> None:
     ctx.register_memory_provider(MemcalMemoryProvider())
 
