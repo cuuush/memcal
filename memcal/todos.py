@@ -328,29 +328,90 @@ def matching_event_proofs(conn: sqlite3.Connection, text: str) -> list[Todo]:
     return matched
 
 
-def check_wakes(conn: sqlite3.Connection, text_blob: str,
-                *, since: str | None = None) -> list[Todo]:
-    """Surface to-dos whose wake condition looks satisfied by new traffic."""
-    woken: list[Todo] = []
-    blob = (text_blob or "").lower()
+#: Content words ignored when nominating wake candidates. This stays permissive
+#: on purpose: it is recall, not judgement. Entailment — negation, delay,
+#: paraphrase — is decided by the model stage (`dream.wakes`), never here.
+WAKE_STOP = {"the", "is", "are", "back", "from", "when", "once", "about", "and", "to", "a", "an", "of", "has"}
+
+
+def _wake_words(condition: str) -> list[str]:
+    return [w for w in re.findall(r"[a-z']{3,}", (condition or "").lower())
+            if w not in WAKE_STOP]
+
+
+def _wake_threshold(words: list[str]) -> int:
+    return max(1, len(words) // 2)
+
+
+def _blob_matches(condition: str, blob: str) -> bool:
+    words = _wake_words(condition)
+    if not words or not blob:
+        return False
+    lowered = blob.lower()
+    return sum(1 for w in words if w in lowered) >= _wake_threshold(words)
+
+
+def wake_candidates(conn: sqlite3.Connection, text_blob: str,
+                    *, since: str | None = None) -> list[Todo]:
+    """Waiters whose condition shares words with `text_blob`, without waking any.
+
+    Permissive word overlap only. It cannot tell satisfaction from negation or
+    delay, so it nominates and never writes `woke_at`; confirmation belongs to
+    the semantic stage.
+    """
+    found: list[Todo] = []
+    blob = text_blob or ""
     if not blob:
-        return woken
-    stop = {"the", "is", "are", "back", "from", "when", "once", "about", "and", "to", "a", "an", "of", "has"}
+        return found
     for todo in open_items(conn):
         if not todo.wake_condition or todo.woke_at:
             continue
         if since and str(todo.opened_at or "") >= str(since):
             continue
-        words = [w for w in re.findall(r"[a-z']{3,}", todo.wake_condition.lower()) if w not in stop]
-        if not words:
+        if _blob_matches(todo.wake_condition, blob):
+            found.append(todo)
+    return found
+
+
+def find_wake_candidates(conn: sqlite3.Connection, bundles,
+                         *, since: str | None = None) -> list[tuple[Todo, object]]:
+    """`(todo, bundle)` pairs whose lines plausibly bear on the waiter's condition.
+
+    Per-bundle on purpose: words split across unrelated bundles must not jointly
+    satisfy a condition, so a whole-run blob is never the unit of matching.
+    No database write; confirmation belongs to the semantic stage.
+    """
+    pairs: list[tuple[Todo, object]] = []
+    for todo in open_items(conn):
+        if not todo.wake_condition or todo.woke_at:
             continue
-        if sum(1 for w in words if w in blob) >= max(1, len(words) // 2):
-            conn.execute("UPDATE todos SET woke_at = ?, updated_at = ? WHERE id = ?",
-                         (db.now(), db.now(), todo.id))
-            todo.woke_at = db.now()
-            woken.append(todo)
-    conn.commit()
-    return woken
+        if since and str(todo.opened_at or "") >= str(since):
+            continue
+        for bundle in bundles or ():
+            texts = [str(row["text"] or "") for row in (bundle.items or [])]
+            if texts and _blob_matches(todo.wake_condition, "\n".join(texts)):
+                pairs.append((todo, bundle))
+    return pairs
+
+
+def mark_woken(conn: sqlite3.Connection, todo: Todo) -> Todo:
+    """Record that a confirmed wake condition fired. Semantic stage only."""
+    stamp = db.now()
+    conn.execute("UPDATE todos SET woke_at = ?, updated_at = ? WHERE id = ?",
+                 (stamp, stamp, todo.id))
+    todo.woke_at = stamp
+    return todo
+
+
+def check_wakes(conn: sqlite3.Connection, text_blob: str,
+                *, since: str | None = None) -> list[Todo]:
+    """Permissive candidate pass over one blob. Does not write `woke_at`.
+
+    Kept for the single-utterance live path and older callers; the dream pass
+    nominates per-bundle pairs via `find_wake_candidates` and confirms them in
+    the semantic stage before anything wakes.
+    """
+    return wake_candidates(conn, text_blob, since=since)
 
 
 # ------------------------------------------------------------------ questions --

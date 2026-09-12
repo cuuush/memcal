@@ -1,0 +1,58 @@
+[
+  {
+    "name": "direct-return",
+    "category": "entailment",
+    "wake_condition": "Rowan is back from Italy",
+    "lines": ["Rowan Vale: just landed back from italy, jet lagged"],
+    "expected": true
+  },
+  {
+    "name": "paraphrase-jfk",
+    "category": "paraphrase",
+    "wake_condition": "Rowan is back from Italy",
+    "lines": ["Rowan Vale: landed at JFK this morning, back from Rome", "me: welcome home!"],
+    "expected": true
+  },
+  {
+    "name": "paraphrase-home",
+    "category": "paraphrase",
+    "wake_condition": "Rowan is back from Italy",
+    "lines": ["Rowan Vale: home at last, Italy was unreal"],
+    "expected": true
+  },
+  {
+    "name": "negation-not-back",
+    "category": "negation",
+    "wake_condition": "Rowan is back from Italy",
+    "lines": ["Rowan Vale: Rowan is not back from Italy yet, flight got moved"],
+    "expected": false
+  },
+  {
+    "name": "negation-never-went",
+    "category": "negation",
+    "wake_condition": "Rowan is back from Italy",
+    "lines": ["Rowan Vale: Rowan never went to Italy after all"],
+    "expected": false
+  },
+  {
+    "name": "delay-extended",
+    "category": "delay",
+    "wake_condition": "Rowan is back from Italy",
+    "lines": ["Rowan Vale: extended the Italy trip another week, see you later"],
+    "expected": false
+  },
+  {
+    "name": "delay-future-arrival",
+    "category": "delay",
+    "wake_condition": "Rowan is back from Italy",
+    "lines": ["Rowan Vale: lands from Italy next Tuesday morning"],
+    "expected": false
+  },
+  {
+    "name": "mere-discussion",
+    "category": "entailment",
+    "wake_condition": "Rowan is back from Italy",
+    "lines": ["me: Italy flights are expensive these days"],
+    "expected": false
+  }
+]

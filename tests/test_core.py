@@ -316,11 +316,13 @@ class TestTodos(Base):
         self.assertEqual(todos.open_items(self.conn), [])
 
     def test_wake_condition_surfaces_on_matching_traffic(self):
-        todos.open_todo(self.conn, "Ask Rowan about toll-by-mail",
-                        wake_condition="Rowan is back from Italy")
+        todo, _ = todos.open_todo(self.conn, "Ask Rowan about toll-by-mail",
+                                  wake_condition="Rowan is back from Italy")
         self.assertEqual(todos.check_wakes(self.conn, "watched the game last night"), [])
-        woken = todos.check_wakes(self.conn, "just landed, italy was unreal")
-        self.assertEqual(len(woken), 1)
+        nominated = todos.check_wakes(self.conn, "just landed, italy was unreal")
+        self.assertEqual(len(nominated), 1)
+        # Nomination only: nothing wakes without the semantic stage's verdict.
+        self.assertIsNone(todos.get(self.conn, todo.key).woke_at)
 
     def test_age_is_rendered(self):
         todo, _ = todos.open_todo(self.conn, "thing")
@@ -5434,12 +5436,12 @@ class TestAWakeConditionDoesNotFireOnItsOwnSentence(Base):
         before = db.now()
         todos.open_todo(self.conn, "Give Rowan back their EZ-Pass",
                         wake_condition="Rowan is back from Italy")
-        woken = todos.check_wakes(
+        nominated = todos.check_wakes(
             self.conn, "i need to give rowan their ezpass back when hes home from italy",
             since=before)
-        self.assertEqual(woken, [])
+        self.assertEqual(nominated, [])
 
-    def test_it_wakes_on_the_next_pass(self):
+    def test_it_is_nominated_on_the_next_pass_but_stays_asleep(self):
         todo, _verb = todos.open_todo(self.conn, "Give Rowan back their EZ-Pass",
                                       wake_condition="Rowan is back from Italy")
         # Yesterday's pass opened it; this one is reading traffic it has never seen.
@@ -5447,9 +5449,11 @@ class TestAWakeConditionDoesNotFireOnItsOwnSentence(Base):
                           ((db.today() - timedelta(days=1)).isoformat() + "T08:05:00",
                            todo.key))
         self.conn.commit()
-        woken = todos.check_wakes(self.conn, "welcome back! how was italy?",
-                                  since=db.now())
-        self.assertEqual([t.text for t in woken], ["Give Rowan back their EZ-Pass"])
+        nominated = todos.check_wakes(self.conn, "welcome back! how was italy?",
+                                      since=db.now())
+        self.assertEqual([t.text for t in nominated], ["Give Rowan back their EZ-Pass"])
+        # Nomination only: the semantic stage confirms before anything wakes.
+        self.assertIsNone(todos.get(self.conn, todo.key).woke_at)
 
     def test_unrelated_traffic_still_does_not_wake_it(self):
         todo, _verb = todos.open_todo(self.conn, "Give Rowan back their EZ-Pass",
