@@ -389,9 +389,14 @@ def _dream(
     emit("apply", "done", f"{result.diffs} write(s)")
 
     # Wake conditions are checked against ingested traffic, excluding the
-    # traffic that opened the to-do (`before_apply`).
-    for todo in todos.check_wakes(conn, bundle_stage.all_text(bundles),
-                                  since=before_apply):
+    # traffic that opened the to-do (`before_apply`). Semantic entailment only:
+    # the deterministic pass nominates (todo, bundle) candidates and never
+    # writes; one batched model call confirms. Disabled by default.
+    from . import wakes as wakes_stage                              # noqa: PLC0415
+    woken_todos, wake_problems = wakes_stage.maybe_wake(
+        conn, cfg, bundles, since=before_apply, run_id=run_id, client=client)
+    result.errors.extend(wake_problems)
+    for todo in woken_todos:
         result.woken.append(todo.text)
         todos.ask(conn, f"{todo.text} — {todo.wake_condition} now looks true. Still open?",
                   key=f"q:wake:{todo.key}", about_todo=todo.id, written_by="dream")
