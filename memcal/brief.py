@@ -67,7 +67,7 @@ def render(conn: sqlite3.Connection, cfg: Config, ref: date | None = None,
         _recurring_block(conn, ref),
         _open_block(conn),
         _ask_block(conn),
-        _facts_block(cfg),
+        _facts_block(conn, cfg),
     ]
     text = "\n\n".join(b for b in blocks if b).rstrip() + "\n"
     return _trim(legend(surface) + text, cfg.brief_token_cap)
@@ -292,12 +292,81 @@ def _ask_block(conn: sqlite3.Connection) -> str:
     )
 
 
-def _facts_block(cfg: Config) -> str:
+def _facts_block(conn: sqlite3.Connection, cfg: Config) -> str:
     lines = ["## People and facts"]
+    about = _about_you_line(conn, cfg)
+    if about:
+        lines.append(about)
     index = _pages_line(cfg)
     if index:
         lines.append(index)
     return "\n".join(lines) if len(lines) > 1 else ""
+
+
+#: Maximum character budget for the About-you line in the brief. Mirrors
+#: PAGES_LINE_MAX_CHARS: one bounded line, whole facts only, never a cut value.
+ABOUT_YOU_MAX_CHARS = 700
+
+#: Stable pointer prefix for the self facts. `me` resolves through
+#: `wiki.self_slug()` so the brief never hardcodes a personal slug.
+ABOUT_YOU_PREFIX = "About you (open with memcal_open_page me): "
+
+#: Overflow placeholder when trimming must drop self fact values. Keeps the
+#: pointer so the facts stay one tool call away.
+ABOUT_YOU_TRIMMED = ("About you (open with memcal_open_page me): "
+                     "[trimmed — open the page for your facts]")
+
+
+def _about_you_line(conn: sqlite3.Connection, cfg: Config) -> str:
+    """One line of the user's own facts, verbatim, or "" when there is nothing to show.
+
+    Only the resolved self slug's facts appear here; every other page keeps the
+    existing page index plus on-demand access. Values are stored text, never a
+    model summary, so home vs work addresses stay distinct and unknown facts
+    stay absent. Reads never create a page.
+
+    Budget/omission: whole facts in file/slot order (the order the slots were
+    stored on the page) up to ABOUT_YOU_MAX_CHARS; trailing wholes are omitted
+    with a "+N more" count and the prefix pointer is retained. The page index's
+    four-label limit does not apply here. Missing/empty self page -> absent
+    (no line). Ambiguity -> names the candidates with no projection.
+    """
+    try:
+        slug = wiki.self_slug(conn, cfg.wiki_dir)
+    except wiki.SelfAmbiguous as exc:
+        return ("About you: ambiguous self page "
+                f"({', '.join(exc.candidates)}) — open one with "
+                "memcal_open_page <name> to inspect")
+    if not wiki.exists(cfg.wiki_dir, slug):
+        return ""
+    page = wiki.read(cfg.wiki_dir, slug)
+    if not page or not page.slots:
+        return ""
+    items = [f"{slot}: {(info or {}).get('value', '')}"
+             for slot, info in page.slots.items()]
+    full = ABOUT_YOU_PREFIX + " · ".join(items)
+    if len(full) <= ABOUT_YOU_MAX_CHARS:
+        return full
+    total = len(items)
+    # Largest leading run that fits with its "+N more" suffix; file order.
+    kept = 0
+    for count in range(1, total):
+        candidate = (ABOUT_YOU_PREFIX + " · ".join(items[:count])
+                     + f" · +{total - count} more")
+        if len(candidate) <= ABOUT_YOU_MAX_CHARS:
+            kept = count
+        else:
+            break
+    if kept:
+        return (ABOUT_YOU_PREFIX + " · ".join(items[:kept])
+                + f" · +{total - kept} more")
+    if total == 1:
+        return full       # One fact: show it whole even past the ceiling.
+    first = ABOUT_YOU_PREFIX + items[0] + f" · +{total - 1} more"
+    if len(ABOUT_YOU_PREFIX) + len(items[0]) <= ABOUT_YOU_MAX_CHARS:
+        return first      # First fact fits alone; rest elide with a count.
+    # Even the first value exceeds the budget: omit values whole, keep pointer.
+    return ABOUT_YOU_PREFIX + f"+{total} more (open the page for the rest)"
 
 
 #: Maximum character budget for the wiki pages index line in the brief.
@@ -341,18 +410,65 @@ def _trim(text: str, token_cap: int) -> str:
             break
         lines.pop(drop)
     out = "\n".join(lines).rstrip() + "\n"
-    if textclean.estimate_tokens(out) > token_cap:
-        # Shrinks toward the cap by the overshoot ratio; the estimate only grows with
-        # length, so each pass cuts at least one character and the loop terminates.
-        marker = "\n… (trimmed)\n"
-        room = len(out)
-        while room > 0:
-            over = textclean.estimate_tokens(out[:room] + marker)
-            if over <= token_cap:
-                break
-            room = min(room - 1, int(room * token_cap / over))
-        out = out[:max(0, room)].rstrip() + marker
-    return out
+    if textclean.estimate_tokens(out) <= token_cap:
+        return out
+    # Collapse self fact values to their pointer before any character cut so an
+    # address or URL is never bisected; the pointer keeps the facts one call away.
+    collapsed = [ABOUT_YOU_TRIMMED if (line.startswith(ABOUT_YOU_PREFIX)
+                                       and line != ABOUT_YOU_TRIMMED)
+                 else line for line in lines]
+    if collapsed != lines:
+        squashed = "\n".join(collapsed).rstrip() + "\n"
+        if textclean.estimate_tokens(squashed) <= token_cap:
+            return squashed
+        lines, out = collapsed, squashed
+    # Shrinks toward the cap by the overshoot ratio; the estimate only grows with
+    # length, so each pass cuts at least one character and the loop terminates.
+    marker = "\n… (trimmed)\n"
+    room = len(out)
+    while room > 0:
+        over = textclean.estimate_tokens(out[:room] + marker)
+        if over <= token_cap:
+            break
+        room = min(room - 1, int(room * token_cap / over))
+    room = _about_you_safe_room(out, room)
+    base = out[:max(0, room)].rstrip()
+    omitted = _omitted_about_you(out, room)
+    if omitted:
+        # Under extreme limits the whole About-you line goes, but a pointer or
+        # overflow note stays. Ambiguity keeps its candidate names verbatim.
+        keep = omitted[0] if omitted[0].startswith("About you: ambiguous") \
+            else ABOUT_YOU_TRIMMED
+        candidate = (base + "\n" + keep + marker) if base else (keep + marker)
+        if textclean.estimate_tokens(candidate) <= token_cap:
+            return candidate
+        return base + marker
+    return base + marker
+
+
+def _about_spans(out: str) -> list[tuple[str, int, int]]:
+    """(line, start, end) for every About-you line in `out`."""
+    spans: list[tuple[str, int, int]] = []
+    pos = 0
+    for line in out.splitlines(keepends=True):
+        body = line.rstrip("\n")
+        if body.startswith("About you"):
+            spans.append((body, pos, pos + len(body)))
+        pos += len(line)
+    return spans
+
+
+def _about_you_safe_room(out: str, room: int) -> int:
+    """Back a character-cut point off an About-you line so facts are never bisected."""
+    for _line, start, end in _about_spans(out):
+        if start < room < end:
+            return start
+    return room
+
+
+def _omitted_about_you(out: str, room: int) -> list[str]:
+    """About-you lines a cut at `room` would drop."""
+    return [line for line, start, _end in _about_spans(out) if start >= room]
 
 
 def _dropped_index(lines: list[str]) -> int | None:
@@ -365,8 +481,9 @@ def _dropped_index(lines: list[str]) -> int | None:
         end = start + 1
         while end < len(lines) and not lines[end].startswith("## "):
             end += 1
-        # Keep the wiki index at the end of the people-and-facts block.
-        while end - 1 > start and lines[end - 1].startswith("Pages: "):
+        # Keep the wiki index and the About-you line at the end of the
+        # people-and-facts block; both survive ordinary trimming.
+        while end - 1 > start and lines[end - 1].startswith(("Pages: ", "About you")):
             end -= 1
         if end - start > 2:
             return end - 1

@@ -557,10 +557,12 @@ def cmd_forget(args) -> int:
 def cmd_page(args) -> int:
     cfg, conn = open_ctx(args)
     if args.slot and args.value:
-        page = wiki.set_slot(cfg.wiki_dir, args.slug, args.slot, args.value,
-                             source="cli", section=args.section, conn=conn)
-        print(f"{page.path}: {args.slot} = {args.value}")
-        return 0
+        # Through `live.note` so `me`, established self names, and recorded
+        # aliases resolve to the one self page instead of opening a second one.
+        ok, message = live.note(conn, cfg, args.slug, args.slot, args.value,
+                                section=args.section, source="cli")
+        print(message if ok else f"error: {message}")
+        return 0 if ok else 1
     page = wiki.read(cfg.wiki_dir, args.slug)
     if not page:
         print(f"no page for {args.slug}. Pages: {', '.join(wiki.list_pages(cfg.wiki_dir)) or '(none)'}")

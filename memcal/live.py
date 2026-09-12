@@ -531,7 +531,14 @@ def close_todo(conn: sqlite3.Connection, cfg: Config, which: str, *,
 
 def note(conn: sqlite3.Connection, cfg: Config, page: str, slot: str, value: str,
          *, section: str | None = None, source: str = "agent") -> tuple[bool, str]:
-    """Write one durable fact directly to a wiki slot."""
+    """Write one durable fact directly to a wiki slot.
+
+    `page='me'`, an established self name, or a recorded alias thereof
+    resolves through `wiki.self_slug()` and writes to that canonical slug.
+    Ambiguity returns `(False, ...)` naming the candidates and writes
+    nothing. With no candidate, the literal `me` page is created
+    (people/me.md) via the existing ensure/set_slot path.
+    """
     page, slot, value = (page or "").strip(), (slot or "").strip(), (value or "").strip()
     if not (page and slot and value):
         return False, "page, slot and value are all required"
@@ -539,7 +546,12 @@ def note(conn: sqlite3.Connection, cfg: Config, page: str, slot: str, value: str
         return False, (f"value is {len(value)} chars; a slot holds a bare answer "
                        f"(under {apply_stage.MAX_SLOT_VALUE}), not a sentence")
 
-    slug = db.slugify(page)
+    try:
+        self_target = wiki.resolve_self_page(conn, cfg.wiki_dir, page)
+    except wiki.SelfAmbiguous as exc:
+        return False, (f"ambiguous self page for {page!r}: "
+                       f"{', '.join(exc.candidates)} — open one explicitly to resolve")
+    slug = self_target if self_target is not None else db.slugify(page)
     resolved = apply_stage.resolve_section(conn, cfg, slug, section)
     wiki.ensure(cfg.wiki_dir, slug, title=page, section=resolved)
     wiki.set_slot(cfg.wiki_dir, slug, slot, value, source=source, section=resolved,
