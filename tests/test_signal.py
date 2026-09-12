@@ -25,15 +25,19 @@ class TestSignalEnvelopes(unittest.TestCase):
         self.source._me = "+15550000000"
         self.source._groups = {"gid-1": "Board Games"}
 
-    def test_an_incoming_dm_is_named_for_the_sender(self):
+    def test_an_incoming_dm_is_keyed_on_the_peer_and_carries_their_name(self):
         chat, message = self.source.normalize({"envelope": {
             "source": "+15551112222", "sourceNumber": "+15551112222",
             "sourceName": "Ada", "timestamp": 1712345678000,
             "dataMessage": {"timestamp": 1712345678000, "message": "lunch at one?"}}})
-        self.assertEqual(chat.name, "Ada")
+        # The thread is keyed on the peer, not their display name: the name rides on the
+        # message so identity resolution (not the thread key) renders "Ada".
+        self.assertEqual(chat.id, "dm:+15551112222")
+        self.assertEqual(chat.name, "+15551112222")
         self.assertFalse(chat.is_group)
         self.assertFalse(message.from_me)
         self.assertEqual(message.author_id, "+15551112222")
+        self.assertEqual(message.author_name, "Ada")
 
     def test_an_incoming_group_message_is_named_for_the_group(self):
         chat, _message = self.source.normalize({"envelope": {
@@ -50,15 +54,31 @@ class TestSignalEnvelopes(unittest.TestCase):
                 "groupInfo": {"groupId": "unlisted-group-id"}}}})
         self.assertTrue(chat.name.startswith("Signal group"))
 
-    def test_a_message_i_sent_elsewhere_is_mine_and_named_for_the_recipient(self):
+    def test_a_message_i_sent_elsewhere_is_mine_and_keyed_on_the_recipient(self):
+        # The sent envelope carries *my* sourceName; the thread must still key on the
+        # recipient, or my outgoing half of the DM would file under my own name.
         chat, message = self.source.normalize({"envelope": {
-            "source": self.source._me, "timestamp": 1712345678000,
+            "source": self.source._me, "sourceName": "Me Myself",
+            "timestamp": 1712345678000,
             "syncMessage": {"sentMessage": {
                 "timestamp": 1712345678000, "destination": "+15551112222",
                 "message": "on my way"}}}})
         self.assertTrue(message.from_me)
         self.assertEqual(chat.id, "dm:+15551112222")
+        self.assertEqual(chat.name, "+15551112222")
         self.assertEqual(message.author_id, "")
+
+    def test_a_dm_is_one_thread_in_both_directions(self):
+        incoming, _ = self.source.normalize({"envelope": {
+            "source": "+15551112222", "sourceNumber": "+15551112222",
+            "sourceName": "Ada", "timestamp": 1,
+            "dataMessage": {"timestamp": 1, "message": "hi"}}})
+        outgoing, _ = self.source.normalize({"envelope": {
+            "source": self.source._me, "sourceName": "Me Myself", "timestamp": 2,
+            "syncMessage": {"sentMessage": {
+                "timestamp": 2, "destination": "+15551112222", "message": "yo"}}}})
+        self.assertEqual(incoming.name, outgoing.name)
+        self.assertEqual(incoming.id, outgoing.id)
 
     def test_a_receipt_carries_no_conversation_and_is_ignored(self):
         self.assertIsNone(self.source.normalize(
@@ -153,6 +173,40 @@ class TestSignalLoginPrintsTheQrCode(unittest.TestCase):
             ok, _message = source.setup(cfg)
         self.assertTrue(ok)
         save.assert_not_called()
+
+
+class TestSignalCheckMatchesIngest(unittest.TestCase):
+    """`check()` must not report usable where `connect()`/ingest will refuse."""
+
+    def cfg(self):
+        import tempfile
+        from pathlib import Path
+        from memcal.config import Config
+        return Config(home=Path(tempfile.mkdtemp(prefix="memcal-test-")), env={})
+
+    def source_with(self, accounts, account=""):
+        from types import SimpleNamespace
+        source = signal.SignalSource()
+        source._cli = lambda cfg: SimpleNamespace(
+            binary="/bin/signal-cli", account=account,
+            accounts=lambda: list(accounts), groups=lambda: {})
+        return source
+
+    def test_several_linked_accounts_and_no_choice_reads_as_not_usable(self):
+        # connect() raises here; a green check() would leave doctor lying.
+        ok, message = self.source_with(("+111", "+222")).check(self.cfg())
+        self.assertFalse(ok)
+        self.assertIn("signal_account", message)
+
+    def test_a_chosen_account_disambiguates(self):
+        ok, message = self.source_with(("+111", "+222"), account="+222").check(self.cfg())
+        self.assertTrue(ok)
+        self.assertIn("+222", message)
+
+    def test_a_single_linked_account_is_usable(self):
+        ok, message = self.source_with(("+111",)).check(self.cfg())
+        self.assertTrue(ok)
+        self.assertIn("+111", message)
 
 
 if __name__ == "__main__":

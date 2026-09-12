@@ -222,14 +222,19 @@ class SignalSource(StreamSource):
                 is_group=True,
             )
         else:
-            # Name a DM for the other person — sender if received, destination if sent.
+            # Key a DM on the other person, the same in both directions. The envelope's
+            # `sourceName` is the *sender's* name, so on a message you sent it is yours,
+            # not the recipient's; keying the thread on it filed your half of the DM
+            # under your own name and split one conversation in two. The peer's display
+            # name rides on the message (`author_name`); threads.titles() renders a DM
+            # from its speaker's identity, not from this key.
             other = str(sync.get("destination") or envelope.get("sourceNumber")
                         or envelope.get("source") or "")
             if not other:
                 return None
             conversation = Conversation(
                 id=f"dm:{other}",
-                name=str(envelope.get("sourceName") or "").strip() or other,
+                name=other,
                 is_group=False,
             )
 
@@ -262,6 +267,12 @@ class SignalSource(StreamSource):
             return False, str(exc)[:80]
         if not linked:
             return False, "no linked account — run `memcal login signal`"
+        # Mirror connect(): an unset account with several linked numbers is ambiguous,
+        # and ingest refuses it. Reporting it usable here would leave doctor green while
+        # `memcal ingest signal` fails.
+        if not client.account and len(linked) > 1:
+            return False, (f"several linked accounts ({', '.join(linked)}); set "
+                           "`signal_account=` in memcal/.env to choose one")
         chosen = client.account or linked[0]
         groups = len(client.groups())
         return True, f"linked as {chosen}, {groups} group(s)"
