@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -143,11 +144,25 @@ def _bundle_is_current(cfg: Config) -> bool:
     The icon is a source too: a newer icon.png must trigger one rebuild (and
     re-sign), but a missing icon toolset must not trap the bundle in a rebuild
     loop — so freshness is measured exe-vs-sources, never icns-vs-source.
+
+    Mirrors what bundle_health calls stale: a non-executable binary or an
+    Info.plist without the expected bundle id is not current either, so
+    `install` rebuilds what `doctor` would flag.
     """
     try:
-        exe_mtime = app_executable(cfg).stat().st_mtime if app_executable(cfg).is_file() else None
-        if exe_mtime is None:
+        exe = app_executable(cfg)
+        if not exe.is_file():
             return False
+        if not os.access(exe, os.X_OK):
+            return False
+        try:
+            info = plistlib.loads(
+                (app_path(cfg) / "Contents" / "Info.plist").read_bytes())
+        except Exception:
+            info = {}
+        if info.get("CFBundleIdentifier") != APP_BUNDLE_ID:
+            return False
+        exe_mtime = exe.stat().st_mtime
         if exe_mtime < LAUNCHER_SOURCE.stat().st_mtime:
             return False
         if ICON_SOURCE.is_file() and exe_mtime < ICON_SOURCE.stat().st_mtime:
@@ -158,7 +173,7 @@ def _bundle_is_current(cfg: Config) -> bool:
 
 
 def bundle_health(cfg: Config) -> tuple[str, str]:
-    """`(verdict, detail)` for the app-bundle wrapper: ok, stale, or fallback.
+    """`(verdict, detail)` for the app-bundle wrapper: ok, stale, or absent.
 
     Verdicts are `ok` (built, executable, current), `stale` (built but behind the
     source, not executable, or half-written), or `absent` (no usable bundle — the
@@ -190,6 +205,8 @@ def bundle_health(cfg: Config) -> tuple[str, str]:
         try:
             if exe.stat().st_mtime < LAUNCHER_SOURCE.stat().st_mtime:
                 return ("stale", "memcal.app is older than launcher.c — rebuild it")
+            if ICON_SOURCE.is_file() and exe.stat().st_mtime < ICON_SOURCE.stat().st_mtime:
+                return ("stale", "memcal.app is older than icon.png — rebuild it")
         except OSError:
             pass
         return ("ok", f"memcal.app current — Calendar access reads as {APP_NAME}")
@@ -297,15 +314,10 @@ def build_app_bundle(cfg: Config, *, runner=subprocess.run, force: bool = False)
             out.append("note: no C compiler; memcal.app not built — the nightly "
                        "job will run under the interpreter's name")
             return out
+        # Compile first, before touching the live bundle metadata: writing
+        # Info.plist/PkgInfo/icon before a failed compile used to leave the new
+        # metadata beside the old binary (and its now-invalid signature).
         (contents / "MacOS").mkdir(parents=True, exist_ok=True)
-        with (contents / "Info.plist").open("wb") as fh:
-            plistlib.dump(render_info_plist(), fh)
-        (contents / "PkgInfo").write_text("APPL????", encoding="ascii")
-        # Icon before codesign: Resources are part of the signature.
-        out.extend(_install_app_icon(cfg, runner=runner))
-
-        # Compile beside the live executable and rename into place, so a failed
-        # rebuild never leaves a stale or missing binary where a working one was.
         code, message = _run([*cc, "-O2", "-o", str(tmp),
                               str(LAUNCHER_SOURCE)], runner=runner)
         if code:
@@ -315,6 +327,14 @@ def build_app_bundle(cfg: Config, *, runner=subprocess.run, force: bool = False)
                 pass
             out.append(f"note: could not compile the launcher ({message or code})")
             return out
+        with (contents / "Info.plist").open("wb") as fh:
+            plistlib.dump(render_info_plist(), fh)
+        (contents / "PkgInfo").write_text("APPL????", encoding="ascii")
+        # Icon before codesign: Resources are part of the signature.
+        out.extend(_install_app_icon(cfg, runner=runner))
+
+        # Rename the staged output into place, so a failed rebuild never
+        # leaves a stale or missing binary where a working one was.
         try:
             tmp.replace(app_executable(cfg))
         except OSError as exc:
@@ -373,8 +393,11 @@ def launchd_memcal_call(cfg: Config, *, label: str, stem: str,
     """
     cfg.ensure_dirs()
     python = pinned_python(cfg)
-    plist = cfg.home / f"{stem}.plist"
-    result = cfg.home / f"{stem}-result.json"
+    # Per-call nonce: a timed-out orphan's late write must not poison the next
+    # call, and concurrent invocations must not clobber each other's files.
+    nonce = uuid.uuid4().hex[:12]
+    plist = cfg.home / f"{stem}-{nonce}.plist"
+    result = cfg.home / f"{stem}-{nonce}-result.json"
     argv = launch_through(cfg, [python, "-m", "memcal", *memcal_argv,
                                 "--result", str(result)])
     identity = APP_NAME if argv[0] == str(app_executable(cfg)) else python

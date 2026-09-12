@@ -1114,6 +1114,32 @@ EK_WRITE_ONLY = 5
 #: The source EventKit hands an unauthorized caller. It looks exactly like iCloud.
 EK_VIRTUAL_SOURCE = "VIRTUAL_APP_SOURCE_UUID"
 
+#: How long `ical setup`'s EventKit verification lasts before `doctor` stops
+#: trusting it. A live re-check from a terminal would test the terminal's TCC
+#: identity rather than memcal's, so doctor reads this stamp instead — but a grant
+#: remembered from long ago says nothing about today, hence the expiry.
+EVENTKIT_VERIFIED_TTL_DAYS = 30
+
+
+def eventkit_verified(conn: sqlite3.Connection) -> tuple[bool, str]:
+    """Whether setup's EventKit stamp is present and still within its TTL.
+
+    Returns `(fresh, detail)`: `detail` is the stamp itself when fresh, else why
+    it does not count. Reads the mockable `db` clock, never the machine's.
+    """
+    raw = db.get_meta(conn, "ical.eventkit.verified")
+    if not raw:
+        return False, "not verified"
+    try:
+        seen = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return False, f"unreadable stamp {raw!r}"
+    if seen.tzinfo is None:
+        seen = seen.astimezone()
+    if db.now_dt() - seen > timedelta(days=EVENTKIT_VERIFIED_TTL_DAYS):
+        return False, f"stale (verified {raw})"
+    return True, raw
+
 ACCOUNT_JXA = r"""
 ObjC.import('EventKit');
 ObjC.import('Foundation');
@@ -1720,10 +1746,14 @@ def request_calendar_access(*, runner=subprocess.run) -> tuple[bool, str]:
         return False, f"Calendar (EventKit) access failed: {exc}"
     if answer.get("granted") and int(answer.get("status") or 0) in EK_FULL_ACCESS:
         return True, "Calendar (EventKit) access granted — memcal can create its calendar"
-    if int(answer.get("status") or 0) == EK_WRITE_ONLY or answer.get("granted"):
+    if int(answer.get("status") or 0) == EK_WRITE_ONLY:
         # "Add Events Only": reads and account placement are unavailable, and
         # macOS shows the dialog exactly once per app — re-requesting will not
-        # ask again. Only a manual flip fixes it.
+        # ask again. Only a manual flip fixes it. `granted` alone is not the
+        # question — Add-Only grants yet reads nothing — so only status 5 names
+        # it; anything else granted-but-not-full falls through to the
+        # unanswered/denied branches below. (`run()` always appends
+        # `out.status`, so a request answer carries one.)
         return False, (
             "Only Add-Only access was granted — memcal needs Full Access to read "
             "accounts and place its calendar. Flip it by hand: System Settings → "
