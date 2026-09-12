@@ -191,6 +191,104 @@ def aliases_of(wiki_dir: Path, slug: str) -> list[str]:
     return list(page.aliases) if page else []
 
 
+# ------------------------------------------------------- one self-page ----
+# Stable agent-facing reference for the user. The brief, page reads, notes, and
+# dream all resolve `me` through here so one established page is reused.
+#
+# Identity dictionary: `identity.me_names()` plus explicit wiki aliases
+# (`alias_map`/`canonical`). No new settings, no name-fragment inference.
+# Matching is exact slug equality — at least as strict as `identity.is_me`,
+# so a namesake's page never counts as self.
+#
+# Convention:
+#   - one candidate -> its canonical slug string (reuse it).
+#   - none -> the literal string "me". The first explicit note or
+#     evidence-backed dream fact creates people/me.md through the existing
+#     ensure/set_slot write path.
+#   - multiple distinct candidates -> raise `SelfAmbiguous` with `.candidates`.
+#     Never merge, pick a winner, or create a third page.
+# Reads must NOT `ensure()` the result: a read alone never creates a page.
+
+class SelfAmbiguous(Exception):
+    """Two or more distinct pages both look like the user's own page."""
+
+    def __init__(self, candidates) -> None:
+        self.candidates = sorted(candidates)
+        super().__init__(f"ambiguous self page: {', '.join(self.candidates)}")
+
+
+def _self_candidates(conn, wiki_dir: Path) -> list[str]:
+    """Canonical self-page slugs on disk, sorted. No creation, no raising."""
+    from . import identity
+
+    found: set[str] = set()
+    me_canon = canonical(wiki_dir, "me")
+    if exists(wiki_dir, me_canon):
+        found.add(me_canon)
+    for name in identity.me_names(conn):
+        raw = (name or "").strip()
+        if not raw:
+            continue
+        slug = db.slugify(raw)
+        if slug == "untitled":
+            continue
+        canon = canonical(wiki_dir, slug)
+        if exists(wiki_dir, canon):
+            found.add(canon)
+    return sorted(found)
+
+
+def self_slug(conn, wiki_dir: Path) -> str:
+    """Resolve the user's own page to one canonical slug.
+
+    Returns the single candidate's slug, or the literal `"me"` when no
+    candidate exists on disk. Raises `SelfAmbiguous` when the literal `me`
+    reference and the established self names resolve to different pages.
+    Follows recorded aliases and dedupes canonical slugs. Read-only:
+    callers must not `ensure()` this on a read path.
+    """
+    candidates = _self_candidates(conn, wiki_dir)
+    if not candidates:
+        return "me"
+    if len(candidates) == 1:
+        return candidates[0]
+    raise SelfAmbiguous(candidates)
+
+
+def resolve_self_page(conn, wiki_dir: Path, ref: str) -> str | None:
+    """Map `ref` to `self_slug()` when it names the user, else None.
+
+    Matches the literal `me` (case-insensitive), an established self name
+    from `identity.me_names()` (exact slug equality, case-insensitive), or a
+    recorded alias that canonicalizes onto a self candidate. Anything else
+    returns None so the caller falls through to the normal canonical path.
+    Propagates `SelfAmbiguous` from `self_slug()`; callers must surface the
+    candidates and write nothing.
+    """
+    from . import identity
+
+    raw = (ref or "").strip()
+    if not raw:
+        return None
+    slug = db.slugify(raw)
+    if slug == "me":
+        return self_slug(conn, wiki_dir)
+    me_slugs: set[str] = set()
+    for name in identity.me_names(conn):
+        cleaned = (name or "").strip()
+        if not cleaned:
+            continue
+        other = db.slugify(cleaned)
+        if other == "untitled":
+            continue
+        me_slugs.add(other)
+    if slug in me_slugs:
+        return self_slug(conn, wiki_dir)
+    if canonical(wiki_dir, slug) in set(_self_candidates(conn, wiki_dir)):
+        return self_slug(conn, wiki_dir)
+    return None
+
+
 def add_alias(wiki_dir: Path, slug: str, name: str, *, section: str = "people",
               conn=None, commit: bool = True) -> Page:
     """Record that `name` means the same entity as `slug`.
@@ -771,6 +869,70 @@ def mentioned_pages(wiki_dir: Path, text: str, *, limit: int = 3) -> list[Page]:
         if hits:
             found.append((max(len(name) for name in hits), page))
     return [page for _score, page in sorted(found, key=lambda pair: -pair[0])[:limit]]
+
+
+def search_facts(wiki_dir: Path, query: str, limit: int = 10) -> list[dict]:
+    """Bounded case-insensitive substring scan over stored wiki facts.
+
+    Scans page names/slugs, aliases, fact labels, fact values, and body
+    prose — all facts, not the brief index's first four. No new persisted
+    index, no model call. Returns at most `limit` pages in sorted slug order;
+    `len(result) == limit` means truncation is possible. Empty query returns
+    `[]`, as does no match; the tool layer distinguishes the latter ("no
+    matching wiki fact") from "the user never told us".
+
+    Each hit is `{slug, section, matched, facts, provenance}` where `matched`
+    names the fields that hit (`name`, `alias`, `label`, `value`, `body`),
+    `facts` is the page's full slot dict, and `provenance` holds
+    `{slot: {source, ts}}` for the slots whose label or value matched.
+    """
+    needle = (query or "").strip().casefold()
+    if not needle or limit <= 0:
+        return []
+    hits: list[dict] = []
+    for slug in list_pages(wiki_dir):
+        page = read(wiki_dir, slug)
+        if not page:
+            continue
+        matched: list[str] = []
+        if needle in slug.casefold() or needle in (page.title or "").casefold():
+            matched.append("name")
+        if any(needle in (alias or "").casefold() for alias in page.aliases):
+            matched.append("alias")
+        label_hit, value_hit = False, False
+        matched_slots: list[str] = []
+        for slot, info in page.slots.items():
+            on_label = needle in slot.casefold()
+            on_value = needle in str(info.get("value") or "").casefold()
+            if on_label:
+                label_hit = True
+            if on_value:
+                value_hit = True
+            if on_label or on_value:
+                matched_slots.append(slot)
+        if label_hit:
+            matched.append("label")
+        if value_hit:
+            matched.append("value")
+        if needle in (page.body or "").casefold():
+            matched.append("body")
+        if not matched:
+            continue
+        hits.append({
+            "slug": page.slug,
+            "section": page.section,
+            "matched": matched,
+            "facts": {slot: {"value": info.get("value", ""),
+                             "source": info.get("source"),
+                             "ts": info.get("ts")}
+                      for slot, info in page.slots.items()},
+            "provenance": {slot: {"source": (page.slots[slot] or {}).get("source"),
+                                  "ts": (page.slots[slot] or {}).get("ts")}
+                           for slot in matched_slots},
+        })
+        if len(hits) >= limit:
+            break
+    return hits
 
 
 def is_material(page: Page) -> bool:

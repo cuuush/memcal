@@ -699,6 +699,46 @@ def _repair_question_coverage(client: CompletionClient, cfg: Config, prefix: str
     return payload, Turn("question-repair", repair, repair_payload)
 
 
+def _says_me(row) -> bool:
+    """First-person traffic: a line the user said."""
+    try:
+        return bool(row["from_me"])
+    except (KeyError, IndexError, TypeError):
+        return False
+
+
+def _self_page_block(conn: sqlite3.Connection | None, cfg: Config,
+                     bundle: Bundle, page_people: list[str]) -> str:
+    """Resolved self-page context for bundles carrying the user's own words.
+
+    A `person:me` bundle — or any bundle with first-person traffic — can state a
+    fact about the user, but the bundle's own page list only names the literal
+    `me` slug: an established page under the user's name would stay invisible
+    and the model would open a second `me` page beside it. Resolve through the
+    shared `wiki.self_slug()` contract instead. Read-only: never creates a page.
+    """
+    if conn is None:
+        return ""
+    if bundle.entity != "person:me" and not any(_says_me(row) for row in bundle.items):
+        return ""
+    try:
+        target = wiki.self_slug(conn, cfg.wiki_dir)
+    except wiki.SelfAmbiguous as exc:
+        return ("SELF PAGE AMBIGUOUS: " + ", ".join(exc.candidates)
+                + " are each plausibly yours — resolve before writing page 'me'"
+                " facts; propose none for 'me' until then.")
+    if target != "me":
+        if target in {wiki.canonical(cfg.wiki_dir, db.slugify(p)) for p in page_people}:
+            return ""  # already shown above under its own name
+        return ("SELF PAGE — the user; page 'me' means this page:\n"
+                + wiki.context_for(cfg.wiki_dir, [target], max_chars=2500))
+    if not wiki.exists(cfg.wiki_dir, target):
+        return ("NO SELF PAGE YET: the user has no page; page 'me' is the user — "
+                "a first-person fact here belongs on page 'me', and that write "
+                "creates it.")
+    return ""
+
+
 def build_bundle_block(cfg: Config, bundle: Bundle,
                        conn: sqlite3.Connection | None = None) -> str:
     """One bundle as the model sees it: what it may be amending, its pages, its items."""
@@ -740,6 +780,9 @@ def build_bundle_block(cfg: Config, bundle: Bundle,
                              max_chars=2500)
     if pages:
         context.append("PAGES FOR THIS BUNDLE\n" + pages)
+    self_page = _self_page_block(conn, cfg, bundle, page_people)
+    if self_page:
+        context.append(self_page)
 
     # Keep the one routing id immediately attached to the traffic. Context used to sit
     # between them, which caused a model to borrow the *next* bundle's id; repeating the
