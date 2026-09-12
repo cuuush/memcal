@@ -1,6 +1,6 @@
 site_name: memcal
 site_url: https://cuuush.github.io/memcal/
-site_description: Setup guides for memcal's chat sources.
+site_description: Memory + Calendar for AI agents — architecture, tools, sources, and evaluation.
 repo_url: https://github.com/cuuush/memcal
 
 theme:
@@ -13,10 +13,67 @@ markdown_extensions:
       permalink: true
 
 nav:
-  - Home: index.md
+  - Overview: index.md
   - Quickstart: quickstart.md
+  - Architecture:
+      - Overview: architecture/index.md
+      - Observe: architecture/observe.md
+      - Gate: architecture/gate.md
+      - Dream: architecture/dream.md
+      - Brief: architecture/brief.md
+      - Events & series: architecture/events.md
+      - To-dos: architecture/todos.md
+      - Questions: architecture/questions.md
+      - Wiki: architecture/wiki.md
+      - Identity: architecture/identity.md
+      - Daytime freshness: architecture/freshness.md
+      - Evidence & provenance: architecture/evidence.md
+      - Storage: architecture/storage.md
+      - Performance: architecture/performance.md
+      - memcal vs retrieval: architecture/memcal-vs-rag.md
+  - API & tools:
+      - Remember: api/remember.md
+      - Recall: api/recall.md
+      - Correct: api/correct.md
+      - Dream runs: api/dream.md
+      - MCP server: api/mcp.md
+      - CLI reference: api/cli.md
+  - Privacy: privacy.md
+  - Clients:
+      - Overview: clients/index.md
+      - CLI: clients/cli.md
+      - Web UI: clients/web.md
+      - Any harness via MCP: clients/mcp.md
+  - Integrations:
+      - Overview: integrations/index.md
+      - Hermes: integrations/hermes.md
+      - OpenClaw: integrations/openclaw.md
+      - Custom sources: integrations/custom.md
   - Sources:
       - Overview: sources/index.md
+      - iMessage: sources/imessage.md
+      - WhatsApp: sources/whatsapp.md
+      - GroupMe: sources/groupme.md
       - Slack: sources/slack.md
       - Telegram: sources/telegram.md
       - Signal: sources/signal.md
+      - Email: sources/email.md
+      - Calendar: sources/calendar.md
+      - Agent conversations: sources/conversations.md
+      - Custom plugins: sources/custom.md
+  - Hosting:
+      - Installation: hosting/installation.md
+      - Configuration: hosting/configuration.md
+      - Scheduling: hosting/scheduling.md
+      - Publishing: hosting/publishing.md
+      - Monitoring: hosting/monitoring.md
+  - Evaluation:
+      - Overview: evaluation/index.md
+      - Corpus: evaluation/corpus.md
+      - Runner: evaluation/runner.md
+      - Grading: evaluation/grading.md
+      - Deterministic checks: evaluation/deterministic.md
+  - Resources:
+      - FAQ: faq.md
+      - Troubleshooting: troubleshooting.md
+      - Best practices: best-practices.md
