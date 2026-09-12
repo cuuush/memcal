@@ -123,6 +123,11 @@ class Config:
     same_event_tokens: int = 2
     same_event_poor_tokens: int = 1
 
+    # Semantic wake evaluation for waiter to-dos. Off until the wake entailment
+    # eval set passes; while off, the post-apply wake stage makes no model call
+    # and leaves waiters asleep.
+    semantic_wakes: bool = False
+
     # Maximum concurrent API requests in flight.
     max_parallel: int = 8
 
@@ -220,6 +225,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
         ("MEMCAL_AFFINITY_NEAR_DAYS", "affinity_near_days", int),
         ("MEMCAL_SAME_EVENT_TOKENS", "same_event_tokens", int),
         ("MEMCAL_SAME_EVENT_POOR_TOKENS", "same_event_poor_tokens", int),
+        ("MEMCAL_SEMANTIC_WAKES", "semantic_wakes", _flag),
         ("MEMCAL_REMIND_DEADLINES", "remind_deadlines", _flag),
     ):
         raw = env.get(name) or os.environ.get(name)

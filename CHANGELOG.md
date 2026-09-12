@@ -7,6 +7,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- To-do wake conditions can be judged semantically: `MEMCAL_SEMANTIC_WAKES` (default
+  off) adds a post-apply stage that batches candidate `(to-do, conversation lines)`
+  pairs into one structured model call. Negations and delays no longer wake the
+  waiter; failures leave it asleep. The word-overlap check now only nominates.
 - memcal.app carries the handle-grid icon ([E]/[T]/[Q] pills over a calendar and
   store) instead of a generic executable glyph, and the web UI serves the same
   art as its favicon. `memcal schedule install` converts `memcal/macos/icon.png`
