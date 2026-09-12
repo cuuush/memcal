@@ -91,7 +91,9 @@ WIKI
 Use a named slot for a durable fact about a person, place, project, or the user's agent
 preferences. The value is the short answer, not prose. Reuse the same slot name when a
 fact changes. Use `alias` only when the bundle explicitly proves two names are the same
-person. Do not create empty pages or infer relationships.
+person. Do not create empty pages or infer relationships. Page `me` is the user: a fact
+they state about themselves belongs on page `me`, and that slot or alias write creates
+the page when none exists yet.
 
 THE agent STREAM IS THEM INSTRUCTING A MACHINE
 `me → assistant` is an instruction. Facts stated there are reliable; delegated work is
