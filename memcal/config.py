@@ -131,6 +131,11 @@ class Config:
     # Maximum concurrent API requests in flight.
     max_parallel: int = 8
 
+    # Consecutive propose failures before the pass stops launching requests.
+    # 0 disables the breaker; anything unset or unreadable falls back to the
+    # default in run, so a broken knob still breaks the circuit, never the run.
+    propose_breaker: int = 3
+
     @property
     def db_path(self) -> Path:
         return self.home / "memcal.db"
@@ -210,6 +215,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
         ("MEMCAL_DAYS_FORWARD", "days_forward", int),
         ("MEMCAL_BRIEF_TOKEN_CAP", "brief_token_cap", int),
         ("MEMCAL_MAX_PARALLEL", "max_parallel", int),
+        ("MEMCAL_PROPOSE_BREAKER", "propose_breaker", int),
         ("MEMCAL_SPOOL_HORIZON_DAYS", "spool_horizon_days", int),
         ("MEMCAL_EMAIL_BACKFILL_DAYS", "email_backfill_days", int),
         ("MEMCAL_COLD_START_WAVES", "cold_start_waves", int),

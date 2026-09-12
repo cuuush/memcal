@@ -7,6 +7,11 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Dream passes trip a circuit breaker instead of burning requests into an outage:
+  `MEMCAL_PROPOSE_BREAKER` (default 3) stops launching further work after that many
+  consecutive propose failures, leaving unread spool unread and recording the abort
+  on the run. One healthy reply resets the count, so a single blip cannot kill a
+  healthy pass; `0` disables it.
 - To-do wake conditions can be judged semantically: `MEMCAL_SEMANTIC_WAKES` (default
   off) adds a post-apply stage that batches candidate `(to-do, conversation lines)`
   pairs into one structured model call. Negations and delays no longer wake the
