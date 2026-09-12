@@ -359,8 +359,10 @@ TOOLS = [
     },
     {
         "name": "memcal_answer",
-        "description": ("Record the user's answer to one of the 'Ask about' questions, so it "
-                        "stops being asked. To-dos close conversationally — this is how."),
+        "description": ("Record what the user said about one of the 'Ask about' questions, "
+                        "or that an 'Open' to-do is done, so it stops being asked. "
+                        "Resolves questions and to-dos alike; repeating something "
+                        "already settled still counts as recorded."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -574,7 +576,12 @@ class Server:
                 return f"{exc}{extra}"
 
         if name == "memcal_answer":
-            ok = todos.answer(self.conn, args.get("question", ""), args.get("answer", ""))
+            # Same verb as the Hermes surface and the CLI: a conversational close
+            # resolves a question or a to-do, and an already-settled repeat counts.
+            # Stays outside WRITE_TOOLS like its Hermes twin — neither stamps an
+            # origin/action record for an answer.
+            ok, _kind = todos.resolve(self.conn, args.get("question", ""),
+                                      args.get("answer", ""))
             brief.write(self.conn, self.cfg)
             return "recorded" if ok else "no matching open question"
 
