@@ -2751,8 +2751,9 @@ class TestAToolCanBeAdvertisedAndUnreachable(Base):
     def test_the_two_lists_of_write_tools_cannot_drift(self):
         """`WRITE_TOOLS` is the single declaration; `_write` refuses anything outside it
         and `call` routes on it, so there is no second list to fall out of step."""
-        self.assertEqual(9, len(mcp_server.WRITE_TOOLS),
+        self.assertEqual(10, len(mcp_server.WRITE_TOOLS),
                          "a green loop over an empty set proves nothing")
+        self.assertIn("memcal_reviewed", mcp_server.WRITE_TOOLS)
         for name in sorted(mcp_server.WRITE_TOOLS):
             self.assertIn(name, [t["name"] for t in mcp_server.TOOLS],
                           f"{name} is routable but not advertised")
@@ -3316,15 +3317,18 @@ class TestANightTheMachineWasAsleepIsNotSimplySkipped(unittest.TestCase):
         `ingest all` — long enough for the next wake-up to see no start today."""
         body = schedule.render_script(self.cfg, python=sys.executable)
         stamp = body.index(': > "$STAMP"')
-        self.assertLess(stamp, body.index("memcal ingest all"))
-        self.assertLess(stamp, body.index("memcal dream"))
+        nightly = body[stamp:]
+        self.assertIn("memcal ingest all", nightly)
+        self.assertIn("memcal dream", nightly)
 
     def test_the_agent_wakes_with_the_machine(self):
         """`StartCalendarInterval` is the hour that was already missed; an elapsed
         `StartInterval` is what launchd fires on wake, and `RunAtLoad` covers being off."""
         plist = schedule.render_plist(self.cfg)
         self.assertTrue(plist["RunAtLoad"])
-        self.assertEqual(schedule.WAKE_INTERVAL, plist["StartInterval"])
+        self.assertEqual(300, plist["StartInterval"])
+        self.assertEqual(schedule.effective_interval(self.cfg),
+                         plist["StartInterval"])
         self.assertEqual({"Hour": 3, "Minute": 0}, plist["StartCalendarInterval"])
 
     def test_a_wake_up_with_nothing_owed_does_not_reach_the_model(self):
@@ -3332,7 +3336,7 @@ class TestANightTheMachineWasAsleepIsNotSimplySkipped(unittest.TestCase):
         body = schedule.render_script(self.cfg, python=sys.executable)
         cheap = body.index("ok*)")
         self.assertLess(cheap, body.index(': > "$STAMP"'))
-        self.assertIn("memcal ingest --stale", body[cheap:body.index(': > "$STAMP"')])
+        self.assertIn("memcal ingest all --due", body[cheap:body.index(': > "$STAMP"')])
 
     def test_a_check_that_cannot_answer_is_not_read_as_nothing_to_do(self):
         """An unrecognised verdict exits non-zero, so `status` reports a failing job
@@ -3340,6 +3344,107 @@ class TestANightTheMachineWasAsleepIsNotSimplySkipped(unittest.TestCase):
         body = schedule.render_script(self.cfg, python=sys.executable)
         self.assertIn("cannot tell whether a pass is owed", body)
         self.assertIn("exit 1", body)
+
+
+class TestCollectIntervalDrivesTheWakeInterval(unittest.TestCase):
+    """StartInterval comes from MEMCAL_COLLECT_INTERVAL_MINUTES, not a fixed 30 min.
+
+    The timer wakes the machine on the configured due cadence (minutes * 60,
+    clamped to [60, 86400]); the nightly/missed-night pass stays once per owed
+    night — the `owed()` stamp logic is untouched.
+    """
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.cfg = Config(home=self.home)
+        self.cfg.ensure_dirs()
+        self.plist = self.home / "com.memcal.nightly.plist"
+        self.plist.write_bytes(plistlib.dumps(
+            {"StartCalendarInterval": {"Hour": 3, "Minute": 0}}))
+        schedule.script_path(self.cfg).write_text(
+            schedule.render_script(self.cfg, python=sys.executable), encoding="utf-8")
+        patch = mock.patch.object(schedule, "plist_path", return_value=self.plist)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def _started_at(self, when: datetime):
+        stamp = schedule.stamp_path(self.cfg)
+        stamp.touch()
+        os.utime(stamp, (when.timestamp(), when.timestamp()))
+
+    def test_default_five_minutes_is_300_seconds(self):
+        self.assertEqual(5, self.cfg.collect_interval_minutes)
+        self.assertEqual(300, schedule.render_plist(self.cfg)["StartInterval"])
+
+    def test_configured_minutes_become_seconds(self):
+        for minutes, expected in ((1, 60), (30, 1800), (1440, 86400)):
+            with self.subTest(minutes=minutes):
+                self.cfg.collect_interval_minutes = minutes
+                self.assertEqual(expected,
+                                 schedule.render_plist(self.cfg)["StartInterval"])
+
+    def test_out_of_range_intervals_are_clamped(self):
+        self.cfg.collect_interval_minutes = 0
+        self.assertEqual(60, schedule.render_plist(self.cfg)["StartInterval"])
+        self.cfg.collect_interval_minutes = 10_000
+        self.assertEqual(86400, schedule.render_plist(self.cfg)["StartInterval"])
+
+    def test_missing_or_invalid_setting_falls_back(self):
+        self.assertEqual(schedule.WAKE_INTERVAL,
+                         schedule.effective_interval(None))
+        self.assertEqual(schedule.WAKE_INTERVAL,
+                         schedule.effective_interval(object()))
+        self.cfg.collect_interval_minutes = "junk"  # type: ignore[assignment]
+        self.assertEqual(schedule.WAKE_INTERVAL,
+                         schedule.render_plist(self.cfg)["StartInterval"])
+        self.cfg.collect_interval_minutes = None  # type: ignore[assignment]
+        self.assertEqual(schedule.WAKE_INTERVAL,
+                         schedule.render_plist(self.cfg)["StartInterval"])
+
+    def test_status_every_matches_what_install_would_render(self):
+        for minutes, expected in ((5, 300), (1, 60), (30, 1800), (1440, 86400)):
+            with self.subTest(minutes=minutes):
+                self.cfg.collect_interval_minutes = minutes
+                with mock.patch.object(schedule, "_launchctl",
+                                        return_value=(1, "not loaded")):
+                    state = schedule.status(self.cfg)
+                self.assertEqual(expected, state["every"])
+                self.assertEqual(schedule.render_plist(self.cfg)["StartInterval"],
+                                 state["every"])
+
+    def test_install_writes_the_effective_interval(self):
+        self.cfg.collect_interval_minutes = 1
+        with mock.patch.object(schedule, "_launchctl", return_value=(0, "")), \
+                mock.patch.object(schedule, "build_app_bundle", return_value=[]):
+            schedule.install(self.cfg)
+        with self.plist.open("rb") as fh:
+            installed = plistlib.load(fh)
+        self.assertEqual(60, installed["StartInterval"])
+        # The nightly half of the job is unchanged by the cadence.
+        self.assertEqual({"Hour": 3, "Minute": 0},
+                         installed["StartCalendarInterval"])
+        self.assertTrue(installed["RunAtLoad"])
+
+    def test_other_plist_keys_do_not_move_with_the_cadence(self):
+        before = schedule.render_plist(self.cfg)
+        self.cfg.collect_interval_minutes = 30
+        after = schedule.render_plist(self.cfg)
+        self.assertEqual(1800, after["StartInterval"])
+        for key in ("Label", "ProgramArguments", "StartCalendarInterval",
+                    "RunAtLoad", "StandardOutPath", "StandardErrorPath",
+                    "ProcessType", "EnvironmentVariables", "WorkingDirectory"):
+            self.assertEqual(before[key], after[key], key)
+
+    def test_rapid_successive_ticks_after_a_stamp_are_not_owed(self):
+        """One stamp serves the night; every later wake-up that night is quiet."""
+        now = datetime(2026, 9, 8, 8, 0).astimezone()
+        self._started_at(now)
+        for seconds in (30, 60, 300, 1800):
+            with self.subTest(seconds=seconds):
+                due, why = schedule.owed(
+                    self.cfg, now=now + timedelta(seconds=seconds))
+                self.assertIsNone(due)
+                self.assertIn("nothing missed", why)
 
 
 def setUpModule():

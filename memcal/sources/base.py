@@ -51,6 +51,15 @@ class IngestReport:
     def unresolved(self) -> int:
         return len(self.unknown_handles)
 
+    @property
+    def outcome(self) -> str:
+        """Terminal outcome: failed, incomplete (more waiting), or complete."""
+        if self.error:
+            return "failed"
+        if self.more:
+            return "incomplete"
+        return "complete"
+
     def summary(self) -> str:
         if self.error:
             return f"{self.stream}: {self.error}"
@@ -64,7 +73,9 @@ class IngestReport:
         if self.unresolved:
             line += f", unresolved handles {self.unresolved}"
         if self.more:
-            line += "  [more waiting]"
+            line += "  [incomplete — more waiting]"
+        else:
+            line += "  [complete]"
         for note in self.notes:
             line += f"\n  {note}"
         return line

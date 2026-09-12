@@ -12,9 +12,29 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   art as its favicon. `memcal schedule install` converts `memcal/macos/icon.png`
   to `AppIcon.icns` before signing; a missing icon toolset still builds an
   iconless bundle rather than failing.
+- `memcal ingest [source|all] --due` rechecks only sources due for another look
+  (every `MEMCAL_COLLECT_INTERVAL_MINUTES`, default 5). When nothing is due it
+  exits without touching sources, contacts, collections, or the brief.
+- Daytime collection runs on the scheduled job's off-hours ticks while dream
+  stays nightly. One store collects once at a time across manual, web, and
+  scheduled callers; a contender is told the store is busy instead of racing it.
+- The brief flags plans with new source activity since their last review, with a
+  way to read the messages (`memcal activity E42`, `memcal_activity`, and the
+  matching Hermes tool). `memcal reviewed` (and `source_ids` on corrections)
+  acknowledges exactly the lines cited. Collecting, rendering, and reading cost
+  no model call.
+- Hermes refreshes the snapshot every turn with the latest flags, reports an
+  explicit unavailable warning instead of a stale snapshot when rendering fails,
+  and offers `memcal_refresh` for mid-turn re-reads.
 
 ### Fixed
 
+- Collection records now keep the all-page aggregate once per source attempt
+  instead of overwriting it per page, and report `complete`, `incomplete`,
+  `failed`, `unavailable`, or `unknown`. A quiet final page no longer erases
+  earlier pages, an error preserves its partial counts, and a stalled or capped
+  pass reads as incomplete rather than complete. CLI summaries and the queue
+  view show the same outcome.
 - `memcal ical setup` accepts full Calendar access on macOS 14+, where EventKit
   reports it as `4` rather than the `3` that was the only value checked — a correct
   grant read as "no access" forever. Add-Only is detected as its own state with the

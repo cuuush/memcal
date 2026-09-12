@@ -163,6 +163,26 @@ TOOLS = [
             "additionalProperties": False,
         },
     },
+    {
+        "name": "memcal_activity",
+        "description": (
+            "New messages behind one plan since its last review — the correction, "
+            "not a keyword search. Use when the brief flags new activity on a row "
+            "before giving current details for it. Reading changes nothing; cite "
+            "the [ids] in a memcal_update, or acknowledge them with memcal_reviewed "
+            "when the stored row still stands. Takes a brief handle like E46."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "handle": {"type": "string",
+                           "description": "a brief handle, e.g. E46"},
+                "cursor": {"type": "integer",
+                           "description": "an archive id to read after (for paging)"},
+                "limit": {"type": "integer", "description": "default 20"},
+            },
+            "required": ["handle"], "additionalProperties": False,
+        },
+    },
     # The write half. One verb each, all plain code — the caller is a model that
     # already knows which field it means, so there is nothing left to extract.
     {
@@ -227,6 +247,8 @@ TOOLS = [
                                             "online. Not the same as where it is"},
                 "series": {"type": "string", "description": "the recurring thing this is one of, as a slug ('tutoring'). Sets it where repetition alone could not prove it — a new instance then starts with what the series already knows"},
                 "note": {"type": "string"},
+                "source_ids": {"type": "array", "items": {"type": "integer"},
+                               "description": "archive [ids] from memcal_activity this change is based on"},
             },
             "required": ["which"], "additionalProperties": False,
         },
@@ -370,6 +392,31 @@ TOOLS = [
             "required": ["question", "answer"], "additionalProperties": False,
         },
     },
+    {
+        "name": "memcal_reviewed",
+        "description": ("Mark activity lines as reviewed with no change to the row — the "
+                        "stored plan still stands after reading them. Only the cited "
+                        "lines stop raising hints. Cite the [ids] memcal_activity "
+                        "returned."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "handle": {"type": "string",
+                           "description": "a brief handle, e.g. E46"},
+                "source_ids": {"type": "array", "items": {"type": "integer"},
+                               "description": "archive line ids this review covered"},
+            },
+            "required": ["handle", "source_ids"], "additionalProperties": False,
+        },
+    },
+    {
+        "name": "memcal_refresh",
+        "description": ("Re-render the current brief on demand — the same snapshot "
+                        "prefetch injects, without model work. For turns where "
+                        "injection may have been skipped or source state changed "
+                        "mid-turn."),
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
 ]
 
 
@@ -415,6 +462,7 @@ def _render_page(profile: dict) -> str:
 WRITE_TOOLS = frozenset({
     "memcal_add", "memcal_update", "memcal_schedule", "memcal_move_once",
     "memcal_merge", "memcal_drop", "memcal_todo", "memcal_note", "memcal_alias",
+    "memcal_reviewed",
 })
 
 
@@ -451,10 +499,54 @@ class Server:
                                 session_id=self.session),
             session=self.session)
 
+    @staticmethod
+    def _cited_ids(args: dict) -> list[int]:
+        """Archive ids the caller claims to have read. Validated at the write."""
+        raw = args.get("source_ids") or []
+        if isinstance(raw, str):
+            raw = raw.replace(",", " ").split()
+        try:
+            return [int(part) for part in raw]
+        except (TypeError, ValueError):
+            raise ValueError("source_ids must be archive line ids, e.g. [12, 13]")
+
+    def _cited(self, args: dict) -> live.Origin:
+        """This turn's origin plus the activity lines the caller actually opened."""
+        base = self.origin()
+        extra = self._cited_ids(args)
+        return live.Origin.of(
+            base.surface, base.archive_ids, cited=extra, session=base.session,
+            note=base.note if base.sourced or not extra
+            else "cited activity lines", op_id=base.op_id)
+
     # ------------------------------------------------------------------ tools --
     def call(self, name: str, args: dict) -> str:
         if name == "memcal_brief":
             return brief.render(self.conn, self.cfg)
+
+        if name == "memcal_refresh":
+            return brief.render(self.conn, self.cfg)
+
+        if name == "memcal_activity":
+            from . import activity as activity_mod
+            try:
+                kind, ref = activity_mod.resolve_handle(
+                    self.conn, str(args.get("handle", "")))
+            except LookupError as exc:
+                return str(exc)
+            try:
+                cursor = int(args.get("cursor") or 0)
+            except (TypeError, ValueError):
+                return "cursor must be an archive id number"
+            try:
+                limit = max(1, min(50, int(args.get("limit") or 20)))
+            except (TypeError, ValueError):
+                return "limit must be a number"
+            page = activity_mod.read(self.conn, kind, ref, cursor=cursor,
+                                     limit=limit)
+            weak = activity_mod.associations(self.conn, kind, ref)["weak"]
+            return activity_mod.format_read(
+                page, weak, label=str(args.get("handle", "")).strip())
 
         if name == "memcal_open":
             # No `kind` argument, unlike `memcal_source`. The handle already says which
@@ -598,7 +690,7 @@ class Server:
             return f"{verb}: {event.one_line()}"
         if name == "memcal_update":
             event, changed = live.update_event(
-                conn, cfg, args.get("which", ""), origin=self.origin(),
+                conn, cfg, args.get("which", ""), origin=self._cited(args),
                 status=args.get("status"),
                 when=args.get("when"), until=args.get("until"), time=args.get("time"),
                 location=args.get("location"), title=args.get("title"),
@@ -649,6 +741,9 @@ class Server:
         if name == "memcal_alias":
             page = wiki.add_alias(cfg.wiki_dir, args.get("page", ""), args.get("name", ""))
             return f"{page.slug} is also known as {', '.join(page.aliases)}"
+        if name == "memcal_reviewed":
+            return live.reviewed(conn, cfg, args.get("handle", ""),
+                                 origin=self._cited(args))
         raise ValueError(f"unroutable write tool {name}")
 
     # --------------------------------------------------------------- protocol --
