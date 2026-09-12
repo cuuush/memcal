@@ -56,12 +56,10 @@ INVISIBLE = frozenset({"Cc", "Cf"})
 
 
 def spoken_text(text: str) -> str:
-    """What is left of a raw body once placeholders go, or nothing if nobody spoke.
+    """Visible message content, or nothing if nobody spoke.
 
-    A body that keeps no visible character is not a message. That is wider than a list
-    of known-bad codepoints and narrower than "it has no letters": an emoji or a lone
-    "?" is visible and stays a message, which `gate.is_reaction` then judges, while a
-    bare U+FFFD or a stray zero-width space is not and becomes nothing.
+    Emoji or a lone "?" stays a message for `gate.is_reaction` to judge; bare
+    placeholders and invisible characters become nothing.
     """
     body = SPECIALS.sub(" ", text or "").strip()
     for ch in body:
@@ -71,18 +69,14 @@ def spoken_text(text: str) -> str:
 
 
 def shorten_url(match: re.Match) -> str:
-    """A URL's information is its host and maybe its path — never its query string.
+    """Shorten a URL to host plus truncated path; drop the query string.
 
-    Tracking links can run to several hundred characters of base64. Keeping the host
-    lets the model tell a Partiful invite from a Databricks newsletter; keeping the
-    rest just costs money.
+    Tracking query strings cost tokens without identifying the sender.
     """
     url = match.group(0)
     host = re.sub(r"^https?://(?:www\.)?", "", url).split("/")[0]
     if not host:
-        # A hostless match ("https:///x", a bare "www."): splitting on an empty
-        # separator raises, and one malformed link in one marketing email was enough
-        # to abort the whole email stream. Nothing here is worth a stream.
+        # A hostless match must never abort the stream.
         return f"<{url[:40]}>"
     path = url.split(host, 1)[-1].split("?")[0].rstrip("/")
     if len(path) > 40:
@@ -91,11 +85,7 @@ def shorten_url(match: re.Match) -> str:
 
 
 def strip_quotes(text: str) -> str:
-    """Cut everything from the first quoted-reply marker onward.
-
-    The reply is the new information; the chain below it is a copy of messages we
-    already hold. Cutting at the marker also removes the nested chains beneath it.
-    """
+    """Cut everything from the first quoted-reply marker onward."""
     earliest = None
     match = QUOTE_HEADER.search(text)
     if match:
@@ -175,13 +165,11 @@ def character_classes(text: str) -> dict[str, int]:
 
 
 def estimate_tokens(text: str) -> int:
-    """A token estimate that over-counts, weighted per character class.
+    """Token estimate weighted per character class, fitted to over-count.
 
-    chars/4 is the usual rule of thumb and it under-counts real email by ~20%: URLs,
-    dates, and punctuation-heavy layout tokenize far below four characters a token.
-    Packing, trimming, and cost estimates all price against this number, so the
-    weights are fitted to over-count every call in `tests/token_calibration.json`.
-    Over the 162 calls there it runs 1.17x the provider's own count, never under.
+    Punctuation-heavy email tokenizes below four characters per token, so chars/4
+    under-counts; packing and cost estimates price against this number. Weights are
+    fitted against `tests/token_calibration.json`.
     """
     if not text:
         return 0

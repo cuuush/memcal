@@ -59,12 +59,7 @@ class Series:
 
     @property
     def phrase(self) -> str:
-        """"Tuesdays at 13:00" — the rule as a person says it.
-
-        On the dataclass rather than in each caller, because the brief, the apply log,
-        both tool surfaces and the CLI all have to say the same thing about one rule, and
-        four renderings of one fact is how a store starts disagreeing with itself.
-        """
+        """"Tuesdays at 13:00" — the rule as a person says it."""
         if self.cadence == "monthly" and self.day_of_month:
             stem = f"the {self.day_of_month} of each month"
         elif self.weekday is not None and 0 <= self.weekday <= 6:
@@ -73,23 +68,13 @@ class Series:
                 stem = f"every other {stem[:-1]}"
         else:
             stem = self.cadence or "on no fixed schedule"
-        # *"if theres no time, we should say so. time tbd/time unknown"* — and this is
-        # the one place where a blank genuinely means "unknown" rather than "all day". A
-        # birthday with no time is not missing anything; a standing appointment always
-        # happens *at* a time, so a rule without one has a hole in it, and rendering that
-        # as silence is the same class of failure as a row whose date came from nowhere:
-        # the absence is invisible, so nobody asks.
+        # A rule without a time has a hole in it; render the gap instead of silence.
         said = f"{stem} at {self.time}" if self.time else f"{stem}, time TBD"
         return said if self.status == "active" else f"{said} (ended)"
 
     @property
     def projectable(self) -> bool:
-        """Whether this rule can say when the next one is.
-
-        A series with no cadence is not broken — "we meet about monthly" is a true thing
-        somebody said, and it is worth holding as a page and a set of qualities. It is
-        simply not a schedule, so it does not project occurrences.
-        """
+        """Whether this rule can say when the next one is."""
         if self.status != "active" or self.cadence not in CADENCES:
             return False
         if self.cadence == "monthly":
@@ -114,8 +99,7 @@ def _clean(fields: dict) -> dict:
     out = dict(fields)
     if out.get("cadence") is not None:
         cadence = str(out["cadence"]).strip().lower()
-        # "biweekly" means both things to different people and neither reliably. The
-        # vocabulary answers to the unambiguous word and to nothing else.
+        # Accept only unambiguous cadence words.
         cadence = {"every other week": "fortnightly", "every two weeks": "fortnightly",
                    "every week": "weekly", "every month": "monthly"}.get(cadence, cadence)
         out["cadence"] = cadence if cadence in CADENCES else None
@@ -195,12 +179,7 @@ def upsert(conn: sqlite3.Connection, fields: dict, *, written_by: str = "cli",
 
 def end(conn: sqlite3.Connection, slug: str, *, on: str | None = None,
         written_by: str = "cli", commit: bool = True) -> Series | None:
-    """The user has stopped going. The rule stops applying; nothing is removed.
-
-    Deliberately not a delete. The rows it already generated are true, the page is worth
-    keeping, and "this used to be every Monday" is the answer to a question somebody will
-    ask later.
-    """
+    """The user has stopped going. The rule stops applying; nothing is removed."""
     if get(conn, slug) is None:
         return None
     updated, _ = upsert(conn, {"slug": slug, "status": "ended",
@@ -217,9 +196,7 @@ def occurrences(conn_or_series, start: str | date, end_at: str | date,
                 *, series: Series | None = None) -> list[date]:
     """Every day the rule lands on within [start, end_at], inclusive.
 
-    Pure projection with no reference to what is in `events` — the caller joins the two,
-    because "what the rule says" and "what the store holds" being separately answerable
-    is the whole point of having a rule at all.
+    Pure projection; the caller joins rules to stored rows.
     """
     rule = series if series is not None else conn_or_series
     if not isinstance(rule, Series) or not rule.projectable:
@@ -241,16 +218,14 @@ def occurrences(conn_or_series, start: str | date, end_at: str | date,
             try:
                 landed = cursor.replace(day=day)
             except ValueError:
-                # A rule that says "the 31st" simply does not land in February. Clamping
-                # it to the 28th would invent a meeting nobody agreed to.
+                # Skip months without that day rather than clamping.
                 landed = None
             if landed is not None and first <= landed <= last:
                 out.append(landed)
             cursor = (cursor.replace(day=28) + timedelta(days=7)).replace(day=1)
         return out
 
-    # `effective_on` is the anchor for a fortnightly rule, not merely a lower bound:
-    # "every other Tuesday" is only meaningful relative to a Tuesday somebody named.
+    # `effective_on` anchors a fortnightly rule, not just bounds it.
     anchor = db.parse_date(rule.effective_on) if rule.effective_on else first
     anchor += timedelta(days=(rule.weekday - anchor.weekday()) % 7)
     step = _step(rule.cadence or "weekly")
@@ -274,17 +249,11 @@ def next_on(conn: sqlite3.Connection, rule: Series, *, after: str | date | None 
     return landed[0] if landed else None
 
 
-#: How many occurrences of a rule exist as rows at any moment. One, because that is the
-#: policy the prompt has always stated and the brief has always assumed — "a recurring
-#: thing is one row for the next occurrence". The *rule* is what says forever now, so
-#: materialising a year of Tuesdays would add nothing a reader wants and would put fifty
-#: rows in front of every matcher in the store.
+#: Projected occurrences kept per rule. The rule holds the long-term schedule.
 MATERIALIZE_AHEAD = 1
 
-#: A row this module projected from a rule, as opposed to one a person or a source
-#: observed. Only a projection may be un-projected: if the rule changes, memcal's own
-#: guess about next Monday is withdrawn silently, and a Monday that *Calendar.app* or an
-#: email put there is left alone and asked about.
+#: Rows this module projected, as opposed to rows a person or source observed.
+#: Only projections may be withdrawn when the rule changes.
 WRITER = "series"
 
 
@@ -294,9 +263,7 @@ def _projection(rule: Series, on: date) -> dict:
         "date": on.isoformat(),
         "time": rule.time,
         "series": rule.slug,
-        # The occasion's own judgement, never the rule's. A standing appointment is a
-        # commitment in kind; whether the user is going *this* week is not settled by the fact
-        # that a schedule exists, and `status` is the column that would be lying.
+        # New projections stay mentioned; the rule never settles attendance.
         "kind": "commitment",
         "status": "mentioned",
         "source": f"series:{rule.slug}",
@@ -327,30 +294,14 @@ def roll_forward(conn: sqlite3.Connection, *, slug: str | None = None,
         wanted = [d for d in scheduled if d.isoformat() not in skip][:max(0, ahead)]
         landing = {d.isoformat() for d in scheduled}
 
-        # The store already knows when the next one is, so the rule has nothing to add.
-        # `ahead` is *one row for the next occurrence*, and one already exists — filling
-        # in the slots between here and it is the rule inventing meetings nobody
-        # mentioned. It did exactly that: told a physio slot was weekly on Wednesdays and
-        # that the appointment was Wednesday the 12th, it also wrote a Wednesday the 5th,
-        # because the 5th is the first Wednesday the rule lands on. A projection may
-        # answer "when is the next one" and may never contradict a source that said.
-        # Only rows the rule actually accounts for count: on a day it lands on, or an
-        # exception standing in for one. A leftover Monday from the cadence that just
-        # changed is not the next occurrence — it is precisely the thing
-        # `stale_occurrences` exists to raise, and letting it satisfy the slot would mean
-        # a schedule change silently produced no Tuesday at all.
+        # An existing upcoming row satisfies the slot; never invent meetings between
+        # here and it, and only rule-covered days count toward the slot.
         upcoming = sum(1 for row in conn.execute(
             "SELECT date, instead_of FROM events"
             "  WHERE series = ? AND date >= ? AND status <> 'declined'",
             (rule.slug, db.today().isoformat()))
             if row["date"] in landing or (row["instead_of"] or "") in landing)
-        # **Refreshing is not the same job as creating**, and conflating them cost the
-        # first live `--at 13:00`: the rule said "Tuesdays at 13:00" while memcal's own
-        # already-written Tuesday sat there blank, one line below it in the brief,
-        # because the store had an upcoming row and so the whole loop was skipped. A
-        # projection is derived from the rule and tracks it for as long as it stays a
-        # projection — any other writer takes `written_by` off `series`, and from then on
-        # the row is theirs and this leaves it alone.
+        # Projections track the rule until another writer claims the row.
         for row in conn.execute(
                 "SELECT key, date FROM events"
                 "  WHERE series = ? AND date >= ? AND written_by = ?",
@@ -368,12 +319,7 @@ def roll_forward(conn: sqlite3.Connection, *, slug: str | None = None,
             event, verb = events.upsert(conn, _projection(rule, on),
                                         written_by=written_by, match=False)
             log.append(f"series  {verb} {rule.title} on {on.isoformat()}")
-            # A rule that knows the day and not the hour is projecting a row with a hole
-            # in it, and a blank time renders as nothing at all — indistinguishable from
-            # an all-day thing that never had one. *"If there's no time, we should say
-            # so."* The rendering says TBD; this is the half that gets it filled in,
-            # through the one choke point every asker goes through, keyed so it is asked
-            # once rather than every night.
+            # A rule without an hour projects a row with a hole; ask for it once here.
             if not rule.time:
                 todos.ask(conn, f"What time is {rule.title} on "
                                 f"{_WEEKDAYS[rule.weekday][:-1]}s now?"
@@ -382,8 +328,7 @@ def roll_forward(conn: sqlite3.Connection, *, slug: str | None = None,
                           key=f"q:series-time:{rule.slug}",
                           about_event=event.id, written_by=written_by)
 
-        # A row memcal projected under the previous rule, standing on a day the rule in
-        # force does not land on. `written_by` is the whole test; see the docstring.
+        # Projected rows on days the rule no longer lands on; withdrawn silently.
         stale = conn.execute(
             """SELECT key, date FROM events
                 WHERE series = ? AND date >= ? AND instead_of IS NULL
@@ -400,12 +345,9 @@ def roll_forward(conn: sqlite3.Connection, *, slug: str | None = None,
 
 
 def stale_occurrences(conn: sqlite3.Connection, slug: str) -> list[sqlite3.Row]:
-    """Future rows of a series that its rule does not account for and cannot withdraw.
+    """Future rows the rule no longer accounts for and cannot withdraw.
 
-    These are the observations — a Monday still sitting on Calendar.app after the
-    tutor moved everything to Tuesday. memcal is not entitled to delete them and is
-    not entitled to assume they are wrong, so it asks. Returned rather than acted on,
-    because who asks and where differs between the nightly pass and a live write.
+    Returned for the caller to ask about; this never deletes observations.
     """
     rule = get(conn, slug)
     if rule is None or not rule.projectable:
@@ -436,8 +378,7 @@ def slot_for(rule: Series, on: str | date, instead_of: str | None = None) -> str
         return None
     if day in landing:
         return day.isoformat()
-    # Half a cycle either way: a Wednesday belongs to the Tuesday it is nearest, and a
-    # day equidistant between two scheduled ones belongs to neither.
+    # Half a cycle either way; equidistant days belong to neither.
     near = sorted(landing, key=lambda d: (abs((d - day).days), d))
     best = near[0]
     if abs((best - day).days) > reach // 2:
@@ -448,12 +389,7 @@ def slot_for(rule: Series, on: str | date, instead_of: str | None = None) -> str
 
 
 def covered(conn: sqlite3.Connection, slug: str) -> set[str]:
-    """Scheduled days some row already stands in for.
-
-    An exception names the day it replaces, so this is a lookup rather than a judgement:
-    the Tuesday that a Wednesday row was written *instead of* must not be materialised
-    again a minute later by the same rule that produced it.
-    """
+    """Scheduled days some row already stands in for, by date or `instead_of`."""
     rows = conn.execute(
         "SELECT instead_of FROM events WHERE series = ? AND instead_of IS NOT NULL",
         (db.slugify(slug or ""),)).fetchall()

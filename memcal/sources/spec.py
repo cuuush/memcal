@@ -25,18 +25,8 @@ class Source:
     order: int = 50
     #: What proves this source healthy — the data, or the read.
     #:
-    #: ``"stream"`` (the default): new archive rows. A message stream that has delivered
-    #: nothing for days is behind, whatever its last run reported, and saying so is the
-    #: entire job of `archive.stale_streams`.
-    #:
-    #: ``"snapshot"``: a successful read. A calendar with no changes is healthy and must
-    #: not have to manufacture an archive row to prove it.
-    #:
-    #: Getting this backwards in either direction costs a real failure. Every source
-    #: writing `source.<stream>.last_success` is what lets a closed Proton Bridge go
-    #: stale within two days; letting that marker *override* the data is what let
-    #: iMessage sit eight days behind while `stale_streams()` returned nothing and the
-    #: brief reported no gap at all.
+    #: ``"stream"`` (default): new archive rows. ``"snapshot"``: a successful
+    #: read. The mode must match the source shape or staleness is misreported.
     health: str = "stream"
 
     def fetch(self, conn: sqlite3.Connection, cfg: Config, report: IngestReport,
@@ -82,16 +72,8 @@ class Source:
         except Exception as exc:  # a third-party plugin is not trusted to be tidy
             report.error = f"{type(exc).__name__}: {exc}"
         finally:
-            # A source that ran and found nothing is healthy; a source that has not run
-            # for a month is not; and until this was written here, both looked identical
-            # from the outside because freshness was measured off the newest *message*.
-            # A Proton Bridge that is closed reports an error, writes no marker, and the
-            # email stream now goes stale within two days instead of reading as a quiet
-            # inbox — which is the whole of what "was the Bridge open?" needs.
-            #
-            # `freshness()` has honoured `source.<stream>.last_success` since it was
-            # added for snapshot sources; only `ical` ever wrote one. Every source
-            # writing it is what turns a per-source convention into a health signal.
+            # Record success markers for freshness; record the collection
+            # regardless of outcome.
             if not report.error:
                 try:
                     db.set_meta(conn, f"source.{self.name}.last_success", db.now())

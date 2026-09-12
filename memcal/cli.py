@@ -94,16 +94,8 @@ def _closes_direct_connections(func):
 
 # ------------------------------------------------------------------- handles --
 #
-# The brief is an index and a handle is what opens an entry in it. Every other surface
-# has been able to follow one since `detail.open_handle` was written — the web UI, MCP,
-# Hermes — and the CLI, which is the surface that *prints* the index, could not. Worse,
-# the legend it printed said the handles
-# "open with memcal_open", which is an MCP tool name and means nothing at a shell.
-#
-# So the CLI spoke a second vocabulary: `week --keys` printed `tutoring@2026-08-25` and
-# `status`/`rm`/`done` demanded one. Two names for one row, and the one on screen was
-# never the one the next command wanted. The index entries were fine, but there was no
-# way to act on them.
+# The brief is an index; a handle opens an entry via `detail.open_handle`.
+# The CLI prints the bare form (`E286`) and resolves both spellings.
 
 #: What a handle looks like when a human types it. The brief prints `〔E286〕`; the
 #: brackets are for a model reading prose and are a nuisance at a shell, so both spellings
@@ -123,9 +115,8 @@ def is_handle(token: str) -> bool:
 def resolve_handle(conn: sqlite3.Connection, token: str) -> dict | None:
     """`E286` → the row it names, through the same resolver every other surface uses.
 
-    Returns `trace.resolve_source`'s dict, or None when this is not a handle at all —
-    which is the caller's cue to fall back to a key or a title, so nothing that used to
-    work stops working.
+    Returns `trace.resolve_source`'s dict, or None when this is not a handle at
+    all — the caller then falls back to a key or title.
     """
     match = HANDLE_RE.match(str(token or "").strip())
     if not match:
@@ -135,11 +126,9 @@ def resolve_handle(conn: sqlite3.Connection, token: str) -> dict | None:
 
 
 def find_event(conn: sqlite3.Connection, token: str) -> events.Event | None:
-    """However the user refers to a row: `E286`, `tutoring@2026-08-25`, or its title.
+    """Resolve a row by handle, key, or title.
 
-    Handle first, because that is what is on screen. The title fallback is last and
-    stays deliberately loose — it is how `memcal status poker confirmed` has always
-    worked and there is no reason to take it away.
+    Handle first, because that is what is on screen. Title fallback stays loose.
     """
     found = resolve_handle(conn, token)
     if found and found["kind"] == "event":
@@ -160,13 +149,7 @@ def find_todo(conn: sqlite3.Connection, token: str):
 # ---------------------------------------------------------------------- json --
 
 def emit_json(payload) -> int:
-    """One shape for every `--json`, so a caller learns it once.
-
-    Machine output is not a nicety here: the store is the useful half of memcal and the
-    only ways to get at it were the web UI, an MCP client, or SQLite. A shell script had
-    to parse a line designed to be read by a human — which is how `week --keys` came to
-    exist, printing a second identifier in brackets so something could grep it.
-    """
+    """One shape for every `--json`, so a caller learns it once."""
     json.dump(payload, sys.stdout, ensure_ascii=False, indent=2, default=str)
     sys.stdout.write("\n")
     return 0
@@ -350,12 +333,7 @@ def cmd_brief(args) -> int:
 
 @_closes_direct_connections
 def cmd_open(args) -> int:
-    """Follow a handle. The other half of printing an index.
-
-    `detail.open_handle` has assembled this for the web UI, MCP and Hermes since it was
-    written, and the CLI — the surface that prints the brief — had no route to it. So
-    `memcal` answered with fourteen 〔E#〕 handles and no way to open one.
-    """
+    """Follow a handle to the row it names."""
     cfg, conn = open_ctx(args)
     text = detail.open_handle(conn, cfg, args.ref)
     sys.stdout.write(text if text.endswith("\n") else text + "\n")
@@ -373,8 +351,7 @@ def cmd_week(args) -> int:
         print("(nothing known)")
         return 0
     for ev in rows:
-        # The handle leads, because it is what the next command wants. `--keys` still
-        # appends the store key for anyone who wants the durable identifier.
+        # The handle leads; `--keys` appends the durable store key.
         line = f"{handle('event', ev.id):>5}  {ev.one_line()}"
         print(f"{line}   [{ev.key}]" if args.keys else line)
     _open_hint(rows)
@@ -382,11 +359,7 @@ def cmd_week(args) -> int:
 
 
 def _open_hint(rows) -> None:
-    """Say what to do with the handles, once, on a listing that has any.
-
-    An index whose entries cannot be followed is the complaint; an index that can be
-    followed and does not say so is the same complaint one step later.
-    """
+    """Print the follow-up command once, on listings that have handles."""
     if rows and sys.stdout.isatty():
         first = handle("event", getattr(rows[0], "id", None)) or "E1"
         print(f"\n  memcal open {first}   — everything known about a row", file=sys.stderr)
@@ -659,14 +632,7 @@ def cmd_search(args) -> int:
 
 @_closes_direct_connections
 def cmd_who(args) -> int:
-    """Clear the unresolved queue: adopt what the platform already said, list the rest.
-
-    The queue had 247 rows and 47 of them carried 25+ messages each, which is a queue
-    nobody was ever going to work through by hand. Most of that was not a naming problem
-    at all — GroupMe had been telling us the display name the whole time and nothing took
-    it. What is left after `--adopt` is the genuinely unanswerable part, and that is small
-    enough to sit down with.
-    """
+    """Clear the unresolved queue: adopt platform names, then list the rest."""
     cfg, conn = open_ctx(args)
     if args.handle and args.person:
         identity.link(conn, args.handle, args.person, source="cli")
@@ -686,8 +652,7 @@ def cmd_who(args) -> int:
         return 0 if put_back else 1
 
     if getattr(args, "resolve", False):
-        # The only path here that spends money, so it runs on request and never on a
-        # schedule.
+        # Model-backed; runs on request only.
         client = llm.client_for(cfg)
         print(f"reading the whole identity picture with {cfg.sweep_model}…", flush=True)
         try:
@@ -709,8 +674,7 @@ def cmd_who(args) -> int:
         print(f"\nadopted {len(taken)}"
               + (f", dropped {dropped} non-person handle(s)" if dropped else ""))
 
-    # Already in effect, so the listing exists to be disagreed with; every line carries
-    # the number that undoes it.
+    # Already-merged assumptions; each line carries the number that undoes it.
     open_assumptions = whois.assumptions(conn)
     if open_assumptions:
         print(f"\n# assumed to be one person ({len(open_assumptions)}) — already merged")
@@ -719,8 +683,7 @@ def cmd_who(args) -> int:
             print(f"  [{row['id']:>3}] {row['also']} → {row['keep']}"
                   f"   {_one_line(row['why'] or '', 46)}")
 
-    # Doubts, which did nothing when they were recorded. These are the ones only the
-    # user can settle, so `--confirm` here is the moment the merge or link happens.
+    # Unresolved doubts; only the user can settle these.
     doubts = whois.assumptions(conn, state="unsure")
     if doubts:
         print(f"\n# not sure ({len(doubts)}) — nothing was done about these")
@@ -730,8 +693,7 @@ def cmd_who(args) -> int:
             print(f"  [{row['id']:>3}] {row['also']} — {guess}?"
                   f"   {_one_line(row['why'] or '', 44)}")
 
-    # Two spellings of one name that Contacts cannot join. Shown here rather than
-    # asked, because the user has already dismissed being asked it — see `candidate_lines`.
+    # Candidate name pairs shown for manual linking; nothing merges on its own.
     pairs = identity.candidate_lines(conn)
     if pairs:
         print(f"\n# possibly one person, on two platforms ({len(pairs)})")
@@ -744,10 +706,8 @@ def cmd_who(args) -> int:
         if not pairs and not open_assumptions and not doubts:
             print("(no unresolved handles)")
         return 0
-    # Named by *what memcal can see*, because the two halves need different things from
-    # them. An id whose platform gave a name is one keystroke; an id with no name anywhere
-    # — a WhatsApp LID, which is not a phone number and matches no contact by design — can
-    # only ever be answered by the person who knows whose 472 messages those are.
+    # Grouped by whether the platform supplied a name; nameless IDs need
+    # user identification.
     nameless = [r for r in rows if not (r["seen_name"] or "").strip()]
     named = [r for r in rows if (r["seen_name"] or "").strip()]
     for title, group in (("nobody can name these but you", nameless),
@@ -757,8 +717,7 @@ def cmd_who(args) -> int:
         print(f"\n# {title} ({len(group)})")
         for row in group:
             where = ", ".join(identity.where_seen(conn, row["handle"]))
-            # The guess is printed as a guess and never applied. It matches on first
-            # name, so on this very queue it offered "joe coleman" for Joe Navarro.
+            # Guesses are first-name only and never applied automatically.
             hint = (row["seen_name"] or "").strip() \
                 or (f"?{identity.guess_person(conn, row)}"
                     if identity.guess_person(conn, row) else "")
@@ -913,12 +872,8 @@ def cmd_ingest(args) -> int:
             failed.append(source.name)
     archive.close_collection(conn, collection_id)
     brief.write(conn, cfg)
-    # Any failure is a failure, including in `ingest all`. This used to be
-    # `failed and len(chosen) == 1`, so the one caller that runs unattended — the 3am
-    # launchd job, which always passes `all` — could not fail. The Proton Bridge was
-    # unreachable for nine consecutive nights, every one of them exited 0, `nightly.log`
-    # ended each with "done", and the only thing that ever said otherwise was a line in
-    # the brief addressed to a reader who was asleep.
+    # Any source failure fails the command, including `ingest all`, so
+    # unattended runs report errors instead of exiting 0.
     if failed:
         print(f"\n{len(failed)} source(s) failed: {', '.join(failed)}", file=sys.stderr)
         return 1
@@ -1155,12 +1110,7 @@ def cmd_gatecheck(args) -> int:
 
 
 def _dream_progress():
-    """Print a pass as it happens. Returns the callback `dream` wants.
-
-    The pass emits stage transitions, wave openings, and every request as it returns.
-    The web UI draws all of it; this printed only the `waiting` events, leaving a long
-    run silent until its report.
-    """
+    """Print a pass as it happens. Returns the callback `dream` wants."""
     requests = 0
 
     def show(event: str, data: dict) -> None:
@@ -1184,8 +1134,8 @@ def _dream_progress():
             return
         if event == "propose_request":
             requests += 1
-            # Bundles read out of bundles planned, not requests finished: packing and
-            # re-sends both move the request count, so it has no denominator.
+            # Request counts shift with packing and re-sends, so progress is
+            # measured in bundles.
             done, total = data.get("done", 0), data.get("total", 0)
             state = "ok " if data.get("ok") else "failed"
             tail = f" — {data.get('error')}" if data.get("error") else ""
@@ -1197,14 +1147,7 @@ def _dream_progress():
 
 @_closes_direct_connections
 def cmd_dream(args) -> int:
-    """One pass, or as many as it takes to drain the queue.
-
-    A pass reads the newest `items_per_entity` lines of every waiting conversation, which
-    is the right shape for a nightly run and the wrong shape for a first load: thirty days
-    imported in one go leaves several passes' worth of backlog, and reading only the last
-    two days of their partner's thread is exactly the failure the round-robin fixed at the
-    other end. `--rounds` keeps going until nothing is left, printing what each pass cost.
-    """
+    """One pass, or as many as it takes to drain the queue (`--rounds`)."""
     cfg, conn = open_ctx(args)
     if getattr(args, "retry", None):
         from .dream import retry as retry_stage                    # noqa: PLC0415
@@ -1494,35 +1437,19 @@ def cmd_models(args) -> int:
 
 # ------------------------------------------------------------------- doctor --
 #
-# `doctor` printed twenty-six aligned lines mixing facts with verdicts: `wiki pages 14`
-# next to `source email -- 9 days behind`, both in the same column, one of them a
-# problem and nothing saying so. You had to know what the numbers should be to read it,
-# which is exactly backwards — the point of a doctor is to tell somebody who does *not*.
-#
-# So a check is a value now, not a `print`. It has a section, a verdict, and — the part
-# that was missing entirely — the command that fixes it. The renderer groups them, hides
-# the healthy detail behind `--verbose`, and ends with a count rather than an exit code
-# nobody sees.
+# Each check is a value with a section, verdict, and fix. The renderer groups
+# them, hides healthy detail behind `--verbose`, and ends with a count.
 
 OK, WARN, FAIL, INFO = "ok", "warn", "fail", "info"
 
-#: Not set up, and nothing depends on it. Distinct from `OK` because it is not working,
-#: and from `WARN` because there is nothing to do — BlueBubbles being down is fine, since
-#: `imessage` falls back to the local chat.db and reads more than BlueBubbles would.
-#: Without it an optional-and-off source printed in the default view beside the one real
-#: problem, which is how a diagnosis becomes a list again.
+#: Optional source that is off; distinct from OK (not working) and WARN
+#: (nothing to do). Hidden from the default view.
 SKIP = "skip"
 
 
 @dataclass
 class Finding:
-    """One thing doctor looked at.
-
-    `fix` is the whole reason this is a dataclass. Every previous version knew what was
-    wrong and told you in the same breath as twenty-five things that were fine, and left
-    working out what to type as an exercise. A finding that cannot name its own remedy is
-    a finding that should be `INFO`.
-    """
+    """One thing doctor looked at, with its remedy in `fix`."""
     section: str
     name: str
     status: str
@@ -1546,21 +1473,13 @@ def _minutes_since(stamp) -> float:
 
 
 def _ago(stamp) -> str:
-    """`age_phrase` plus "ago", except when the phrase is already an adverb.
-
-    It said "today ago" and "1 day ago" side by side. Small, and it is the sort of thing
-    that makes a reader stop trusting the rest of the line.
-    """
+    """`age_phrase` plus "ago", except when the phrase is already an adverb."""
     phrase = db.age_phrase(stamp)
     return phrase if phrase in ("today", "just now", "never") else f"{phrase} ago"
 
 
 def _one_line(message: str, width: int = 88) -> str:
-    """A connector's complaint, on one line, cut at a space rather than mid-token.
-
-    `message[:58]` produced `URLError contacting http://localhost:1234/…: <urlopen err`,
-    which stops exactly where the reason starts.
-    """
+    """Collapse a message to one line, cutting at a space rather than mid-token."""
     text = " ".join(str(message or "").split())
     if len(text) <= width:
         return text
@@ -1643,8 +1562,7 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
         age = db.age_phrase(seen["newest"]) if seen and seen["newest"] else "never"
         detail = f"{(seen or {}).get('n', 0)} items, last seen {age}"
         if source.name in behind and usable:  # noqa: SIM114 — three distinct verdicts
-            # The one that cost nine days: reachable *now*, behind because the only
-            # scheduled attempt is at an hour its dependency is not up.
+            # Reachable now but behind: the scheduled attempt misses its dependency.
             add("Sources", source.name, FAIL, f"{_ago(seen['newest'])} behind — but reachable right now",
                 fix="memcal ingest --stale   # the schedule also does this on every wake-up")
         elif source.name in behind:
@@ -1660,9 +1578,7 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
         else:
             add("Sources", source.name, OK, detail)
 
-    # The pass-level verdict this could not give until `close_collection` rolled the
-    # per-source errors up. Nine nightly collections failed to read email and every one
-    # of them recorded three cheerful counts and no error at all.
+    # Pass-level verdict rolled up from per-source errors.
     last = conn.execute(
         "SELECT * FROM collections ORDER BY id DESC LIMIT 1").fetchone()
     if last and last["error"]:
@@ -1695,16 +1611,12 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
             fix="memcal dream --dry-run   # price it first, then `memcal dream`")
     else:
         started = str(last_run["started_at"])
-        # Two days, not one. A job that ran at 03:00 is legitimately "1 day ago" for most
-        # of the next day, and a check that calls that broken is a check people learn to
-        # ignore — which is how the actually-broken one stayed unnoticed for five days.
+        # Two-day grace: a 03:00 run reads as "1 day ago" most of the next day.
         days = (db.today() - db.parse_date(started[:10])).days
         add("Extraction", "last dream", FAIL if days > 2 else OK,
             f"{_ago(started)}, {last_run['diffs']} writes",
             fix="memcal dream" if days > 2 else "")
-        # `runs.error` is a `; `-joined list, and cutting the whole string at 90
-        # characters left the first entry decapitated and every other one invisible.
-        # One entry read in full says more than four read a third of the way.
+        # `runs.error` holds `; `-joined entries; show the first in full.
         if last_run["error"]:
             failures = [part.strip() for part in str(last_run["error"]).split("; ")
                         if part.strip()]
@@ -1853,9 +1765,7 @@ def cmd_doctor(args) -> int:
         rows = [f for f in found if f.section == section]
         if not rows:
             continue
-        # Quiet by default. Twenty-six lines of "everything is fine" is how the two lines
-        # that were not fine went unread for nine days; `--verbose` is for when you want
-        # the inventory rather than the diagnosis.
+        # Quiet by default; `--verbose` shows the full inventory.
         shown = rows if getattr(args, "verbose", False) else [
             f for f in rows if f.bad or f.status == INFO]
         bad_here = sum(1 for f in rows if f.bad)
@@ -1879,11 +1789,7 @@ def cmd_doctor(args) -> int:
 
 
 def cmd_help(args) -> int:
-    """`memcal help <command>`, because that is what people type.
-
-    argparse's own answer to `memcal help week` is "'help' is not a command", and
-    "`memcal week --help`" is the kind of thing you know only once you no longer need it.
-    """
+    """`memcal help <command>` prints that command's help."""
     parser = build_parser()
     if not args.topic:
         parser.print_help()
@@ -1898,9 +1804,7 @@ def cmd_help(args) -> int:
     return 0
 
 
-#: One line each, generated from the parser so it cannot drift from what exists. Both
-#: reference CLIs ship completion and it is the difference between forty commands being
-#: a wall and being a menu — you stop needing to remember any of them.
+#: Shell completions, generated from the parser so they match existing commands.
 COMPLETION = {
     "zsh": """\
 #compdef memcal
@@ -1940,11 +1844,7 @@ def cmd_completion(args) -> int:
 
 # -------------------------------------------------------------------- parser --
 
-# Forty-odd subcommands in one flat alphabetical list is how `memcal` with no arguments
-# came to answer with a wall of names and an argparse error. Grouping decides order and
-# headers only — the help text itself is still whatever add_parser(help=...) says, read
-# back out of the parser below. A count is not written down here on purpose: the last one
-# said "thirty-seven" for three commands longer than it was true.
+# Grouping sets help order and headers; help text comes from add_parser(help=...).
 COMMAND_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Read it", ("brief", "open", "week", "month", "todos", "search", "ui")),
     ("Write to it", ("remember", "add", "todo", "done", "ask", "answer", "note",
@@ -1984,19 +1884,12 @@ start here:
 
 
 def _install_grouped_help(p: argparse.ArgumentParser, sub) -> None:
-    """Swap argparse's flat command list for the same commands, grouped.
-
-    argparse has no concept of subcommand groups, so the grouped listing goes in the
-    epilog and the flat one is dropped. Reading the help strings back out of the
-    parser keeps add_parser(help=...) the single place they live; a command nobody
-    put in a group still shows up, under "Other", rather than vanishing from --help.
-    """
+    """Replace argparse's flat command list with the grouped listing in the epilog."""
     listing = getattr(sub, "_choices_actions", None)
     if not listing:  # a future argparse without it: keep the flat list over none
         return
     helps = {a.dest: (a.help or "") for a in listing}
-    # Stashed before the listing is cleared below. `completion` needs the same strings
-    # and reading them off a cleared list is how it shipped describing nothing.
+    # Stashed before the listing is cleared below for `completion`.
     p.memcal_help_text = helps
     groups = list(COMMAND_GROUPS)
     grouped = {name for _, names in groups for name in names}
@@ -2020,13 +1913,8 @@ def _install_grouped_help(p: argparse.ArgumentParser, sub) -> None:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="memcal", description="a calendar and a to-do list that live in context")
     p.add_argument("--home", help="memcal home directory (default ~/.memcal)")
-    # No subcommand prints the help. It printed the *brief* until 2026-08-20, on the
-    # reasoning that the brief is the one file the whole system exists to keep accurate
-    # — true, and the wrong thing to do with the only keystroke somebody types before
-    # they know anything. `memcal` answered a question nobody had asked yet with two
-    # hundred lines, and the answer to "what is this and what do I type" was three
-    # commands away. `memcal brief` is still the brief, and `memcal E286` still opens
-    # a row, so nothing that knew what it wanted lost anything.
+    # Bare `memcal` prints help; `memcal brief` and `memcal E286` keep
+    # their existing behavior.
     p.set_defaults(func=cmd_help, topic=None)
     sub = p.add_subparsers(dest="cmd", required=False, metavar="<command>")
 
@@ -2336,12 +2224,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--runs", type=int, default=5, help="how many dream runs to list")
     s.set_defaults(func=cmd_stats)
 
-    # Two names for one server. `web` is what it was called when it only showed the
-    # gate; `ui` is what people reach for now that collect, preview and dream live there
-    # too. Both still work — the muscle memory is real — but only `ui` is *listed*: a
-    # help page that offers a reader two spellings of one command has asked them to make
-    # a choice that does not exist, and "the same server, under its original name" was a
-    # line in the visible list explaining why it was not worth reading.
+    # `ui` is the listed name; `web` remains as an alias.
     for name, blurb in (("ui", "open the web UI — collect, preview a dream, run it"),
                         ("web", "alias for `ui`, kept for muscle memory")):
         s = sub.add_parser(name, help=blurb)
@@ -2387,11 +2270,7 @@ _VALUE_FLAGS = ("--home",)
 
 
 def _unknown_command(argv: list[str], choices) -> tuple[str, list[str]] | None:
-    """The first bare word, if it isn't a command — with anything it looks like.
-
-    argparse's own answer to a typo is to reprint every choice there is, which is the
-    same wall in a worse mood. Naming the near miss is the whole value here.
-    """
+    """Return the first bare non-command word with near-miss suggestions."""
     skip = False
     for tok in argv:
         if skip:

@@ -111,13 +111,10 @@ def _variant(one: list[str], other: list[str]) -> bool:
 def near_pages(wiki_dir: Path, slug: str) -> list[str]:
     """Existing pages that may already be the person this slug names.
 
-    Suggestive, never decisive: the caller offers these to the model, which has the
-    conversation in front of it and can answer with an `alias` or ignore them.
+    Suggestive, never decisive: the caller offers these to the model, which judges
+    with the conversation in front of it.
     """
-    # `exists()` answers about the slug, not the person, so a page under a shortened or
-    # fuller form of the same name reads as absent and a second page gets opened for
-    # someone already on file. A duplicate page is one fact filed twice, and no later
-    # pass can distinguish it from two people who share a surname.
+    # A shortened name reads as absent; suggest variants to prevent duplicate pages.
     want = [t for t in db.slugify(slug).split("-") if t]
     if not want:
         return []
@@ -226,10 +223,7 @@ def add_alias(wiki_dir: Path, slug: str, name: str, *, section: str = "people",
 def merge(wiki_dir: Path, keep: str, drop: str, *, source: str = "merge") -> Page:
     """Fold one page into another and leave an alias behind.
 
-    Which slug survives is the user's call, not the passport's — the user ended the session
-    that prompted this with "Well I call them robbie it's easier", so `robbie` is the page
-    and the legal name is a slot on it. The survivor's own wording always wins: a merge
-    may add what was missing, never overwrite what the user already confirmed here.
+    The survivor keeps its wording; a merge only adds missing facts, never overwrites.
     """
     keep_slug, drop_slug = canonical(wiki_dir, keep), db.slugify(drop)
     if keep_slug == drop_slug:
@@ -306,8 +300,7 @@ def _parse_content(content: str, path: Path, slug: str, section: str) -> Page:
             if m:
                 page.questions.append(m.group("q").strip())
                 continue
-        # Anything the parser doesn't recognize is prose the user typed. Keep it — the user edits
-        # these by hand, and a lossy round trip would eat their notes.
+        # Preserve unrecognized lines as prose; the wiki is hand-edited.
         body.append(line)
     page.body = "\n".join(body).strip()
     return page
@@ -492,15 +485,7 @@ def set_slot(wiki_dir: Path, slug: str, slot: str, value: str, *,
 
 
 def slot_claimed_by_another(conn, page: str, slot: str, source: str | None) -> bool:
-    """Has anyone but this writer already set this slot on this page?
-
-    `events._claimed_by_another` asked exactly this of `event_history`, and
-    `slot_history` is the wiki's `event_history` — so the guard transfers whole. It is
-    the question any re-derived value has to ask before restating itself, and the wiki
-    had no equivalent: `ensure_series` re-derived `where` on every nightly pass and
-    overwrote a correction the user had made, with no history row to say it ever
-    existed.
-    """
+    """Has another writer already set this slot? Mirrors `events._claimed_by_another`."""
     if conn is None:
         return False
     return conn.execute(
@@ -547,8 +532,7 @@ def append_body(wiki_dir: Path, slug: str, text: str, section: str = "people") -
     return page
 
 
-# The slot taxonomy per entity type. §12 leaves this open; these are a starting point,
-# and they are only ever *questions* — an empty slot is curiosity, never an assertion.
+# Slot taxonomy per entity type. Empty slots are curiosity, never assertions.
 SLOTS = {
     "people": ("how we know each other", "where they live", "birthday",
                "partner or family", "work", "what they're into"),
@@ -565,9 +549,7 @@ def autocreate(conn, wiki_dir: Path, *, limit: int = MAX_NEW_PAGES_PER_RUN) -> l
     existing = set(list_pages(wiki_dir))
     created: list[str] = []
     for slug, name in sorted(page_worthy(conn).items()):
-        # An alias is someone we already have. Without this the wiki heals the
-        # duplicate on merge and then re-opens it on the very next run, because the
-        # rows still carry both names.
+        # Aliases resolve to existing pages; never reopen them as new pages.
         slug = canonical(wiki_dir, slug)
         if slug in existing or len(created) >= limit:
             continue
@@ -577,18 +559,13 @@ def autocreate(conn, wiki_dir: Path, *, limit: int = MAX_NEW_PAGES_PER_RUN) -> l
 
 
 def page_worthy(conn) -> dict[str, str]:
-    """{slug: name} for everyone standing on a memcal row lately.
+    """{slug: name} for everyone on a recent memcal row.
 
-    Both halves of the wiki's lifecycle read this: it decides who gets a page, and it
-    decides whose empty page survives pruning. Splitting those two judgements is what
-    would make the pair churn — creating Pat's page every run and deleting it again
-    on the next, because the user is worth a page but has no facts on it yet.
+    Single source for page creation and pruning survival, so the pair cannot churn.
     """
     from . import identity
 
-    # `db.today()`, not SQLite's `now`: the clock is pinned under test and by
-    # `--as-of`, and a wiki that reads the wall clock decides who matters on a
-    # different day from the one everything else in the pass is reasoning about.
+    # Use `db.today` so the pinned test and `--as-of` clock applies here too.
     since = (db.today() - timedelta(days=60)).isoformat()
     wanted: dict[str, str] = {}
     for row in conn.execute(
@@ -615,11 +592,7 @@ def _is_handle(name: str) -> bool:
 
 
 def is_boilerplate(question: str) -> bool:
-    """Was this question generated from the slot taxonomy rather than from a message?
-
-    "Katie: birthday?" is a form field. "mom: Who is Bailey, and is their birthday June
-    26?" came from reading their mail. Only the first kind is safe to throw away.
-    """
+    """Was this question generated from the slot taxonomy rather than a message?"""
     text = (question or "").strip().rstrip("?").lower()
     _, _, tail = text.partition(":")
     tail = (tail or text).strip()
@@ -627,11 +600,7 @@ def is_boilerplate(question: str) -> bool:
 
 
 def prune_empty(wiki_dir: Path, *, keep: set[str] | None = None) -> list[str]:
-    """Drop boilerplate questions, then delete any page left holding nothing.
-
-    A page with no facts, no body and no real question is a slug charged to every
-    prompt forever for the privilege of repeating a name already in the handles table.
-    """
+    """Drop boilerplate questions, then delete pages left holding nothing."""
     keep = keep or set()
     removed: list[str] = []
     for slug in list_pages(wiki_dir):
@@ -641,8 +610,7 @@ def prune_empty(wiki_dir: Path, *, keep: set[str] | None = None) -> list[str]:
         if not page:
             continue
         real = [q for q in page.questions if not is_boilerplate(q)]
-        # Aliases are content: this page is the only place recording that two names are
-        # one person, and deleting it re-opens the duplicate it was created to close.
+        # Aliases are content: deleting the page re-opens the duplicate it closed.
         if page.slots or (page.body or "").strip() or real or page.aliases:
             if len(real) != len(page.questions):
                 page.questions = real
@@ -690,10 +658,7 @@ def retire_obsolete_series(conn, wiki_dir: Path) -> list[str]:
 
 
 def ensure_series(conn, wiki_dir: Path, series: str, *, title: str | None = None) -> Page:
-    """A recurring thing gets one page; its instances stay as memcal rows.
-
-    "Where was poker last time" should be a page read, not an archive search.
-    """
+    """A recurring thing gets one page; its instances stay as memcal rows."""
     slug = db.slugify(series)
     page = read(wiki_dir, slug)
     if page is None:
@@ -713,11 +678,10 @@ def ensure_series(conn, wiki_dir: Path, series: str, *, title: str | None = None
 
 
 def _fill_where(conn, wiki_dir: Path, slug: str, series: str, rows) -> Page | None:
-    """Say where a repeating thing happens, without ever overwriting somebody."""
+    """Derive where a repeating thing happens, without overwriting another source."""
     from . import series as series_mod           # series imports wiki
     rule = series_mod.get(conn, slug)
-    # The rule owns where it happens. Instances are the fallback for a
-    # series observed before it was ever declared.
+    # The rule owns the location; instances are the fallback for undeclared series.
     where = (rule.location if rule and rule.location else
              next((r["location"] for r in rows if r["location"]), None))
     if not where:
@@ -753,22 +717,11 @@ def link_series(conn, wiki_dir: Path) -> list[str]:
     for series, members in groups.items():
         if len(members) < 2 or not series:
             continue
-        # A series is a thing that happens *again*, so it needs two days. Same title,
-        # same day is one occasion counted twice, and counting it as a repeat is how
-        # every duplicated calendar block came to have a page asking who hosts it:
-        # "Break", "Lunch", "Rest 10 min", "Math", and Improv 101 as six series of one.
-        # Fix duplicates at the source so they cannot invent a project again.
+        # A series needs two distinct days; same-day duplicates are one occasion.
         if len({str(m["date"]) for m in members}) < 2:
             continue
-        # A page here asks "who hosts?", "where?", "how often?", "who comes?" — the
-        # questions you would ask about a thing the user organises. A subscribed calendar
-        # repeating an annual entry is not that: Easter 2026 and Easter 2027 are two
-        # rows, so `projects/easter.md` was opened wanting to know who hosts Easter.
-        # Along with Passover, Ashura, Good Friday, Tax Day and Independence Day.
-        #
-        # The test is *whose* repetition it is. If nothing but a feed ever mentioned it,
-        # the repetition belongs to the feed's publishing schedule. One chat message
-        # about poker is enough to make poker their again.
+        # Skip repetitions owned solely by a subscribed feed; one user mention
+        # makes the repetition theirs.
         if all(str(m["came_from"] or "").startswith("ical:subscribed") for m in members):
             continue
         for member in members:
@@ -797,13 +750,7 @@ def context_for(wiki_dir: Path, slugs: list[str], max_chars: int = 4000) -> str:
 
 
 def mentioned_pages(wiki_dir: Path, text: str, *, limit: int = 3) -> list[Page]:
-    """Material pages whose title, slug, or nickname appears in a user turn.
-
-    This is the cheap dynamic-recall path for Hermes. Saying "Quinn" can pull their
-    page into that turn without a model call or an archive search. Only pages that
-    already hold something are candidates, so a common first name cannot conjure an
-    empty contact card into every conversation.
-    """
+    """Recall material pages by name mention, without a model call."""
     haystack = (text or "").casefold()
     if not haystack:
         return []
@@ -813,10 +760,8 @@ def mentioned_pages(wiki_dir: Path, text: str, *, limit: int = 3) -> list[Page]:
         if not page or not is_material(page):
             continue
         full_names = [page.title, *page.aliases, slug.replace("-", " ")]
-        # A page titled "Quinn Brooks" should appear when a normal conversation
-        # says "Quinn". Keep short title fragments out (Al, Q, Li) unless they were
-        # deliberately recorded as aliases; otherwise common syllables become global
-        # memory triggers.
+        # Short fragments match only as recorded aliases; otherwise common
+        # syllables become global triggers.
         title_parts = [part for name in (page.title, slug.replace("-", " "))
                        for part in re.findall(r"[\w'-]+", name or "")
                        if len(part) >= 3]
@@ -834,12 +779,7 @@ def is_material(page: Page) -> bool:
 
 
 def encounter_summary(conn, page: Page, *, limit: int = 6) -> dict:
-    """Past in-person rows involving this page, computed from events for free.
-
-    The wiki should not duplicate an encounter ledger by hand. Events already know
-    that poker happened with Robbie; this projection answers "how many times?" and
-    "when was the last one?" whenever the page is opened.
-    """
+    """Past in-person rows for this page, projected from events."""
     names = {db.slugify(page.slug), db.slugify(page.title)}
     names |= {db.slugify(alias) for alias in page.aliases}
     matched = []
@@ -862,8 +802,7 @@ def encounter_summary(conn, page: Page, *, limit: int = 6) -> dict:
         "by_activity": [{"activity": labels[key], "count": count}
                         for key, count in kinds.most_common(8)],
         "recent": [{
-            # The key so the page can open the event itself, not merely describe it —
-            # "Poker night, 3 times" is a fact you can now follow to each of the three.
+            # Include keys so each encounter can be opened.
             "key": row["key"], "date": row["date"], "title": row["title"],
             "location": row["location"],
             "with": [name for name in db.jload(row["participants"], [])
@@ -887,9 +826,7 @@ def profile(conn, wiki_dir: Path, slug: str, *, context: int = 0) -> dict | None
         "slug": page.slug,
         "title": page.title or page.slug,
         "section": page.section,
-        # What this page is useful for, in its own words rather than a description of
-        # pages in general. It is the same list the brief's index prints, so "the
-        # brief said this page knows X" and "the page knows X" cannot disagree.
+        # Same slot list the brief index prints, so the two cannot disagree.
         "answers": list(page.slots),
         "facts": [{"slot": name, **info} for name, info in page.slots.items()],
         "aliases": list(page.aliases),
@@ -897,12 +834,7 @@ def profile(conn, wiki_dir: Path, slug: str, *, context: int = 0) -> dict | None
         "page": page.render(),
         "encounters": encounter_summary(conn, page),
         "sources": {slot: rows for slot, rows in sources.items() if rows},
-        # Which slots point at the lines that made them, and which point at a whole
-        # conversation because nothing could be narrowed. `source_rows` recovers the
-        # spool bundle for anything written before line-level citation existed and
-        # marks every line of it `evidence: true`, so without this a reader cannot
-        # tell a quote from a neighbour — and `casey-morgan.education` reads
-        # as though "computer science" was stated by "Yooooo how's it going".
+        # Distinguish quoted lines from neighbouring context.
         "narrow": {slot: trace.citations(conn, "wiki", f"{page.slug}.{slot.lower()}")["narrow"]
                    for slot in page.slots},
     }

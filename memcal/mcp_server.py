@@ -1,8 +1,7 @@
-"""A small MCP server over stdio — the portable half of §8.
+"""A small MCP server over stdio.
 
-One resident brain, many disposable mouths. The brief is exposed as a resource so a
-harness can inject it with one read and zero latency; the navigation tools are the
-"hmm, let me try to remember" path.
+The brief is exposed as a resource for single-read injection; the navigation
+tools support follow-up detail lookups.
 
     python3 -m memcal.mcp_server
 """
@@ -394,15 +393,10 @@ def _render_page(profile: dict) -> str:
     stated = []
     narrow = profile.get("narrow") or {}
     for slot, rows in (profile.get("sources") or {}).items():
-        # `evidence` is the distinction worth keeping: these are the lines the fact was
-        # built from, not merely lines near it. Anything else is a `memcal_source` call.
+        # `evidence` marks lines the fact was built from; other lines are context.
         quotes = [row for row in rows if row["evidence"]][:2]
-        # Except where the row predates line-level citation, in which case `source_rows`
-        # recovers the whole spool bundle and marks every line of it as evidence.
-        # Quoting the first two under "Stated by" is not a smaller answer, it is a wrong
-        # one: `casey-morgan.education` attributed "computer science" to "Hey
-        # rutgers is having a hiring freeze" and "Yooooo how's it going". `narrow` is
-        # what tells the two apart, and `memcal_source` already says so out loud.
+        # Pre-citation rows carry whole-bundle evidence; quoting from them
+        # would misattribute, so direct those to `memcal_source` instead.
         if not narrow.get(slot, True):
             stated.append(f"- **{slot}** — no line-level citation; "
                           f"memcal_source(ref='{profile['slug']}.{slot.lower()}', "
@@ -416,14 +410,8 @@ def _render_page(profile: dict) -> str:
     return "\n\n".join(out) + "\n"
 
 
-#: Every tool that writes. `Server.call` routes on this and `Server._write` refuses
-#: anything outside it, so the two cannot drift apart — and they had:
-#: `memcal_schedule` and `memcal_move_once` were advertised in `TOOLS`, had working
-#: handlers in `_write`, and were missing from the hand-written tuple `call` matched on,
-#: so both raised "unknown tool". Repeating things are stored as rules, but that behavior
-#: had no expression on this surface, and the fallback an agent reaches for is
-#: `memcal_update` on one occurrence, which is the exact failure `live.set_schedule`
-#: exists to prevent.
+#: Every tool that writes. `Server.call` and `Server._write` both route on
+#: this set, so advertised tools and handlers cannot diverge.
 WRITE_TOOLS = frozenset({
     "memcal_add", "memcal_update", "memcal_schedule", "memcal_move_once",
     "memcal_merge", "memcal_drop", "memcal_todo", "memcal_note", "memcal_alias",
@@ -475,11 +463,8 @@ class Server:
             return detail.open_handle(self.conn, self.cfg, str(args.get("ref", "")))
 
         if name == "memcal_open_page":
-            # Both surfaces or neither, the same rule `memcal_open_source` is under.
-            # This one returned `page.render()` and nothing else while the Hermes
-            # surface returned the whole profile, so the same tool name answered the
-            # same question two different ways and the poorer one was the portable
-            # half. Encounters and the line that stated each fact are the difference.
+            # Return the full profile (encounters plus cited lines), matching
+            # the Hermes surface.
             profile = wiki.profile(self.conn, self.cfg.wiki_dir, args.get("slug", ""))
             if not profile:
                 known = ", ".join(wiki.list_pages(self.cfg.wiki_dir)) or "(none yet)"
@@ -546,15 +531,9 @@ class Server:
                              for line in lines)
 
         if name == "memcal_source":
-            # The asymmetry this closes: the web UI has had an "Original source" panel
-            # for a while, and an agent reading `〔E119〕` in the brief had no way at all
-            # to reach the email behind it — `memcal_search_archive` is full-text only
-            # and truncates every hit to 300 characters. "What did the invitation say?"
-            # was answerable by a person clicking and not by the agent being asked.
+            # Agents need the full invitation body; search truncates hits.
             ref, kind = args.get("ref", ""), args.get("kind") or "event"
-            # The brief prints `〔E119〕` and nothing else, so that is what a caller has
-            # in hand. Refusing it and asking for a key the agent has never been shown
-            # is our schema leaking into their reasoning.
+            # Accept the brief's `〔E119〕` spelling directly.
             handle = brief.parse_source(str(ref).strip("〔〕"))
             if handle:
                 resolved = trace.resolve_source(self.conn, str(ref).strip("〔〕"))
@@ -571,14 +550,11 @@ class Server:
                 out.append("(!) no line-level citation: what follows is the conversation "
                            "this row came out of, not the lines it was built from")
             for row in rows:
-                # `evidence` marks the lines the row was actually built from; the rest
-                # is neighbouring thread context, which is what makes a two-word "yeah"
-                # readable. Marking them is cheaper than dropping them and lets the
-                # caller weigh what it quotes.
+                # `evidence` marks lines the row was built from; the rest is
+                # neighbouring context for readability.
                 mark = "*" if row.get("evidence") else " "
-                # Untruncated on purpose. The whole reason to come here rather than to
-                # search is that the detail the summary dropped is somewhere in a body
-                # that `memcal_search_archive` cuts off at 300 characters.
+                # Untruncated: the dropped detail is the reason to prefer this
+                # over `memcal_search_archive`.
                 if row.get("source_heading"):
                     out.append(f"--- {row['source_heading']} ---")
                 own = ("\n(" + presentation.SELF_WRITTEN_NOTE + ")"
@@ -592,13 +568,7 @@ class Server:
             try:
                 return self._write(name, args)
             except (live.LiveError, ValueError) as exc:
-                # Named `fields`, not `detail`. `detail` is the module this file imports
-                # and `memcal_open` calls — and binding it here made it a local for the
-                # whole of `call`, so `detail.open_handle` at the top raised
-                # `UnboundLocalError` on every single invocation. The flagship "the brief
-                # is an index, open the handle" tool was dead on this surface, and the
-                # outer handler turned the traceback into a returned string, so it looked
-                # like a tool that answers unhelpfully rather than one that never ran.
+                # Named `fields` to avoid shadowing the imported `detail` module.
                 fields = getattr(exc, "detail", {}) or {}
                 extra = "".join(f"\n  {k}: {v}" for k, v in fields.items())
                 return f"{exc}{extra}"
@@ -614,8 +584,7 @@ class Server:
         """The typed writes. Each returns the resulting row, so the caller never has to
         read the calendar back to find out whether its edit landed."""
         if name not in WRITE_TOOLS:
-            # This used to fall through to the alias branch at the bottom, so any name
-            # that reached here and matched nothing quietly wrote an alias.
+            # Reject unknown tools explicitly.
             raise ValueError(f"unknown tool {name}")
         conn, cfg = self.conn, self.cfg
         if name == "memcal_add":

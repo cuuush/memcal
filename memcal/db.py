@@ -57,20 +57,19 @@ ADDED_COLUMNS = (
     ("archive", "collection_id", "INTEGER"),
     # Addressee distinguishes conversation from instructions sent to an agent.
     ("archive", "addressed_to", "TEXT NOT NULL DEFAULT 'person'"),
-    # What Calendar.app said about an event last time it was read, so an unchanged one
-    # costs nothing, and whether memcal is the thing that put it there.
+    # Last observed Calendar.app state for cheap no-op detection, and whether
+    # memcal published it.
     ("calendar_items", "revision", "TEXT"),
     ("calendar_items", "published", "INTEGER NOT NULL DEFAULT 0"),
     ("calendar_items", "published_state", "TEXT"),
-    # The row this one happens inside, and where you reply to an invitation. Both
-    # nullable, both added after the first release, so both have to be here or every
-    # store built before today reads as corrupt.
+    # Containment link and reply/attend URLs. Nullable; listed here so
+    # pre-existing stores migrate.
     ("events", "part_of", "INTEGER REFERENCES events(id) ON DELETE SET NULL"),
     ("events", "rsvp_url", "TEXT"),
     ("events", "join_url", "TEXT"),
     ("events", "hosts", "TEXT NOT NULL DEFAULT '[]'"),
-    # The scheduled day an occurrence stands in for, so one week moved to Wednesday is
-    # an exception to a Tuesday rule rather than evidence the rule is now Wednesday.
+    # The scheduled day an occurrence stands in for: a one-week exception to a rule,
+    # not evidence the rule moved.
     ("events", "instead_of", "TEXT"),
     # Nullable metrics distinguish old, unmeasured runs from measured zeroes.
     ("runs", "requests", "INTEGER"),
@@ -80,25 +79,25 @@ ADDED_COLUMNS = (
     # Lets questions expire with an explicitly named day even without an event link.
     ("questions", "about_date", "TEXT"),
     # Question review is optimistic: a model disposition applies only to the exact
-    # version it saw, and a deferred question is not ordinary stale prompt litter.
+    # version it saw.
     ("questions", "wake_condition", "TEXT"),
     ("questions", "updated_at", "TEXT"),
     # Expected old wiki bytes for conflict-safe outbox recovery. NULL means the target
     # did not exist when the snapshot was staged.
     ("wiki_pending_writes", "expected_hash", "TEXT"),
     # Automatic relevance orders the queue instead of emptying it. Old rows default to
-    # `normal`, which is the honest reading: nothing decided they were quiet.
+    # `normal`: nothing decided they were quiet.
     ("spool", "priority", "TEXT NOT NULL DEFAULT 'normal'"),
     ("pending_changes", "observed_at", "TEXT"),
     ("pending_changes", "subject_title", "TEXT"),
     ("pending_changes", "subject_date", "TEXT"),
     ("pending_changes", "target_key", "TEXT"),
     ("pending_changes", "decided_by", "TEXT"),
-    # Source time, kept apart from the processing time beside it. NULL on rows written
-    # before the split, where `changed_at` is the only answer there has ever been.
+    # Source time, distinct from processing time. NULL on pre-split rows, where
+    # `changed_at` is authoritative.
     ("event_history", "evidence_ts", "TEXT"),
     # The same split for a row's creation. NULL on older rows and on typed writes, where
-    # `created_at` is the only answer and is the right one.
+    # `created_at` is authoritative.
     ("events", "evidence_ts", "TEXT"),
 )
 
@@ -124,9 +123,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-#: Bumped when something makes the existing full-text index wrong. `1` is the arrival of
-#: the `archive_au` trigger: every `UPDATE archive SET person` before it left the index
-#: holding the old tokens.
+#: Bump when an index-affecting schema change requires an FTS rebuild.
 FTS_GENERATION = "1"
 
 
@@ -191,9 +188,7 @@ def open_db(db_path: Path) -> sqlite3.Connection:
 
 _FAKE_TODAY: date | None = None
 
-#: The time of day, when the pin carried one. Separate from `_FAKE_TODAY` because
-#: pinning a date and pinning a moment are different requests and most callers only
-#: want the first — see `now_dt`.
+#: Time-of-day pin, separate from `_FAKE_TODAY`. Most callers pin a date only.
 _FAKE_CLOCK: dt_time | None = None
 
 
@@ -341,12 +336,9 @@ def utc_stamp(value: str | date | datetime) -> str:
         try:
             stamp = datetime.fromisoformat(text)
         except ValueError:
-            # Deliberately not `parse_ts`, which answers `now()` here so that a
-            # comparison never raises. That is the right trade for reading a timestamp
-            # and the wrong one for writing an instant: it would invent a moment nothing
-            # observed, and since `ical._identity` hashes this very string, a value that
-            # did not round-trip would quietly re-key its own row. Hand back what
-            # arrived and let it stay visibly wrong.
+            # Not `parse_ts`: it returns `now()` on failure, which would invent an
+            # instant nothing observed and re-key the row via the `ical._identity`
+            # hash. Return the input unchanged so the bad value stays visible.
             return text
         if stamp.tzinfo is None:
             stamp = stamp.astimezone()

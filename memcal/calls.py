@@ -75,9 +75,7 @@ def save(home: Path, *, reply, stage: str, run_id: int | None = None,
             "prompt_tokens": getattr(usage, "prompt_tokens", 0),
             "completion_tokens": getattr(usage, "completion_tokens", 0),
             "cached_tokens": getattr(usage, "cached_tokens", 0),
-            # Billed thinking, which is a different claim from the `reasoning` text
-            # below: a backend can charge for reasoning it never shows. Keeping both
-            # separates a model that did not think from one that will not show us.
+            # Billed reasoning tokens, distinct from the visible `reasoning` text.
             "reasoning_tokens": getattr(usage, "reasoning_tokens", 0),
             "cost": getattr(usage, "cost", 0.0),
         },
