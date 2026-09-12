@@ -20,6 +20,7 @@ import sqlite3
 import subprocess
 import tempfile
 import uuid
+from collections import deque
 
 from .. import textclean
 from ..config import Config
@@ -278,22 +279,26 @@ class SlackSource(PolledSource):
 
     def history(self, client, conversation: Conversation, since: str | None,
                 limit: int) -> list:
-        # Slack pages newest-first; page through and return the oldest `want`
-        # so the watermark advances without skipping backlog.
+        # Slack returns newest-first with no oldest-first mode, and `polled.py` advances
+        # the watermark to the *newest* message handed back. So history() must return the
+        # oldest `want` after `since`; returning any newer slice would jump the watermark
+        # past unread older messages and lose them for good. Page to the cursor's end
+        # (Slack yields strictly ts-descending, so the last pages are the oldest) and keep
+        # only the oldest `want` in a bounded deque. A hard page cap here silently dropped
+        # every message older than the 10,000th-newest; the paging is instead inherent to
+        # Slack's API and shrinks each round as the watermark climbs toward the present.
         want = min(limit, PAGE)
-        collected: list = []
+        oldest: deque = deque(maxlen=want)
         cursor = None
-        for _ in range(50):  # 10k messages; beyond that the next round continues
+        while True:
             page = client.conversations_history(
                 channel=conversation.id, oldest=since, limit=PAGE,
                 inclusive=False, cursor=cursor)
-            collected.extend(_items(page, "messages"))
+            oldest.extend(m for m in _items(page, "messages") if isinstance(m, dict))
             cursor = _next_cursor(page)
             if not cursor:
                 break
-        collected.sort(key=lambda m: _float(m.get("ts"), 0.0)
-                       if isinstance(m, dict) else 0.0)
-        return collected[:want] if len(collected) > want else collected
+        return sorted(oldest, key=lambda m: _float(m.get("ts"), 0.0))
 
     def normalize(self, raw: dict, conversation: Conversation) -> Message | None:
         ts = str(raw.get("ts") or "")

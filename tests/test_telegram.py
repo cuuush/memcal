@@ -89,7 +89,10 @@ class TestTelegramNormalizing(unittest.TestCase):
     def test_a_naive_timestamp_is_read_as_utc_not_local(self):
         naive = datetime(2026, 3, 1, 12, 0)
         message = self.source.normalize(self.message(date=naive), self.chat)
-        self.assertTrue(message.ts)
+        # The stored ts renders in local time, but it must name the same instant as
+        # 12:00 UTC. Reading the naive value as local time would shift the instant.
+        instant = datetime.fromisoformat(message.ts).astimezone(timezone.utc)
+        self.assertEqual(instant, datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc))
 
 
 class TestTelegramLoginPhoneHelp(unittest.TestCase):
