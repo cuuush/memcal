@@ -19,27 +19,17 @@ OUTCOME_RE = re.compile(r"^(FAIL|ERROR): \S+ \(([^)\s]+)")
 
 
 def default_dates(days: int) -> list[date]:
-    """Every weekday between here and `days` out, then the far ones.
-
-    A month, six months and a year are not padding: a literal date goes stale silently
-    the moment it is behind today, and the failure that costs a morning is the one that
-    arrives on a day nobody was running the suite.
-    """
+    """Weekdays from today through `days` out, plus 30, 180, and 365 days out."""
     today = date.today()
     near = [today + timedelta(days=n) for n in range(days + 1)]
     return near + [today + timedelta(days=n) for n in (30, 180, 365)]
 
 
-#: Hours worth sweeping when `--hours` is given no values. Chosen for the boundaries
-#: they straddle rather than for even spacing: 00 is "before the working day exists",
-#: 09 is the reminder hour itself, 19 and 23 are either side of the end of waking hours,
-#: which is where the failure that prompted this lived.
+#: Default sweep hours. Cover day boundaries: pre-day, reminder hour, and waking-hours end.
 DEFAULT_HOURS = (0, 9, 15, 19, 23)
 
 
-#: Zones worth sweeping when `--zones` is given no values. Three is enough to catch an
-#: assumed offset: UTC is what CI runs at and what a hard-coded American offset breaks
-#: on, and one zone either side of it catches a fixture that happens to work at UTC.
+#: Default sweep zones. UTC plus one zone on either side catches assumed offsets.
 DEFAULT_ZONES = ("UTC", "Asia/Tokyo", "America/Los_Angeles")
 
 
@@ -65,15 +55,7 @@ def offset_changes(zone: str, days: list[date]) -> list[date]:
 
 
 def cross(days: list[date], hours: list, zones: list) -> list[tuple]:
-    """The cheap shape: the two axes swept separately rather than multiplied.
-
-    Measured on synthetic probes, a weekday bug and a zone bug are separable — the day
-    walk in one zone catches the first and misses the second entirely, and one day in
-    each zone catches the second. Multiplying them re-answers the same question thirty
-    times. The exception is a bug that needs a particular day *and* a particular zone,
-    which is what a DST transition is, so each zone's own transitions are swept in that
-    zone rather than assumed away.
-    """
+    """Sweep day and zone axes separately, plus per-zone DST transitions."""
     base, others = zones[0], zones[1:]
     moments = [(day, hour, base) for day in days for hour in hours]
     moments += [(days[0], hour, zone) for zone in others for hour in hours]

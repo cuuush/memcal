@@ -371,9 +371,7 @@ def known_people(conn: sqlite3.Connection, cfg: Config) -> tuple[list[str], dict
     listed_firsts = {name.split()[0].lower() for name in listed}
     by_first: dict[str, list[str]] = {}
     for person in everyone:
-        # The user is never ambiguous with themselves. Their own duplicate contact
-        # cards used to land here, which made the system ask "was that you, or a
-        # different Casey?" about its own owner.
+        # The user is never ambiguous with themselves; skip own contact cards.
         if not person or identity.is_me(conn, person):
             continue
         by_first.setdefault(person.split()[0].lower(), []).append(person)
@@ -394,11 +392,7 @@ STRIP_DAYS = 17
 def _calendar_strip(today) -> str:
     """Every weekday name in reach, with its date. §2.5: make it a lookup.
 
-    Naming today and leaving the rest as arithmetic is asking a model to count, and it
-    miscounts. "beer garden saturday? like 3", said on Monday the 3rd, landed on Sunday
-    the 9th in two runs out of four — a whole plan on the wrong day, from a sentence
-    with no ambiguity in it at all. This costs sixty tokens, in the half of the prompt
-    that is identical across every call in a pass, and deletes the entire class.
+    Explicit dates avoid weekday arithmetic errors by the model.
     """
     days = [today + timedelta(days=n) for n in range(-1, STRIP_DAYS)]
     # There was a `.replace(" ", " ")` here — both sides U+0020, verified
@@ -712,15 +706,7 @@ def build_bundle_block(cfg: Config, bundle: Bundle,
     head = None
     v2 = prompt_version(cfg) == "v2"
     if v2:
-        # The id goes first, so the thing the model has to echo is the first thing it
-        # reads about the bundle and is six characters long. v1 asked it to echo a
-        # header line carrying a colon-separated key and a parenthesised display name,
-        # then spent a normaliser trying to match what came back.
-        #
-        # And it is the *only* name the block gives the bundle. The renderer's own
-        # `BUNDLE <entity>` line used to survive underneath it, so the model was shown
-        # two names for one bundle and told to echo "the id"; it echoed the entity, and
-        # a diff holding the run's only to-do was dropped as unroutable.
+        # The routing id leads and is the only bundle name in the block.
         head = f"BUNDLE ID {bundle_id(bundle.entity)}   ({bundle.label})"
     if conn is not None:
         open_rows = build_open_rows(conn, bundle)

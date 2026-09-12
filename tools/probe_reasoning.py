@@ -33,17 +33,13 @@ def main() -> int:
 
     bundles = bundle_mod.build(conn, limit=args.limit)
     if not bundles:
-        # A store whose spool is drained has nothing pending to render. Reading already
-        # processed rows would need a different query; say so rather than probe on air.
+        # A drained spool has nothing to render.
         print("no pending bundles — run `memcal ingest all` first, or use --limit higher")
         return 1
 
     bundles = sorted(bundles, key=lambda b: len(b.render("v1")))
     if args.largest:
-        # The tiny-bundle case is what truncated in production (four cheap bundles, four
-        # separate judgements, an allowance sized for how little text they carried), but
-        # it is not the ceiling. The biggest conversation in the store is, so probe both
-        # ends or the numbers describe only the easy half.
+        # Probe both size extremes. Small bundles alone understate the ceiling.
         bundles = bundles[::-1]
     prefix = propose.build_prefix(conn, cfg)
 
@@ -66,8 +62,7 @@ def main() -> int:
             reply = client.complete(
                 model=args.model, prefix=prefix, suffix=suffix,
                 schema=propose.schema_for(cfg), schema_name="memcal_diff",
-                # Deliberately generous: we are measuring what it spends when nothing
-                # stops it, not what it does under a ceiling.
+                # Use a generous ceiling to measure unconstrained spend.
                 max_tokens=32_000,
                 capture_reasoning=True,
                 reasoning_effort=args.effort,
@@ -76,14 +71,8 @@ def main() -> int:
             print(f"{count:>7}  FAILED: {type(exc).__name__}: {str(exc)[:120]}")
             continue
 
-        # Reasoning comes back as text, not a token count, so it is estimated the same
-        # way the packer estimates everything else — being consistent with `pack()`
-        # matters more here than being exactly right, since these numbers feed the
-        # ceiling `pack()` computes.
-        # From the API, never from len(reply.reasoning): OpenAI shows a summary and keeps
-        # the rest encrypted, so the visible text undercounts by an unknown amount. Fall
-        # back to the estimate only for providers that report no breakdown at all, and
-        # say which one is being used so the numbers can be trusted or discounted.
+        # Estimate reasoning text with the packer estimator for consistency.
+        # Prefer the API token breakdown; fall back to the estimate when absent.
         think = reply.usage.reasoning_tokens
         measured = bool(think)
         if not measured and reply.reasoning:
@@ -99,12 +88,9 @@ def main() -> int:
               f"{'' if shaped else '   [UNSHAPED — schema not honoured]'}")
 
     if per_bundle:
-        # think_tokens is a floor, so take the worst case rather than the mean: sizing it
-        # to the average guarantees the expensive half of requests truncates.
+        # Size think_tokens to the worst case, not the mean.
         think = int(round(max(per_bundle) / 100.0) * 100)
-        # A boost below 1.0 means the existing ceiling was never the binding constraint,
-        # so 1.0 is the floor to suggest — the ceiling is free headroom, and shrinking it
-        # below what the formula already gives buys nothing and risks truncation.
+        # Floor the suggested boost at 1.0.
         boost = max(1.0, round(max(ratios) * 1.5, 1)) if ratios else 1.0
         print("\nsuggested ENDPOINTS values:")
         print(f"  think_tokens  = {think:_}   (worst per-bundle reasoning, rounded up)")

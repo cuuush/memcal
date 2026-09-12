@@ -48,16 +48,11 @@ def resolve(conn: sqlite3.Connection, handle: str) -> str | None:
     return row["person"] if row else None
 
 
-# ---------------------------------------------------------------- authority ----
-# `handles.source` identifies the evidence behind a link, not its writer. Evidence is
-# ranked; a write lands only when it is at least as strong as the existing link. Scans may
-# revise their own guesses but never overwrite a judgement.
+# `handles.source` identifies the evidence behind a link, not its writer. A write
+# lands only when it is at least as strong as the existing link.
 
-#: Evidence rank by source suffix, weakest first. Anything not named here is a
-#: judgement — `cli`, `agent`, a fixture, a test — and outranks every scan. That
-#: default is the safe direction: a new scan added later cannot silently acquire the
-#: right to overwrite Contacts, it can only fail to overwrite a nickname until someone
-#: ranks it.
+#: Evidence rank by source suffix, weakest first. Unlisted sources are judgements
+#: and outrank every scan, so a newly added scan cannot overwrite Contacts.
 EVIDENCE = {
     "roster": 10,           # the platform's per-conversation nickname
     "platform-roster": 10,  # the same thing, reached by the backfill
@@ -70,11 +65,10 @@ JUDGEMENT = 100
 
 
 def authority(source: str | None) -> int:
-    """How good is the evidence behind a link written by `source`?
+    """Evidence rank for a link written by `source`.
 
-    Sources are `{stream}:{evidence}` — `groupme:profile`, `whatsapp:contact-match` —
-    so the suffix is the part that matters and the stream is context. A bare string is
-    tried whole first, which is what keeps `contacts` and `platform-roster` ranked.
+    Sources are `{stream}:{evidence}`, so the suffix decides; a bare string is
+    tried whole first.
     """
     key = (source or "").strip().lower()
     if key in EVIDENCE:
@@ -85,9 +79,8 @@ def authority(source: str | None) -> int:
 def link(conn: sqlite3.Connection, handle: str, person: str, source: str = "cli") -> bool:
     """Point a handle at a person. Returns whether the write landed.
 
-    Refuses to demote: a link resting on better evidence than this one stands. Equal
-    evidence may overwrite, because that is a scan revising its own guess — Contacts
-    re-imports daily and a renamed card must still take effect.
+    Stronger evidence wins; equal evidence may overwrite so a scan can revise
+    its own guess.
     """
     h = normalize(handle)
     current = conn.execute("SELECT person, source FROM handles WHERE handle = ?",
@@ -109,10 +102,7 @@ def link(conn: sqlite3.Connection, handle: str, person: str, source: str = "cli"
 def spelling_in_use(conn: sqlite3.Connection, name: str | None) -> str | None:
     """The spelling this name already goes by, if memcal has met it before.
 
-    `person` is the bundle key, so "same person" and "same spelling" are the same
-    claim — see the entity keys in `gate.bundle_entity`. Every caller that adopts a
-    name therefore has to ask this, and the way to make sure every caller asks is for
-    none of them to have to remember: `adopt_seen_name` asks on their behalf.
+    `person` is the bundle key; see the entity keys in `gate.bundle_entity`.
     """
     clean = clean_name(name)
     if not name_shaped(clean):
@@ -135,18 +125,10 @@ def link_by_name(conn: sqlite3.Connection, handle: str, seen_name: str | None,
     return resolve(conn, handle)      # something better already answers for this id
 
 
-#: A user id that is not a person. GroupMe files its own notices — "A message was
-#: deleted", "X added Y to the group" — under `groupme:system`, which sat at the top of
-#: the name-this-person queue with 218 messages behind it. Bots arrive as ordinary user
-#: ids and are recognised only by what the platform calls them.
+#: A user id that is not a person: platform notices and bots.
 NON_PERSON_HANDLES = frozenset({"groupme:system"})
 
-#: A whole handle namespace that holds no people. WhatsApp files Meta AI under `@bot`,
-#: which `handle_of` turns into `whatsapp:bot:<id>` — so the platform is telling us
-#: outright, and the answer to "name this person" is that there is not one. Cheaper and
-#: far safer than recognising assistants by what they are called: `BOTTISH` has to stay
-#: tight because a person wrongly filtered by name is a person memcal cannot name at
-#: all, whereas a namespace is the platform's own statement about itself.
+#: A handle namespace that holds no people.
 NON_PERSON_PREFIXES = ("whatsapp:bot:",)
 NON_PERSON_NAMES = frozenset({"groupme", "copilot", "system", "bot", "notifications",
                               "whatsapp"})
@@ -158,21 +140,13 @@ def clean_name(value: str | None) -> str:
                        if unicodedata.category(ch) != "Cf")
     return " ".join(stripped.split())
 
-#: A name that announces itself as a bot. Deliberately tight: `\bBot\b` catches
-#: "Kanye Bot" and `[a-z]Bot$` catches "DinoBot", while neither touches "Abbot" or
-#: "Botond". A person wrongly filtered here is a person memcal cannot name at all, so
-#: the failure that costs more is the greedy one.
+#: A name that announces itself as a bot. Deliberately tight: a wrong filter here
+#: silently unnames a real person, so the greedy failure costs more.
 BOTTISH = re.compile(r"\bBot\b|[a-z]Bot$")
 
 
 def is_person(handle: str, seen_name: str | None = None) -> bool:
-    """Is there a human behind this id at all?
-
-    Asked before queueing, because "name this" is a question with no answer for a
-    platform's own announcement channel, and an unanswerable question at the top of a
-    queue is how the whole queue stops being read. `groupme:system` — "A message was
-    deleted", 218 times — was the loudest row in it.
-    """
+    """Is there a human behind this id at all? Asked before queueing."""
     name = clean_name(seen_name)
     handle = normalize(handle)
     if handle in NON_PERSON_HANDLES or handle.startswith(NON_PERSON_PREFIXES):
@@ -182,15 +156,8 @@ def is_person(handle: str, seen_name: str | None = None) -> bool:
     return not BOTTISH.search(name)
 
 
-#: A display name that is not a name at all. WhatsApp's `ZWAPROFILEPUSHNAME` is
-#: usually "Debbie Smith" and is occasionally `+GJXsntMGIAE=` or `+EAA=` — a
-#: base64 blob sitting in the field a name was supposed to be in. Adopting one makes
-#: a person whose page is titled with an encoding artefact, and unlike a wrong merge
-#: it is not even wrong about anybody. : the source puts a different kind of
-#: value in the field and a presence test reads it as valid.
-#:
-#: Matched by punctuation no name carries, **not** by "looks base64" — the first draft
-#: of this used `[A-Za-z0-9+/]{12,}` and would have rejected Constantinescu.
+#: A display name that is not a name at all. Matched by punctuation no name carries,
+#: not by "looks base64".
 ENCODED_BLOB = re.compile(r"^[+/=]|=")
 
 
@@ -208,10 +175,8 @@ def _writes_words(ch: str) -> bool:
 def name_shaped(seen_name: str | None) -> bool:
     """Is this string something a person could be called?
 
-    Deliberately narrow — it rejects what is provably not a name rather than trying to
-    recognise what is one. Names are the input most likely to be in a script, an
-    alphabet or a convention nobody here anticipated, and a greedy filter here silently
-    unnames real people.
+    Rejects what is provably not a name rather than recognising what is one;
+    a greedy filter silently unnames real people.
     """
     name = clean_name(seen_name)
     if not name or ENCODED_BLOB.search(name):
@@ -234,8 +199,7 @@ def adopt_seen_name(conn: sqlite3.Connection, handle: str, seen_name: str | None
     canonical = spelling_in_use(conn, name) or name
     if link(conn, handle, canonical, source=source):
         return canonical
-    # Refused: better evidence already names this id. Say who it actually is rather
-    # than who we proposed — callers use this as the person, not as a receipt.
+    # Refused: better evidence already names this id.
     return resolve(conn, handle)
 
 
@@ -271,12 +235,7 @@ def collapse_split_spellings(conn: sqlite3.Connection) -> list[tuple[str, str]]:
 
 
 def adopt_platform_names(conn: sqlite3.Connection, *, floor: int = 1) -> list[tuple[str, str]]:
-    """Clear the queue of every id whose own platform already told us the name.
-
-    The backfill half of `adopt_seen_name`: `base.deliver` calls it on the way in now,
-    and the ids already sitting in `unresolved` were queued before it existed.
-    Idempotent, so it is a lab instrument rather than a one-shot repair.
-    """
+    """Link every queued id whose platform already supplied a name. Idempotent."""
     done = []
     for row in conn.execute(
             "SELECT handle, seen_name, count FROM unresolved"
@@ -298,23 +257,13 @@ def adopt_platform_names(conn: sqlite3.Connection, *, floor: int = 1) -> list[tu
 
 
 def _name_stem(shorter: str, longer: str) -> bool:
-    """Is `shorter` the opening words of `longer`, whole words only?
-
-    `Nik` matches `Nik Pavincic` and not `Nikita`, because a stem that can split a word
-    is how `P S` came to match `Peyton`.
-    """
+    """Is `shorter` the opening words of `longer`, whole words only?"""
     a, b = shorter.lower().split(), longer.lower().split()
     return bool(a) and bool(b) and a != b and len(a) < len(b) and b[:len(a)] == a
 
 
 def _spoken_in(conn: sqlite3.Connection) -> dict[str, set[tuple[str, str]]]:
-    """Every conversation each person has actually spoken in.
-
-    Read from the archive rather than from `thread_members`, which would be the obvious
-    source and is empty for 93 of 105 GroupMe groups — GroupMe is asked to omit
-    memberships and the empty result is stored as the roster. The archive cannot have
-    that gap: a line exists because somebody sent it.
-    """
+    """Every conversation each person has actually spoken in, read from the archive."""
     seen: dict[str, set[tuple[str, str]]] = {}
     for row in conn.execute(
             "SELECT DISTINCT person, stream, thread FROM archive"
@@ -378,13 +327,7 @@ def forget_non_people(conn: sqlite3.Connection) -> int:
 
 
 def settled_non_person(conn: sqlite3.Connection, handle: str) -> bool:
-    """Has this handle already been ruled out as a person?
-
-    `is_person` can only judge by shape, and `venmo@venmo.com` is shaped exactly like a
-    friend's address — so it sat at the head of the queue with thirty-one messages
-    behind it and no answer that anyone could give. Once something has ruled it out, the
-    ruling has to survive the next line arriving or the question comes straight back.
-    """
+    """Has this handle already been ruled out as a person?"""
     return bool(conn.execute("SELECT 1 FROM non_people WHERE handle = ?",
                              (normalize(handle),)).fetchone())
 
@@ -413,10 +356,9 @@ def note_unresolved(conn: sqlite3.Connection, handle: str, stream: str,
 
 
 def forget_bulk_unresolved(conn: sqlite3.Connection) -> int:
-    """Drop machines out of the name-this-person queue. Heals what an older build wrote.
+    """Drop machines out of the name-this-person queue.
 
-    Nothing is lost: the address stays in the archive and in the senders table, which is
-    where an email sender's decision actually lives.
+    The address stays in the archive and in the senders table.
     """
     from . import gate                    # gate imports this module, so import late
     doomed = [row["handle"] for row in conn.execute("SELECT handle FROM unresolved")
@@ -431,15 +373,7 @@ def forget_bulk_unresolved(conn: sqlite3.Connection) -> int:
 
 
 def where_seen(conn: sqlite3.Connection, handle: str, limit: int = 2) -> list[str]:
-    """The conversations a handle actually speaks in, busiest first.
-
-    `threads.names_for_handle` reads the membership tables, which are populated for
-    sources that publish a roster and empty for the ones that do not — so on the very
-    handles that need context most, a WhatsApp id with 472 messages and no name, it
-    returns nothing. The archive always knows, because every line it filed carries the
-    thread it came from. *"Whose 472 messages are these"* is unanswerable; *"whose 472
-    messages in Family 🤪🍷✝️ are these"* answers itself.
-    """
+    """The conversations a handle actually speaks in, busiest first."""
     return [str(row["thread"]) for row in conn.execute(
         "SELECT thread, count(*) AS n FROM archive"
         "  WHERE handle = ? AND thread IS NOT NULL AND thread <> ''"
@@ -469,13 +403,7 @@ REFRESH_AFTER_HOURS = 24
 
 
 def refresh_contacts(conn: sqlite3.Connection, *, force: bool = False) -> tuple[int, str]:
-    """Re-read Contacts if it has been a day. §5.2: "Refresh daily."
-
-    It was imported once at `memcal init` and never again, so everyone added to the
-    address book afterwards stayed an opaque handle forever — and each new stream
-    multiplies that, since a number nobody has named cannot resolve on any of them.
-    Cheap enough to do on a schedule: a few hundred rows of dictionary lookup, no model.
-    """
+    """Re-read Contacts if it has been a day."""
     last = db.get_meta(conn, "contacts.imported_at", "")
     if last and not force:
         age = (db.parse_ts(db.now()) - db.parse_ts(last)).total_seconds()
@@ -528,12 +456,7 @@ def import_contacts(conn: sqlite3.Connection) -> tuple[int, str]:
     return total, f"linked {total} handles from {len(paths)} source(s)"
 
 
-# ------------------------------------------------------------------- self ----
-# Who the user is. Without this, their own name is just another contact — and since
-# most people have several near-duplicate cards for themselves, it lands in the
-# ambiguous-first-name list and the system starts asking "was that you, or a
-# different Casey?" about the person it is built for.
-
+# Who the user is.
 def set_me(conn: sqlite3.Connection, *names: str) -> list[str]:
     """Record the names that mean 'the user'. Aliases welcome — people have several."""
     clean = [n.strip() for n in names if n and n.strip()]
@@ -543,7 +466,7 @@ def set_me(conn: sqlite3.Connection, *names: str) -> list[str]:
 
 
 def me_names(conn: sqlite3.Connection) -> list[str]:
-    """Every name that means the user, learned once and then a lookup forever."""
+    """Every name that means the user."""
     stored = db.jload(db.get_meta(conn, "identity.me", ""), [])
     if stored:
         return stored
@@ -565,14 +488,9 @@ def me_names(conn: sqlite3.Connection) -> list[str]:
 def is_me(conn: sqlite3.Connection, name: str) -> bool:
     """Does this name refer to the user?
 
-    Deliberately strict about surnames. Their own cards are near-duplicates that must
-    match ("Casey Morg" and "Casey Morgan"), but four unrelated Caseys in the address
-    book must not — folding someone else's messages into their own history would be a
-    worse failure than the one this fixes.
-
-    A bare first name is left unresolved on purpose: with several Caseys around it is
-    genuinely ambiguous, and the prompt handles the case that matters (the user talking
-    about themselves) by telling the model to use "me".
+    Strict about surnames: near-duplicate self cards must match, but unrelated
+    people sharing a given name must not. A bare first name stays unresolved;
+    the prompt tells the model to use "me" for self-reference.
     """
     candidate = (name or "").strip().lower()
     if not candidate:
@@ -618,9 +536,8 @@ def remove_top_tier(conn: sqlite3.Connection, person: str) -> None:
 
 # ------------------------------------------------------------------ senders ----
 
-#: Who set a sender's decision. `auto` is the gate's own bookkeeping and may be revised
-#: — it is how the gate remembers what it worked out, not a judgement anyone made. `you`
-#: and `agent` are judgements, and nothing reopens them.
+#: Who set a sender's decision. `auto` is revisable bookkeeping; `you` and `agent`
+#: are judgements nothing reopens.
 SENDER_SOURCES = ("auto", "you", "agent")
 
 
@@ -638,10 +555,8 @@ def sender_row(conn: sqlite3.Connection, address: str) -> sqlite3.Row | None:
 def sender_blocked(conn: sqlite3.Connection, address: str) -> bool:
     """Has a person — or the agent on their behalf — said no to this sender?
 
-    The distinction the gate turns on. An address the gate filed under `archive` because
-    it carried bulk headers is a guess, and a subject line saying "your appointment is in
-    one hour" is better evidence than the guess. An address *the user* said no to is not a
-    guess, and no subject line reopens it.
+    A user exclusion is final; a gate `archive` guess is still overturned by a
+    subject reporting an event.
     """
     row = sender_row(conn, address)
     return bool(row and row["decision"] in ("archive", "ignore")

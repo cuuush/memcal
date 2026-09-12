@@ -299,18 +299,10 @@ def _dream(
         return result
 
     # 2. propose — N independent calls sharing one cached prefix. Each reads one
-    #    conversation and says only what that conversation says.
+    #    conversation and reports only what that conversation states.
     #
-    # On a cold start that is not enough. A first load is 127 bundles against an empty
-    # store, every call shares one snapshot taken before any of them ran, and no call can
-    # see what any other found — so a plan settled in one thread and referred to in
-    # another arrives twice with nothing to join it. Splitting the pass into waves and
-    # rebuilding the state between them lets the later waves amend rows the earlier ones
-    # wrote, which is what a nightly pass gets for free by running after yesterday's.
-    #
-    # The order is not arbitrary either: `cold_start_order` reads the people the user actually
-    # talks to first, so the first rows on screen are plans rather than receipts, and a
-    # pass that dies part-way loses the least valuable half rather than a random one.
+    # Cold starts run in waves ordered by usefulness, so later waves can amend
+    # rows earlier waves wrote.
     waves = _wave_count(cfg, mode, len(bundles))
     if waves > 1:
         bundles = bundle_stage.cold_start_order(conn, bundles)
@@ -330,10 +322,8 @@ def _dream(
     proposals: list = []
     errors: list[str] = []
     notes: list[str] = []
-    # Which conversations were actually read. Tracked separately from `proposals`
-    # because a wave applies and discards its own proposals as it goes — leaving the
-    # list empty at the end, which the spool-marking below reads as "nothing was read"
-    # and re-queues the entire backlog for ever.
+    # Conversations actually read; tracked separately since wave mode applies
+    # and discards proposals as it goes.
     read_entities: set[str] = set()
     for index, batch in enumerate(_split(bundles, waves), start=1):
         if waves > 1:
@@ -370,12 +360,8 @@ def _dream(
     emit("propose", "done" if (proposals or result.diffs) else "failed",
          f"{len(bundles)} bundles reviewed · {len(errors)} issue(s)")
 
-    # 3. merge — the only stage that sees every proposal at once, so it is the only
-    #    one that can tell one event mentioned in four threads from four events.
-    #    Deterministic clustering; a model is called only where fragments disagree.
-    # In wave mode both of these already ran per wave and `proposals` is empty, so these
-    # are no-ops — but they must *accumulate* rather than assign, or the last empty pass
-    # would erase everything the waves recorded.
+    # 3. merge — the only stage seeing every proposal at once. In wave mode
+    # these accumulate rather than assign, since per-wave passes already ran.
     try:
         emit("merge", "running", "joining proposals across conversations")
         proposals, merge_log = merge_stage.merge_all(
@@ -395,8 +381,8 @@ def _dream(
     result.diffs += sum(v for k, v in counts.items() if "rejected" not in k)
     emit("apply", "done", f"{result.diffs} write(s)")
 
-    # Wake conditions are satisfied by ingestion, not by the model — and never by the
-    # very traffic that opened the to-do, which is what `before_apply` rules out.
+    # Wake conditions are checked against ingested traffic, excluding the
+    # traffic that opened the to-do (`before_apply`).
     for todo in todos.check_wakes(conn, bundle_stage.all_text(bundles),
                                   since=before_apply):
         result.woken.append(todo.text)

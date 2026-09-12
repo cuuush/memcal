@@ -16,9 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from memcal import dates, db  # noqa: E402
 
 #: Gate verdicts that mean "this line looked like a plan". Mirrors
-#: `bundle._PLANNING_REASONS`, `subject-event` deliberately excluded — it is a subject
-#: regex that fires on every marketing announcement, and counting it here would report a
-#: newsletter backlog as a pile of missed plans (M34).
+#: `bundle._PLANNING_REASONS`, excluding `subject-event` to avoid matching marketing mail.
 PLANNING = ("temporal", "invitation", "commitment-verb", "own-commitment", "directive",
             "availability", "question")
 
@@ -29,19 +27,13 @@ _NOISE = {
     "next", "last", "some", "any", "go", "going", "get", "see", "new", "up", "off",
 }
 
-#: Language that says an obligation is discharged. Used to find open to-dos the archive
-#: has already answered — the general form of M21, where a Venmo receipt sat unread
-#: beside an open "Pay Nadia $50".
+#: Language that says an obligation is discharged. Finds open to-dos answered in the archive.
 SETTLED_RE = re.compile(
     r"\b(you paid|paid|sent you|refunded|cancell?ed|completed|delivered|picked up|"
     r"dropped off|done|sorted|taken care of|no longer|rescheduled)\b", re.IGNORECASE)
 
 
-#: `db.slugify` truncates at 48 characters, which is right for minting a key and silently
-#: wrong for reading a corpus: slugifying 1,467 joined lines and splitting the result
-#: compares against the first 48 characters of the first line. The `grounding` audit
-#: reported that "Poker" shared no word with 1,467 lines that plainly contain it. So
-#: tokenising here is done directly, per line, and never through the key-minting helper.
+#: Tokenise per line. `db.slugify` truncates, so it does not apply here.
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -183,13 +175,8 @@ def audit_grounding(conn, limit: int) -> tuple[str, int, list[str]]:
 def audit_missed(conn, limit: int) -> tuple[str, int, list[str]]:
     """Plan-shaped lines that name a day and that nothing anywhere cites."""
     findings = []
-    # Selecting on `gate_reason` alone made this blind to the largest stream in the
-    # store. The gate gives email and GroupMe a verdict per message, but passes iMessage
-    # wholesale as `all-of:imessage` — all 5,866 of them — so no iMessage line can ever
-    # match a planning reason and none could ever be reported missed. That produced a
-    # confident "0% miss rate in large bundles", which was only true because large
-    # bundles are the iMessage ones. `bundle.importance` documents this exact asymmetry;
-    # any metric keyed on the gate verdict inherits it.
+    # Match plan-like text directly. The gate passes some streams wholesale,
+    # so `gate_reason` alone misses them.
     rows = conn.execute("""
         SELECT a.id, a.ts, a.person, a.handle, a.stream, a.text, a.gate_reason
         FROM archive a
@@ -217,13 +204,7 @@ def audit_missed(conn, limit: int) -> tuple[str, int, list[str]]:
 
 
 def audit_settled(conn, limit: int) -> tuple[str, int, list[str]]:
-    """Open to-dos the archive has already answered.
-
-    The general form of M21: "Pay Nadia $50" stayed open while a Venmo receipt saying
-    "You paid Nadia Zimmermann $50.00" sat unread in the same store. Rather than
-    special-casing payments, this looks for any open to-do whose distinctive words later
-    co-occur with settlement language.
-    """
+    """Open to-dos the archive has already answered."""
     findings = []
     todos = conn.execute("SELECT key, text, opened_at FROM todos "
                          "WHERE status = 'open'").fetchall()
@@ -272,11 +253,7 @@ _STRONG_RE = re.compile(
     r"bring (?:photo )?id|no (?:ticket|entry|refund)s?\b|gate opens?)\b",
     re.IGNORECASE)
 
-#: The same words that mean "instruction" from an organiser mean nothing in chat:
-#: "show your team what champion you intend to use", "It's saying I arrive at 1", "a guy
-#: in my parking garage" were all reported as dropped arrival instructions on the first
-#: run of this. Counted only when the line is an email, which is where an organiser
-#: writes and where the actual misses have all been.
+#: Weak arrival-instruction patterns. Counted only in email, where organisers write.
 _WEAK_RE = re.compile(
     r"\b(parking|arrive (?:by|before|at)|get there by|present your|show your|"
     r"pick ?up (?:at|from)|(?:please )?bring (?:your|a|an|the))\b", re.IGNORECASE)
@@ -318,10 +295,7 @@ def audit_details(conn, limit: int) -> tuple[str, int, list[str]]:
                 if said and len(said & carried) / len(said) > 0.4:
                     continue
                 dropped.append(" ".join(sentence.split())[:120])
-        # Every distinct instruction, not just the first. Breaking after one meant the
-        # Riders row reported "Doors will open at 6pm" — which it had already recorded —
-        # and never mentioned the check-in rule sitting two sentences later, which was
-        # the one that mattered.
+        # Report every distinct dropped instruction.
         for sentence in dict.fromkeys(dropped):
             findings.append(f"{event['key']} · dropped: {sentence}")
     return ("rows whose evidence carries arrival instructions the row does not",

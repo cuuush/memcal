@@ -29,50 +29,26 @@ CREATE TABLE IF NOT EXISTS events (
     series       TEXT,                   -- wiki page slug for the recurring thing
     note         TEXT,
     source       TEXT,                   -- the most recent bundle to touch this row
-    -- Where the row came from *first*, set once and never updated. `source` is mutable,
-    -- so it answers "who wrote this last" and was being read as "where did this come
-    -- from" — which is how a visit by Avery came to display `Source: Cameron Ortiz`,
-    -- the unrelated conversation that happened to amend it afterwards. Two questions,
-    -- two columns.
+    -- Immutable first source; `source` is the last writer. Separate columns.
     origin       TEXT,
-    -- The row this one happens *inside*. Points at `events.id` and never at `key`,
-    -- because a key embeds the date it was minted with, so re-dating a row would
-    -- orphan everything naming it — the mistake `calendar_items.event_key` already
-    -- made. Deliberately not `series`: `find_match_scored` reads `series`, and two
-    -- same-series rows ten days apart would be *merged* rather than nested.
+    -- The row this one happens *inside*. References `events.id`, never `key`
+    -- (keys embed dates and break on re-date); distinct from `series` to avoid
+    -- false merges.
     part_of      INTEGER REFERENCES events(id) ON DELETE SET NULL,
-    -- Where you reply to this invitation. It is not a link *about* the event, it is
-    -- the fact that this is a thing you RSVP through — so it can be forwarded, which
-    -- is a different act from having to ask the host yourself.
+    -- Reply endpoint for the invitation; forwardable, distinct from asking the host.
     rsvp_url     TEXT,
-    -- How you *attend*. `location` answers where and `rsvp_url` answers how you reply;
-    -- a online appointment, a work Zoom and a Meet link are none of those, and
-    -- until this column existed a join link had no field to land in from any source.
-    -- The calendar entry for a tutoring appointment read "Online" as its location,
-    -- which is true, is not a place you can go, and is not a link you can press — while
-    -- the link itself sat in the email that created the row and in the calendar event's
-    -- own description. Both connectors were throwing it away, which is what a missing
-    -- column looks like from the outside.
+    -- How to attend; distinct from location and `rsvp_url`.
     join_url     TEXT,
-    -- The scheduled day this row stands in for, as an ISO date. A series that meets
-    -- Tuesdays and skips to Wednesday *this week only* is one occurrence contradicting
-    -- its own rule, and until this column existed there was no way to say that: the row
-    -- was simply a Wednesday, indistinguishable from the cadence having moved. It is
-    -- what stops `series.roll_forward` re-materialising the Tuesday it replaces, and it
-    -- is a date rather than a row id because the occurrence it replaces is a projection
-    -- of the rule and has no row of its own. A cancelled week is `instead_of` set with
-    -- `status = 'declined'` — the skip is recorded, not merely absent.
+    -- The scheduled day this occurrence replaces. A date, not a row id, because the
+    -- replaced occurrence is a rule projection. A cancelled week is `instead_of`
+    -- set with `status = 'declined'`.
     instead_of   TEXT,
     written_by   TEXT NOT NULL DEFAULT 'cli',        -- cli | live | dream:<model> | sweep
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL,
-    -- When the evidence this row was *created* from was said, as distinct from when the
-    -- creating write ran. The per-field write guard needs a floor for every field
-    -- nothing has revised yet, and `created_at` cannot serve: it is a processing time,
-    -- so an agent filing a row at 23:30 made every message sent earlier that day
-    -- permanently unable to correct it. NULL for a typed write, which has no evidence
-    -- older than itself, and for rows written before the split. See
-    -- `events._field_versions`.
+    -- When the creation evidence was *said*, distinct from write time; floor for the
+    -- per-field write guard. NULL for typed and pre-split rows.
+    -- See `events._field_versions`.
     evidence_ts  TEXT
 );
 CREATE INDEX IF NOT EXISTS events_date_idx   ON events(date);
@@ -84,33 +60,17 @@ CREATE TABLE IF NOT EXISTS event_history (
     field      TEXT NOT NULL,
     old_value  TEXT,
     new_value  TEXT,
-    -- Two clocks, and conflating them silently inverted write precedence. `changed_at`
-    -- is when the write happened; `evidence_ts` is when the thing it was reading was
-    -- *said*. A nightly pass applies a 10am message at 23:30, and comparing a later
-    -- noon message against 23:30 rejected newer evidence as older. Every comparison
-    -- about authority uses `evidence_ts`; `changed_at` orders the audit trail.
+    -- `changed_at` is write time; `evidence_ts` is when the evidence was *said*.
+    -- Authority comparisons use `evidence_ts`; `changed_at` orders the audit trail.
     changed_at TEXT NOT NULL,
     evidence_ts TEXT,
     written_by TEXT NOT NULL
 );
 
 -- ---------------------------------------------------------------- series ----
--- The *rule*, as against the occurrences it generates.
---
--- `events.series` has always been a wiki-page slug, and the prompt has always said "a
--- recurring thing is one row for the next occurrence". So the store recorded instances
--- of a schedule and never the schedule, and the sentence that actually arrives in an
--- email — "can we move to Tuesdays at 1pm going forward" — had nowhere to land. Every
--- consequence follows from that one absence: the Monday cadence cannot "go away",
--- because there is no Monday cadence to end, only rows in the past; a single week moved
--- to Wednesday cannot be an *exception*, because there is nothing for it to be an
--- exception to; and the join link survives only by scavenging whichever past row
--- happened to carry it.
---
--- One row per series, holding the rule in force *now*. Recency is resolved
--- at write time, so a cadence change overwrites here and the superseded rule moves to
--- `series_history` with the day it stopped applying. Nothing is weighed at read time and
--- nothing is deleted; an ended series keeps its row and its history.
+-- The *rule*, as against the occurrences it generates. One row per series holding
+-- the rule in force *now*; a cadence change overwrites here and moves the old rule
+-- to `series_history`. Ended series keep row and history.
 CREATE TABLE IF NOT EXISTS series (
     slug         TEXT PRIMARY KEY,      -- matches events.series and the wiki page slug
     title        TEXT NOT NULL,
@@ -118,16 +78,12 @@ CREATE TABLE IF NOT EXISTS series (
     weekday      INTEGER,               -- 0=Mon .. 6=Sun, for weekly/fortnightly
     day_of_month INTEGER,               -- 1..31, for monthly
     time         TEXT,                  -- 'HH:MM'
-    -- The qualities, held where they are actually true rather than scavenged from
-    -- whichever instance last carried them. `events.SERIES_QUALITIES` reads here first.
+    -- Canonical location/join_url; `events.SERIES_QUALITIES` reads here first.
     location     TEXT,
     join_url     TEXT,
-    -- The first day the rule in force applies. A change announced on the 7th for the
-    -- 18th sets this to the 18th, which is what makes "going forward" expressible and
-    -- what stops the change retro-dating occurrences that already happened.
+    -- First day the current rule applies; prevents retro-dating past occurrences.
     effective_on TEXT NOT NULL,
-    -- The last day it applies; NULL means forever, which is the honest default for a
-    -- standing appointment. Set when the user stops going.
+    -- Last day it applies; NULL means standing. Set when the series ends.
     ends_on      TEXT,
     status       TEXT NOT NULL DEFAULT 'active',   -- active | ended
     source       TEXT,
@@ -143,11 +99,8 @@ CREATE TABLE IF NOT EXISTS series_history (
     field      TEXT NOT NULL,
     old_value  TEXT,
     new_value  TEXT,
-    -- Two clocks, and conflating them silently inverted write precedence. `changed_at`
-    -- is when the write happened; `evidence_ts` is when the thing it was reading was
-    -- *said*. A nightly pass applies a 10am message at 23:30, and comparing a later
-    -- noon message against 23:30 rejected newer evidence as older. Every comparison
-    -- about authority uses `evidence_ts`; `changed_at` orders the audit trail.
+    -- `changed_at` is write time; `evidence_ts` is when the evidence was *said*.
+    -- Authority comparisons use `evidence_ts`; `changed_at` orders the audit trail.
     changed_at TEXT NOT NULL,
     evidence_ts TEXT,
     written_by TEXT NOT NULL
@@ -217,16 +170,12 @@ CREATE TABLE IF NOT EXISTS questions (
     text        TEXT NOT NULL,
     about_event INTEGER REFERENCES events(id) ON DELETE SET NULL,
     about_todo  INTEGER REFERENCES todos(id) ON DELETE SET NULL,
-    -- The last day the question's own words commit to, when they commit to one. A
-    -- question dies with its subject, and the only route to a subject's day used to be
-    -- `about_event` — so the rule reached 5 of 12 open questions and two of the seven it
-    -- could not see were asking about a Sunday five days gone. This is what makes the
-    -- rule total: the link answers when there is one, this answers when there is not.
+    -- Last day the question text commits to; complements `about_event` for expiry
+    -- when no event link exists.
     about_date  TEXT,
     status      TEXT NOT NULL DEFAULT 'open',   -- open | answered | dropped
     answer      TEXT,
-    -- A question can be deliberately waiting without being abandoned. Deferred rows
-    -- survive the ordinary age limit and explain when they should become useful again.
+    -- Deferred rows survive the age limit until their wake condition holds.
     wake_condition TEXT,
     written_by  TEXT NOT NULL DEFAULT 'cli',
     created_at  TEXT NOT NULL,
@@ -257,9 +206,7 @@ CREATE TABLE IF NOT EXISTS archive (
     handle      TEXT,                    -- raw sender handle
     person      TEXT,                    -- resolved person, or NULL
     from_me     INTEGER NOT NULL DEFAULT 0,
-    -- What is on the other end: `person` or `machine`. `from_me` is a fact about
-    -- authorship and says nothing about the addressee, and on the `agent` stream the
-    -- two come apart -- see `Source.addressed_to`.
+    -- Addressee: `person` or `machine`. Distinct from `from_me` (authorship).
     addressed_to TEXT NOT NULL DEFAULT 'person',
     text        TEXT NOT NULL,
     meta        TEXT NOT NULL DEFAULT '{}',
@@ -270,8 +217,7 @@ CREATE TABLE IF NOT EXISTS archive (
 );
 CREATE INDEX IF NOT EXISTS archive_ts_idx     ON archive(ts);
 CREATE INDEX IF NOT EXISTS archive_person_idx ON archive(person);
--- "who is this thread with" is asked per thread by bundling and per page by the web
--- diagnostic; without this it is a full scan of the archive every time.
+-- Supports per-thread bundling and diagnostics without a full archive scan.
 CREATE INDEX IF NOT EXISTS archive_thread_idx ON archive(thread);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS archive_fts USING fts5(
@@ -285,13 +231,8 @@ CREATE TRIGGER IF NOT EXISTS archive_ad AFTER DELETE ON archive BEGIN
     INSERT INTO archive_fts(archive_fts, rowid, text, person, thread)
     VALUES ('delete', old.id, old.text, coalesce(old.person,''), coalesce(old.thread,''));
 END;
--- An external-content FTS5 table serves a non-MATCH lookup from `archive` itself and a
--- MATCH from its own index, so an UPDATE with no trigger leaves the two disagreeing
--- while every obvious check says they agree. `UPDATE archive SET person` is not rare --
--- GroupMe's profile sync runs it over every row of a re-identified speaker -- and 121
--- rows naming `Rowan` were unfindable by that name while `SELECT ... WHERE person =
--- 'Rowan'` on this very table returned all of them. `integrity-check` passes throughout:
--- it validates the index against itself, not against the content.
+-- External-content FTS5 requires an explicit sync trigger on UPDATE; without it the
+-- index and the table disagree. `integrity-check` validates the index only.
 CREATE TRIGGER IF NOT EXISTS archive_au AFTER UPDATE ON archive BEGIN
     INSERT INTO archive_fts(archive_fts, rowid, text, person, thread)
     VALUES ('delete', old.id, old.text, coalesce(old.person,''), coalesce(old.thread,''));
@@ -309,23 +250,17 @@ CREATE TABLE IF NOT EXISTS calendar_items (
     calendar_name  TEXT NOT NULL,
     event_uid      TEXT NOT NULL,
     event_key      TEXT NOT NULL,
-    -- `db.utc_stamp`: UTC, milliseconds, `Z`. One notation, because three writers fill
-    -- it and two readers compare it with `=` and `>=`. The milliseconds preserve
-    -- — it has to be a fixed point of the `toISOString()` string `ical._identity` hashes
-    -- for a recurring occurrence, which `ical._rebind` reads back out of this column.
+    -- `db.utc_stamp`: UTC milliseconds with `Z` suffix; fixed point of the
+    -- `toISOString()` string `ical._identity` hashes.
     starts_at      TEXT NOT NULL,
     subscribed     INTEGER NOT NULL DEFAULT 0,
     provider       TEXT NOT NULL DEFAULT 'ical', -- ical | partiful
     active         INTEGER NOT NULL DEFAULT 1,
-    -- A fingerprint of everything Calendar.app said about this event last time. Equal
-    -- means nothing to do: no archive row, no gate, no upsert. Reading the calendar is
-    -- expensive enough without re-deriving a row that has not moved.
+    -- Fingerprint of the last observed Calendar.app state; equal means skip.
     revision       TEXT,
-    -- Set when memcal itself created this event in Calendar.app, so the next scan can
-    -- tell its own writes from the user's and not read them back in as news.
+    -- Whether memcal created this event; prevents re-ingesting its own writes.
     published      INTEGER NOT NULL DEFAULT 0,
-    -- What the memcal row said when it was published. Equal means the calendar copy is
-    -- current; different means the row moved and the copy has to be updated.
+    -- Row state at publish time; different means the calendar copy needs an update.
     published_state TEXT,
     last_seen_at   TEXT NOT NULL,
     updated_at     TEXT NOT NULL
@@ -349,8 +284,7 @@ CREATE TABLE IF NOT EXISTS spool (
     UNIQUE(archive_id)
 );
 CREATE INDEX IF NOT EXISTS spool_pending_idx ON spool(processed_at);
--- Which pass claimed a line. Read per run row by the Runs tab, and the column
--- `retry.requeue` updates on; without this both are a full scan of the spool.
+-- Which pass claimed a line; supports per-run views and requeue without a full scan.
 CREATE INDEX IF NOT EXISTS spool_run_idx ON spool(run_id);
 
 -- -------------------------------------------------------------- identity ----
@@ -381,10 +315,8 @@ CREATE TABLE IF NOT EXISTS senders (
     updated_at TEXT NOT NULL
 );
 
--- What one identity call concluded, kept apart from `handles` so every conclusion of
--- it stays reversible. A merge folds two spellings into one; `handles_moved` records
--- exactly which handles carried the folded spelling, which is what lets a split put
--- them back rather than guess.
+-- Identity conclusions, kept apart from `handles` so each stays reversible.
+-- `handles_moved` records which handles a merge carried, so a split restores them.
 CREATE TABLE IF NOT EXISTS identity_assumptions (
     id            INTEGER PRIMARY KEY,
     kind          TEXT NOT NULL DEFAULT 'merge',     -- merge | name
@@ -392,17 +324,15 @@ CREATE TABLE IF NOT EXISTS identity_assumptions (
     also          TEXT NOT NULL,          -- the folded spelling, or the handle in question
     handles_moved TEXT NOT NULL DEFAULT '[]',
     why           TEXT,
-    -- assumed: already in effect. unsure: nothing was done, the call said it could not
-    -- tell. confirmed and split are the two answers a person gives to either.
+    -- assumed: in effect. unsure: undecided. confirmed/split: the person's answer.
     state         TEXT NOT NULL DEFAULT 'assumed',
     source        TEXT NOT NULL DEFAULT 'model',
     created_at    TEXT NOT NULL,
     decided_at    TEXT
 );
 
--- Handles with no human behind them. "Name this person" has no answer for a payment
--- receipt, and an unanswerable question at the head of a queue is how the whole queue
--- stops being read. The mail still arrives and is still filed; only the question stops.
+-- Handles with no human behind them. The mail is still filed; only the naming
+-- question stops.
 CREATE TABLE IF NOT EXISTS non_people (
     handle     TEXT PRIMARY KEY,
     label      TEXT,                      -- "Venmo", so its rows still read as something
@@ -431,17 +361,10 @@ CREATE TABLE IF NOT EXISTS runs (
     completion_tokens INTEGER NOT NULL DEFAULT 0,
     cached_tokens     INTEGER NOT NULL DEFAULT 0,
     cost_usd     REAL NOT NULL DEFAULT 0,
-    -- What the pass spent that no completion can account for. A run that is refused
-    -- for an hour has no generations rows, no tokens and no dollars, and reported
-    -- "0 calls · $0.0000" while making 76 requests over 56 minutes. `requests` is HTTP
-    -- attempts including retries, `failed_calls` is completions that raised, and
-    -- `wait_seconds` is backoff summed across threads — so it exceeds the wall clock
-    -- and separates "a queue" from "a slow model".
+    -- `requests` is HTTP attempts including retries, `failed_calls` is completions
+    -- that raised, and `wait_seconds` is backoff summed across threads.
     --
-    -- Nullable on purpose: NULL is "not recorded", which is what every run before this
-    -- column existed genuinely is. `NOT NULL DEFAULT 0` would have made twenty historical
-    -- passes claim they issued no requests — a fresh instance of the exact defect these
-    -- columns were added to end. Every surface that reads them prints nothing for NULL.
+    -- Nullable: NULL is "not recorded". Readers print nothing for NULL.
     requests     INTEGER,
     failed_calls INTEGER,
     wait_seconds REAL,
@@ -449,13 +372,8 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 
 -- ----------------------------------------------------------- generations ----
--- One row per model call, holding the id OpenRouter files it under.
---
--- OpenRouter stores the full prompt, completion and reasoning for every call when
--- Input & Output Logging is enabled, readable at /api/v1/generation/content?id=...
--- There is no endpoint that enumerates them, so the id is the only way back to a
--- trace — and it arrives in the response and was previously dropped on the floor.
--- Keeping it costs 60 bytes and turns "why did it write that?" into a lookup.
+-- One row per model call, holding the id OpenRouter files it under: the only way
+-- back to the stored prompt, completion, and reasoning.
 CREATE TABLE IF NOT EXISTS generations (
     id            INTEGER PRIMARY KEY,
     run_id        INTEGER REFERENCES runs(id) ON DELETE CASCADE,
@@ -466,50 +384,20 @@ CREATE TABLE IF NOT EXISTS generations (
     prompt_tokens     INTEGER NOT NULL DEFAULT 0,
     completion_tokens INTEGER NOT NULL DEFAULT 0,
     cost_usd      REAL NOT NULL DEFAULT 0,
-    -- HTTP requests this one answer took. 1 on a healthy call; a reply retried into
-    -- existence over twenty attempts used to be indistinguishable from it. NULL is
-    -- "not recorded" — a row here only exists for a call that returned, so 1 is a safe
-    -- floor and a false claim, and the floor is not worth the claim.
+    -- HTTP requests this answer took. NULL is "not recorded".
     requests      INTEGER,
     created_at    TEXT NOT NULL,
     UNIQUE(generation_id)
 );
 CREATE INDEX IF NOT EXISTS generations_run_idx ON generations(run_id);
 
--- The location tables are gone (2026-08-02). Find My was built and then blocked by
--- macOS encrypting its caches, so it never produced a row; the fallback chain — an iOS
--- Shortcut writing to iCloud Drive, a Mac Shortcut, a manual check-in — was a lot of
--- moving parts serving a feature nothing else in the store read.
---
--- `visits`, `places` and `location_samples` were left in place on existing databases,
--- on the grounds that deleting somebody's data to tidy a schema is not a trade worth
--- making. That is still true and it turned out not to apply: the feature never produced
--- a row, so what the rule preserved was three empty tables advertising a capability
--- nothing implements. `db._drop_empty_legacy_tables` drops them **when they are empty**,
--- on the next open, and leaves anything with a row in it exactly where it is.
---
--- What survived them was worse and is the reason this paragraph is longer than the
--- feature deserved: `meta.source.findmy.last_success` stayed behind, `freshness()`
--- builds its stream list out of records like that one, and the brief told the agent
--- "no findmy 9 days — this week may be incomplete" for nine days after Find My stopped
--- existing. A deleted component must not be able to keep asserting itself through what
--- it left behind.
+-- Removed location feature. `db._drop_empty_legacy_tables` drops these when empty
+-- and leaves non-empty tables in place.
 
 -- ----------------------------------------------------------------- threads --
--- A conversation as a thing in its own right, rather than a string on every archive
--- row. Three problems all came from not having this:
---
---   * a group chat's bundle was titled `thread:imessage:9858b62c1615…`, because the
---     only name available was whatever the source put in `archive.thread`;
---   * two different group chats both called "Crystal Harbor" were indistinguishable in
---     the UI (they differed by a trailing space, which is worse than colliding);
---   * "I never post in the GroupMe dev chat and know nobody in it" is a fact about a
---     conversation, and there was nowhere to keep it — so every judgement about
---     whether a chat is worth reading had to be made per message, forever.
---
--- `mine`/`theirs`/`known`/`mutuals` are derived from the archive by threads.refresh();
--- `label` and `participants` are what the source told us. `decision` is the only
--- column a human writes, and it is the point of the table.
+-- A conversation as a thing in its own right. Counts are derived by
+-- threads.refresh(); `label` and `participants` come from the source; `decision`
+-- is the only human-written column and the point of the table.
 CREATE TABLE IF NOT EXISTS threads (
     id           INTEGER PRIMARY KEY,
     stream       TEXT NOT NULL,
@@ -526,10 +414,7 @@ CREATE TABLE IF NOT EXISTS threads (
     last_ts      TEXT,
     decision     TEXT,                   -- NULL = never asked | read | mute
     reason       TEXT,
-    -- What the platform itself says, kept strictly as evidence. GroupMe knows the user muted
-    -- 19 of their 101 groups, and 15 of those are full of people the user talks to daily —
-    -- muting there means "stop buzzing my phone", not "I don't care". So it is recorded
-    -- and shown and never allowed to decide anything unless `platform_mute` says so.
+    -- Platform mute state as evidence only; decides nothing unless `platform_mute` allows.
     platform_muted INTEGER NOT NULL DEFAULT 0,
     platform_note  TEXT,
     updated_at   TEXT NOT NULL,
@@ -537,11 +422,8 @@ CREATE TABLE IF NOT EXISTS threads (
 );
 CREATE INDEX IF NOT EXISTS threads_decision_idx ON threads(decision);
 
--- A conversation roster is not a list of display names. The durable member is the
--- platform handle (a phone number, GroupMe user id, WhatsApp jid, ...); names are
--- observations that may change per group or over time. `handles` joins the same person
--- across platforms, so resolving one of these handles immediately updates every roster
--- query without rewriting historical rows.
+-- Conversation membership keyed by platform handle; names are per-group observations.
+-- `handles` joins the same person across platforms without rewriting history.
 CREATE TABLE IF NOT EXISTS thread_members (
     stream       TEXT NOT NULL,
     thread       TEXT NOT NULL,
@@ -553,9 +435,7 @@ CREATE TABLE IF NOT EXISTS thread_members (
 );
 CREATE INDEX IF NOT EXISTS thread_members_handle_idx ON thread_members(handle);
 
--- Preserve every per-conversation display name rather than overwriting the last one.
--- "DJ Pickle" in one GroupMe and "Alexander" in another are both useful evidence when
--- the user runs `memcal who groupme:123 Alexander Rivera`.
+-- Every per-conversation display name, preserved rather than overwritten.
 CREATE TABLE IF NOT EXISTS thread_member_names (
     stream       TEXT NOT NULL,
     thread       TEXT NOT NULL,
@@ -569,21 +449,16 @@ CREATE TABLE IF NOT EXISTS thread_member_names (
 CREATE INDEX IF NOT EXISTS thread_member_names_handle_idx
     ON thread_member_names(handle);
 
--- GroupMe exposes two different names for a member: a nickname scoped to one group,
--- and the account name returned by that group's detail endpoint.  Nicknames belong in
--- thread_member_names above.  Account names are stable-handle identity evidence and
--- are cached once globally so one person appearing in twenty groups is still one node.
+-- GroupMe account names: stable identity evidence cached once globally.
+-- Nicknames belong in `thread_member_names` above.
 CREATE TABLE IF NOT EXISTS groupme_profiles (
     user_id      TEXT PRIMARY KEY,
     name         TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );
 
--- The groups index deliberately omits memberships.  Fetch a full roster only after
--- that conversation has passed the gate, then keep a permanent snapshot.  Only a
--- newly gated unknown speaker invalidates it.  This also makes an existing store
--- self-healing: a group with gated archive rows but no snapshot is fetched on the next
--- ingest even when its message watermark is already caught up.
+-- Group rosters are fetched only after the gate passes, then snapshotted. A newly
+-- gated unknown speaker invalidates the snapshot.
 CREATE TABLE IF NOT EXISTS groupme_group_profile_sync (
     group_id        TEXT PRIMARY KEY,
     last_message_id TEXT,
@@ -591,16 +466,7 @@ CREATE TABLE IF NOT EXISTS groupme_group_profile_sync (
 );
 
 -- ---------------------------------------------------------------- collection --
--- One ingest pass. The `runs` table above is the *dream* pass; until this existed
--- there was no record that collection had happened at all: per-source counts lived in
--- an in-memory job object that died with the process, and the only durable trace was a
--- scattering of watermarks. So "when did email last run, and did it work?" had no
--- answer, and a Proton Bridge that had been closed for a week was indistinguishable
--- from a quiet inbox.
---
--- It is also what the queue view groups by. "Waiting for the next dream" could only
--- show *gated* items, because a skipped one is not in the spool at all — it exists
--- solely as `archive.gated = 0`, with nothing tying it to the pass that skipped it.
+-- One ingest pass with per-source counts. The queue view groups by pass.
 CREATE TABLE IF NOT EXISTS collections (
     id          INTEGER PRIMARY KEY,
     started_at  TEXT NOT NULL,
@@ -627,14 +493,8 @@ CREATE TABLE IF NOT EXISTS collection_sources (
 );
 
 -- ---------------------------------------------------------------- provenance --
--- Which model call wrote this row. `written_by` says "dream:nightly", which names a
--- mode and not a call — so "where did *this* question come from?" had no answer, and
--- `Is "Shayla" a nickname for Harper?` looked like it arrived from nowhere.
---
--- One row per write, not one column on each table: the same to-do gets touched by
--- several passes over its life, and the interesting question is usually the whole
--- chain, not the last writer. Joins to `generations` for the OpenRouter id, which is
--- the way back to the prompt, the reasoning and the completion.
+-- Which model call wrote each row. One row per write; joins to `generations` for
+-- the OpenRouter id back to prompt, reasoning, and completion.
 CREATE TABLE IF NOT EXISTS provenance (
     id            INTEGER PRIMARY KEY,
     kind          TEXT NOT NULL,        -- event | todo | question | standing | wiki
@@ -650,13 +510,8 @@ CREATE INDEX IF NOT EXISTS provenance_ref_idx ON provenance(kind, ref);
 CREATE INDEX IF NOT EXISTS provenance_gen_idx ON provenance(generation_id);
 
 -- -------------------------------------------------------------- evidence --
--- Provenance answers "which call wrote this?". Evidence answers the more useful
--- question: "which original lines was that call reading?"
---
--- Keep the link many-to-many. A row may be revised by several conversations, and one
--- conversation may contribute several lines. `archive` remains the source of truth;
--- this table is only an index back into it. A source link therefore survives prompt
--- rewrites, model changes, and the on-disk call trace being pruned.
+-- Which original lines a write was reading. Many-to-many; `archive` stays the
+-- source of truth, so links survive prompt and model changes.
 CREATE TABLE IF NOT EXISTS evidence (
     id            INTEGER PRIMARY KEY,
     kind          TEXT NOT NULL,        -- event | todo | question | standing | wiki
@@ -672,16 +527,8 @@ CREATE INDEX IF NOT EXISTS evidence_ref_idx ON evidence(kind, ref);
 CREATE INDEX IF NOT EXISTS evidence_archive_idx ON evidence(archive_id);
 
 -- -------------------------------------------------------------- slot history --
--- Events resolve recency at write time and push the old value into `event_history`.
--- Slots resolved recency at write time and pushed the old value into nothing: the wiki
--- is markdown on disk, `set_slot` replaces the line, and Jordan's Eastwood address was
--- simply gone the moment the lease fell through.
---
--- That asymmetry is the one place the store forgets something on purpose, and it is not
--- defensible for the same reason `event_history` exists — "when did this change, and
--- what did it say before" is the question asked of a memory system most often. Kept in
--- SQLite rather than in the page, because the page is a file the user hand-edits in Obsidian
--- and history there would be clutter the user has to read past forever.
+-- Prior wiki slot values, mirroring `event_history`. Kept in SQLite so user-edited
+-- pages stay clean.
 CREATE TABLE IF NOT EXISTS slot_history (
     id         INTEGER PRIMARY KEY,
     page       TEXT NOT NULL,        -- the page slug
@@ -702,23 +549,11 @@ CREATE TABLE IF NOT EXISTS wiki_pending_writes (
 );
 
 -- ------------------------------------------------------------------ actions --
--- What the assistant *did* while the user was talking to it, as distinct from what a
--- model later concluded from the same sentence.
+-- Completed assistant operations, written in the same transaction as the state
+-- change they describe.
 --
--- `provenance` answers "which call wrote this row" and `evidence` answers "which lines
--- was it reading". Neither could answer the question a collision actually turns on:
--- *this statement has already been acted on, and here is what it changed*. Without it
--- the nightly pass meets "move poker to Saturday" with no way to tell an instruction
--- already carried out from one still outstanding, and files a second row.
---
--- One record per completed operation, written in the same transaction as the state
--- change it describes, so a store can never hold the change without the record of it.
---
--- `op_id` is the operation's identity: a retry of the same operation from the same turn
--- computes the same id and is a no-op, while a genuine second instruction from a later
--- turn computes a different one. `based_on` is the target's state stamp *before* the
--- write, which is what makes a proposal formed against an older version detectable as
--- stale rather than silently applied over an intervening correction.
+-- `op_id` identifies the operation for retry idempotence; `based_on` is the target's
+-- prior state stamp, marking proposals formed against stale versions.
 CREATE TABLE IF NOT EXISTS actions (
     id          INTEGER PRIMARY KEY,
     op_id       TEXT NOT NULL UNIQUE,
@@ -729,9 +564,7 @@ CREATE TABLE IF NOT EXISTS actions (
     session     TEXT,                   -- the caller's session, when it has one
     fields      TEXT NOT NULL DEFAULT '{}',   -- {field: [old, new]} — what actually changed
     source_ids  TEXT NOT NULL DEFAULT '[]',   -- archive ids of the turn that caused it
-    -- Why `source_ids` is empty, when it is. A caller with no originating-turn context
-    -- must still work; what it may not do is leave the gap unrecorded and let a reader
-    -- assume the operation simply had no cause.
+    -- Why `source_ids` is empty, when it is.
     source_note TEXT,
     based_on    TEXT,                   -- the target's `updated_at` before this write
     at          TEXT NOT NULL
@@ -740,35 +573,22 @@ CREATE INDEX IF NOT EXISTS actions_ref_idx ON actions(kind, ref);
 CREATE INDEX IF NOT EXISTS actions_at_idx  ON actions(at);
 
 -- --------------------------------------------------------- pending changes --
--- An observation that plainly changes something, whose target cannot yet be named.
---
--- "That's cancelled" with no title and no date used to be dropped on the floor: the
--- typed diff needs both to write a row, and inventing them writes a cancelled event for
--- a plan that never existed. Dropping it loses a real statement about the user's week;
--- inventing loses their trust in the calendar. So the observation is kept, with its
--- evidence, and nothing is guessed about what it refers to.
---
--- Retried whenever related evidence arrives, and surfaced as a question when it bears on
--- something the user is actually planning to do. Deliberately small: this is a note that
--- something is outstanding, not a second event store.
+-- Observations that plainly change something whose target cannot yet be named.
+-- Kept with evidence and retried as related evidence arrives; deliberately small.
 CREATE TABLE IF NOT EXISTS pending_changes (
     id           INTEGER PRIMARY KEY,
     kind         TEXT NOT NULL,          -- cancellation | move
     observation  TEXT NOT NULL,          -- what was said, in the source's own words
-    -- When it was *said*, not when it was filed. Applying it later must compare against
-    -- the moment the evidence exists, or a correction recorded on Monday and placed on
-    -- Thursday looks like Thursday's news.
+    -- When the observation was *said*, not filed. Late application compares
+    -- against evidence time.
     observed_at  TEXT,
-    -- What the observation itself named, when it named anything. Kept as fields rather
-    -- than re-parsed from prose: placing it later has to be an exact identity check, and
-    -- an exact check needs the same inputs `find_match` was given the first time.
+    -- What the observation named, kept as fields for exact identity checks on placement.
     subject_title TEXT,
     subject_date  TEXT,
     subject_time  TEXT,
     subject_location TEXT,
-    -- The event this observation is *known* to be about, and who established that. A
-    -- stable identifier or a cited semantic decision, and nothing else: a heuristic
-    -- match is what nominates candidates, never what authorises a cancellation.
+    -- Known target and who established it. Heuristics nominate; only stable
+    -- identifiers or cited decisions authorise.
     target_key    TEXT,
     decided_by    TEXT,
     entity       TEXT,                   -- the bundle it came out of
