@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
+import threading
 from dataclasses import dataclass, field
 from datetime import timedelta
 
@@ -101,6 +102,111 @@ def _split(items: list, parts: int) -> list[list]:
         return [items]
     size = -(-len(items) // parts)                     # ceiling, so nothing is stranded
     return [items[i:i + size] for i in range(0, len(items), size)]
+
+
+class _CircuitOpen(LLMError):
+    """A request the breaker held back: raised without sending anything."""
+
+
+#: Consecutive propose failures that open the circuit when the knob is unset or
+#: unreadable. Fail closed: a broken knob still breaks the circuit, never the run.
+_BREAKER_DEFAULT = 3
+
+
+def _breaker_threshold(cfg: Config) -> int:
+    """The consecutive-failure limit for this pass. 0 disables the breaker."""
+    try:
+        threshold = int(getattr(cfg, "propose_breaker", _BREAKER_DEFAULT))
+    except (TypeError, ValueError):
+        return _BREAKER_DEFAULT
+    if threshold < 0:
+        return _BREAKER_DEFAULT
+    return threshold
+
+
+class _ProposeBreaker:
+    """Consecutive-failure circuit breaker around one pass's model client.
+
+    One run once spent 3,376s over 76 requests producing nothing — every request
+    waiting out the capacity backoff and then failing, one after another. The run
+    row measured it (`requests`, `failed_calls`, `wait_seconds`); nothing acted
+    on it. This wraps the client propose, merge and sweep share and counts
+    consecutive failed completions: timeouts, refusals, rate-limit give-ups,
+    the quota wall — anything a completion raises. A truncated reply is a
+    packing problem, not a dead provider, and stays neutral. Counting lives in
+    `complete`, the choke point every HTTP attempt passes through exactly once;
+    `map` only holds the gate, since counting a worker there too would count
+    one failure twice. At `threshold` consecutive failures the circuit opens
+    and further jobs raise `_CircuitOpen` without touching the network, so the
+    rest of the pass fails fast instead of firing every remaining request into
+    the wall. One healthy reply resets the count, so a single blip cannot kill
+    a healthy pass; once open it stays open for the run and the next pass
+    starts closed. `threshold=0` disables it.
+    """
+
+    def __init__(self, client, *, threshold: int):
+        self._client = client
+        self.threshold = max(0, int(threshold or 0))
+        self._lock = threading.Lock()
+        self.consecutive = 0
+        self.rejected = 0
+        self._opened = False
+
+    @property
+    def usage(self):
+        return self._client.usage
+
+    @property
+    def opened(self) -> bool:
+        with self._lock:
+            return self._opened
+
+    def _refuse(self) -> _CircuitOpen:
+        return _CircuitOpen(
+            f"circuit breaker open after {self.consecutive} consecutive propose "
+            f"failures — request held back, nothing sent")
+
+    def _failed(self) -> None:
+        with self._lock:
+            self.consecutive += 1
+            if self.threshold > 0 and self.consecutive >= self.threshold:
+                self._opened = True
+
+    def _succeeded(self) -> None:
+        with self._lock:
+            self.consecutive = 0
+
+    def complete(self, *args, **kwargs):
+        with self._lock:
+            tripped = self._opened
+            if tripped:
+                self.rejected += 1
+        if tripped:
+            raise self._refuse()
+        try:
+            reply = self._client.complete(*args, **kwargs)
+        except propose_stage.Truncated:
+            raise
+        except Exception:
+            self._failed()
+            raise
+        self._succeeded()
+        return reply
+
+    def map(self, jobs, worker, max_parallel=8, on_done=None):
+        jobs = list(jobs)
+
+        def guarded(job):
+            with self._lock:
+                tripped = self._opened
+                if tripped:
+                    self.rejected += 1
+            if tripped:
+                raise self._refuse()
+            return worker(job)
+
+        return self._client.map(jobs, guarded, max_parallel=max_parallel,
+                                on_done=on_done)
 
 
 def dream(
@@ -304,12 +410,18 @@ def _dream(
         _finish(conn, run_id, result, error=str(exc))
         emit("propose", "failed", str(exc))
         return result
+    # Every stage shares this client, so once propose trips the breaker, merge
+    # and sweep fail fast on it instead of each waiting out its own backoff
+    # against the same dead provider. Usage still lands on the inner client.
+    breaker = _ProposeBreaker(client, threshold=_breaker_threshold(cfg))
+    client = breaker
 
-    # 2. propose — N independent calls sharing one cached prefix. Each reads one
-    #    conversation and reports only what that conversation states.
+    # 2. propose — N independent calls sharing one cached prefix per wave.
+    #    Each reads one conversation and reports only what that conversation states.
     #
     # Cold starts run in waves ordered by usefulness, so later waves can amend
-    # rows earlier waves wrote.
+    # rows earlier waves wrote — which is why the prefix is stable within a wave
+    # and rebuilt across waves rather than once per run.
     waves = _wave_count(cfg, mode, len(bundles))
     if waves > 1:
         bundles = bundle_stage.cold_start_order(conn, bundles)
@@ -338,6 +450,19 @@ def _dream(
                  f"wave {index} of {waves} · {len(batch)} bundles", wave=index)
         got, problems, recovered = propose_stage.propose_all(
             client, conn, cfg, batch, run_id=run_id, progress=track)
+        if breaker.opened:
+            # The provider is down, not slow: stop launching waves. This batch's
+            # partial successes stay queued with the failures — re-read next pass
+            # — rather than applied half-merged, and only what earlier waves
+            # already applied is marked read below.
+            errors.extend(problems)
+            notes.extend(recovered)
+            errors.append(
+                f"circuit breaker opened after {breaker.consecutive} consecutive "
+                f"propose failures (threshold {breaker.threshold}) — held back "
+                f"{breaker.rejected} request(s), skipped {waves - index} wave(s); "
+                f"the rest stays queued for the next pass")
+            break
         errors.extend(problems)
         notes.extend(recovered)
         read_entities.update(b.entity for b, _d, _g in got)
