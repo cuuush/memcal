@@ -16,6 +16,11 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   off) adds a post-apply stage that batches candidate `(to-do, conversation lines)`
   pairs into one structured model call. Negations and delays no longer wake the
   waiter; failures leave it asleep. The word-overlap check now only nominates.
+- A due reminder can wake Hermes inside the chat session: `tools/due_reminders.py
+  --format json` emits a machine-readable payload and the Hermes integration
+  appends it as one reminder-authored turn, so follow-up replies have a referent.
+  The outside-repo cron invocation is documented in `tools/README.md`.
+
 - memcal.app carries the handle-grid icon ([E]/[T]/[Q] pills over a calendar and
   store) instead of a generic executable glyph, and the web UI serves the same
   art as its favicon. `memcal schedule install` converts `memcal/macos/icon.png`
