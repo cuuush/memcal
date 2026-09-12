@@ -1,7 +1,8 @@
 """Completion clients for OpenRouter, Claude Code, Codex, and Antigravity.
 
 Stdlib only. The dream pass sends N independent calls that share a byte-identical
-prefix, so the prefix is marked cacheable and the varying bundle goes last.
+prefix within each wave, so the prefix is marked cacheable and the varying bundle
+goes last. Cold-start waves rebuild the prefix, so later waves pay a fresh write.
 """
 
 from __future__ import annotations
@@ -154,13 +155,20 @@ def price(model: str, tokens: int, *, output: bool = False) -> float:
 
 
 def packed_cost(model: str, *, prefix_tokens: int, suffix_tokens: int,
-                output_tokens: int, requests: int, max_parallel: int) -> dict:
-    """Price one packed propose wave using the endpoint's real cache behavior."""
+                output_tokens: int, requests: int, max_parallel: int,
+                waves: int = 1) -> dict:
+    """Price packed propose requests using the endpoint's real cache behavior.
+
+    `waves` is how many prefix builds the run performs. Cold-start runs rebuild
+    the shared prefix once per wave (see dream/run.py wave ordering), so each
+    wave pays its own cache writes; a single-wave run is `waves=1`, the default.
+    """
     if not requests or not rates(model):
         return {"priced": False, "model": model}
     cache = model not in NO_PROMPT_CACHE
+    waves = max(1, int(waves or 1))
     if cache:
-        misses = min(requests, max_parallel)
+        misses = min(requests, max_parallel * waves)
         prefix_now = price(model, int(prefix_tokens * misses * CACHE_WRITE)) \
             + price(model, int(prefix_tokens * (requests - misses) * CACHE_READ))
         prefix_warmed = price(model, int(prefix_tokens * CACHE_WRITE)) \
@@ -175,6 +183,7 @@ def packed_cost(model: str, *, prefix_tokens: int, suffix_tokens: int,
         "prefix_warmed": round(prefix_warmed, 4),
         "output_ceiling": round(price(model, output_tokens, output=True), 4),
         "cache_misses": misses,
+        "waves": waves,
     }
 
 

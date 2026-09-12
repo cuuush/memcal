@@ -2,7 +2,9 @@
 
 Each call sees its bundle plus current state. The shared prefix (instructions,
 memcal window, open to-dos, identity, page titles) is byte-identical across every
-call in a run, so it caches; the varying part — the bundle's own wiki pages and its
+call in a wave, so it caches within the wave; cold-start runs rebuild it per wave
+by design (see run.py wave ordering), so a later wave's prefix contains rows an
+earlier wave wrote. The varying part — the bundle's own wiki pages and its
 items — goes in the user turn.
 
 The model never returns free-form memories, only typed diffs against keys. That
@@ -410,7 +412,12 @@ def _calendar_strip(today) -> str:
 
 
 def build_prefix(conn: sqlite3.Connection, cfg: Config) -> str:
-    """The shared, cacheable half. Identical for every bundle in a run."""
+    """The shared, cacheable half. Identical for every bundle in a wave.
+
+    Rebuilt across waves by design: cold-start runs order bundles into waves
+    (see run.py) and write each wave before reading the next, so the next
+    wave's prefix contains the rows the previous wave wrote.
+    """
     today = db.today()
     mine = identity.me_names(conn)
     who = (f"\nTHE USER IS {' / '.join(mine)}. Anything they say in the first person, and "
@@ -1168,8 +1175,9 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
         # `max_parallel` requests racing an empty cache and paying to write it — on this
         # store, 8 of 27 wrote a ~5,800-token prefix that the other 19 then read for a
         # tenth of the price. Sending one request first and fanning out behind it turns
-        # those 8 writes into 1, which is why `packed_cost` prices a wave as
-        # `misses = min(requests, max_parallel)` and not as 1.
+        # those 8 writes into 1, which is why `packed_cost` prices one wave as
+        # `misses = min(requests_in_wave, max_parallel)` — and why a multi-wave
+        # run passes `waves` so each wave pays its own writes.
         #
         # Only worth it when there is a cache to warm and enough requests to amortise the
         # serialised first call: with no cache (the pinned open-weight endpoints) this is
