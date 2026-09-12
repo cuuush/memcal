@@ -125,12 +125,33 @@ stays however long ago it was written.
 
 ## The one tool something else runs on a schedule
 
-- `due_reminders.py` — prints the reminders that have come due, and prints nothing when
-  none have. Hermes' cron runs it every half hour and injects its stdout into an agent
-  turn, which decides what to say or replies `[SILENT]`. So this is a lab instrument in
+- `due_reminders.py` — prints the reminders that have come due, and prints a
+  `{"wakeAgent": false}` gate line when none have. The cron itself lives outside
+  this repo, so this file documents what it should invoke; the cron cannot be
+  changed here.
+  - Old: the cron ran `python3 tools/due_reminders.py [--mark] [--home ...]` every
+    half hour and injected its stdout prose into a detached agent turn, which decided
+    what to say or replied `[SILENT]`. The poke reached the phone but was never
+    appended to the chat session transcript, so a follow-up ("yeah I'll do it
+    tomorrow") had no referent in context (issue #56).
+  - New: the cron runs `python3 tools/due_reminders.py --format json [--home ...]`
+    (without `--mark`) and feeds that one JSON line to the Hermes delivery entry
+    point `deliver_due_reminders()` in `integrations/hermes/memcal/__init__.py`,
+    which appends the reminder as an assistant turn inside the target chat session
+    (authorship `memcal-reminder`/wake, never the user's words) and wakes the agent
+    turn on it; the entry point calls `todos.mark_reminded` after a successful
+    append, so a failed delivery does not snooze the reminder. Concretely, the
+    outside cron should do the equivalent of:
+    `python3 tools/due_reminders.py --format json --home "$MEMCAL_HOME"` →
+    parse the `reminders` list (each entry carries `key`, `kind`, `text`, `line`) →
+    `deliver_due_reminders(conn, "<chat-session-id>", payload)` → hand the returned
+    `wakeText` to the gateway wake path (`gateway/wake.py:deliver_wake`) for that
+    session. An empty payload (`{"wakeAgent": false, ...}`) delivers nothing.
+  So this is a lab instrument in
   the strict sense — it runs again, constantly — but the thing running it is outside this
   repo, and **its output reaches a phone**. Run it by hand *without* `--mark` to see what
-  the agent would be handed; `--mark` records the poke and snoozes it. Publishing setup is
+  the agent would be handed; `--mark` records the poke and snoozes it (preserved for
+  terminal use and the old flow; the new flow marks on delivery instead). Publishing setup is
   documented under [Apple Calendar and Reminders](../README.md#apple-calendar-and-reminders).
 
 ## Reading the tracker
