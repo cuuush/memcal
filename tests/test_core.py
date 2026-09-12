@@ -1147,12 +1147,12 @@ class TestICalendar(Base):
         invitation = self.item("movie", "Let's get squeezed at the movies", 5,
                                calendar="Partiful", writable=False)
         invitation["url"] = "https://partiful.com/e/movie"
-        invitation["hosts"] = ["ben", "Chris Merola"]
+        invitation["hosts"] = ["ben", "Jordan Blake"]
         self.snapshot([invitation])
         row = events.window(self.conn, 0, 10)[0]
-        self.assertEqual(row.hosts, ["ben", "Chris Merola"])
+        self.assertEqual(row.hosts, ["ben", "Jordan Blake"])
         self.assertEqual(row.participants, [])
-        self.assertIn("hosted by ben, Chris Merola", row.one_line())
+        self.assertIn("hosted by ben, Jordan Blake", row.one_line())
 
     def test_a_host_already_named_by_the_title_is_not_repeated(self):
         invitation = self.item("birthday", "Katie’s 30th | Partiful", 5,
@@ -1168,7 +1168,7 @@ class TestICalendar(Base):
             "https://partiful.com/e/movie":
                 '<script>"owners":[{"id":"owner-one"},{"id":"owner-two"}]</script>',
             "https://partiful.com/u/owner-one": "<title>ben | Partiful</title>",
-            "https://partiful.com/u/owner-two": "<title>Chris Merola | Partiful</title>",
+            "https://partiful.com/u/owner-two": "<title>Jordan Blake | Partiful</title>",
         }
         fetched = []
 
@@ -1187,7 +1187,7 @@ class TestICalendar(Base):
             ),
             0,
         )
-        self.assertEqual(fresh["hosts"], ["ben", "Chris Merola"])
+        self.assertEqual(fresh["hosts"], ["ben", "Jordan Blake"])
         self.assertEqual(len(fetched), 3)
 
     def test_partiful_disclosed_location_means_yes_and_confirmed(self):
@@ -5789,11 +5789,11 @@ class TestTheLaterBlockIsAboutThingsHeIsDoing(Base):
             self.conn,
             {"title": "Let's get squeezed at the movies | Partiful",
              "date": "2026-08-22", "kind": "commitment", "status": "confirmed",
-             "hosts": ["ben", "Chris Merola"]},
+             "hosts": ["ben", "Jordan Blake"]},
             written_by="ical",
         )
         rendered = self._later()
-        self.assertIn("hosted by ben, Chris Merola", rendered)
+        self.assertIn("hosted by ben, Jordan Blake", rendered)
 
     def test_a_birthday_title_does_not_repeat_the_host(self):
         events.upsert(
