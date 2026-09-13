@@ -5,6 +5,27 @@ could affect known context, and gives the assistant a short route to the origina
 messages. Most answers use prepared context immediately; exceptions need a bounded
 lookup, not a search through the whole history.
 
+## Why nightly, not live
+
+Dream is *consolidation*: it reconciles a day of messages into typed state, and
+that work is worth doing once, at night, when it can be amortized over everything
+at once. Running a dream pass on every incoming message would be both expensive —
+a model call per message — and largely wasted, since most turns touch nothing that
+changed.
+
+So the daytime path spends no model calls at all. It collects, and it *flags* that
+a plan's source thread has new activity — without deciding what that activity
+means. The live intelligence is the assistant, not a miniature dream: when a
+question lands on a flagged plan, the assistant reads the few messages behind it
+and answers from them.
+
+Say the brief shows soccer practice today, but its group chat is flagged. Asked
+"do we still have practice?", the assistant opens the thread, sees it was
+canceled, and says so — rather than repeating the stored plan. If it ignores the
+flag and parrots the old answer, that is a measured failure. Model cost then
+scales with the questions that actually need checking, not with message volume;
+nightly dream still applies the change once, under the same event identity.
+
 ## The lifecycle
 
 1. Nightly dream establishes poker on Saturday at 8 at Jordan's old address.
