@@ -208,6 +208,12 @@ SETTINGS: tuple[Setting, ...] = (
             "each stage can see what the ones before it wrote. They always run in the "
             "order shown.",
             "dream", kind="stages", placeholder="off — one call"),
+    Setting("MEMCAL_PROPOSE_BREAKER", "propose_breaker", "Propose circuit breaker",
+            "How many requests in a row may fail before the pass stops launching "
+            "more and leaves the rest queued for the next one. Timeouts, refusals "
+            "and rate-limit walls all count; one healthy reply resets the count. "
+            "0 disables it — the pass keeps firing into the wall.",
+            "dream", kind="int", minimum=0, maximum=100),
     Setting("MEMCAL_BUNDLE_FORMAT", "bundle_format", "Bundle wire format",
             "How a bundle is laid out in the prompt. The quiet variant drops the "
             "stream tag from every line of a single-stream bundle.",
@@ -225,6 +231,11 @@ SETTINGS: tuple[Setting, ...] = (
             "The same threshold for a row with no participants and no location, where "
             "the title is all the evidence there is.",
             "merge", kind="int", minimum=1, maximum=8, unit="words"),
+    Setting("MEMCAL_SEMANTIC_WAKES", "semantic_wakes", "Semantic wake checks",
+            "Judge waiter wake conditions with a model entailment check instead of "
+            "word overlap. Off until the wake eval set passes; while off, the "
+            "post-apply wake stage makes no model call and waiters stay asleep.",
+            "dream", kind="bool"),
 
     # ------------------------------------------------------------------- publish --
     Setting("MEMCAL_PUBLISH_CALENDAR", "publish_calendar", "Publish to calendar",

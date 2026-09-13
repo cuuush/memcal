@@ -162,16 +162,66 @@ def _version_of(conn: sqlite3.Connection, kind: str, ref: str) -> str:
     return str(row["updated_at"]) if row and row["updated_at"] else ""
 
 
+#: Fallback `source` / provenance `entity` when a typed live write has no
+#: originating turn (e.g. CLI, background job). Explicitly not `"agent:live"`:
+#: that string names the writer, which is what `written_by` already records.
+#: This names the absence of a conversational origin so `series.source` stays
+#: readable the same way as `events.source` — a pointer like `thread:…`,
+#: `person:…`, `ical:…` answering "where did this come from", never "what code
+#: wrote it".
+LIVE_DIRECT_SOURCE = "live:direct"
+
+
+def _origin_pointer(conn: sqlite3.Connection, origin: Origin) -> str:
+    """Where the information came from, as a pointer like everywhere else.
+
+    With an archived turn, the turn's own thread address (e.g.
+    `thread:agent:hermes:s1`), which preserves the session — a bare
+    `person:me` would collapse every live write into one bucket. With a
+    session but no archived turn, the session's thread address. With neither,
+    `LIVE_DIRECT_SOURCE`, so a background write records that it had no turn
+    rather than borrowing the writer's name as its origin.
+    """
+    for aid in list(getattr(origin, "archive_ids", ()) or ()):
+        try:
+            row = conn.execute(
+                "SELECT stream, thread, person FROM archive WHERE id = ?",
+                (int(aid),)).fetchone()
+        except (ValueError, TypeError, sqlite3.Error):
+            continue
+        if row is None:
+            continue
+        stream = (row["stream"] or "").strip()
+        thread = (row["thread"] or "").strip()
+        person = (row["person"] or "").strip()
+        if thread:
+            return f"thread:{stream or 'agent'}:{thread}"
+        if person:
+            return f"person:{person}"
+        if stream:
+            return f"stream:{stream}"
+    session = (getattr(origin, "session", "") or "").strip()
+    surface = (getattr(origin, "surface", "") or "").strip()
+    if session and surface and surface != "unknown":
+        # No archived turn to read back, but the caller still knows which
+        # session it is answering — the same shape Hermes uses for wiki stamps.
+        return f"thread:agent:{surface}:{session}"
+    return LIVE_DIRECT_SOURCE
+
+
 def _stamp_live(conn: sqlite3.Connection, kind: str, ref: str, verb: str, *,
                 origin: Origin = actions.UNKNOWN, fields: dict | None = None,
                 based_on: str = "", op_id: str = "", commit: bool = True) -> None:
     """Record provenance, evidence and the completed operation for a typed write.
 
-    Provenance says which writer touched the row; evidence points at the lines the user
-    was looking at when they said it, which a caller can only supply if it knows its own
-    turn; and the action record is the part the nightly pass reads.
+    Provenance says which conversation the information came from; evidence points
+    at the lines the user was looking at when they said it, which a caller can
+    only supply if it knows its own turn; and the action record is the part the
+    nightly pass reads. The writer identity lives in `written_by`, never in the
+    provenance entity — see `_origin_pointer`.
     """
-    trace.stamp(conn, kind=kind, ref=ref, verb=verb, entity="agent:live",
+    trace.stamp(conn, kind=kind, ref=ref, verb=verb,
+                entity=_origin_pointer(conn, origin),
                 stage="live", run_id=None, generation_id=None,
                 archive_ids=list(origin.archive_ids))
     actions.record(conn, kind=kind, ref=ref, verb=verb, origin=origin,
@@ -304,8 +354,12 @@ def set_schedule(conn: sqlite3.Connection, cfg: Config, which: str, *,
         if known is None:
             raise LiveError(f"memcal has no recurring {which!r} to end")
         based_on = _version_of(conn, "series", slug)
+        pointer = _origin_pointer(conn, origin)
         with _atomic(conn):
             rule = series.end(conn, slug, written_by="live", commit=False)
+            if rule is not None and (rule.source or "") != pointer:
+                rule, _ = series.upsert(conn, {"slug": slug, "source": pointer},
+                                        written_by="live", commit=False)
             _stamp_live(conn, "series", slug, "ended", origin=origin,
                         fields={"status": ["active", "ended"]}, based_on=based_on,
                         commit=False)
@@ -322,7 +376,7 @@ def set_schedule(conn: sqlite3.Connection, cfg: Config, which: str, *,
 
     fields = {"slug": slug, "title": title, "cadence": cadence, "weekday": weekday,
               "day_of_month": day_of_month, "time": time, "location": location,
-              "join_url": join_url, "source": "agent:live"}
+              "join_url": join_url, "source": _origin_pointer(conn, origin)}
     fields = {k: v for k, v in fields.items() if v not in (None, "")}
     if starting:
         fields["effective_on"] = db.parse_when(str(starting))[0].isoformat()

@@ -359,8 +359,10 @@ TOOLS = [
     },
     {
         "name": "memcal_answer",
-        "description": ("Record the user's answer to one of the 'Ask about' questions, so it "
-                        "stops being asked. To-dos close conversationally — this is how."),
+        "description": ("Record what the user said about one of the 'Ask about' questions, "
+                        "or that an 'Open' to-do is done, so it stops being asked. "
+                        "Resolves questions and to-dos alike; repeating something "
+                        "already settled still counts as recorded."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -450,6 +452,19 @@ class Server:
             harness.recent_turn(self.conn, harness=self.harness,
                                 session_id=self.session),
             session=self.session)
+
+    def _close_todo_for_answer(self, which: str) -> bool:
+        """Close the to-do `memcal_answer` resolved, with a provenance stamp.
+
+        `live.close_todo` raises when nothing matches; here that is not an error —
+        it just means the needle was a question, not a to-do — so it maps to False
+        and `resolve` reports "no matching open question".
+        """
+        try:
+            live.close_todo(self.conn, self.cfg, which, origin=self.origin())
+            return True
+        except live.LiveError:
+            return False
 
     # ------------------------------------------------------------------ tools --
     def call(self, name: str, args: dict) -> str:
@@ -574,7 +589,14 @@ class Server:
                 return f"{exc}{extra}"
 
         if name == "memcal_answer":
-            ok = todos.answer(self.conn, args.get("question", ""), args.get("answer", ""))
+            # Same verb as the Hermes surface and the CLI: a conversational close
+            # resolves a question or a to-do, and an already-settled repeat counts.
+            # Answering a question stamps nothing (like its Hermes twin), but closing
+            # a to-do goes through `live.close_todo` so the closure carries the same
+            # origin/action record a `memcal_todo done` would — never a silent close.
+            ok, _kind = todos.resolve(
+                self.conn, args.get("question", ""), args.get("answer", ""),
+                close_todo=self._close_todo_for_answer)
             brief.write(self.conn, self.cfg)
             return "recorded" if ok else "no matching open question"
 
