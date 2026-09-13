@@ -53,6 +53,18 @@ User-facing setup and operation live in `docs/` (published to GitHub Pages)
 with a short pointer in `README.md`. Keep durable explanations there rather
 than in isolated logs or dated narrative sections.
 
+The site is built locally and served from the `gh-pages` branch — there is no
+CI deploy. After changing anything under `docs/` (or `mkdocs.yml`), publish
+with:
+
+```bash
+pip install -e '.[docs]'
+mkdocs gh-deploy          # builds the site and pushes it to gh-pages
+```
+
+GitHub Pages is configured to deploy from the `gh-pages` branch (`/` root).
+Use `mkdocs serve` to preview locally before deploying.
+
 ## Citing code from an issue or a report
 
 An issue's value is that it says where it looked and how it checked. A citation the
