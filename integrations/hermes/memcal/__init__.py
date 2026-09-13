@@ -772,7 +772,7 @@ class MemcalMemoryProvider(MemoryProvider):
         # sessions keep their own suppression state.
         with self._lock:
             self._snapshot_hashes.pop(session_id, None)
-            self._pending_snapshots.clear()
+            self._pending_snapshots.pop(session_id, None)
             self._context_generation += 1
         self._last_snapshot_hash = None
         self._memcal = _load_memcal()
@@ -1008,7 +1008,14 @@ class MemcalMemoryProvider(MemoryProvider):
         # forked off a known parent inherits the parent's hash so the same
         # unchanged brief is not emitted twice under two ids.
         with self._lock:
-            self._pending_snapshots.clear()
+            # Drop only the continuing session's pending snapshot: its context
+            # changed, so an unacknowledged emit can no longer be confirmed.
+            # Other concurrent sessions keep their own pending state — clearing
+            # the whole dict would strip a sibling's snapshot before it could be
+            # acknowledged, forcing it to re-emit a duplicate.
+            self._pending_snapshots.pop(new_session_id, None)
+            if parent_session_id:
+                self._pending_snapshots.pop(parent_session_id, None)
             self._context_generation += 1
             if reason == "compression":
                 # Compression rewrites the conversation and can drop the earlier
@@ -1044,7 +1051,7 @@ class MemcalMemoryProvider(MemoryProvider):
         sid = kwargs.get("session_id") or self._session_id
         with self._lock:
             self._snapshot_hashes.pop(sid, None)
-            self._pending_snapshots.clear()
+            self._pending_snapshots.pop(sid, None)
             self._context_generation += 1
             if sid == self._session_id:
                 self._last_snapshot_hash = None

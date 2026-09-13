@@ -59,11 +59,19 @@ def render(conn: sqlite3.Connection, cfg: Config, ref: date | None = None,
     ref = ref or db.today()
     # Retain audit rows while removing obligations whose linked event is no longer live.
     todos.expire_event_links(conn)
+    # The two window scans (the week range, and the wider Later range) are the
+    # expensive part of a render. Run each once here and thread the results
+    # through the blocks and the post-trim reconciliation, so nothing re-queries.
+    window = events.window(conn, cfg.days_back, cfg.days_forward, ref)
+    later = _later_selection(conn, cfg, ref)
+    rendered = _rendered_events(conn, window, later[0])
+    represented = {ev.key for ev in rendered}
+    id_to_key = {ev.id: ev.key for ev in rendered}
     blocks = [
         # Renders first because it represents immediate items rather than future state.
         _now_block(conn),
-        _week_block(conn, cfg, ref),
-        _later_block(conn, cfg, ref),
+        _week_block(conn, cfg, ref, window=window, represented=represented),
+        _later_block(conn, cfg, ref, selection=later),
         _recurring_block(conn, ref),
         _open_block(conn),
         _ask_block(conn),
@@ -71,7 +79,7 @@ def render(conn: sqlite3.Connection, cfg: Config, ref: date | None = None,
     ]
     text = "\n\n".join(b for b in blocks if b).rstrip() + "\n"
     trimmed = _trim(legend(surface) + text, cfg.brief_token_cap)
-    return _reconcile_coverage(conn, trimmed, cfg.brief_token_cap)
+    return _reconcile_coverage(conn, trimmed, cfg.brief_token_cap, id_to_key=id_to_key)
 
 
 #: Inline activity hints are the exception path, not the rule: past this many in
@@ -136,36 +144,54 @@ def _collection_line(conn: sqlite3.Connection, cfg: Config) -> str | None:
     return f"[COLLECTION: {shown} — recent messages may be missing]"
 
 
+def _rendered_events(conn: sqlite3.Connection, window: list[events.Event],
+                     later_shown: list[events.Event]) -> list[events.Event]:
+    """The event rows the brief actually puts on the page, mirroring `_week_block`.
+
+    A nested (`part_of`) event is rendered only as a child of a main that is
+    itself in the week window; a nested window event whose parent falls outside
+    the window is never emitted, so it must not be counted as surfaced. This is
+    the single definition of "surfaced" — `represented_keys` and `id_to_key`
+    both derive from it so pre-trim coverage and post-trim survivors agree.
+    """
+    mains = [ev for ev in window if not ev.part_of]
+    out = list(mains)
+    for ev in mains:
+        out.extend(events.children_of(conn, ev.id))
+    out.extend(later_shown)
+    return out
+
+
 def represented_keys(conn: sqlite3.Connection, cfg: Config,
                      ref: date | None = None) -> set[str]:
-    """Keys of the events this brief actually surfaces: the week window with its
-    children, plus the Later selection after its commitment filter and cap.
+    """Keys of the events this brief actually surfaces: the week window's rendered
+    rows with their children, plus the Later selection after its cap.
 
     A thread linked only to an event absent here has no visible activity hint
     standing in for it, so the backlog must not treat it as covered. Date-range
-    membership is not enough — an unconfirmed opportunity or an event past the
-    Later cap sits in range yet is never rendered.
+    membership is not enough — an unconfirmed opportunity, an event past the
+    Later cap, or a nested event whose parent is outside the window sits in range
+    yet is never rendered.
     """
     ref = ref or db.today()
     window = events.window(conn, cfg.days_back, cfg.days_forward, ref)
-    keys = {ev.key for ev in window}
-    for ev in window:
-        if not ev.part_of:
-            keys.update(child.key for child in events.children_of(conn, ev.id))
-    keys.update(ev.key for ev in _later_selection(conn, cfg, ref)[0])
-    return keys
+    later_shown = _later_selection(conn, cfg, ref)[0]
+    return {ev.key for ev in _rendered_events(conn, window, later_shown)}
 
 
 def _backlog_lines(conn: sqlite3.Connection, cfg: Config,
-                   ref: date | None = None) -> list[str]:
+                   ref: date | None = None, *,
+                   represented: "set[str] | None" = None) -> list[str]:
     """Unreviewed traffic no rendered plan is associated with, compactly and honestly.
 
     Coverage is judged against the events this brief actually surfaces, so a
     thread linked only to an event the brief does not render still shows here.
+    `represented` is passed in by `render` to avoid recomputing the window.
     """
+    if represented is None:
+        represented = represented_keys(conn, cfg, ref)
     out = []
-    for item in activity.unlinked_backlog(
-            conn, represented=represented_keys(conn, cfg, ref)):
+    for item in activity.unlinked_backlog(conn, represented=represented):
         out.append(f"[UNREVIEWED: {item['stream']}/{item['thread']} "
                    f"({item['waiting']} waiting) — new traffic not linked to any plan; "
                    f"not a confirmed opportunity]")
@@ -216,8 +242,11 @@ def _hint_after(lines: list[str], event, state: dict) -> None:
     state["overflow_done"] = True
 
 
-def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
-    rows = events.window(conn, cfg.days_back, cfg.days_forward, ref)
+def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date, *,
+                window: "list[events.Event] | None" = None,
+                represented: "set[str] | None" = None) -> str:
+    rows = window if window is not None \
+        else events.window(conn, cfg.days_back, cfg.days_forward, ref)
     # Anchors the reference date explicitly to prevent incorrect date inference.
     lines = [f"## This week  (today is {ref.strftime('%A %-d %B %Y')})"]
     if not rows:
@@ -254,7 +283,7 @@ def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
     collection = _collection_line(conn, cfg)
     if collection:
         lines.append(collection)
-    lines.extend(_backlog_lines(conn, cfg, ref))
+    lines.extend(_backlog_lines(conn, cfg, ref, represented=represented))
     return "\n".join(lines)
 
 
@@ -275,9 +304,11 @@ def _later_selection(conn: sqlite3.Connection, cfg: Config,
     return rows[:LATER_LIMIT], len(rows)
 
 
-def _later_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
+def _later_block(conn: sqlite3.Connection, cfg: Config, ref: date, *,
+                 selection: "tuple[list[events.Event], int] | None" = None) -> str:
     """Renders upcoming committed events beyond the active weekly window."""
-    shown, total = _later_selection(conn, cfg, ref)
+    shown, total = selection if selection is not None \
+        else _later_selection(conn, cfg, ref)
     if not shown:
         return ""
     via = attribution(conn)
@@ -724,21 +755,37 @@ def _hard_cut(lines: list[str], token_cap: int) -> str:
     return "\n".join(kept).rstrip() + marker
 
 
-def _surviving_event_keys(conn: sqlite3.Connection, text: str) -> set[str]:
+def _surviving_ids(text: str) -> set[int]:
+    """Event ids whose handle still appears in the rendered brief.
+
+    Read from the final text, so an event whose hint (and thus the row) trimming
+    removed no longer counts as coverage. Event and hint drop as a unit, so a
+    surviving row still carries its hint. Uses the module's shared `SOURCE_RE`
+    rather than a private copy of the handle syntax.
+    """
+    return {int(tag[1:]) for tag in SOURCE_RE.findall(text) if tag.startswith("E")}
+
+
+def _surviving_event_keys(conn: sqlite3.Connection, text: str,
+                          id_to_key: "dict[int, str] | None" = None) -> set[str]:
     """Keys of the event rows that actually remain in the rendered brief.
 
-    Read from the final text, so a hint trimming removed no longer counts as
-    coverage. Event and hint drop as a unit, so a surviving row still carries its
-    hint."""
-    ids = {int(m) for m in re.findall(r"〔E(\d+)〕", text)}
+    `id_to_key` is the map of the events `render` surfaced; every surviving id is
+    one of them, so it resolves keys without a database round-trip. Only the
+    standalone/legacy path (no map supplied) falls back to a query.
+    """
+    ids = _surviving_ids(text)
     if not ids:
         return set()
+    if id_to_key is not None:
+        return {id_to_key[i] for i in ids if i in id_to_key}
     placeholders = ",".join("?" * len(ids))
     return {row["key"] for row in conn.execute(
         f"SELECT key FROM events WHERE id IN ({placeholders})", tuple(ids))}
 
 
-def _reconcile_coverage(conn: sqlite3.Connection, text: str, token_cap: int) -> str:
+def _reconcile_coverage(conn: sqlite3.Connection, text: str, token_cap: int, *,
+                        id_to_key: "dict[int, str] | None" = None) -> str:
     """Post-trim honesty: coverage is judged against what actually survived.
 
     `represented_keys` is computed before trimming, so an event whose hint stood
@@ -748,7 +795,7 @@ def _reconcile_coverage(conn: sqlite3.Connection, text: str, token_cap: int) -> 
     and disclose the hole compactly, so a trimmed brief never implies exhaustive
     coverage of input it no longer shows.
     """
-    surviving = _surviving_event_keys(conn, text)
+    surviving = _surviving_event_keys(conn, text, id_to_key)
     uncovered = activity.unlinked_backlog(conn, represented=surviving)
     if not uncovered:
         return text
