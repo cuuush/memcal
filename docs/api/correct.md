@@ -36,3 +36,21 @@ Per field, on when evidence was *said*: a message written before your correction
 cannot revise the field you corrected, while genuinely newer evidence still can.
 An event update can add or remove named participants explicitly. Memcal never
 infers a to-do is complete — it waits for an explicit completion or asks.
+
+A correction may cite the source lines it is based on (`source_ids` on
+`memcal_update`, `--source-ids` on `memcal reviewed`). A cited correction takes
+the evidence time of its *oldest* cited line, so a stale line cannot ride a newer
+one; a `source_id` that names no real row, or a line with no readable timestamp,
+is refused rather than treated as now. Values a row was created holding are
+protected by their founding evidence time, so the first edit — however old its
+source — cannot erase them.
+
+## New activity
+
+When the brief flags a plan with new activity, `memcal activity <handle>` (MCP
+`memcal_activity`) reads the messages behind it — paginated, changing nothing.
+Cite their ids in a correction to apply the change, or, when the stored plan still
+stands, acknowledge them with `memcal reviewed <handle> --source-ids "…"` (MCP
+`memcal_reviewed`) so only those lines stop raising the hint. With no handle,
+`memcal activity` lists unlinked backlog traffic. See
+[Daytime freshness](../architecture/freshness.md).

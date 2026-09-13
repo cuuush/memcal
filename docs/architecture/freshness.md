@@ -64,32 +64,46 @@ inputs does.
 ## Warn in current context
 
 ```text
-Memcal rendered 12:00. Sources checked through 11:58.
-E42 Poker — last confirmed: Saturday, 8 pm, Jordan's.
-  New activity: poker group, 3 messages since this plan was reviewed.
-  This plan may have changed. Open the activity before giving current details.
+〔E42〕 Sat 12 Sep  Poker night, 8pm — confirmed · Jordan's
+  ↳ New activity: signal/poker-group — 3 message(s) since this plan was reviewed. It may have changed; open with memcal_activity(handle=E42) before giving current details.
+[complete for Wed 9 Sep – Wed 16 Sep; look up anything outside that]
 ```
+
+The brief never stamps itself freshly verified. A plan with no new activity
+carries no warning; a source that has fallen behind shows its own `[STALE: …]` or
+`[COLLECTION: …]` line; and the week block states the period it is complete for.
 
 A bounded activity reader returns original text with sender, source time, arrival
 time, and provenance — paginated, with omissions disclosed — so the assistant
 never has to invent a keyword search for a flagged thread. Freshness metadata
-survives brief trimming beside its event, and a general backlog notice survives
-with it. New opportunities with no event row yet appear as unreviewed-activity
-notices, so broad questions ("Anything fun this weekend?") never imply exhaustive
-coverage while fresh material sits unprocessed.
+survives brief trimming beside its event: an event and its warning trim as one
+unit, and if a warning that stood in for a thread's backlog is dropped by the
+token budget, the completeness claim goes with it and a compact `[coverage
+incomplete …]` line takes its place — a trimmed brief never reads as exhaustive.
+New opportunities with no event row yet appear as unreviewed-activity notices, so
+broad questions ("Anything fun this weekend?") never imply exhaustive coverage
+while fresh material sits unprocessed. Coverage is judged against the plans the
+brief actually renders, not date-range membership: a thread linked only to an
+unconfirmed opportunity or an event past the Later cap still surfaces its traffic.
 
 ## Reach long-running sessions
 
 Hints travel on the existing per-turn prefetch path, not a second copy in a cached
 system prompt: the current brief and activity hints arrive before the assistant
 answers a substantive turn, with the user's original message kept separate from
-injected context. Same-session next-day turns, resumed sessions, compression, and
-short follow-ups ("and where?") all receive the latest snapshot, which supersedes
-older snapshots and assistant summaries — its confirmed facts qualified by
-collection and review coverage throughout. If prefetch fails, a compact
-freshness-unavailable warning replaces the snapshot; silently falling back to a
-stale one is unacceptable. A cheap brief-refresh read covers adapters without
-reliable per-turn injection.
+injected context. A changed brief is re-injected as a `MEMCAL SNAPSHOT`; an
+unchanged turn carries a compact `MEMCAL CURRENT` confirmation with the matching
+snapshot id instead. Prepared memory counts as current only when the turn carries
+one or the other — so a snapshot is deduplicated only once it has actually been
+observed in delivered context, and a render that timed out or was discarded never
+suppresses the next one. Same-session next-day turns, resumed sessions, and short
+follow-ups ("and where?") all receive the latest snapshot, which supersedes older
+snapshots and assistant summaries; compression re-emits it, since a generated
+summary may not preserve the exact brief and its warnings. If neither a snapshot
+nor a confirmation arrives — or prefetch fails and a compact freshness-unavailable
+warning replaces the snapshot — the assistant refreshes before claiming current
+plans; silently falling back to a stale one is unacceptable. A cheap brief-refresh
+read covers adapters without reliable per-turn injection.
 
 ## Keep assistant prose out of evidence
 
@@ -103,3 +117,12 @@ correction. A successful tool write has an observable effect; a false success
 claim does not create one. For a change discovered through archive reading, the
 original source ids and evidence time are preserved — an old message is never
 re-stamped as a new correction because the assistant read it today.
+
+A cited correction carries the evidence time of its *oldest* cited line, so a
+stale line cannot ride a newer one's hour; a line with no readable timestamp, or a
+`source_id` that names no real archive row, is refused outright rather than
+silently falling back to run time and minting authority it never had. Values a
+row is born holding are floored at their founding evidence time (to the day when
+that time is only the creation instant), so the first correction — however old its
+source — cannot erase a plan dream just established; a destructive clear clears the
+same bar a replacement must.
