@@ -35,6 +35,13 @@ do not add dev notes or dated narratives here.
   `memcal/integrations/`: user and agent surfaces.
 - `memcal/schedule.py`, `memcal/macos/launcher.c`: launchd scheduling and its app-bundle wrapper.
 
+## Worktrees
+
+- One worktree per track: `git worktree add ~/code/memcal-<topic> -b <branch>`,
+  a sibling of this checkout. Work in the worktree, never on main directly.
+- Remove the worktree when its branch merges. `~/.config/opencode/opencode.jsonc`
+  already permits these paths, so no approval prompts for touching them.
+
 ## Hard rules
 
 - New schema columns: update `schema.sql`, `db.ADDED_COLUMNS`, and every named-column

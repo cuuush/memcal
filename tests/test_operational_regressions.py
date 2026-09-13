@@ -9,6 +9,7 @@ import argparse
 import ast
 import contextlib
 import errno
+import importlib.util
 import io
 import json
 import os
@@ -3340,6 +3341,240 @@ class TestANightTheMachineWasAsleepIsNotSimplySkipped(unittest.TestCase):
         body = schedule.render_script(self.cfg, python=sys.executable)
         self.assertIn("cannot tell whether a pass is owed", body)
         self.assertIn("exit 1", body)
+
+
+_HERMES_HOME = Path.home() / ".hermes" / "hermes-agent"
+_HERMES_PLUGIN_FILE = (Path(__file__).resolve().parent.parent / "integrations"
+                       / "hermes" / "memcal" / "__init__.py")
+_HERMES_PLUGIN = None
+
+
+def _hermes_plugin():
+    """The Hermes provider module, loaded by path without initializing it.
+
+    A plain import resolves to the app's own `memcal` package instead of the
+    plugin, and `initialize()` would reload `memcal.*` from disk — evicting the
+    modules this process already imported and splitting the test clock in two.
+    The plugin's `memcal` imports are all lazy inside its handlers, so loading
+    the file is side-effect-free and `_dispatch`/`_w_todo` run against the same
+    module objects the test holds.
+    """
+    global _HERMES_PLUGIN
+    if _HERMES_PLUGIN is None:
+        if str(_HERMES_HOME) not in sys.path:
+            sys.path.insert(0, str(_HERMES_HOME))
+        spec = importlib.util.spec_from_file_location(
+            "_memcal_hermes_plugin", _HERMES_PLUGIN_FILE)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["_memcal_hermes_plugin"] = module
+        spec.loader.exec_module(module)
+        _HERMES_PLUGIN = module
+    return _HERMES_PLUGIN
+
+
+def _hermes_provider(cfg):
+    """A Hermes provider bound to a test store, without `initialize()`.
+
+    Tests drive `_dispatch` directly — the same function `handle_tool_call`
+    delegates to after its source-reload, which is what must stay out of the
+    test process (see `_hermes_plugin`).
+    """
+    plugin = _hermes_plugin()
+    provider = object.__new__(plugin.MemcalMemoryProvider)
+    provider._cfg = cfg
+    provider._session_id = "test"
+    provider._turn_archive_id = None
+    provider._lock = threading.Lock()
+    return provider
+
+
+class TestMCPAnswerClosesTodosConversationally(Base):
+    """`memcal_answer` on the MCP surface closed questions only.
+
+    The tool description promised to-dos close conversationally, and Hermes
+    already resolved both via `todos.resolve` — but this handler called
+    `todos.answer`, which reads the questions table only, so answering a to-do
+    here reported "no matching open question" while the loop stayed open.
+    """
+
+    def setUp(self):
+        super().setUp()
+        db.set_today(db.today())
+
+    def _server(self):
+        server = object.__new__(mcp_server.Server)
+        server.conn, server.cfg = self.conn, self.cfg
+        return server
+
+    def test_answering_closes_an_open_todo(self):
+        todos.open_todo(self.conn, "Return Rowan's EZ-Pass")
+        out = self._server().call(
+            "memcal_answer",
+            {"question": "Rowan's EZ-Pass", "answer": "handed it back"})
+        self.assertEqual("recorded", out)
+        self.assertIsNone(todos.find(self.conn, "EZ-Pass"))
+        self.assertEqual([], todos.open_items(self.conn))
+
+    def test_answering_still_closes_a_question(self):
+        todos.ask(self.conn, "Did Tuesday dinner happen? who with?")
+        out = self._server().call(
+            "memcal_answer",
+            {"question": "Tuesday dinner", "answer": "yes, with Alex"})
+        self.assertEqual("recorded", out)
+        self.assertEqual([], todos.open_questions(self.conn))
+
+    def test_answering_with_no_match_still_reports_no_match(self):
+        todos.open_todo(self.conn, "Venmo Emery for the artwork")
+        out = self._server().call(
+            "memcal_answer", {"question": "did I renew the passport", "answer": "yes"})
+        self.assertEqual("no matching open question", out)
+        self.assertIsNotNone(todos.find(self.conn, "Venmo Emery"))
+
+    def test_answering_something_already_settled_counts_as_recorded(self):
+        # The discriminator for routing through `resolve` rather than `answer`:
+        # a closed to-do is invisible to the questions table, so `answer` alone
+        # would report a miss for something already correct.
+        todo, _ = todos.open_todo(self.conn, "Mail the signed trust paperwork back")
+        todos.close(self.conn, todo.key)
+        out = self._server().call(
+            "memcal_answer",
+            {"question": "Mail the signed trust paperwork back",
+             "answer": "handing it to Avery instead"})
+        self.assertEqual("recorded", out)
+
+
+class TestAnswerMeansTheSameThingOnBothSurfaces(Base):
+    """The class the issue says was missing: one shared tool name, both handlers,
+    compared directly — plus the shared `done` field both to-do tools now offer."""
+
+    HERMES = (Path(__file__).resolve().parent.parent / "integrations" / "hermes"
+              / "memcal" / "__init__.py")
+
+    def setUp(self):
+        super().setUp()
+        db.set_today(db.today())
+
+    def _server(self):
+        server = object.__new__(mcp_server.Server)
+        server.conn, server.cfg = self.conn, self.cfg
+        return server
+
+    def test_mcp_answer_resolves_todos_not_just_questions(self):
+        todos.open_todo(self.conn, "Return Rowan's EZ-Pass")
+        todos.ask(self.conn, "Did Tuesday dinner happen? who with?")
+        server = self._server()
+        self.assertEqual("recorded", server.call(
+            "memcal_answer", {"question": "EZ-Pass", "answer": "done"}))
+        self.assertEqual([], todos.open_items(self.conn))
+        self.assertEqual(1, len(todos.open_questions(self.conn)))
+        self.assertEqual("recorded", server.call(
+            "memcal_answer", {"question": "Tuesday dinner", "answer": "yes"}))
+        self.assertEqual([], todos.open_questions(self.conn))
+
+    def test_hermes_answer_resolves_todos_not_just_questions(self):
+        src = self.HERMES.read_text(encoding="utf-8")
+        block = src.split('if tool_name == "memcal_answer":', 1)[1]
+        block = block.split("if tool_name in _WRITE_TOOLS", 1)[0]
+        self.assertIn("todos.resolve", block)
+        self.assertNotIn("todos.answer(", block)
+
+    @unittest.skipUnless(_HERMES_HOME.is_dir(), "Hermes not installed")
+    def test_hermes_answer_closes_todos_and_questions(self):
+        """The Hermes half of the parity, exercised rather than read: the
+        dispatched `memcal_answer` handler resolves both kinds, like MCP's."""
+        provider = _hermes_provider(self.cfg)
+        todos.open_todo(self.conn, "Return Rowan's EZ-Pass")
+        todos.ask(self.conn, "Did Tuesday dinner happen? who with?")
+        out = json.loads(provider._dispatch(
+            self.conn, "memcal_answer", {"question": "EZ-Pass", "answer": "done"}))
+        self.assertEqual({"recorded": True, "closed": "todo"}, out)
+        self.assertEqual([], todos.open_items(self.conn))
+        self.assertEqual(1, len(todos.open_questions(self.conn)))
+        out = json.loads(provider._dispatch(
+            self.conn, "memcal_answer",
+            {"question": "Tuesday dinner", "answer": "yes"}))
+        self.assertEqual({"recorded": True, "closed": "question"}, out)
+        self.assertEqual([], todos.open_questions(self.conn))
+        out = json.loads(provider._dispatch(
+            self.conn, "memcal_answer",
+            {"question": "did I renew the passport", "answer": "yes"}))
+        self.assertIn("nothing open matches that", out.get("error", ""))
+
+    def test_answers_stay_outside_the_write_tools_on_both_surfaces(self):
+        """Reviewed decision, pinned: a conversational close mutates a to-do but
+        carries no origin/action stamp on either surface. Hermes dispatches
+        `memcal_answer` before its `_WRITE_TOOLS` table, so MCP keeps its twin
+        outside `WRITE_TOOLS` to match."""
+        self.assertNotIn("memcal_answer", mcp_server.WRITE_TOOLS)
+        src = self.HERMES.read_text(encoding="utf-8")
+        answer_at = src.index('if tool_name == "memcal_answer":')
+        writes_at = src.index("if tool_name in _WRITE_TOOLS")
+        self.assertLess(answer_at, writes_at)
+
+    def test_both_todo_tools_offer_done(self):
+        mcp = next(t for t in mcp_server.TOOLS if t["name"] == "memcal_todo")
+        self.assertIn("done", mcp["inputSchema"]["properties"])
+        add_todo = self.HERMES.read_text(encoding="utf-8").split("ADD_TODO = {", 1)[1]
+        add_todo = add_todo.split("\n}\n", 1)[0]
+        self.assertIn('"done"', add_todo)
+
+    def test_hermes_todo_handler_closes_on_done(self):
+        block = self.HERMES.read_text(encoding="utf-8").split("def _w_todo", 1)[1]
+        block = block.split("def _w_note", 1)[0]
+        self.assertIn('args.get("done")', block)
+        self.assertIn("close_todo", block)
+
+    def test_each_surface_advertises_what_its_own_handler_does(self):
+        tools = {t["name"]: t["description"] for t in mcp_server.TOOLS}
+        src = self.HERMES.read_text(encoding="utf-8")
+        hermes_answer = src.split("ANSWER = {", 1)[1].split("\n}\n", 1)[0]
+        hermes_todo = src.split("ADD_TODO = {", 1)[1].split("\n}\n", 1)[0]
+        # Both answers resolve both kinds.
+        self.assertIn("to-do", tools["memcal_answer"])
+        self.assertIn("to-do", hermes_answer)
+        # Both to-do tools close via their own done flag.
+        self.assertIn("done=true", tools["memcal_todo"])
+        self.assertIn("done=true", hermes_todo)
+
+
+@unittest.skipUnless(_HERMES_HOME.is_dir(), "Hermes not installed")
+class TestHermesTodoDoneClosesBehaviorally(Base):
+    """`memcal_todo` with `done=true` on the Hermes surface closes the open
+    to-do instead of opening a second row for the same words.
+
+    The MCP surface already closed via `live.close_todo` on `done=true`; the
+    Hermes schema had no `done` field and its handler only opened, so the same
+    instruction duplicated the loop on one surface and closed it on the other.
+    """
+
+    def setUp(self):
+        super().setUp()
+        db.set_today(db.today())
+
+    def test_done_true_closes_instead_of_duplicating(self):
+        plugin = _hermes_plugin()
+        self.assertIs(plugin._WRITE_TOOLS["memcal_todo"], plugin._w_todo)
+        opened, _ = live.open_todo(self.conn, self.cfg, "Return Rowan's EZ-Pass")
+        payload, refs = plugin._w_todo(
+            live, self.conn, self.cfg,
+            {"text": "Rowan's EZ-Pass", "done": True},
+            live.Origin.of("hermes", session="s1"))
+        self.assertEqual({"closed": opened.text}, payload)
+        self.assertEqual([("todo", opened.key, "closed")], refs)
+        self.assertEqual([], todos.open_items(self.conn))
+        rows = self.conn.execute("SELECT count(*) AS n FROM todos").fetchone()["n"]
+        self.assertEqual(1, rows)
+
+    def test_done_true_with_no_match_is_an_error_not_a_row(self):
+        """A miss raises through `live.close_todo`, which the dispatcher reports
+        as an error — it must never be stored as a new open to-do."""
+        provider = _hermes_provider(self.cfg)
+        out = json.loads(provider._dispatch(
+            self.conn, "memcal_todo",
+            {"text": "did I renew the passport", "done": True}))
+        self.assertIn("no open to-do matches", out.get("error", ""))
+        rows = self.conn.execute("SELECT count(*) AS n FROM todos").fetchone()["n"]
+        self.assertEqual(0, rows)
 
 
 def setUpModule():

@@ -267,8 +267,9 @@ class TestReportedMemoryFailures(Base):
             """SELECT a.gated, a.gate_reason, s.entity FROM archive a
                  LEFT JOIN spool s ON s.archive_id = a.id WHERE a.id = ?""", (first,)
         ).fetchone()
-        self.assertEqual((row["gated"], row["gate_reason"]), (0, "trivial"),
-                         "the archive keeps the gate's honest original decision")
+        self.assertEqual((row["gated"], row["gate_reason"]), (1, "all-of:groupme"),
+                          "chat passes in full per issue #31 — even a bare reaction; "
+                          "the later context only decides the bundle")
         self.assertEqual(row["entity"], "thread:groupme:PSK IRL BGN",
                          "the later context, not the emoji alone, makes it model input")
 
@@ -1386,6 +1387,15 @@ class TestACapacityRefusalWasTreatedAsAFault(Base):
     That is right for a 500 and useless for a busy hour: gpt-5.6-sol hit a 429 on day 3
     of a benchmark run, exhausted the budget, and four bundles were left unread — which
     grades identically to the model reading the traffic and understanding none of it."""
+
+    def setUp(self):
+        super().setUp()
+        # The waiting itself is not under test and a real backoff curve would put
+        # ~25 seconds of sleep in the suite. Neutralise it so the *loop* is
+        # exercised (same pattern as TestARateLimit... below).
+        from memcal import llm
+        real_sleep, llm.time.sleep = llm.time.sleep, lambda _s: None
+        self.addCleanup(setattr, llm.time, "sleep", real_sleep)
 
     def _client(self, status, *, headers=None):
         import io
@@ -3302,6 +3312,8 @@ class TestARateLimitArrivedAsASuccessAndWasNeverRetried(Base):
         answer = {"choices": [{"message": {"content": "ok"}}]}
         client, calls, _llm = self._client(
             lambda n: self.UPSTREAM if n < 3 else answer)
+        real_sleep, _llm.time.sleep = _llm.time.sleep, lambda _s: None
+        self.addCleanup(setattr, _llm.time, "sleep", real_sleep)
         self.assertEqual(client._post("/x", {}, capacity_budget=30.0), answer)
         self.assertEqual(calls["n"], 3)
 

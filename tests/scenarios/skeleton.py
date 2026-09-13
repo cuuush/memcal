@@ -400,8 +400,9 @@ SIGNAL = [
          beat="encounter-history",
          text="I went to board game night with Quinn on July 18."),
 
-    # A visually identical reaction with no topic around it is the negative half of
-    # challenge 22. Context should rescue Jose's first eyes, not every pair of eyes.
+    # A visually identical reaction with no topic around it used to be the negative
+    # half of challenge 22. Chat passes in full (issue #31), so a
+    # lone reaction spools too — challenge 28 now pins that, not its exclusion.
     dict(id="rx10", day=1, time="11:02", src="gm", thread="emoji noise", who="Jose",
          beat="reaction-no-context", text="👀"),
 

@@ -316,11 +316,13 @@ class TestTodos(Base):
         self.assertEqual(todos.open_items(self.conn), [])
 
     def test_wake_condition_surfaces_on_matching_traffic(self):
-        todos.open_todo(self.conn, "Ask Rowan about toll-by-mail",
-                        wake_condition="Rowan is back from Italy")
+        todo, _ = todos.open_todo(self.conn, "Ask Rowan about toll-by-mail",
+                                  wake_condition="Rowan is back from Italy")
         self.assertEqual(todos.check_wakes(self.conn, "watched the game last night"), [])
-        woken = todos.check_wakes(self.conn, "just landed, italy was unreal")
-        self.assertEqual(len(woken), 1)
+        nominated = todos.check_wakes(self.conn, "just landed, italy was unreal")
+        self.assertEqual(len(nominated), 1)
+        # Nomination only: nothing wakes without the semantic stage's verdict.
+        self.assertIsNone(todos.get(self.conn, todo.key).woke_at)
 
     def test_age_is_rendered(self):
         todo, _ = todos.open_todo(self.conn, "thing")
@@ -1145,12 +1147,12 @@ class TestICalendar(Base):
         invitation = self.item("movie", "Let's get squeezed at the movies", 5,
                                calendar="Partiful", writable=False)
         invitation["url"] = "https://partiful.com/e/movie"
-        invitation["hosts"] = ["ben", "Chris Merola"]
+        invitation["hosts"] = ["ben", "Jordan Blake"]
         self.snapshot([invitation])
         row = events.window(self.conn, 0, 10)[0]
-        self.assertEqual(row.hosts, ["ben", "Chris Merola"])
+        self.assertEqual(row.hosts, ["ben", "Jordan Blake"])
         self.assertEqual(row.participants, [])
-        self.assertIn("hosted by ben, Chris Merola", row.one_line())
+        self.assertIn("hosted by ben, Jordan Blake", row.one_line())
 
     def test_a_host_already_named_by_the_title_is_not_repeated(self):
         invitation = self.item("birthday", "Katie’s 30th | Partiful", 5,
@@ -1166,7 +1168,7 @@ class TestICalendar(Base):
             "https://partiful.com/e/movie":
                 '<script>"owners":[{"id":"owner-one"},{"id":"owner-two"}]</script>',
             "https://partiful.com/u/owner-one": "<title>ben | Partiful</title>",
-            "https://partiful.com/u/owner-two": "<title>Chris Merola | Partiful</title>",
+            "https://partiful.com/u/owner-two": "<title>Jordan Blake | Partiful</title>",
         }
         fetched = []
 
@@ -1185,7 +1187,7 @@ class TestICalendar(Base):
             ),
             0,
         )
-        self.assertEqual(fresh["hosts"], ["ben", "Chris Merola"])
+        self.assertEqual(fresh["hosts"], ["ben", "Jordan Blake"])
         self.assertEqual(len(fetched), 3)
 
     def test_partiful_disclosed_location_means_yes_and_confirmed(self):
@@ -2838,7 +2840,7 @@ class TestAnAgentCanReachTheMessageBehindARow(Base):
             (event.key,)).fetchall()
         self.assertTrue(rows, "a write the user made is worth tracing too")
         self.assertEqual(rows[0]["stage"], "live")
-        self.assertEqual(rows[0]["entity"], "agent:live")
+        self.assertEqual(rows[0]["entity"], live.LIVE_DIRECT_SOURCE)
 
 
 class TestTraceRecording(Base):
@@ -3409,7 +3411,7 @@ class TestWhatsApp(Base):
         report = whatsapp.ingest(self.conn, self.cfg, db_path=path)
         self.assertIsNone(report.error)
         self.assertEqual(report.archived, 2)
-        self.assertEqual(report.passed, 1, "only the temporal line should pass the gate")
+        self.assertEqual(report.passed, 2, "chat passes in full per issue #31 — even 'haha'")
 
     def test_the_sender_in_a_group_is_the_member_not_the_group(self):
         identity.link(self.conn, "+19175550001", "Mum")
@@ -5434,12 +5436,12 @@ class TestAWakeConditionDoesNotFireOnItsOwnSentence(Base):
         before = db.now()
         todos.open_todo(self.conn, "Give Rowan back their EZ-Pass",
                         wake_condition="Rowan is back from Italy")
-        woken = todos.check_wakes(
+        nominated = todos.check_wakes(
             self.conn, "i need to give rowan their ezpass back when hes home from italy",
             since=before)
-        self.assertEqual(woken, [])
+        self.assertEqual(nominated, [])
 
-    def test_it_wakes_on_the_next_pass(self):
+    def test_it_is_nominated_on_the_next_pass_but_stays_asleep(self):
         todo, _verb = todos.open_todo(self.conn, "Give Rowan back their EZ-Pass",
                                       wake_condition="Rowan is back from Italy")
         # Yesterday's pass opened it; this one is reading traffic it has never seen.
@@ -5447,9 +5449,11 @@ class TestAWakeConditionDoesNotFireOnItsOwnSentence(Base):
                           ((db.today() - timedelta(days=1)).isoformat() + "T08:05:00",
                            todo.key))
         self.conn.commit()
-        woken = todos.check_wakes(self.conn, "welcome back! how was italy?",
-                                  since=db.now())
-        self.assertEqual([t.text for t in woken], ["Give Rowan back their EZ-Pass"])
+        nominated = todos.check_wakes(self.conn, "welcome back! how was italy?",
+                                      since=db.now())
+        self.assertEqual([t.text for t in nominated], ["Give Rowan back their EZ-Pass"])
+        # Nomination only: the semantic stage confirms before anything wakes.
+        self.assertIsNone(todos.get(self.conn, todo.key).woke_at)
 
     def test_unrelated_traffic_still_does_not_wake_it(self):
         todo, _verb = todos.open_todo(self.conn, "Give Rowan back their EZ-Pass",
@@ -5785,11 +5789,11 @@ class TestTheLaterBlockIsAboutThingsHeIsDoing(Base):
             self.conn,
             {"title": "Let's get squeezed at the movies | Partiful",
              "date": "2026-08-22", "kind": "commitment", "status": "confirmed",
-             "hosts": ["ben", "Chris Merola"]},
+             "hosts": ["ben", "Jordan Blake"]},
             written_by="ical",
         )
         rendered = self._later()
-        self.assertIn("hosted by ben, Chris Merola", rendered)
+        self.assertIn("hosted by ben, Jordan Blake", rendered)
 
     def test_a_birthday_title_does_not_repeat_the_host(self):
         events.upsert(

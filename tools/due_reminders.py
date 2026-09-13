@@ -51,36 +51,88 @@ def line_for(todo, today) -> str:
     return "· " + "; ".join(bits)
 
 
+def reminder_entry(todo, today) -> dict:
+    """Machine-readable form of one due reminder.
+
+    `key` is the todo key the Hermes delivery path hands back to
+    `todos.mark_reminded` and to `memcal_answer` follow-ups; `kind` rides
+    alongside so a future question wake can use the same field. `line` is
+    the human-readable rendering the session turn shows, so the turn reads
+    the way the terminal print always has.
+    """
+    return {
+        "key": todo.key,
+        "kind": "todo",
+        "text": todo.text,
+        "line": line_for(todo, today),
+        "due": todo.due,
+        "event_title": todo.event_title,
+        "event_date": todo.event_date,
+        "remind_at": todo.remind_at,
+    }
+
+
+def build_payload(due, today, *, as_of: str) -> dict:
+    """Structured wake payload for the Hermes delivery path.
+
+    The last stdout line stays a JSON object carrying `wakeAgent`, so the
+    existing cron wake gate (`cron/scheduler.py:_parse_wake_gate`) keeps
+    working while the cron migrates: false stays silent, true wakes.
+    """
+    return {
+        "wakeAgent": bool(due),
+        "count": len(due),
+        "asOf": as_of,
+        "reminders": [reminder_entry(todo, today) for todo in due],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mark", action="store_true",
                         help="record the poke, so it snoozes rather than repeating")
     parser.add_argument("--home", help="a memcal home other than the default")
+    parser.add_argument("--format", choices=("text", "json"), default="text",
+                        help="text prints prose for terminal use; json emits one "
+                             "machine-readable line the Hermes delivery path consumes")
     args = parser.parse_args()
 
     cfg = config.load(args.home)
     conn = db.connect(cfg.db_path)
-    today = db.today()
-    due = todos.due_reminders(conn)
-    if not due:
-        # Hermes' wake gate: a last stdout line of `{"wakeAgent": false}` skips the
-        # agent run entirely — no model call, no delivery, nothing to suppress
-        # (`cron/scheduler.py:_parse_wake_gate`). On a quiet day that is the whole job.
-        #
-        # The cheap deterministic check decides what the model is shown, and a model
-        # is never asked a question that code can answer. Leaving stdout empty also
-        # produced no message, but by waking a model to tell it there was nothing to
-        # say — paying for a judgement whose answer was already known here.
-        print(json.dumps({"wakeAgent": False}))
-        return 0
+    try:
+        today = db.today()
+        due = todos.due_reminders(conn)
+        if not due:
+            # Hermes' wake gate: a last stdout line of `{"wakeAgent": false}` skips the
+            # agent run entirely — no model call, no delivery, nothing to suppress
+            # (`cron/scheduler.py:_parse_wake_gate`). On a quiet day that is the whole job.
+            #
+            # The cheap deterministic check decides what the model is shown, and a model
+            # is never asked a question that code can answer. Leaving stdout empty also
+            # produced no message, but by waking a model to tell it there was nothing to
+            # say — paying for a judgement whose answer was already known here.
+            if args.format == "json":
+                print(json.dumps(build_payload([], today, as_of=db.now())))
+            else:
+                print(json.dumps({"wakeAgent": False}))
+            return 0
 
-    print(f"memcal has {len(due)} reminder(s) that have come due, as of "
-          f"{db.now()[:16]}:")
-    for todo in due:
-        print(line_for(todo, today))
-        if args.mark:
-            todos.mark_reminded(conn, todo.key)
-    return 0
+        if args.format == "json":
+            print(json.dumps(build_payload(due, today, as_of=db.now())))
+            if args.mark:
+                for todo in due:
+                    todos.mark_reminded(conn, todo.key)
+            return 0
+
+        print(f"memcal has {len(due)} reminder(s) that have come due, as of "
+              f"{db.now()[:16]}:")
+        for todo in due:
+            print(line_for(todo, today))
+            if args.mark:
+                todos.mark_reminded(conn, todo.key)
+        return 0
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

@@ -533,6 +533,41 @@ def _text(item: dict, fields: dict, *, policy, subscribed: bool) -> str:
     return " — ".join(bits)
 
 
+def _exact_same_day_event(
+    conn: sqlite3.Connection, title: str, on: str, subject: str = "me",
+    *, at: str | None = None,
+):
+    """Existing row with the exact same normalized title on the same date, if any.
+
+    Siri Suggestions shadows a real calendar copy under a different Apple UID, so
+    uid-based adoption cannot see it is the same occasion. Exact slug plus same
+    date is the narrow corroboration signal: this deliberately does not consult
+    `find_match`'s absorption tier, so "Elements" never absorbs into
+    "Breakfast at Elements" and near-duplicates ("deep block"/"light block")
+    stay separate rows.
+
+    A shared title on one day is not proof of one occasion, though: a "1:1" at
+    10:00 and another at 15:00 are two meetings, not a shadow to fold together.
+    When both the incoming item and a candidate row carry a clock time, that
+    time has to agree. A missing time on either side (an all-day or timeless
+    entry) still corroborates — there is no time to disagree on, and the Siri
+    shadow of a real occasion carries the same start when it carries one.
+    """
+    want = db.slugify(title or "")
+    if not want:
+        return None
+    for row in conn.execute(
+        "SELECT * FROM events WHERE date = ? AND subject = ? ORDER BY id",
+        (on, subject),
+    ).fetchall():
+        if db.slugify(row["title"]) != want:
+            continue
+        if at and row["time"] and str(at) != str(row["time"]):
+            continue
+        return events.Event.from_row(row)
+    return None
+
+
 def ingest_snapshot(
     conn: sqlite3.Connection,
     cfg,
@@ -758,7 +793,25 @@ def ingest_snapshot(
             if candidate and not occupied:
                 fields["key"] = candidate.key
             else:
-                fields["key"] = f"ical-{identity[:16]}@{fields['date']}"
+                # A second calendar copy of the same occasion (Siri Suggestions
+                # shadows the real calendar under a different Apple UID, so the
+                # uid-based adoption above cannot see it). Corroborate on exact
+                # normalized title plus same date only — fuzzy/absorbing titles
+                # still fall through to a new row below.
+                #
+                # Deferred, not omitted: subscribed calendars still mint rows when
+                # nothing exact matches. Corroborate-only subscriptions would drop
+                # genuinely new suggestions nobody else stated, which is a policy
+                # call beyond this dedup.
+                exact = _exact_same_day_event(
+                    conn, fields["title"], fields["date"],
+                    fields.get("subject") or "me",
+                    at=fields.get("time"),
+                )
+                if exact is not None:
+                    fields["key"] = exact.key
+                else:
+                    fields["key"] = f"ical-{identity[:16]}@{fields['date']}"
 
         text = _text(item, fields, policy=policy, subscribed=subscribed)
         archive_id = base.deliver(

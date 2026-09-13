@@ -292,5 +292,29 @@ class TestSlackHistoryReachesTheOldest(unittest.TestCase):
         self.assertEqual([m["ts"] for m in got], ["4.0000", "5.0000"])
 
 
+class TestSlackHistoryTerminatesOnAStuckCursor(unittest.TestCase):
+    """The paging loop is unbounded by design (a fixed cap drops old messages), so a
+    cursor Slack never advances must not spin it forever."""
+
+    def test_a_repeating_cursor_ends_the_loop(self):
+        from types import SimpleNamespace
+        chat = Conversation(id="C1", name="Acme #general", is_group=True)
+        calls = {"pages": 0}
+
+        def history(channel, oldest=None, limit=None, inclusive=False, cursor=None):
+            # A broken endpoint that hands back the same non-empty cursor every page.
+            calls["pages"] += 1
+            return SimpleNamespace(data={
+                "messages": [{"ts": "1.0000"}],
+                "response_metadata": {"next_cursor": "STUCK"}})
+
+        client = SimpleNamespace(conversations_history=history)
+        got = slack.SlackSource().history(client, chat, None, limit=2)
+        # Two calls: the first records "STUCK", the second sees the repeat and stops.
+        # The point is that it returns at all rather than looping forever.
+        self.assertEqual(calls["pages"], 2)
+        self.assertTrue(all(m["ts"] == "1.0000" for m in got))
+
+
 if __name__ == "__main__":
     unittest.main()

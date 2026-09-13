@@ -666,5 +666,48 @@ class TestReplayingAnOperationCannotUndoALaterOne(Base):
             todos.get(self.conn, "todo:venmo-cameron-for-the-ticket").status, "closed")
 
 
+class TestAnswerResolvesWithoutClosingTheWrongTodo(Base):
+    """`memcal_answer` routes through `todos.resolve`. Two properties matter: a needle
+    that names an already-settled question must not close an unrelated open to-do that
+    merely shares a word, and a to-do that is genuinely closed this way must leave a
+    provenance record — never the silent close the bare `close` would have left."""
+
+    def _closer(self, origin):
+        # The provenance-stamping closer the agent surfaces hand to `resolve`.
+        def _close(which: str) -> bool:
+            try:
+                live.close_todo(self.conn, self.cfg, which, origin=origin)
+                return True
+            except live.LiveError:
+                return False
+        return _close
+
+    def test_an_already_answered_question_does_not_close_a_word_sharing_todo(self):
+        todos.ask(self.conn, "Should we book the plumber visit?")
+        self.assertTrue(todos.answer(self.conn, "plumber visit", "yes, booked"))
+        todo, _ = live.open_todo(self.conn, self.cfg, "reschedule the plumber visit")
+
+        ok, kind = todos.resolve(self.conn, "plumber visit", "already sorted",
+                                 close_todo=self._closer(live.Origin.of("mcp")))
+        self.assertEqual((ok, kind), (True, "already"),
+                         "an already-settled repeat counts, before any to-do close")
+        self.assertEqual(todos.get(self.conn, todo.key).status, "open",
+                         "the unrelated to-do must stay open")
+        self.assertEqual(
+            self.conn.execute("SELECT count(*) AS n FROM actions "
+                              "WHERE verb = 'closed'").fetchone()["n"], 0)
+
+    def test_a_genuine_todo_close_leaves_a_provenance_record(self):
+        todo, _ = live.open_todo(self.conn, self.cfg, "Venmo Cameron for the ticket")
+        ok, kind = todos.resolve(self.conn, "Venmo Cameron", "paid them",
+                                 close_todo=self._closer(live.Origin.of("mcp")))
+        self.assertEqual((ok, kind), (True, "todo"))
+        self.assertEqual(todos.get(self.conn, todo.key).status, "closed")
+        # The close is accountable, unlike the bare `close` the CLI default uses.
+        self.assertEqual(
+            self.conn.execute("SELECT count(*) AS n FROM actions "
+                              "WHERE verb = 'closed'").fetchone()["n"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
