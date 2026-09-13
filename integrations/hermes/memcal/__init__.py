@@ -398,7 +398,8 @@ ADD_TODO = {
         "Something the user said they would do. Short imperative, their words. Use "
         "wake_condition when it should wait on something ('Rowan is back from Italy') "
         "rather than on a date. Use event to link an obligation to an existing occasion; "
-        "it then expires when that event is over."),
+        "it then expires when that event is over. done=true closes one they say they have "
+        "finished — any distinctive words from it will find it."),
     "parameters": {
         "type": "object",
         "properties": {
@@ -408,6 +409,8 @@ ADD_TODO = {
                                "description": "what has to become true before asking"},
             "event": {"type": "string",
                       "description": "event E# handle, key, or distinctive words naming it"},
+            "done": {"type": "boolean",
+                     "description": "close the to-do named by text instead of opening one"},
             "remind": {
                 "type": "string",
                 "description": (
@@ -555,6 +558,13 @@ def _w_drop(live, conn, cfg, args, origin):
 
 
 def _w_todo(live, conn, cfg, args, origin):
+    if args.get("done"):
+        # Closing, not opening. Check first so a done=true call can never open
+        # a duplicate of the thing it was asked to close; mirrors memcal_todo
+        # done=true on the MCP surface. A miss raises through live.close_todo
+        # and is reported as an error, never stored.
+        todo = live.close_todo(conn, cfg, args.get("text", ""), origin=origin)
+        return {"closed": todo.text}, [("todo", todo.key, "closed")]
     # "yes"/"true" means *you pick the hour*; anything else is taken as an explicit time
     # and handed straight through. A model that writes "tomorrow morning" gets an error
     # naming what it needs rather than a reminder at a time nobody chose.
@@ -997,8 +1007,25 @@ class MemcalMemoryProvider(MemoryProvider):
                 for r in rows]})
 
         if tool_name == "memcal_answer":
-            from memcal import brief, todos
-            ok, kind = todos.resolve(conn, args.get("question", ""), args.get("answer", ""))
+            from memcal import brief, live, todos
+
+            def _close_todo(which: str) -> bool:
+                # A to-do closed while answering is still a change to the ledger, so
+                # it carries the same provenance a `memcal_todo done` would — the turn
+                # that caused it, and a completed-operation record. A miss just means
+                # the needle named a question, not a to-do.
+                origin = live.Origin.of(
+                    "hermes",
+                    [self._turn_archive_id] if self._turn_archive_id else [],
+                    session=self._session_id)
+                try:
+                    live.close_todo(conn, self._cfg, which, origin=origin)
+                    return True
+                except live.LiveError:
+                    return False
+
+            ok, kind = todos.resolve(conn, args.get("question", ""),
+                                     args.get("answer", ""), close_todo=_close_todo)
             if ok:
                 brief.write(conn, self._cfg)
                 if kind == "already":
@@ -1059,6 +1086,113 @@ class MemcalMemoryProvider(MemoryProvider):
 
     def backup_paths(self) -> List[str]:
         return [str(self._home)]
+
+
+# --------------------------------------- reminder delivery (issue #56) --
+# Separate from the write tools above: this is the wake path, not a user
+# instruction. A due reminder is delivered AS a turn inside the chat session
+# transcript — an assistant message authored by the reminder/wake path — so
+# the next user reply ("yeah I'll do it tomorrow") has a referent in
+# context. It is never archived as the owner's own words (person "me" /
+# from_me True) and never as a fake user instruction; the archive row and
+# the turn metadata both record the reminder/wake origin.
+#
+# The outside-repo cron feeds this path with `tools/due_reminders.py
+# --format json`. See tools/README.md for the old command versus the new one.
+
+#: Role the reminder turn carries in the session transcript.
+REMINDER_ROLE = "assistant"
+#: Authorship recorded on the archive row and the turn metadata.
+REMINDER_ORIGIN = "memcal-reminder"
+#: Archive persona for the wake turn. Never "me": that name is the owner's.
+REMINDER_PERSON = "hermes"
+
+
+def build_reminder_turn(reminders, *, as_of: str = "") -> Optional[Dict[str, Any]]:
+    """Build the assistant turn that wakes the session, or None when nothing is due.
+
+    `reminders` is the `reminders` list from `due_reminders --format json`
+    (each entry carrying at least `text`, plus `line`/`key`/`kind`). The
+    returned turn keeps the todo/question keys in metadata so a follow-up
+    can map back without parsing prose; the content itself carries the
+    human-readable lines verbatim so the referent is in context.
+    """
+    items = list(reminders or [])
+    if not items:
+        return None
+    lines = [str(item.get("line") or f'"{item.get("text", "")}"') for item in items]
+    keys = [str(item.get("key") or "") for item in items if item.get("key")]
+    head = (f"Reminder — {len(items)} thing(s) came due"
+            + (f" (as of {as_of[:16]})" if as_of else "") + ":")
+    content = head + "\n" + "\n".join(lines)
+    return {
+        "role": REMINDER_ROLE,
+        "content": content,
+        "metadata": {
+            "origin": REMINDER_ORIGIN,
+            "wake": True,
+            "keys": keys,
+        },
+    }
+
+
+def deliver_due_reminders(conn, session_id: str, payload, *,
+                           mark: bool = True,
+                           transcript: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Append one reminder turn to the chat session and mark the poke delivered.
+
+    `payload` is the parsed `due_reminders --format json` document (or its
+    `reminders` list directly). Appends exactly one `agent`-stream archive
+    row in `hermes:<session>` with the reminder/wake authorship — never as
+    the user's words — and, when `transcript` is given, one assistant message
+    to that list (the in-test stand-in for the Hermes session transcript;
+    in production the caller hands the returned `wakeText` to the gateway
+    wake path so the agent turn runs inside the real session).
+
+    The row is archived but not spooled: the reminder restates store state
+    the dream pass already knows, so spooling it would re-extract old news
+    as new evidence. Marking happens after a successful append, so a failed
+    delivery does not snooze the reminder away.
+    """
+    if isinstance(payload, dict):
+        items = list(payload.get("reminders") or [])
+        as_of = str(payload.get("asOf") or "")
+    else:
+        items = list(payload or [])
+        as_of = ""
+    sid = (session_id or "").strip()
+    if not items:
+        return {"delivered": False, "reason": "nothing-due", "wakeAgent": False}
+    if not sid:
+        return {"delivered": False, "reason": "no-session", "wakeAgent": True}
+    turn = build_reminder_turn(items, as_of=as_of)
+    assert turn is not None  # non-empty items always build
+    from memcal import archive, db, todos                       # noqa: PLC0415
+    keys = list(turn["metadata"].get("keys") or [])
+    slug = hashlib.sha1(",".join(sorted(keys)).encode("utf-8")).hexdigest()[:12]
+    archive_id = archive.append(
+        conn, stream="agent",
+        external_id=f"hermes:{sid}:reminder:{slug}:{time.time_ns()}",
+        ts=db.now(), text=turn["content"], thread=f"hermes:{sid}",
+        person=REMINDER_PERSON, from_me=False, addressed_to="person",
+        meta={"session": sid, "origin": REMINDER_ORIGIN, "wake": True,
+              "keys": keys},
+        gated=False, gate_reason="reminder-wake",
+    )
+    if transcript is not None:
+        transcript.append({"role": turn["role"], "content": turn["content"],
+                           "metadata": dict(turn["metadata"])})
+    if mark:
+        for key in keys:
+            todos.mark_reminded(conn, key)
+    # Persist the archive row unconditionally. `archive.append` does not commit,
+    # and `mark_reminded` is what commits in the marking path — so a mark=True
+    # call with no keys (a payload whose entries carry none) would otherwise
+    # roll the row back on close while still reporting delivered.
+    conn.commit()
+    return {"delivered": True, "wakeAgent": True, "archive_id": archive_id,
+            "session_id": sid, "keys": keys, "turn": turn,
+            "wakeText": turn["content"]}
 
 
 def register(ctx) -> None:

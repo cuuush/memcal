@@ -7,6 +7,20 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Dream passes trip a circuit breaker instead of burning requests into an outage:
+  `MEMCAL_PROPOSE_BREAKER` (default 3) stops launching further work after that many
+  consecutive propose failures, leaving unread spool unread and recording the abort
+  on the run. One healthy reply resets the count, so a single blip cannot kill a
+  healthy pass; `0` disables it.
+- To-do wake conditions can be judged semantically: `MEMCAL_SEMANTIC_WAKES` (default
+  off) adds a post-apply stage that batches candidate `(to-do, conversation lines)`
+  pairs into one structured model call. Negations and delays no longer wake the
+  waiter; failures leave it asleep. The word-overlap check now only nominates.
+- A due reminder can wake Hermes inside the chat session: `tools/due_reminders.py
+  --format json` emits a machine-readable payload and the Hermes integration
+  appends it as one reminder-authored turn, so follow-up replies have a referent.
+  The outside-repo cron invocation is documented in `tools/README.md`.
+
 - memcal.app carries the handle-grid icon ([E]/[T]/[Q] pills over a calendar and
   store) instead of a generic executable glyph, and the web UI serves the same
   art as its favicon. `memcal schedule install` converts `memcal/macos/icon.png`
@@ -24,6 +38,23 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `memcal_answer` on the MCP surface resolves to-dos as well as questions, matching
+  Hermes and the CLI: saying a to-do is done closes it instead of answering "no
+  matching open question". Hermes `ADD_TODO` accepts `done=true` to close, mirroring
+  `memcal_todo(done=true)` on MCP, which previously could only open.
+- iCal ingestion no longer creates a second event row for a Siri Suggestions shadow
+  copy: a different Apple UID with the exact same title on the same date corroborates
+  the existing row and links the second calendar identity to it. Near-duplicate
+  titles still stay separate rows.
+- Dream `--dry-run` prices multi-wave cold starts as multi-wave: the shared prompt
+  prefix is stable within a wave and rebuilt across waves by design, and the estimate
+  now counts each wave's cache writes instead of quoting a single wave.
+- Chat streams pass the ingest gate in full; only email stays content-gated. Short
+  replies ("yeah", "can't that night") no longer depend on carrying a temporal
+  token. Bare emoji-only reactions pass too: a lone thumbs-up with no convo
+  around it is still someone saying something.
+- Schedule rows written through the live path record a real origin pointer
+  (turn/session/thread) in `source` instead of the writer identity `agent:live`.
 - `memcal ical setup` accepts full Calendar access on macOS 14+, where EventKit
   reports it as `4` rather than the `3` that was the only value checked — a correct
   grant read as "no access" forever. Add-Only is detected as its own state with the

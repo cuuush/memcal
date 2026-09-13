@@ -123,8 +123,18 @@ class Config:
     same_event_tokens: int = 2
     same_event_poor_tokens: int = 1
 
+    # Semantic wake evaluation for waiter to-dos. Off until the wake entailment
+    # eval set passes; while off, the post-apply wake stage makes no model call
+    # and leaves waiters asleep.
+    semantic_wakes: bool = False
+
     # Maximum concurrent API requests in flight.
     max_parallel: int = 8
+
+    # Consecutive propose failures before the pass stops launching requests.
+    # 0 disables the breaker; anything unset or unreadable falls back to the
+    # default in run, so a broken knob still breaks the circuit, never the run.
+    propose_breaker: int = 3
 
     @property
     def db_path(self) -> Path:
@@ -205,6 +215,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
         ("MEMCAL_DAYS_FORWARD", "days_forward", int),
         ("MEMCAL_BRIEF_TOKEN_CAP", "brief_token_cap", int),
         ("MEMCAL_MAX_PARALLEL", "max_parallel", int),
+        ("MEMCAL_PROPOSE_BREAKER", "propose_breaker", int),
         ("MEMCAL_SPOOL_HORIZON_DAYS", "spool_horizon_days", int),
         ("MEMCAL_EMAIL_BACKFILL_DAYS", "email_backfill_days", int),
         ("MEMCAL_COLD_START_WAVES", "cold_start_waves", int),
@@ -220,6 +231,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
         ("MEMCAL_AFFINITY_NEAR_DAYS", "affinity_near_days", int),
         ("MEMCAL_SAME_EVENT_TOKENS", "same_event_tokens", int),
         ("MEMCAL_SAME_EVENT_POOR_TOKENS", "same_event_poor_tokens", int),
+        ("MEMCAL_SEMANTIC_WAKES", "semantic_wakes", _flag),
         ("MEMCAL_REMIND_DEADLINES", "remind_deadlines", _flag),
     ):
         raw = env.get(name) or os.environ.get(name)

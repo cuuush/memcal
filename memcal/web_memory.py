@@ -477,7 +477,7 @@ def trace_call(conn: sqlite3.Connection, cfg: Config, generation_id: str) -> dic
             **local,
             "source": "disk",
             # Kept apart rather than concatenated: the prefix is byte-identical across
-            # every call in a run and is the half nobody needs to reread, while the
+            # every call in a wave and is the half nobody needs to reread, while the
             # suffix is the only part that is about this bundle.
             "messages": [{"role": "system", "text": saved.get("prefix") or ""},
                          {"role": "user", "text": saved.get("suffix") or ""}],
