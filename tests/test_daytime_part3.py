@@ -618,6 +618,67 @@ class TestSourceBackedPrecedence(_Base):
             "SELECT date FROM events WHERE key = ?", (event.key,)).fetchone()["date"],
             "2026-09-13")
 
+    def test_a_stale_cited_field_cannot_ride_a_newer_lines_time(self):
+        # Two lines cited in one correction: an old one about the place and a
+        # newer one about the time. The place must not borrow the newer line's
+        # hour to override a settlement made after it. A citation is only as
+        # authoritative as its oldest line.
+        event = self.poker()
+        settle = self.collect("chat", "s1", "make it 5 Oak", "poker group",
+                              ts="2026-09-12T10:00:00-04:00")
+        self._set_address(event, "5 Oak",
+                          origin=live.Origin.of("test", cited=[settle]))
+        old_place = self.collect("chat", "op", "how about 1 Pine?", "poker group",
+                                 ts="2026-09-12T09:00:00-04:00")
+        new_time = self.collect("chat", "nt", "start at 8pm", "poker group",
+                                ts="2026-09-12T11:00:00-04:00")
+        _updated, changed = live.update_event(
+            self.conn, self.cfg, event.key, location="1 Pine", time="20:00",
+            origin=live.Origin.of("test", cited=[old_place, new_time]))
+        # The place stays settled — the newer line's hour cannot carry it.
+        self.assertNotIn("location", " ".join(changed))
+        self.assertEqual(self.conn.execute(
+            "SELECT location FROM events WHERE key = ?",
+            (event.key,)).fetchone()["location"], "5 Oak")
+
+    def test_an_uncited_correction_that_loses_is_told_it_plainly(self):
+        # A plain user turn (no citation) that loses on evidence time must not
+        # be told to "cite newer evidence" about lines it never cited.
+        event = self.poker()
+        settle = self.collect("chat", "s1", "make it 5 Oak", "poker group",
+                              ts="2026-09-12T11:00:00-04:00")
+        self._set_address(event, "5 Oak",
+                          origin=live.Origin.of("test", cited=[settle]))
+        turn = self._turn_at("2026-09-12T09:00:00-04:00", "no, 1 Pine")
+        with self.assertRaises(live.LiveError) as caught:
+            self._set_address(event, "1 Pine",
+                              origin=live.Origin.of("test", [turn]))
+        msg = str(caught.exception)
+        self.assertNotIn("those lines", msg)
+        self.assertIn("newer evidence", msg)
+        self.assertEqual(self.conn.execute(
+            "SELECT location FROM events WHERE key = ?",
+            (event.key,)).fetchone()["location"], "5 Oak")
+
+    def test_clearing_an_empty_field_beside_a_no_op_is_not_a_stale_error(self):
+        # Restating the settled place (a no-op) and clearing an already-empty
+        # note, citing an older line. Nothing changes — that is a no-op, not a
+        # rejected revision, so it must not raise the stale-evidence error.
+        event = self.poker()
+        settle = self.collect("chat", "s1", "make it 5 Oak", "poker group",
+                              ts="2026-09-12T11:00:00-04:00")
+        self._set_address(event, "5 Oak",
+                          origin=live.Origin.of("test", cited=[settle]))
+        old = self.collect("chat", "o1", "keep it at 5 Oak, no notes",
+                           "poker group", ts="2026-09-12T09:00:00-04:00")
+        _updated, changed = live.update_event(
+            self.conn, self.cfg, event.key, location="5 Oak", note="",
+            origin=live.Origin.of("test", cited=[old]))
+        self.assertEqual(changed, [])
+        self.assertEqual(self.conn.execute(
+            "SELECT location FROM events WHERE key = ?",
+            (event.key,)).fetchone()["location"], "5 Oak")
+
 
 if __name__ == "__main__":
     unittest.main()
