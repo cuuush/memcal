@@ -272,6 +272,14 @@ class TestHermesProvider(unittest.TestCase):
         self.assertNotIn("First typed snapshot", second)
         self.assertNotEqual(first, second)
 
+    def _delivered(self, provider, query, *, session_id=""):
+        """Unit tests model a completed turn; runtime tests cover discarded output."""
+        result = provider.prefetch(query, session_id=session_id)
+        provider._acknowledge_snapshot([
+            {"role": "user", "content": query, "api_content": query + "\n\n" + result}
+        ], session_id or provider._session_id)
+        return result
+
     def test_an_unchanged_brief_is_not_reinjected(self):
         # Hermes pins each injected snapshot to its turn and replays it forever,
         # so re-emitting an unchanged brief every turn just stacks duplicates.
@@ -285,19 +293,20 @@ class TestHermesProvider(unittest.TestCase):
         brief.write(conn, cfg)
         conn.close()
 
-        first = provider.prefetch("what is coming up?")
+        first = self._delivered(provider, "what is coming up?")
         self.assertIn("MEMCAL SNAPSHOT", first)
         self.assertIn("Only typed snapshot", first)
 
         # Nothing changed between turns → no new snapshot block.
-        second = provider.prefetch("still there?")
-        self.assertEqual(second, "")
+        second = self._delivered(provider, "still there?")
+        self.assertIn("MEMCAL CURRENT", second)
+        self.assertNotIn("MEMCAL SNAPSHOT", second)
 
         # A change turns the hash over and the snapshot returns.
         conn = db.open_db(cfg.db_path)
         todos.open_todo(conn, "Newly typed snapshot")
         conn.close()
-        third = provider.prefetch("and now?")
+        third = self._delivered(provider, "and now?")
         self.assertIn("Newly typed snapshot", third)
 
     def test_a_new_session_reemits_the_snapshot(self):
@@ -311,10 +320,10 @@ class TestHermesProvider(unittest.TestCase):
         brief.write(conn, cfg)
         conn.close()
 
-        self.assertIn("Session boundary snapshot", provider.prefetch("hi"))
-        self.assertEqual(provider.prefetch("again"), "")
+        self.assertIn("Session boundary snapshot", self._delivered(provider, "hi"))
+        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again"))
         provider.on_session_switch("test-2")
-        self.assertIn("Session boundary snapshot", provider.prefetch("hi"))
+        self.assertIn("Session boundary snapshot", self._delivered(provider, "hi"))
 
     def test_concurrent_sessions_each_get_the_snapshot(self):
         # Same DB state, two live sessions: B's first prefetch must not be
@@ -327,14 +336,14 @@ class TestHermesProvider(unittest.TestCase):
         brief.write(conn, cfg)
         conn.close()
 
-        first_a = provider.prefetch("what is coming up?", session_id="sess-A")
+        first_a = self._delivered(provider, "what is coming up?", session_id="sess-A")
         self.assertIn("MEMCAL SNAPSHOT", first_a)
-        first_b = provider.prefetch("what is coming up?", session_id="sess-B")
+        first_b = self._delivered(provider, "what is coming up?", session_id="sess-B")
         self.assertIn("MEMCAL SNAPSHOT", first_b)
         self.assertIn("Concurrent sessions snapshot", first_b)
         # Per-session suppression still holds on the repeat.
-        self.assertEqual(provider.prefetch("again?", session_id="sess-A"), "")
-        self.assertEqual(provider.prefetch("again?", session_id="sess-B"), "")
+        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again?", session_id="sess-A"))
+        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again?", session_id="sess-B"))
 
     def test_resume_branch_does_not_duplicate_the_snapshot(self):
         provider = self._ready()
@@ -345,19 +354,57 @@ class TestHermesProvider(unittest.TestCase):
         brief.write(conn, cfg)
         conn.close()
 
-        self.assertIn("Resume branch snapshot", provider.prefetch("hi"))
-        self.assertEqual(provider.prefetch("again"), "")
+        self.assertIn("Resume branch snapshot", self._delivered(provider, "hi"))
+        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again"))
         # Branch continuing the same conversation inherits suppression.
         provider.on_session_switch("test-branch", parent_session_id="test",
                                    reset=False)
-        self.assertEqual(provider.prefetch("hi again"), "")
+        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "hi again"))
         # A genuine restart re-emits.
         provider.on_session_switch("test-fresh", reset=True)
-        self.assertIn("Resume branch snapshot", provider.prefetch("hi"))
+        self.assertIn("Resume branch snapshot", self._delivered(provider, "hi"))
         # And an end->start bracket without a switch re-emits too.
-        self.assertEqual(provider.prefetch("again"), "")
+        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again"))
         provider.on_session_end([])
-        self.assertIn("Resume branch snapshot", provider.prefetch("hi"))
+        self.assertIn("Resume branch snapshot", self._delivered(provider, "hi"))
+
+    def test_in_place_compression_reemits_the_snapshot(self):
+        # Compression can drop the earlier snapshot from context, and a summary
+        # is not guaranteed to preserve the exact brief. The provider must
+        # re-emit rather than keep suppressing on a hash the model can no longer
+        # see. In-place compression reuses the session id.
+        provider = self._ready()
+        from memcal import brief, config, db, todos
+        cfg = config.load(self.tmp.name)
+        conn = db.open_db(cfg.db_path)
+        todos.open_todo(conn, "Compression snapshot")
+        brief.write(conn, cfg)
+        conn.close()
+
+        self.assertIn("Compression snapshot", self._delivered(provider, "hi"))
+        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again"))   # suppressed while in context
+        provider.on_session_switch("test", reset=False, reason="compression")
+        self.assertIn("Compression snapshot", self._delivered(provider, "after compaction"))
+        # Unchanged brief still deduplicates once it has been re-emitted.
+        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "short follow-up"))
+
+    def test_child_session_compression_reemits_the_snapshot(self):
+        # Child-session compression forks a new id off the parent; neither may
+        # keep suppressing the snapshot the compression discarded.
+        provider = self._ready()
+        from memcal import brief, config, db, todos
+        cfg = config.load(self.tmp.name)
+        conn = db.open_db(cfg.db_path)
+        todos.open_todo(conn, "Child compression snapshot")
+        brief.write(conn, cfg)
+        conn.close()
+
+        self.assertIn("Child compression snapshot", self._delivered(provider, "hi"))
+        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again"))
+        provider.on_session_switch("test-compacted", parent_session_id="test",
+                                   reset=False, reason="compression")
+        self.assertIn("Child compression snapshot",
+                      self._delivered(provider, "after compaction"))
 
     def test_day_rollover_turns_the_snapshot_over(self):
         # The unchanged-turn gate hashes only the snapshot body, so a suppressed
@@ -376,13 +423,13 @@ class TestHermesProvider(unittest.TestCase):
         db.set_today(start)
         self.addCleanup(db.set_today, None)
 
-        first = provider.prefetch("what is coming up?")
+        first = self._delivered(provider, "what is coming up?")
         self.assertIn("MEMCAL SNAPSHOT", first)
         # Nothing changed between turns → no new snapshot block.
-        self.assertEqual(provider.prefetch("still there?"), "")
+        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "still there?"))
 
         db.set_today(start + timedelta(days=1))
-        third = provider.prefetch("and now?")
+        third = self._delivered(provider, "and now?")
         self.assertIn("MEMCAL SNAPSHOT", third)
         self.assertNotEqual(first, third)
 
