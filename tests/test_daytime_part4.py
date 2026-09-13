@@ -296,6 +296,52 @@ class TestTrimKeepsUnits(_Base):
                    if brief.source_tag("event", e.id).strip("〔〕") not in named]
         self.assertEqual(missing, [])
 
+    def _five_mains_each_with_a_flagged_child(self):
+        made = []
+        for n in range(5):
+            pm = self.collect("chat", f"p{n}m", f"parent {n} saturday?",
+                              f"pgroup {n}")
+            parent, _ = live.add_event(self.conn, self.cfg, title=f"Parent {n}",
+                                       when="2026-09-12",
+                                       origin=live.Origin.of("test"))
+            live.update_event(self.conn, self.cfg, parent.key, note="plan",
+                              origin=live.Origin.of("test", cited=[pm]))
+            self.collect("chat", f"p{n}n", f"parent {n} moved?", f"pgroup {n}")
+            cm = self.collect("chat", f"c{n}m", f"child {n} saturday?",
+                              f"cgroup {n}")
+            child, _ = live.add_event(self.conn, self.cfg, title=f"Child {n}",
+                                      when="2026-09-12",
+                                      origin=live.Origin.of("test"))
+            live.update_event(self.conn, self.cfg, child.key, note="plan",
+                              origin=live.Origin.of("test", cited=[cm]))
+            self.collect("chat", f"c{n}n", f"child {n} moved?", f"cgroup {n}")
+            self.conn.execute("UPDATE events SET part_of = ? WHERE id = ?",
+                              (parent.id, child.id))
+            self.conn.commit()
+            made.append((parent, child))
+        return made
+
+    def test_overflow_counts_children_in_emission_order(self):
+        # Emission interleaves each main with its own child (m0, c0, m1, c1, …).
+        # With ten flagged rows the ninth emitted hint — parent 4 — and its
+        # child fold into a single overflow line: exactly those two rows, and
+        # never one already shown inline.
+        made = self._five_mains_each_with_a_flagged_child()
+        text = brief.render(self.conn, self.cfg)
+        inline = [line for line in text.splitlines()
+                  if line.lstrip().startswith("↳ New activity:")]
+        self.assertEqual(len(inline), 8)
+        overflow = [line for line in text.splitlines()
+                    if "more row(s) with new activity" in line]
+        self.assertEqual(len(overflow), 1)
+        self.assertIn("2 more row(s)", overflow[0])
+        named = overflow[0].split(":", 1)[1]
+        last_parent, last_child = made[4]
+        self.assertIn(self.handle(last_parent), named)
+        self.assertIn(self.handle(last_child), named)
+        for _parent, child in made[:4]:
+            self.assertNotIn(self.handle(child), named)
+
     def test_hard_cut_discloses_and_orphans_nothing(self):
         from memcal import textclean
         events = self._eleven_affected()

@@ -84,7 +84,7 @@ def _activity_hint(conn: sqlite3.Connection, event) -> str | None:
     Says the plan *may* have changed and names how to read the messages. It
     never invents a replacement date, address, or status.
     """
-    found = activity.pending(conn, "event", event.key, limit=3)
+    found = activity.pending(conn, "event", event.key, limit=3, strong_only=True)
     if not found["strong_total"]:
         return None
     first = found["strong"][0]
@@ -200,8 +200,12 @@ def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
         asked = todos.questions_by_event(conn)
         nested = {e.id for e in rows if e.part_of}
         mains = [ev for ev in rows if ev.id not in nested]
-        ordered = list(mains)
+        # Emission interleaves each main with its own children, so `ordered`
+        # (and thus `flagged`) must be built the same way — otherwise the
+        # overflow line's slice names the wrong rows and count.
+        ordered = []
         for ev in mains:
+            ordered.append(ev)
             ordered.extend(events.children_of(conn, ev.id))
         state = _block_hints(conn, ordered)
         for ev in mains:

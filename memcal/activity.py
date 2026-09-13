@@ -214,19 +214,23 @@ def _title_for(conn: sqlite3.Connection, kind: str, ref: str) -> str:
     return ""
 
 
-def associations(conn: sqlite3.Connection, kind: str, ref: str) -> dict:
+def associations(conn: sqlite3.Connection, kind: str, ref: str,
+                 *, strong_only: bool = False) -> dict:
     """Strong and weak source associations for one fact.
 
     Strong: exact conversations already cited as its evidence. Weak: at most a
     few threads sharing a participant *and* a distinctive title term — a
     nomination for the model, never a verdict.
+
+    `strong_only` skips the weak candidate scan (a whole-archive per-person
+    lookup) for callers that never read `weak` — it returns an empty list.
     """
     strong = [{"stream": s, "thread": t} for s, t in evidence_threads(conn, kind, ref)]
     strong += [{"stream": s, "family": f} for s, f in evidence_families(conn, kind, ref)]
     strong_keys = {(item["stream"], item.get("thread") or "") for item in strong}
     weak: list[dict] = []
-    persons = ref_persons(conn, kind, ref)
-    terms = distinctive_terms(_title_for(conn, kind, ref))
+    persons = () if strong_only else ref_persons(conn, kind, ref)
+    terms = distinctive_terms(_title_for(conn, kind, ref)) if persons else []
     if persons and terms:
         candidates = conn.execute(
             """SELECT DISTINCT stream, thread FROM archive
@@ -313,14 +317,21 @@ def _pending_rows(conn: sqlite3.Connection, pairs: list[dict],
 
 
 def pending(conn: sqlite3.Connection, kind: str, ref: str,
-            *, limit: int = 50) -> dict:
-    """Associated observations minus exactly the covered ones."""
-    links = associations(conn, kind, ref)
+            *, limit: int = 50, strong_only: bool = False) -> dict:
+    """Associated observations minus exactly the covered ones.
+
+    `strong_only` skips the weak association scan and its arrivals query for
+    callers that read only the strong side (e.g. the brief's activity hint).
+    """
+    links = associations(conn, kind, ref, strong_only=strong_only)
     covered = reviewed_ids(conn, kind, ref)
     strong_items, strong_total = _pending_rows(conn, links["strong"], covered,
                                               limit=limit)
-    weak_items, weak_total = _pending_rows(conn, links["weak"], covered,
-                                          limit=limit)
+    if strong_only:
+        weak_items, weak_total = [], 0
+    else:
+        weak_items, weak_total = _pending_rows(conn, links["weak"], covered,
+                                              limit=limit)
     return {"strong": strong_items, "weak": weak_items,
             "strong_total": strong_total, "weak_total": weak_total,
             "reviewed": len(covered), "mark": reviewed_max(conn, kind, ref)}

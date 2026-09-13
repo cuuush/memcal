@@ -186,12 +186,17 @@ def _valid_citations(conn: sqlite3.Connection,
 
 
 def _cited_ts(conn: sqlite3.Connection, ids: tuple[int, ...]) -> str | None:
-    """When the cited observations were *said*: the newest source timestamp.
+    """The evidence time a citation may safely claim: its *oldest* line.
 
-    Precedence runs on evidence time, so a source-backed correction carries
-    its messages' hour — never the tool invocation's. Unparseable rows fall
-    back to the archive, never to now: inventing an instant would mint
-    authority from nothing.
+    Precedence runs per field on evidence time, but which cited line supports
+    which changed field is not recoverable from text. Granting every changed
+    field the newest cited line's hour would let a stale claim ride a fresh
+    line's timestamp and undo a settlement made between the two; so a citation
+    is only as authoritative as its oldest line, and a field genuinely backed
+    by a newer line is simply held until it is cited on its own. A single-line
+    citation is unaffected (oldest == newest). Unparseable rows fall back to
+    the archive, never to now: inventing an instant would mint authority from
+    nothing.
     """
     stamps = []
     for row in conn.execute(
@@ -203,7 +208,7 @@ def _cited_ts(conn: sqlite3.Connection, ids: tuple[int, ...]) -> str | None:
             continue
     if not stamps:
         return None
-    return max(stamps).isoformat(timespec="seconds")
+    return min(stamps).isoformat(timespec="seconds")
 
 
 def _stamp_live(conn: sqlite3.Connection, kind: str, ref: str, verb: str, *,
@@ -307,9 +312,9 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
     # hour the same way — what the user said at 11:00 outranks a 10:00 message
     # and yields to genuinely newer evidence either side of it. Only a write
     # with neither turn nor citation keeps the old run-time semantics. One
-    # stamp covers the changed fields — per-line field attribution is not
-    # recoverable from text — while untouched fields keep whatever evidence
-    # time they already hold.
+    # stamp — the oldest cited line's, since per-line field attribution is not
+    # recoverable from text — covers the changed fields, while untouched fields
+    # keep whatever evidence time they already hold.
     evidence_ts = None
     support = list(origin.cited) or list(origin.archive_ids)
     if support:
@@ -331,12 +336,19 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
                  for name in events.MUTABLE
                  if str(before[name]) != str(getattr(updated, name))}
         if not moved and evidence_ts and _would_change(before, payload, wipe):
-            # Everything asked for lost on evidence time: the cited lines are
-            # older than what settled these fields. Say so plainly instead of
-            # reporting a no-op — and record nothing, so no mark moves either.
+            # A genuine revision lost on evidence time: what's stored was
+            # settled by evidence at least as new as this correction's. Say so
+            # plainly instead of reporting a no-op — and record nothing, so no
+            # mark moves either. The remedy is worded for what the caller
+            # actually supplied: only a citation can be called "those lines".
+            if origin.cited:
+                raise LiveError(
+                    "those lines are older than what's stored — they can't revise it. "
+                    "Cite newer evidence, or restate this as a new correction.")
             raise LiveError(
-                "those lines are older than what's stored — they can't revise it. "
-                "Cite newer evidence, or restate this as a new correction.")
+                "what's stored already reflects newer evidence — this correction "
+                "can't revise it. Cite the newer messages it's based on, or "
+                "restate it as a new correction.")
         # Record operations only when something moved; no-op calls are not decisions.
         if moved:
             _stamp_live(conn, "event", updated.key, "updated", origin=origin,
@@ -348,7 +360,9 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
 
 def _would_change(before: dict, payload: dict, wipe: tuple) -> bool:
     """Did the request ask for anything different from the stored row?"""
-    if wipe:
+    # A clear revises the row only if a named field actually holds a value;
+    # clearing an already-empty field is a no-op, not a rejected revision.
+    if any(before.get(name) not in (None, "") for name in wipe):
         return True
     for name, value in payload.items():
         if name == "key":
