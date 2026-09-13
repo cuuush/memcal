@@ -53,5 +53,13 @@ facts are the fast path when coverage supports them; for a flagged item, the
 assistant inspects the indicated activity before claiming current details. If
 collection or lookup failed, it states the last known plan and the limit instead
 of presenting that plan as freshly verified. The old "snapshot is the answer"
-wording is gone: the brief is the starting point, and it says where it ends. See
-[Daytime freshness](freshness.md).
+wording is gone: the brief is the starting point, and it says where it ends.
+
+Trimming keeps this honest. An event and its warning drop as one unit, and the
+completeness stamp is only kept while every coverage hole it would otherwise hide
+is still shown; if the budget drops a warning that stood in for a thread's
+backlog, the stamp is removed and a compact `[coverage incomplete — unreviewed or
+uncollected input not shown]` line takes its place. Backlog coverage is judged
+against the events the brief actually renders — not date-range membership — so a
+thread linked only to an unconfirmed opportunity or an event past the Later cap
+still surfaces. See [Daytime freshness](freshness.md).

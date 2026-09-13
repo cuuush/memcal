@@ -41,3 +41,12 @@ a statement never duplicates its change. Explicit user corrections are preserved
 without letting a generic user-priority rule override genuinely newer source
 evidence. Merge compares timestamped source messages when placing cancellations —
 a matching time nominates a candidate, and the meaning of the evidence decides.
+
+Precedence runs per field on when evidence was *said*. A correction that cites
+source lines (`source_ids`) carries the evidence time of its oldest cited line, so
+an old line cannot ride a newer one to undo a settlement made between them; a
+citation that names a nonexistent row, or a line with no readable timestamp, is
+refused rather than quietly treated as run time. The values a row is created
+holding record their own founding evidence time, so the first correction cannot
+erase what dream just established with an arbitrarily old source, and a clear must
+clear the same evidence bar a replacement would.
