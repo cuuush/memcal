@@ -232,6 +232,24 @@ def _valid_citations(conn: sqlite3.Connection,
         len(origin.cited) - len(kept)
 
 
+def _cited_or_reject(conn: sqlite3.Connection, origin: Origin) -> Origin:
+    """Validate citations at the one mutation boundary; refuse invalid support.
+
+    Every typed write that can mutate a row runs through here so creation and
+    correction cannot disagree: a source-backed write whose support does not
+    exist must fail, not quietly fall back to the authorship turn (or run time)
+    and gain authority its evidence never had. Rejecting all- and mixed-invalid
+    alike also blocks laundering — dropping an invalid member could only raise
+    the remaining set's authority.
+    """
+    origin, dropped = _valid_citations(conn, origin)
+    if dropped:
+        raise LiveError(
+            "some cited lines don't exist — re-read the activity and cite real "
+            "source_ids from it, or restate this as an uncited correction.")
+    return origin
+
+
 def _cited_ts(conn: sqlite3.Connection, ids: tuple[int, ...]) -> str | None:
     """The evidence time a citation may safely claim: its *oldest* line.
 
@@ -241,18 +259,26 @@ def _cited_ts(conn: sqlite3.Connection, ids: tuple[int, ...]) -> str | None:
     line's timestamp and undo a settlement made between the two; so a citation
     is only as authoritative as its oldest line, and a field genuinely backed
     by a newer line is simply held until it is cited on its own. A single-line
-    citation is unaffected (oldest == newest). Unparseable rows fall back to
-    the archive, never to now: inventing an instant would mint authority from
-    nothing.
+    citation is unaffected (oldest == newest).
+
+    A missing or unparseable source time is refused, never quietly replaced
+    with now: `db.parse_ts` substitutes the current instant on a bad value, so
+    an invalid stored `ts` would otherwise mint fresh authority from nothing.
+    One bad line poisons the set — its true hour is unknown, so it could be the
+    oldest, and dropping it could only *raise* the remaining authority.
     """
+    found = {row["id"]: row["ts"] for row in conn.execute(
+        f"""SELECT id, ts FROM archive WHERE id IN
+            ({",".join("?" * len(ids))})""", ids)}
     stamps = []
-    for row in conn.execute(
-            f"""SELECT ts FROM archive WHERE id IN
-                ({",".join("?" * len(ids))})""", ids):
+    for i in ids:
         try:
-            stamps.append(db.parse_ts(str(row["ts"] or "")))
+            stamps.append(db.parse_ts(str(found.get(i) or ""), strict=True))
         except (TypeError, ValueError):
-            continue
+            raise LiveError(
+                "a cited line has no readable timestamp — its evidence time "
+                "can't be trusted; cite lines with valid times, or restate "
+                "this as a new correction.")
     if not stamps:
         return None
     return min(stamps).isoformat(timespec="seconds")
@@ -293,6 +319,22 @@ def add_event(conn: sqlite3.Connection, cfg: Config, *, title: str, when: str,
     payload.update(title=title, date=start.isoformat())
     if payload.get("until"):
         payload["until"] = db.parse_when(str(payload["until"]))[0].isoformat()
+    # Same mutation-time citation rule as update_event: an invalid citation is
+    # refused here too, since add_event can match and update an existing row.
+    origin = _cited_or_reject(conn, origin)
+    # Preserve the founding evidence time so the created fields have a real
+    # precedence baseline. Without it a cited creation stores no evidence time,
+    # its fields floor at empty, and the very first correction — however old its
+    # source — silently overwrites them. The originating turn (or cited lines)
+    # says when these values were established; the tool's run time never does,
+    # which is why a genuinely newer source predating execution still wins.
+    evidence_ts = None
+    support = list(origin.cited) or list(origin.archive_ids)
+    if support:
+        said_at = _cited_ts(conn, tuple(support))
+        if said_at is not None:
+            evidence_ts = {name: said_at for name in payload
+                           if name in events.MUTABLE}
     op = actions.plan(kind="event", ref=f"new:{db.slugify(title, 48)}",
                       verb="inserted", origin=origin, request=payload, at=db.now())
     with _atomic(conn):
@@ -302,7 +344,8 @@ def add_event(conn: sqlite3.Connection, cfg: Config, *, title: str, when: str,
                                          participants=payload.get("participants") or [])
             if existing is not None:
                 return existing, "unchanged"
-        event, verb = events.upsert(conn, payload, written_by="live", commit=False)
+        event, verb = events.upsert(conn, payload, written_by="live",
+                                    evidence_ts=evidence_ts, commit=False)
         if verb != "unchanged":
             _stamp_live(conn, "event", event.key, verb, origin=origin, commit=False,
                         op_id=op,
@@ -355,7 +398,7 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
     payload.setdefault("date", event.date)
     # Citations are validated before the mutation, and only cited lines count as
     # reviewed: the authorship turn proves who asked, never what was considered.
-    origin, dropped = _valid_citations(conn, origin)
+    origin = _cited_or_reject(conn, origin)
     # A source-backed correction carries its messages' hour into precedence: an
     # old line cannot undo a newer settlement, while a genuinely newer line
     # applies whenever it was read. A plain user correction carries its turn's
@@ -370,7 +413,10 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
     if support:
         said_at = _cited_ts(conn, tuple(support))
         if said_at is not None:
-            evidence_ts = {name: said_at for name in payload
+            # Cleared fields (`wipe`) carry the same evidence time as set ones:
+            # a destructive clear is a revision and must clear the same
+            # precedence bar, not slip past a guard built only from `payload`.
+            evidence_ts = {name: said_at for name in (*payload, *wipe)
                            if name in events.MUTABLE}
     # Plan replay keys from the request, not current values, so retries stay recognisable.
     op = actions.plan(kind="event", ref=event.key, verb="updated", origin=origin,
