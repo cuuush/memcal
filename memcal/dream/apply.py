@@ -262,6 +262,10 @@ def apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
     if conn.in_transaction:
         conn.commit()
     wiki.recover(conn, cfg.wiki_dir)
+    # `identity.me_names()` persists its fallback on first read, and that commit
+    # must not land mid-transaction: warm it before this unit's BEGIN so every
+    # self-page resolution below is a pure read.
+    identity.me_names(conn)
     conn.execute("BEGIN")
     try:
         result = _apply_diffs(conn, cfg, proposals, written_by=written_by,
@@ -375,6 +379,7 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
         for row in diff.get("wiki") or []:
             # A wiki row is three independent claims, so it can produce three outcomes.
             for outcome in _apply_wiki(conn, cfg, row, source=source, seen=seen_slots,
+                                       evidence_ts=_wiki_evidence_ts(bundle, row),
                                        commit=False):
                 note("wiki", outcome, "wiki:",
                      generation=(row.get("_generation_id")
@@ -1023,8 +1028,71 @@ def _is_a_name(text: str) -> bool:
     return bool(re.search(r"[A-Za-z]", text)) and len(text.split()) <= 5
 
 
+def _wiki_evidence_ts(bundle: Bundle, row: dict) -> str | None:
+    """When the lines behind one wiki slot write were said, not when the bundle ends.
+
+    Wiki rows carry no per-field cites, so the value's own best lines decide — the
+    line stating the new value, not one quoting or denying the old one. A row with
+    no slot value (alias/question only) and a bundle with no dated lines keep the
+    older row-level behaviour via `_newest`, and a lineless diff yields None, which
+    the precedence check reads as "no ordering info" rather than as old evidence.
+    """
+    if not isinstance(row, dict):
+        return None
+    value = _clean(row.get("value"))
+    if not _clean(row.get("slot")) or not value:
+        return _newest(bundle) if bundle.items else None
+    cited = row.get("cite_ids") if isinstance(row.get("cite_ids"), list) else None
+    return _evidence_ts(bundle, cited, [value])
+
+
+def _wiki_slot_current_ts(conn: sqlite3.Connection | None, cfg: Config,
+                           slug: str, slot: str) -> str | None:
+    """When the evidence behind this slot's current value was said.
+
+    The newest archive line stamped behind the resolved ref first — that is when
+    the fact was stated. A direct write (note/CLI) stamps no trace, so fall back
+    to the slot history's write time, then the slot's own day stamp. None when
+    nothing on file says when, in which case the write stays allowed.
+    """
+    ref = f"{slug}.{slot.lower()}"
+    stamps: list[str] = []
+    if conn is not None:
+        try:
+            for line in trace.source_rows(conn, "wiki", ref, context=0):
+                try:
+                    ts = line["ts"]
+                except (KeyError, IndexError, TypeError):
+                    ts = None
+                if ts:
+                    stamps.append(str(ts))
+        except sqlite3.Error:
+            pass
+        if not stamps:
+            try:
+                for entry in wiki.slot_history(conn, slug, slot):
+                    if entry["changed_at"]:
+                        stamps.append(str(entry["changed_at"]))
+            except sqlite3.Error:
+                pass
+    if not stamps:
+        page = wiki.read(cfg.wiki_dir, slug)
+        slot_ts = ((page.slots.get(slot) or {}).get("ts")) if page else None
+        if slot_ts:
+            stamps.append(str(slot_ts))
+    return max(stamps) if stamps else None
+
+
+def _ts_not_newer(older: str, newer: str) -> bool:
+    """`older <= newer` on stored timestamps, tolerating day- and second-granularity."""
+    try:
+        return db.parse_ts(older) <= db.parse_ts(newer)
+    except (ValueError, TypeError, OverflowError):
+        return str(older) <= str(newer)
+
+
 def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None = None,
-                commit: bool = True):
+                evidence_ts: str | None = None, commit: bool = True):
     """Every field on this row that carries something, not the first one that does.
 
     Returns a list of outcomes, because a wiki row is three independent claims — a
@@ -1039,12 +1107,26 @@ def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None =
     page = _clean(row.get("page"))
     if not page:
         return []
-    slug = db.slugify(page)
+    # The user's page resolves through the shared contract: `me`, an established
+    # self name, or a recorded alias lands on one canonical slug. Ambiguity blocks
+    # the write — never a silent merge, a picked winner, or a third page.
+    if conn is not None:
+        try:
+            self_target = wiki.resolve_self_page(conn, cfg.wiki_dir, page)
+        except wiki.SelfAmbiguous as exc:
+            return [("rejected-ambiguous",
+                     f"ambiguous self page for {page!r}: "
+                     f"{', '.join(exc.candidates)} — resolve before writing")]
+        slug = self_target if self_target is not None else db.slugify(page)
+    else:
+        slug = db.slugify(page)
     section = resolve_section(conn, cfg, slug, _clean(row.get("section")))
     slot, value = _clean(row.get("slot")), _clean(row.get("value"))
     question = _clean(row.get("question"))
     alias = _clean(row.get("alias"))
     out = []
+    self_unmade = slug == "me" and not wiki.exists(cfg.wiki_dir, slug)
+    made_self = False
 
     if slot and value:
         if len(value) > MAX_SLOT_VALUE:
@@ -1053,14 +1135,31 @@ def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None =
         else:
             marker = (slug, slot.lower())
             if seen is None or marker not in seen:
-                if seen is not None:
-                    seen.add(marker)
-                before = conn.total_changes if conn is not None else None
-                wiki.set_slot(cfg.wiki_dir, slug, slot, value, source=source,
-                              section=section, conn=conn, commit=commit)
-                if before is None or conn.total_changes != before:
-                    out.append(("slot", f"{slug}.{slot} = {value}",
-                                f"{slug}.{slot.lower()}"))
+                previous = None
+                existing = wiki.read(cfg.wiki_dir, slug)
+                if existing is not None:
+                    previous = (existing.slots.get(slot) or {}).get("value")
+                if (evidence_ts is not None and previous is not None
+                        and previous != value):
+                    current_ts = _wiki_slot_current_ts(conn, cfg, slug, slot)
+                    if current_ts is not None and _ts_not_newer(evidence_ts, current_ts):
+                        # Older than the decision it would revise: a direct
+                        # correction or newer evidence stays. Genuinely newer
+                        # evidence lands.
+                        out.append(("rejected-stale",
+                                    f"{slug}.{slot} keeps its current value"
+                                    " (older evidence)"))
+                        slot = None
+                if slot is not None:
+                    if seen is not None:
+                        seen.add(marker)
+                    before = conn.total_changes if conn is not None else None
+                    wiki.set_slot(cfg.wiki_dir, slug, slot, value, source=source,
+                                  section=section, conn=conn, commit=commit)
+                    made_self = True
+                    if before is None or conn.total_changes != before:
+                        out.append(("slot", f"{slug}.{slot} = {value}",
+                                    f"{slug}.{slot.lower()}"))
 
     if alias and not _is_a_name(alias):
         out.append(("rejected-alias", f"{slug}: {alias!r} is not a name"))
@@ -1072,15 +1171,25 @@ def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None =
             before = conn.total_changes if conn is not None else None
             wiki.add_alias(cfg.wiki_dir, slug, alias, section=section, conn=conn,
                            commit=commit)
+            made_self = True
             if before is None or conn.total_changes != before:
                 out.append(("alias", f"{slug} is also {alias}",
                             f"{slug}:alias:{db.slugify(alias)}"))
         except ValueError:
             wiki.add_question(cfg.wiki_dir, slug, f"{slug}: same person as {alias}?",
                               section=section, conn=conn, commit=commit)
+            made_self = True
             out.append(("question", f"{slug}: same person as {alias}?", slug))
 
     if question and _is_a_question(question):
+        creating_this_run = made_self or (
+            seen is not None and any(s == slug for s, _ in seen))
+        if self_unmade and not creating_this_run:
+            # A question alone does not open the user's page: only a slot- or
+            # alias-bearing diff creates it, never participation or curiosity.
+            out.append(("rejected-empty-self",
+                        f"{slug}: a question alone does not open the user's page"))
+            return out
         before = conn.total_changes if conn is not None else None
         wiki.add_question(cfg.wiki_dir, slug, question, section=section, conn=conn,
                           commit=commit)
