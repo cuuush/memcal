@@ -20,7 +20,18 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   --format json` emits a machine-readable payload and the Hermes integration
   appends it as one reminder-authored turn, so follow-up replies have a referent.
   The outside-repo cron invocation is documented in `tools/README.md`.
-
+- A single self page holds your own durable facts. Every reference to `me`, an
+  established name, or a recorded alias resolves to that one page, so a fact never
+  opens a second copy; a namesake who merely shares a first name never counts as
+  you, and two pages that both look like yours block the write rather than guessing.
+  The brief carries these facts on an `About you` line (whole facts only, and its
+  pointer survives trimming), and `memcal_open_page` / `memcal_note` accept
+  `page='me'`.
+- `memcal_search_wiki` finds a remembered fact by name, alias, label, value, or
+  prose when you do not know which page holds it, returning bounded matches with
+  their provenance. The intended order is the brief first, then `memcal_open_page`,
+  then `memcal_search_wiki`, and only then `memcal_search_archive` for the original
+  messages.
 - memcal.app carries the handle-grid icon ([E]/[T]/[Q] pills over a calendar and
   store) instead of a generic executable glyph, and the web UI serves the same
   art as its favicon. `memcal schedule install` converts `memcal/macos/icon.png`
