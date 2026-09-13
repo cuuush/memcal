@@ -442,6 +442,17 @@ def _dream(
     # only record that it had not been read, so losing that loses it for good.
     read = read_entities | {b.entity for b, _diff, _gen in proposals}
     unread = [b for b in bundles if b.entity not in read]
+    # A read bundle was considered in full, whether it produced a diff or an
+    # explicitly valid no-change: facts evidenced in its conversations advance
+    # to what was read there. Failed and unread bundles are untouched, and
+    # anything arriving while the pass ran is newer than the bundle snapshot,
+    # so it stays pending.
+    from .. import activity  # noqa: PLC0415
+    for bundle in bundles:
+        if bundle.entity not in read:
+            continue
+        activity.advance_thread(conn, bundle.items, by_run=run_id,
+                                by_stage="dream", commit=False)
     archive.spool_mark(conn, [sid for b in bundles if b.entity in read
                               for sid in b.spool_ids], run_id)
     if unread:

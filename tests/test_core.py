@@ -2332,10 +2332,13 @@ class TestCatchUp(Base):
 
     def test_a_round_that_stores_nothing_stops_the_loop(self):
         # GroupMe answers a fast loop with 429s and still reports "more waiting".
+        # A dry round that still claims more work is incomplete, not exhausted:
+        # clearing `more` here would let a rate limit read as a complete check.
         fake = self._Fake(1, dry_but_claims_more=True)
         report = sources.catch_up(fake, self.conn, self.cfg, limit=10, rounds=25)
         self.assertEqual(fake.calls, 2)
-        self.assertFalse(report.more)
+        self.assertTrue(report.more)
+        self.assertEqual(report.outcome, "incomplete")
         self.assertTrue(any("added nothing" in n for n in report.notes))
 
     def test_the_round_cap_is_reported_rather_than_hidden(self):

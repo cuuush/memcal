@@ -647,12 +647,33 @@ def upsert(
     def evidence_for(name: str) -> str | None:
         return stamps.get(name, default_ts)
 
+    def _stale(here: str, version: str) -> bool:
+        # A live correction restating its own hour still decides: two turns in
+        # one second are ordered by arrival, not by a clock that cannot tell
+        # them apart. Replay protection stays with the operation record, which
+        # already turned the identical retry into a no-op before this point.
+        if per_field and written_by == "live":
+            return str(here) < (version or "")
+        return str(here) <= (version or "")
+
     guarded = precedence(written_by) < precedence(existing.written_by)
     # An empty mapping claims no line supports these fields; never fall back to the day.
-    dated = guarded and (per_field or bool(evidence_ts))
-    # Floor for fields nobody revised: the creating write's evidence time, or its
-    # run time for typed writes with no older evidence.
-    born = str(row["evidence_ts"] or row["created_at"] or last_write)
+    dated = (per_field or bool(evidence_ts)) and (
+        guarded or (per_field and written_by == "live"))
+    # A cited typed correction carries its messages' evidence time into the same
+    # per-field guards dream writes go through: without this a live write always
+    # outranks on writer precedence and its execution time becomes the decision's
+    # time, letting an old retrieved line undo a newer settlement. Uncited live
+    # writes keep the existing run-time semantics below.
+    # Floor for fields nobody revised: the creating write's evidence time. A
+    # cited live correction speaks for the user about those lines, so its first
+    # decision is free of any wall-clock floor — the founding message always
+    # arrives before the row typed from it, and run time must not pose as
+    # evidence. Every other writer keeps the established floor.
+    if per_field and written_by == "live":
+        born = str(row["evidence_ts"] or "")
+    else:
+        born = str(row["evidence_ts"] or row["created_at"] or last_write)
     settled = _field_versions(conn, existing.id, born) if dated else {}
     stale: list[str] = []
     if guarded and not dated and last_write[:10] != db.today().isoformat():
@@ -711,7 +732,7 @@ def upsert(
             # Conversations may still add location, notes, or guests.
             continue
         here = evidence_for(name)
-        if dated and (not here or str(here) <= settled.get(name, "")):
+        if dated and (not here or _stale(here, settled.get(name, ""))):
             # Older than the decision it would revise; genuinely newer evidence lands.
             stale.append(name)
             continue
@@ -1067,6 +1088,7 @@ def history(conn: sqlite3.Connection, event_id: int) -> list[sqlite3.Row]:
 
 def delete(conn: sqlite3.Connection, key: str, *, commit: bool = True) -> bool:
     cur = conn.execute("DELETE FROM events WHERE key = ?", (key,))
+    conn.execute("DELETE FROM reviewed_lines WHERE kind = 'event' AND ref = ?", (key,))
     if commit:
         conn.commit()
     return cur.rowcount > 0
@@ -1213,6 +1235,17 @@ def merge(conn: sqlite3.Connection, keep_key: str, drop_key: str,
         (keep.key, drop.key),
     )
     conn.execute("DELETE FROM evidence WHERE kind = 'event' AND ref = ?", (drop.key,))
+    # Review coverage follows the surviving row line by line; the dropped key
+    # keeps nothing. Covered lines stay covered, pending lines stay pending —
+    # a larger watermark on either side never becomes blanket coverage.
+    conn.execute(
+        """INSERT OR IGNORE INTO reviewed_lines(kind, ref, archive_id, reviewed_at,
+                                                by_run, by_stage)
+           SELECT 'event', ?, archive_id, reviewed_at, by_run, by_stage
+             FROM reviewed_lines WHERE kind = 'event' AND ref = ?""",
+        (keep.key, drop.key))
+    conn.execute("DELETE FROM reviewed_lines WHERE kind = 'event' AND ref = ?",
+                 (drop.key,))
     conn.execute("DELETE FROM events WHERE id = ?", (drop.id,))
     if commit:
         conn.commit()
