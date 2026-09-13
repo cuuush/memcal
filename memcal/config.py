@@ -110,6 +110,11 @@ class Config:
     # state resolution across independent threads.
     cold_start_waves: int = 4
 
+    # Minutes between automatic daytime checks of the same source. Due selection
+    # compares the last attempt's finish time against this; explicit ingest still
+    # forces a check and records it for the next due decision.
+    collect_interval_minutes: int = 5
+
     # Request packing strategy:
     #   size      group bundles by token size
     #   affinity  group conversations sharing dates, keywords, and participants
@@ -232,6 +237,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
         ("MEMCAL_SAME_EVENT_TOKENS", "same_event_tokens", int),
         ("MEMCAL_SAME_EVENT_POOR_TOKENS", "same_event_poor_tokens", int),
         ("MEMCAL_SEMANTIC_WAKES", "semantic_wakes", _flag),
+        ("MEMCAL_COLLECT_INTERVAL_MINUTES", "collect_interval_minutes", int),
         ("MEMCAL_REMIND_DEADLINES", "remind_deadlines", _flag),
     ):
         raw = env.get(name) or os.environ.get(name)

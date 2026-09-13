@@ -69,12 +69,18 @@ def stamp(conn: sqlite3.Connection, *, kind: str, ref: str, verb: str | None = N
           entity: str | None = None, stage: str = "propose", run_id: int | None = None,
           generation_id: str | None = None,
           archive_ids: list[int] | tuple[int, ...] | None = None,
+          review_ids: list[int] | tuple[int, ...] | None = None,
           strict: bool = False) -> None:
     """Remember which call wrote one row and which original lines it was reading.
 
     `provenance` points to the model call; `evidence` points to the archive, which is the
     source a person or agent usually wants when they click a brief line. Callers that
     promise an audited write pass ``strict=True`` so neither can be lost silently.
+
+    Review coverage follows `review_ids`, defaulting to every linked line. A
+    caller mixing authorship turns with opened evidence (a live tool call)
+    passes only the evidence it actually considered: a newer user question
+    must not acknowledge older unread source messages as reviewed.
     """
     if not ref:
         return
@@ -92,6 +98,15 @@ def stamp(conn: sqlite3.Connection, *, kind: str, ref: str, verb: str | None = N
                    VALUES(?,?,?,?,?,?,?)""",
                 (kind, ref, archive_id, entity, run_id, generation_id or None, db.now()),
             )
+        considered = (review_ids if review_ids is not None else archive_ids) or ()
+        if [i for i in considered if i]:
+            # The same transaction that records what was written records what it
+            # considered: a later correction citing only its own lines cannot
+            # acknowledge its neighbour's pending messages.
+            from . import activity  # noqa: PLC0415
+            activity.note_review(conn, kind, ref, considered,
+                                 by_run=run_id, by_stage=stage or "",
+                                 commit=False)
     except sqlite3.Error:
         if strict:
             raise
