@@ -15,6 +15,7 @@
 | `open <E/T/Q>` | Everything about one handle |
 | `page <slug>` / `pages` | Wiki pages |
 | `search <query>` | Full-text archive search |
+| `activity [<E/T/Q>]` | New messages behind one plan (`--cursor`, `--limit`); omit the handle for unlinked backlog |
 
 ## Tell and correct
 
@@ -26,6 +27,7 @@
 | `todo` / `done` | Obligations |
 | `ask` / `answer` | Open questions |
 | `note` / `alias` / `merge` | Wiki facts and names |
+| `reviewed <E/T/Q> --source-ids "…"` | Mark cited activity lines reviewed with no row change |
 
 ## Identity
 

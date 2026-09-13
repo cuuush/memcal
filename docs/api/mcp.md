@@ -12,17 +12,19 @@ The server also exposes the brief as the `memcal://brief` resource.
 
 ## Reads
 
-`memcal_brief`, `memcal_open`, `memcal_open_page`, `memcal_list_days`,
-`memcal_list_month`, `memcal_search_archive`, `memcal_source`,
-`memcal_conversation`. See [Recall](recall.md).
+`memcal_brief`, `memcal_open`, `memcal_open_page`, `memcal_search_wiki`,
+`memcal_list_days`, `memcal_list_month`, `memcal_search_archive`, `memcal_source`,
+`memcal_conversation`, `memcal_activity` (new messages behind a flagged plan, or
+the backlog), and `memcal_refresh` (re-render the current brief, no model). See
+[Recall](recall.md).
 
 ## Writes
 
 `memcal_add`, `memcal_update`, `memcal_schedule`, `memcal_move_once`,
 `memcal_merge`, `memcal_drop`, `memcal_todo`, `memcal_note`, `memcal_alias`,
-`memcal_answer`. Writes run as code — no model — with the change and its
-operation record written together. See [Remember](remember.md) and
-[Correct](correct.md).
+`memcal_answer`, `memcal_reviewed` (acknowledge cited activity lines with no row
+change). Writes run as code — no model — with the change and its operation record
+written together. See [Remember](remember.md) and [Correct](correct.md).
 
 ## Sessions
 
