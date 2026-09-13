@@ -2,6 +2,12 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Python build / packaging outputs and the built docs site.
+/build/
+/dist/
+*.egg-info/
+/site/
 proton.txt
 PROJECT_CONTEXT.md
 memcal-architecture-v0_3.md
