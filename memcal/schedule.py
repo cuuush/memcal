@@ -42,8 +42,39 @@ def _is_macos() -> bool:
     """
     return sys.platform == "darwin"
 
-#: Interval used to catch a missed run after wake.
+#: Fallback wake interval (seconds) when the store config cannot supply one.
+#: The timer itself comes from `collect_interval_minutes` via `effective_interval`;
+#: this constant only covers a missing/invalid setting. Changing
+#: MEMCAL_COLLECT_INTERVAL_MINUTES takes effect on `memcal schedule install`,
+#: which re-renders the plist.
 WAKE_INTERVAL = 1800
+
+#: Bounds for the launchd StartInterval derived from the collect interval.
+MIN_INTERVAL_SECONDS = 60
+MAX_INTERVAL_SECONDS = 86400
+
+
+def effective_interval(cfg: Config | None = None, *,
+                       interval: int | None = None) -> int:
+    """Seconds between daytime wake-ups for this store.
+
+    With no explicit `interval`, derives from the store config's
+    `collect_interval_minutes` (minutes * 60), clamped to
+    [MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS]. An explicit `interval`
+    (seconds) overrides the config but is clamped the same way. A missing or
+    non-numeric value falls back to WAKE_INTERVAL.
+    """
+    if interval is not None:
+        try:
+            seconds = int(interval)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return WAKE_INTERVAL
+        return max(MIN_INTERVAL_SECONDS, min(MAX_INTERVAL_SECONDS, seconds))
+    try:
+        minutes = int(getattr(cfg, "collect_interval_minutes", None))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return WAKE_INTERVAL
+    return max(MIN_INTERVAL_SECONDS, min(MAX_INTERVAL_SECONDS, minutes * 60))
 
 #: Agents replaced by the combined nightly job.
 RETIRED_LABELS = ("com.memcal.catchup", "com.memcal.missed")
@@ -513,13 +544,16 @@ fi
 case "$VERDICT" in
     owed*) ;;
     ok*)
-        # A catch-up fetch never invokes the model.
-        OUT="$("$PY" -m memcal ingest --stale 2>&1)"
+        # A due-collection tick never invokes the model. Sources due for another
+        # check (five minutes by default) are fetched; anything else is a no-op.
+        # A busy store — a manual or web collection already holding it — exits
+        # through the same quiet path as nothing-due rather than as a failure.
+        OUT="$("$PY" -m memcal ingest all --due 2>&1)"
         STATUS=$?
         case "$OUT" in
-            "nothing stale that is reachable right now") exit 0 ;;
+            "nothing due for another check right now"|*"already running"*) exit 0 ;;
         esac
-        echo "=== $(date '+%Y-%m-%d %H:%M:%S')  catch-up ==="
+        echo "=== $(date '+%Y-%m-%d %H:%M:%S')  daytime ==="
         echo "$OUT"
         exit "$STATUS"
         ;;
@@ -556,14 +590,18 @@ exit "$INGEST"
 
 
 def render_plist(cfg: Config, *, hour: int = DEFAULT_HOUR, minute: int = DEFAULT_MINUTE,
-                 interval: int = WAKE_INTERVAL) -> dict:
-    """Render the calendar, interval, and login triggers for one job."""
+                 interval: int | None = None) -> dict:
+    """Render the calendar, interval, and login triggers for one job.
+
+    StartInterval comes from the store config's `collect_interval_minutes`
+    via `effective_interval`; pass `interval` (seconds) only to override it.
+    """
     argv = launch_through(cfg, [str(script_path(cfg))])
     plist: dict = {
         "Label": LABEL,
         "ProgramArguments": argv,
         "StartCalendarInterval": {"Hour": int(hour), "Minute": int(minute)},
-        "StartInterval": int(interval),
+        "StartInterval": effective_interval(cfg, interval=interval),
         "RunAtLoad": True,
         # The script keeps its own log; this only catches a job that fails to start.
         "StandardOutPath": str(cfg.home / "launchd.err"),
@@ -854,7 +892,7 @@ def status(cfg: Config, *, runner=subprocess.run) -> dict:
         "script": str(script_path(cfg)),
         "log": str(log) if log.exists() else None,
         "at": scheduled,
-        "every": WAKE_INTERVAL,
+        "every": effective_interval(cfg),
         "next": next_run(*scheduled) if scheduled else None,
         "last_start": started.isoformat(timespec="seconds") if started else None,
         "owed": due.isoformat(timespec="seconds") if due else None,
