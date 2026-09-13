@@ -359,18 +359,34 @@ def read(conn: sqlite3.Connection, kind: str, ref: str, *,
             "omitted": omitted, "total": total}
 
 
-def unlinked_backlog(conn: sqlite3.Connection, *, limit: int = 5) -> list[dict]:
-    """Pending spool traffic in conversations no fact is associated with.
+def unlinked_backlog(conn: sqlite3.Connection, *, limit: int = 5,
+                     represented: "set[str] | None" = None) -> list[dict]:
+    """Pending spool traffic in conversations no *rendered* plan is associated with.
 
     For broad questions ("anything fun this weekend?") so unreviewed material
     with no typed row yet cannot hide behind an exhaustive-coverage claim — and
     is never presented as a confirmed opportunity. Muted and ignored material
     stays out.
+
+    A thread counts as linked only when its evidence supports an event that is
+    actually surfaced — `represented` is the set of event keys the brief renders
+    (its selection, limits, children and filters already applied). Date-range
+    membership is not enough: an unconfirmed opportunity or an event past the
+    Later cap sits in range yet shows no hint, so a thread linked only to such an
+    event — or to a past event, a far-future one, or a non-event fact — must
+    still surface its new traffic here. With no set given, nothing is treated as
+    covered, so all unreviewed traffic is disclosed.
     """
-    associated = {(row["stream"], row["thread"] or "") for row in conn.execute(
-        """SELECT DISTINCT a.stream AS stream, coalesce(a.thread, '') AS thread
-             FROM evidence e JOIN archive a ON a.id = e.archive_id
-            WHERE a.thread IS NOT NULL""")}
+    covered = represented or set()
+    associated = set()
+    for row in conn.execute(
+            """SELECT DISTINCT a.stream AS stream, coalesce(a.thread, '') AS thread,
+                      e.ref AS ref
+                 FROM evidence e
+                 JOIN archive a ON a.id = e.archive_id
+                WHERE a.thread IS NOT NULL AND e.kind = 'event'"""):
+        if row["ref"] in covered:
+            associated.add((row["stream"], row["thread"] or ""))
     from . import archive as archive_mod  # noqa: PLC0415
     internal = set(archive_mod.INTERNAL_STREAMS)
     rows = conn.execute(

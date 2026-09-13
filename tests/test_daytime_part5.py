@@ -166,7 +166,10 @@ class TestOldSessionsGetToday(_HermesBase):
         self.assertIn("New activity", second)
         self.assertNotEqual(first, second)
         # A short follow-up with nothing new reuses the standing snapshot.
-        self.assertEqual(self.provider.prefetch("and where?"), "")
+        self.provider._acknowledge_snapshot([
+            {"role": "user", "content": "query", "api_content": "query\n\n" + second}
+        ], self.provider._session_id)
+        self.assertIn("MEMCAL CURRENT", self.provider.prefetch("and where?"))
 
     def test_resume_reemits_and_failure_warns(self):
         self.provider.on_turn_start(1, "hi")
@@ -506,12 +509,14 @@ class TestAuthorshipBoundaries(unittest.TestCase):
                                 (event.key,)).fetchone()
         out = server.call("memcal_update",
                           {"which": f"E{row['id']}", "when": "sunday",
-                           "source_ids": [m2id, 424242]})
+                           "source_ids": [m2id]})
         self.assertIn("2026-09-13", out)
         cited = [r["archive_id"] for r in self.conn.execute(
             "SELECT archive_id FROM evidence WHERE kind='event' AND ref=?",
             (event.key,))]
         self.assertIn(m2id, cited)
+        # An accompanying invalid id would fail the whole write rather than be
+        # silently dropped — see TestSourceBackedWritesAreHonest below.
         self.assertNotIn(424242, cited)
 
     def test_mcp_session_turn_acknowledges_nothing(self):

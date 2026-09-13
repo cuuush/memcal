@@ -308,12 +308,19 @@ def parse_when(phrase: str, *, ref: date | None = None) -> tuple[date, int]:
     return ref, 1
 
 
-def parse_ts(value: str) -> datetime:
+def parse_ts(value: str, *, strict: bool = False) -> datetime:
     """Parse a stored timestamp. Naive values are assumed local, so comparisons
-    between fixture data and real ingest never raise."""
+    between fixture data and real ingest never raise.
+
+    `strict` re-raises on an unparseable value instead of substituting now.
+    Callers deciding evidence authority need this: silently minting the current
+    time from a malformed source would let it pose as fresh evidence.
+    """
     try:
         stamp = datetime.fromisoformat(str(value))
     except ValueError:
+        if strict:
+            raise
         stamp = now_dt()
     return stamp.astimezone()
 
