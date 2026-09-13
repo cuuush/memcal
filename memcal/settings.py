@@ -176,6 +176,14 @@ SETTINGS: tuple[Setting, ...] = (
             "A first, huge ingest is split into this many passes, so what the early "
             "ones resolve is available to the later ones.",
             "collect", kind="int", minimum=1, maximum=20),
+    Setting("MEMCAL_COLLECT_INTERVAL_MINUTES", "collect_interval_minutes",
+            "Check interval",
+            "Minutes before a source checked by `ingest --due` becomes due again. "
+            "Failed, unavailable, and incomplete attempts wait at least this long "
+            "too; an explicit ingest without `--due` always runs immediately. "
+            "The launchd cadence takes effect on `memcal schedule install`, "
+            "which re-renders the plist.",
+            "collect", kind="int", minimum=1, maximum=1440, unit="minutes"),
 
     # --------------------------------------------------------------------- dream --
     Setting("MEMCAL_PACK_BUNDLES", "pack_bundles", "Bundles per request",

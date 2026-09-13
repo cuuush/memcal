@@ -22,11 +22,21 @@ NO_SOURCE_NOTE = "caller supplied no originating turn"
 
 @dataclass(frozen=True)
 class Origin:
-    """Where a typed write came from, and what the user said that caused it."""
+    """Where a typed write came from, and what evidence it considered.
+
+    `archive_ids` is authorship: the turn behind this call. `cited` is review:
+    activity lines the caller opened and is answering with. The two ride
+    together for provenance but only `cited` acknowledges reviewed
+    observations — a newer user question must never mark older unread source
+    messages as considered.
+    """
 
     surface: str = "unknown"
     #: Archive ids of the turn behind this call. Empty is allowed and recorded.
     archive_ids: tuple[int, ...] = ()
+    #: Archive ids of opened evidence this write answers with. Validated and
+    #: reviewed at the write; unknown ids are dropped, never stored.
+    cited: tuple[int, ...] = ()
     session: str = ""
     note: str = ""
     #: The caller's own idempotency key for this operation, when it has one. A client
@@ -35,16 +45,17 @@ class Origin:
     op_id: str = ""
 
     @classmethod
-    def of(cls, surface: str, archive_ids=None, *, session: str = "",
+    def of(cls, surface: str, archive_ids=None, *, cited=None, session: str = "",
            note: str = "", op_id: str = "") -> "Origin":
         ids = tuple(int(i) for i in (archive_ids or ()) if i)
-        return cls(surface=surface or "unknown", archive_ids=ids, session=session,
-                   op_id=op_id,
-                   note=note or ("" if ids else NO_SOURCE_NOTE))
+        cites = tuple(int(i) for i in (cited or ()) if i)
+        return cls(surface=surface or "unknown", archive_ids=ids, cited=cites,
+                   session=session, op_id=op_id,
+                   note=note or ("" if (ids or cites) else NO_SOURCE_NOTE))
 
     @property
     def sourced(self) -> bool:
-        return bool(self.archive_ids)
+        return bool(self.archive_ids or self.cited)
 
 
 #: The default for a caller that has not been taught to supply context yet. Callers
@@ -109,6 +120,7 @@ def plan(*, kind: str, ref: str, verb: str, origin: Origin, request: dict,
         "kind": kind, "ref": ref, "verb": verb,
         "surface": origin.surface, "session": origin.session,
         "sources": sorted(origin.archive_ids),
+        "cited": sorted(origin.cited),
         "request": {k: request[k] for k in sorted(request)},
         "at": "" if origin.sourced else at,
     }, sort_keys=True, default=str)

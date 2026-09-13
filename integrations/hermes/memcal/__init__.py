@@ -25,6 +25,15 @@ DEFAULT_MEMCAL_SRC = Path.home() / "code" / "memcal"
 _loaded_mtime = 0.0
 
 
+def _unavailable(why: str) -> str:
+    """An explicit freshness failure, never a silent fall back to an old snapshot."""
+    return (
+        "MEMCAL UNAVAILABLE: current context could not be rendered"
+        f" ({why}). Do not treat the last snapshot as current and do not claim "
+        "freshly verified plans; say coverage is limited and offer the refresh "
+        "tool instead.")
+
+
 def _source_mtime(src: str) -> float:
     """Newest mtime across the memcal package. A few stat calls, once per tool call."""
     try:
@@ -295,8 +304,56 @@ UPDATE_EVENT = {
             "join_url": {"type": "string",
                          "description": "the link you attend through, for anything online. \"Online\" is a location; a Zoom link is this"},
             "series": {"type": "string", "description": "the recurring thing this is one of, as a slug ('tutoring'). Sets it where repetition alone could not prove it — a new instance then starts with what the series already knows"},
+            "source_ids": {"type": "array", "items": {"type": "integer"},
+                           "description": "archive line ids from memcal_activity this change is based on"},
         },
         "required": ["which"],
+    },
+}
+
+ACTIVITY = {
+    "name": "memcal_activity",
+    "description": (
+        "New messages behind one plan since its last review — the correction, not a "
+        "keyword search. Use when the brief flags new activity on a row before giving "
+        "current details for it. Reading changes nothing; cite the line ids in a "
+        "memcal_update, or acknowledge them with memcal_reviewed when the stored row "
+        "still stands. Brief lines carry a handle such as E46; give it that."),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "handle": {"type": "string", "description": "brief handle, e.g. E46"},
+            "cursor": {"type": "integer",
+                       "description": "an archive id to read after (for paging)"},
+            "limit": {"type": "integer", "description": "default 20"},
+        },
+        "required": ["handle"],
+    },
+}
+
+REFRESH = {
+    "name": "memcal_refresh",
+    "description": (
+        "Re-render the current brief on demand — the same snapshot prefetch injects, "
+        "without model work. For turns where injection may have been skipped or "
+        "source state changed mid-turn."),
+    "parameters": {"type": "object", "properties": {}},
+}
+
+REVIEWED = {
+    "name": "memcal_reviewed",
+    "description": (
+        "Mark activity lines as reviewed with no change to the row — the stored plan "
+        "still stands after reading them. Only the cited lines stop raising hints. "
+        "Cite the line ids memcal_activity returned."),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "handle": {"type": "string", "description": "brief handle, e.g. E46"},
+            "source_ids": {"type": "array", "items": {"type": "integer"},
+                           "description": "archive line ids this review covered"},
+        },
+        "required": ["handle", "source_ids"],
     },
 }
 
@@ -483,6 +540,35 @@ ANSWER = {
     },
 }
 
+
+def _cited_ids(args) -> list[int]:
+    """Archive ids the caller claims to have read. Validated at the write."""
+    raw = args.get("source_ids") or []
+    if isinstance(raw, str):
+        raw = raw.replace(",", " ").split()
+    try:
+        return [int(part) for part in raw]
+    except (TypeError, ValueError):
+        raise ValueError("source_ids must be archive line ids, e.g. [12, 13]")
+
+
+def _w_reviewed(live, conn, cfg, args, origin):
+    from memcal import actions as actions_mod
+    cited = _cited_ids(args)
+    if cited:
+        origin = actions_mod.Origin.of(
+            origin.surface, origin.archive_ids, cited=cited,
+            session=origin.session, note=origin.note, op_id=origin.op_id)
+    handle = args.get("handle", "")
+    from memcal import activity as activity_mod
+    try:
+        _kind, ref = activity_mod.resolve_handle(conn, handle)
+    except LookupError as exc:
+        raise ValueError(str(exc)) from exc
+    message = live.reviewed(conn, cfg, ref, origin=origin)
+    return {"reviewed": message}, []
+
+
 def _sourced(rows) -> list[dict]:
     """Calendar rows with the handle that opens their source.
 
@@ -507,6 +593,12 @@ def _w_add(live, conn, cfg, args, origin):
 
 
 def _w_update(live, conn, cfg, args, origin):
+    from memcal import actions as actions_mod
+    cited = _cited_ids(args)
+    if cited:
+        origin = actions_mod.Origin.of(
+            origin.surface, origin.archive_ids, cited=cited,
+            session=origin.session, note=origin.note, op_id=origin.op_id)
     event, changed = live.update_event(
         conn, cfg, args.get("which", ""), origin=origin, status=args.get("status"), when=args.get("when"),
         until=args.get("until"), time=args.get("time"), location=args.get("location"),
@@ -599,6 +691,7 @@ _WRITE_TOOLS = {
     "memcal_todo": _w_todo,
     "memcal_note": _w_note,
     "memcal_alias": _w_alias,
+    "memcal_reviewed": _w_reviewed,
 }
 
 
@@ -687,6 +780,8 @@ class MemcalMemoryProvider(MemoryProvider):
             "days it covers, so 'what's my weekend looking like', 'what am I doing "
             "Thursday' and 'what's the rest of my week' are answered by reading it — "
             "reaching for a tool first adds a round trip and returns these same rows. "
+            "The one exception is a line flagged with new activity: that plan may have "
+            "changed, so open the named activity before giving current details for it. "
             "Look things up for dates past its window, or for depth it does not carry. "
             "Every memory line has a source handle; open it when the wording is too "
             "short or the user asks what it means.\n\n"
@@ -716,8 +811,10 @@ class MemcalMemoryProvider(MemoryProvider):
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         """Fresh brief plus material wiki pages named in this turn, with no model call."""
         self._refresh()
-        if not self._cfg or self._agent_context != "primary":
+        if self._agent_context != "primary":
             return ""
+        if not self._cfg:
+            return _unavailable("not initialized")
         # Effective session: the explicit per-turn id when serving concurrent
         # sessions, else the provider's bound session.
         effective_sid = session_id or self._session_id
@@ -745,7 +842,7 @@ class MemcalMemoryProvider(MemoryProvider):
                 conn.close()
         except Exception as exc:
             logger.debug("memcal prefetch failed: %s", exc)
-            return ""
+            return _unavailable(type(exc).__name__)
         out = []
         digest = hashlib.sha1(snapshot.encode("utf-8")).hexdigest()
         with self._lock:
@@ -884,10 +981,10 @@ class MemcalMemoryProvider(MemoryProvider):
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         # One verb per write tool; no extraction step.
         return [OPEN, OPEN_PAGE, OPEN_SOURCE, CONVERSATION, LIST_DAYS, LIST_MONTH,
-                SEARCH_ARCHIVE,
+                SEARCH_ARCHIVE, ACTIVITY, REFRESH,
                 ADD_EVENT, UPDATE_EVENT, SET_SCHEDULE, MOVE_ONCE,
                 MERGE_EVENTS, DROP_EVENT, ADD_TODO,
-                ANSWER, NOTE, ALIAS]
+                ANSWER, NOTE, ALIAS, REVIEWED]
 
     def _refresh(self) -> None:
         """Pick up an edited memcal before serving a call, not after the next restart.
@@ -995,6 +1092,32 @@ class MemcalMemoryProvider(MemoryProvider):
                  **({"note": presentation.SELF_WRITTEN_NOTE}
                     if presentation.self_written(r["stream"]) else {})}
                 for r in rows]})
+
+        if tool_name == "memcal_activity":
+            from memcal import activity as activity_mod
+            try:
+                kind, ref = activity_mod.resolve_handle(
+                    conn, str(args.get("handle", "")))
+            except LookupError as exc:
+                return json.dumps({"error": str(exc)})
+            try:
+                cursor = int(args.get("cursor") or 0)
+                limit = max(1, min(50, int(args.get("limit") or 20)))
+            except (TypeError, ValueError):
+                return json.dumps({"error": "cursor and limit must be numbers"})
+            page = activity_mod.read(conn, kind, ref, cursor=cursor, limit=limit)
+            weak = activity_mod.associations(conn, kind, ref)["weak"]
+            return json.dumps({
+                "handle": args.get("handle", ""), "kind": kind, "ref": ref,
+                "mark": page["mark"], "total": page["total"],
+                "omitted": page["omitted"], "next_cursor": page["next_cursor"],
+                "items": page["items"], "possibly_related": weak,
+                "note": "reading changes nothing; cite line ids in a correction",
+            })
+
+        if tool_name == "memcal_refresh":
+            from memcal import brief
+            return json.dumps({"snapshot": brief.render(conn, self._cfg)})
 
         if tool_name == "memcal_answer":
             from memcal import brief, todos

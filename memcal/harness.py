@@ -31,6 +31,8 @@ Write settled conversational changes immediately with the tool that names the ch
 memcal_add, memcal_update, memcal_merge, memcal_drop, memcal_todo, memcal_answer,
 memcal_note, or memcal_alias. These tools update private memcal state directly and do
 not need a second model pass. Never infer that a to-do is complete; ask when unsure.
+A row flagged with new activity may have changed — read it with memcal_activity
+before giving current details for it.
 
 Memcal does not mutate the user's real calendar. Use the harness's calendar capability
 for an explicit request to create, move, or delete a real calendar event; do not also
