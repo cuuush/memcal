@@ -453,15 +453,88 @@ def _dates_held(conn: sqlite3.Connection, event_id: int) -> set[str]:
     return {value for value in held if value}
 
 
-def _field_versions(conn: sqlite3.Connection, event_id: int,
-                    born: str) -> dict[str, str]:
-    """When the evidence behind each field was *said*, keyed by field."""
+#: Sentinel `event_history.field` marking that a row carries per-field creation
+#: provenance. Never a real field name, so it never floors anything itself.
+_BORN_MARK = "__born__"
+#: Suffix on `written_by` for creation-provenance rows, so precedence can tell a
+#: value the row was *born* holding from one a later write revised. `:born` carries
+#: a known founding evidence time (full-precision ordering); `:born-day` stood the
+#: creation instant in for an unknown one, so the user's own correction is weighed
+#: only to the day. `_BORN_DAY_SUFFIX` deliberately does not end in `_BORN_SUFFIX`.
+_BORN_SUFFIX = ":born"
+_BORN_DAY_SUFFIX = ":born-day"
+
+
+def _record_creation(conn: sqlite3.Connection, event_id: int, fields: dict,
+                     evidence_ts, stamp: str, written_by: str) -> None:
+    """Stamp per-field provenance for the values a row is created holding.
+
+    Precedence reads `event_history` to learn when each field was established;
+    without a row here, a created value has no recorded floor and any old source
+    clears it on the first edit. Only explicitly supplied fields are recorded —
+    schema defaults (an unstated status, kind or subject) establish nothing and
+    stay unprotected.
+
+    A field's evidence time is the founding line's when the caller supplied one:
+    that is a *known* time and keeps full-precision ordering, so a later source
+    from earlier the same day is still correctly stale (`:born`). When no time is
+    known the creation instant stands in, but run time is not evidence about the
+    value, so the user's own correction is judged only to the day (`:born-day`);
+    a cheaper writer still uses the instant at full precision (see `_stale`).
+    """
+
+    def when(name: str) -> tuple[str, bool]:
+        """(evidence time, known) — `known` means a real founding time, not run time."""
+        if isinstance(evidence_ts, dict):
+            found = evidence_ts.get(name)
+            return (str(found), True) if found else (str(stamp), False)
+        if evidence_ts:
+            return str(evidence_ts), True
+        return str(stamp), False
+
+    conn.execute(
+        "INSERT INTO event_history(event_id, field, old_value, new_value,"
+        " changed_at, evidence_ts, written_by) VALUES(?,?,?,?,?,?,?)",
+        (event_id, _BORN_MARK, "", "", stamp, stamp, f"{written_by}{_BORN_SUFFIX}"))
+    for name in MUTABLE:
+        if name not in fields:
+            continue
+        value = fields[name]
+        if value in (None, "", []):
+            continue
+        stored = db.jdump(value) if isinstance(value, list) else str(value)
+        ts, known = when(name)
+        suffix = _BORN_SUFFIX if known else _BORN_DAY_SUFFIX
+        conn.execute(
+            "INSERT INTO event_history(event_id, field, old_value, new_value,"
+            " changed_at, evidence_ts, written_by) VALUES(?,?,?,?,?,?,?)",
+            (event_id, name, "", stored, stamp, ts, f"{written_by}{suffix}"))
+
+
+def _field_versions(conn: sqlite3.Connection,
+                    event_id: int) -> tuple[dict[str, str], set[str]]:
+    """When the evidence behind each field was *said*, and which are creation-only.
+
+    Returns ``(versions, day_fields)``. `versions` maps each field that appears
+    in history to the evidence time of its latest row; a field absent from it has
+    no recorded floor. `day_fields` is the subset whose latest row is a creation
+    row that stood run time in for an unknown evidence time (`:born-day`) — never
+    since revised — which precedence weighs only to the day for the user's own
+    corrections. A `:born` creation with a known founding time keeps full
+    precision, and any later ordinary write supersedes the creation tag entirely.
+    """
     versions: dict[str, str] = {}
+    day_fields: set[str] = set()
     for row in conn.execute(
-            "SELECT field, changed_at, evidence_ts FROM event_history"
+            "SELECT field, changed_at, evidence_ts, written_by FROM event_history"
             " WHERE event_id = ? ORDER BY id", (event_id,)):
-        versions[str(row["field"])] = str(row["evidence_ts"] or row["changed_at"])
-    return {name: versions.get(name, born) for name in MUTABLE}
+        name = str(row["field"])
+        versions[name] = str(row["evidence_ts"] or row["changed_at"])
+        if str(row["written_by"] or "").endswith(_BORN_DAY_SUFFIX):
+            day_fields.add(name)
+        else:
+            day_fields.discard(name)
+    return versions, day_fields
 
 
 def _crosses_today(a: int, b: int) -> bool:
@@ -605,7 +678,7 @@ def upsert(
         # `born` floors the per-field guard below for fields nothing has revised yet.
         born = (max((str(v) for v in evidence_ts.values() if v), default=None)
                 if isinstance(evidence_ts, dict) else evidence_ts)
-        conn.execute(
+        cur = conn.execute(
             """INSERT INTO events(key, date, until, time, kind, subject, title, location, status,
                                   participants, hosts, series, note, source, origin, part_of,
                                   rsvp_url, join_url, instead_of, written_by,
@@ -626,6 +699,15 @@ def upsert(
                 written_by, stamp, stamp, str(born) if born else None,
             ),
         )
+        # For a user-authored (live) creation, record per-field provenance for
+        # the values the row is born holding, so a later correction is judged
+        # against when each value was established — not an empty floor (which any
+        # old source clears) nor the run time (which is not evidence). Cheaper
+        # writers keep their existing behaviour: they record nothing at creation
+        # and stay floored by their stored evidence stamp.
+        if written_by == "live":
+            _record_creation(conn, cur.lastrowid, fields, evidence_ts, stamp,
+                             written_by)
         if commit:
             conn.commit()
         return get(conn, key), "inserted"  # type: ignore[return-value]
@@ -647,14 +729,23 @@ def upsert(
     def evidence_for(name: str) -> str | None:
         return stamps.get(name, default_ts)
 
-    def _stale(here: str, version: str) -> bool:
+    def _stale(here: str, version: str, day: bool = False) -> bool:
         # A live correction restating its own hour still decides: two turns in
         # one second are ordered by arrival, not by a clock that cannot tell
         # them apart. Replay protection stays with the operation record, which
         # already turned the identical retry into a no-op before this point.
+        version = version or ""
+        here = str(here)
         if per_field and written_by == "live":
-            return str(here) < (version or "")
-        return str(here) <= (version or "")
+            if day:
+                # A value floored only by when its row was created is known to
+                # the day, not the instant (run time is not evidence). The user's
+                # own same-day correction still lands; only an earlier day is
+                # stale. A cheaper writer keeps full precision below, so genuinely
+                # newer evidence — even later the same day — can still revise it.
+                return here[:10] < version[:10]
+            return here < version
+        return here <= version
 
     guarded = precedence(written_by) < precedence(existing.written_by)
     # An empty mapping claims no line supports these fields; never fall back to the day.
@@ -663,18 +754,36 @@ def upsert(
     # A cited typed correction carries its messages' evidence time into the same
     # per-field guards dream writes go through: without this a live write always
     # outranks on writer precedence and its execution time becomes the decision's
-    # time, letting an old retrieved line undo a newer settlement. Uncited live
-    # writes keep the existing run-time semantics below.
-    # Floor for fields nobody revised: the creating write's evidence time. A
-    # cited live correction speaks for the user about those lines, so its first
-    # decision is free of any wall-clock floor — the founding message always
-    # arrives before the row typed from it, and run time must not pose as
-    # evidence. Every other writer keeps the established floor.
-    if per_field and written_by == "live":
-        born = str(row["evidence_ts"] or "")
-    else:
-        born = str(row["evidence_ts"] or row["created_at"] or last_write)
-    settled = _field_versions(conn, existing.id, born) if dated else {}
+    # time, letting an old retrieved line undo a newer settlement.
+    #
+    # `born` is the floor for a value the row was created holding but has never
+    # since revised: its stored creation evidence time when one is known, else
+    # the row's creation instant. A value established at creation — sourced,
+    # unsourced, or on a legacy row with no evidence stamp — is therefore
+    # protected against an arbitrarily old source on its very first edit. What is
+    # *not* floored here is a field that was empty at creation: `_floor` returns
+    # no floor for it, so the founding message that first fills it still lands
+    # even though it predates the run time that created the empty shell.
+    settled, day_fields = _field_versions(conn, existing.id) if dated else ({}, set())
+    has_creation = _BORN_MARK in settled
+    # Floor for a non-empty field with no history row at all: its stored evidence
+    # stamp if it has one (a cheaper-writer insert), else the row's creation
+    # instant (a legacy row predating per-field provenance).
+    born = str(row["evidence_ts"] or row["created_at"] or last_write)
+
+    def _floor(name: str, current) -> tuple[str, bool]:
+        # Returns (floor, day_granular). Day-granular is reserved for values whose
+        # establishing time is genuinely unknown — an unsourced creation or a
+        # legacy row — where only the day is trustworthy. A creation with a known
+        # founding time, or any revision, keeps full-precision ordering.
+        if name in settled:
+            return settled[name], (name in day_fields)
+        if current in (None, "", []):
+            return "", False                # never held a value; nothing to protect
+        if has_creation:
+            return "", False                # a schema default; real fields were recorded
+        return born, not bool(row["evidence_ts"])
+
     stale: list[str] = []
     if guarded and not dated and last_write[:10] != db.today().isoformat():
         # Writers without evidence timestamps may only revise rows written today.
@@ -691,6 +800,15 @@ def upsert(
         old = getattr(existing, name)
         if old in (None, ""):
             continue
+        # A destructive clear is a revision and clears the same evidence bar as
+        # a replacement: an older cited source may not erase a value settled by
+        # newer evidence any more than it may rewrite it. An already-empty field
+        # skipped above, so reaching here means the clear would change the row.
+        here = evidence_for(name)
+        floor, day = _floor(name, old)
+        if dated and (not here or _stale(here, floor, day)):
+            stale.append(name)
+            continue
         updates[name] = None
         changes.append((name, str(old), ""))
     for name in MUTABLE:
@@ -701,6 +819,14 @@ def upsert(
             merged = sorted(set(new or []) if replace_participants
                             else set(existing.participants) | set(new or []))
             if merged != sorted(existing.participants):
+                # The roster is a mutable field like any other: an older cited
+                # source may not rewrite it over a newer settlement. This branch
+                # returns before the ordinary guard below, so apply it here too.
+                here = evidence_for(name)
+                floor, day = _floor(name, existing.participants)
+                if dated and (not here or _stale(here, floor, day)):
+                    stale.append(name)
+                    continue
                 updates[name] = db.jdump(merged)
                 changes.append((name, db.jdump(existing.participants), db.jdump(merged)))
             continue
@@ -708,6 +834,11 @@ def upsert(
             replacement = list(dict.fromkeys(str(item).strip() for item in (new or [])
                                              if str(item).strip()))
             if replacement != existing.hosts:
+                here = evidence_for(name)
+                floor, day = _floor(name, existing.hosts)
+                if dated and (not here or _stale(here, floor, day)):
+                    stale.append(name)
+                    continue
                 updates[name] = db.jdump(replacement)
                 changes.append((name, db.jdump(existing.hosts), db.jdump(replacement)))
             continue
@@ -732,7 +863,8 @@ def upsert(
             # Conversations may still add location, notes, or guests.
             continue
         here = evidence_for(name)
-        if dated and (not here or _stale(here, settled.get(name, ""))):
+        floor, day = _floor(name, old)
+        if dated and (not here or _stale(here, floor, day)):
             # Older than the decision it would revise; genuinely newer evidence lands.
             stale.append(name)
             continue

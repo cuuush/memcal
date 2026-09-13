@@ -88,8 +88,11 @@ def retry(conn: sqlite3.Connection, *, ask=None) -> list[str]:
             stored = conn.execute(
                 "SELECT evidence_ts, created_at FROM events WHERE id = ?",
                 (certain.id,)).fetchone()
-            status_at = events._field_versions(
-                conn, certain.id, str(stored["evidence_ts"] or stored["created_at"]))["status"]
+            # A status never revised has no history row; fall back to when the
+            # row itself was established, as `_field_versions` no longer defaults.
+            versions, _born = events._field_versions(conn, certain.id)
+            status_at = versions.get(
+                "status", str(stored["evidence_ts"] or stored["created_at"]))
             if db.parse_ts(evidence_at) < db.parse_ts(status_at):
                 resolve(conn, row["id"], certain.key, commit=False)
                 log.append(f"settled {row['observation'][:60]} → {certain.key}, newer status")

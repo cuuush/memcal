@@ -743,21 +743,10 @@ class MemcalMemoryProvider(MemoryProvider):
         self._turn_archive_id: int | None = None
         self._turn_number = 0
         self._archived_turns: dict[tuple[str, str], int] = {}
-        # Hash of the last snapshot body actually injected, keyed per session.
-        # Hermes pins each injected snapshot to its turn's user message and
-        # replays it verbatim forever (prompt-cache stability), so re-emitting
-        # an unchanged brief every turn stacks near-duplicate copies in the
-        # transcript. Emit only when the rendered brief differs; an unchanged
-        # turn injects nothing and the last snapshot in history stays
-        # authoritative. brief.render is deterministic per (db state, date,
-        # due reminders), so the hash also turns over on a data edit, a day
-        # rollover, or a reminder coming due.
-        # A single global hash starves concurrent sessions (gateway group
-        # chats, cached agents): session A emitting would suppress session
-        # B's first snapshot even though B's history holds no copy. Hence
-        # the per-session dict, keyed by effective session id
-        # (prefetch's session_id arg, else self._session_id).
+        # Only snapshots observed in completed API context may be suppressed.
         self._snapshot_hashes: Dict[str, str] = {}
+        self._pending_snapshots: Dict[str, tuple[str, str]] = {}
+        self._context_generation = 0
         # Legacy mirror of the current session's hash, kept for anything
         # reading the old single-session attribute. The dict above is the
         # source of truth for gating.
@@ -783,6 +772,8 @@ class MemcalMemoryProvider(MemoryProvider):
         # sessions keep their own suppression state.
         with self._lock:
             self._snapshot_hashes.pop(session_id, None)
+            self._pending_snapshots.clear()
+            self._context_generation += 1
         self._last_snapshot_hash = None
         self._memcal = _load_memcal()
         if self._memcal is None:
@@ -806,16 +797,16 @@ class MemcalMemoryProvider(MemoryProvider):
         return (
             "# Memcal\n\n"
             "Memcal drops a `MEMCAL SNAPSHOT` of the user's week into the conversation and "
-            "refreshes it whenever it changes, so a turn without one is normal — the most "
-            "recent snapshot in the conversation is always current. Treat it as "
-            "authoritative; if older snapshots remain in long conversation history, the "
-            "newest one supersedes them completely. "
+            "refreshes it whenever it changes. An unchanged turn carries `MEMCAL CURRENT` "
+            "with the matching snapshot id. Use prepared memory as current only when this "
+            "turn contains a snapshot or that matching confirmation. If neither arrived, "
+            "or `MEMCAL UNAVAILABLE` appears, call memcal_refresh before claiming current "
+            "plans; if refresh fails, disclose that you only have older context. "
+            "The newest snapshot supersedes older snapshots completely. "
             "Rows are things that were mentioned, not necessarily commitments.\n\n"
-            "The snapshot is the answer, not a summary of one. It is complete for the "
-            "days it covers, so 'what's my weekend looking like', 'what am I doing "
-            "Thursday' and 'what's the rest of my week' are answered by reading it — "
-            "reaching for a tool first adds a round trip and returns these same rows. "
-            "The one exception is a line flagged with new activity: that plan may have "
+            "Answer questions about covered dates from the prepared snapshot when its "
+            "coverage permits. COLLECTION and UNREVIEWED notices mean coverage is limited; "
+            "do not claim the list is exhaustive. A line flagged with new activity may have "
             "changed, so open the named activity before giving current details for it. "
             "Look things up for dates past its window, or for depth it does not carry. "
             "Every memory line has a source handle; open it when the wording is too "
@@ -851,16 +842,42 @@ class MemcalMemoryProvider(MemoryProvider):
             "relationship, or favorite just because it arrived in a text."
         )
 
+    def _prefetch_failed(self, why: str, sid: str) -> str:
+        with self._lock:
+            self._snapshot_hashes.pop(sid, None)
+            self._pending_snapshots.pop(sid, None)
+            if sid == self._session_id:
+                self._last_snapshot_hash = None
+        return _unavailable(why)
+
+    def _acknowledge_snapshot(self, messages: Optional[List[Dict[str, Any]]],
+                              sid: str) -> None:
+        message = next((m for m in reversed(messages or [])
+                        if m.get("role") == "user"), {})
+        content, api = message.get("content"), message.get("api_content")
+        if not isinstance(content, str) or not isinstance(api, str) or not api.startswith(content):
+            return
+        injected = api[len(content):]
+        with self._lock:
+            pending = self._pending_snapshots.get(sid)
+            if pending and pending[1] in injected:
+                self._snapshot_hashes[sid] = pending[0]
+                self._pending_snapshots.pop(sid, None)
+                if sid == self._session_id:
+                    self._last_snapshot_hash = pending[0]
+
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         """Fresh brief plus material wiki pages named in this turn, with no model call."""
         self._refresh()
         if self._agent_context != "primary":
             return ""
+        effective_sid = session_id or self._session_id
         if not self._cfg:
-            return _unavailable("not initialized")
+            return self._prefetch_failed("not initialized", effective_sid)
         # Effective session: the explicit per-turn id when serving concurrent
         # sessions, else the provider's bound session.
-        effective_sid = session_id or self._session_id
+        with self._lock:
+            generation = self._context_generation
         try:
             from memcal import brief, db, wiki
             conn = db.open_db(self._cfg.db_path)
@@ -885,17 +902,18 @@ class MemcalMemoryProvider(MemoryProvider):
                 conn.close()
         except Exception as exc:
             logger.debug("memcal prefetch failed: %s", exc)
-            return _unavailable(type(exc).__name__)
+            return self._prefetch_failed(type(exc).__name__, effective_sid)
         out = []
         digest = hashlib.sha1(snapshot.encode("utf-8")).hexdigest()
         with self._lock:
             last = self._snapshot_hashes.get(effective_sid)
             if digest != last:
-                out.append(f"MEMCAL SNAPSHOT {stamp}\n\n{snapshot}")
-                self._snapshot_hashes[effective_sid] = digest
-                if effective_sid == self._session_id:
-                    self._last_snapshot_hash = digest
+                block = f"MEMCAL SNAPSHOT {stamp} [id={digest}] [context={generation}]\n\n{snapshot}"
+                out.append(block)
+                if generation == self._context_generation:
+                    self._pending_snapshots[effective_sid] = (digest, block)
             else:
+                out.append(f"MEMCAL CURRENT {stamp} [id={digest}]")
                 if effective_sid == self._session_id:
                     self._last_snapshot_hash = last
         # Wiki pages are query-driven, not a snapshot: inject them whenever this
@@ -928,11 +946,12 @@ class MemcalMemoryProvider(MemoryProvider):
 
     def sync_turn(self, user_content: str, assistant_content: str, *,
                   session_id: str = "", messages: Optional[List[Dict[str, Any]]] = None) -> None:
-        """Compatibility fallback for Hermes builds without `on_turn_start`."""
+        """Confirm delivered context and archive a user turn if its start hook was absent."""
         self._refresh()
         if self._agent_context != "primary" or not (user_content or "").strip():
             return
         sid = session_id or self._session_id
+        self._acknowledge_snapshot(messages, sid)
         digest = hashlib.sha1(user_content.strip().encode("utf-8")).hexdigest()
         marker = (sid, digest)
         already = self._archived_turns.get(marker, 0)
@@ -979,6 +998,7 @@ class MemcalMemoryProvider(MemoryProvider):
         self._turn_archive_id = None
         self._turn_number = 0
         self._archived_turns.clear()
+        reason = str(kwargs.get("reason") or "")
         # The gate must not re-inject a duplicate on resume/branch: with
         # reset=False the logical conversation continues, so a session id
         # already seen keeps its suppression state. Only force a fresh emit
@@ -988,7 +1008,21 @@ class MemcalMemoryProvider(MemoryProvider):
         # forked off a known parent inherits the parent's hash so the same
         # unchanged brief is not emitted twice under two ids.
         with self._lock:
-            if reset or rewound:
+            self._pending_snapshots.clear()
+            self._context_generation += 1
+            if reason == "compression":
+                # Compression rewrites the conversation and can drop the earlier
+                # snapshot from context; a generated summary is not guaranteed to
+                # preserve the exact current brief and its warnings. We cannot
+                # keep suppressing on a hash the model may no longer be able to
+                # see, so invalidate it for the continuing session (in-place
+                # compression reuses the id) and any parent it forked from. The
+                # next substantive turn re-emits the current brief; an unchanged
+                # brief still deduplicates once re-emitted.
+                self._snapshot_hashes.pop(new_session_id, None)
+                if parent_session_id:
+                    self._snapshot_hashes.pop(parent_session_id, None)
+            elif reset or rewound:
                 self._snapshot_hashes.pop(new_session_id, None)
             elif new_session_id in self._snapshot_hashes:
                 pass  # resume of a known session: keep suppression state
@@ -1010,6 +1044,8 @@ class MemcalMemoryProvider(MemoryProvider):
         sid = kwargs.get("session_id") or self._session_id
         with self._lock:
             self._snapshot_hashes.pop(sid, None)
+            self._pending_snapshots.clear()
+            self._context_generation += 1
             if sid == self._session_id:
                 self._last_snapshot_hash = None
         if self._agent_context != "primary" or not self._cfg:
