@@ -1,8 +1,3 @@
-# Changelog
-
-Notable user-facing changes are recorded here. This project follows [Semantic
-Versioning](https://semver.org/spec/v2.0.0.html).
-
 ## [Unreleased]
 
 ### Added
