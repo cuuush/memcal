@@ -21,18 +21,18 @@ memcal brief
 ```
 
 Memcal reads sensitive personal data and sends selected source text to the
-model provider you configure — read the [privacy notes](docs/privacy.md)
+model provider you configure — read the [privacy notes](https://cuuush.github.io/memcal/privacy/)
 before connecting real accounts.
 
 ## Learn more
 
 Full guides live at **https://cuuush.github.io/memcal/**:
 
-- [Quickstart](docs/quickstart.md) — install, first ingest, nightly job
-- [Sources](docs/sources/index.md) — iMessage, WhatsApp, Slack, Telegram, Signal, email, calendar
-- [CLI](docs/clients/cli.md) and [CLI reference](docs/api/cli.md) — every command
-- [Integrations](docs/integrations/index.md) — Hermes, OpenClaw, any MCP harness
-- [Hosting](docs/hosting/installation.md) — configuration, scheduling, publishing
-- [Evaluation](docs/evaluation/index.md) — how memory quality is measured
+- [Quickstart](https://cuuush.github.io/memcal/quickstart/) — install, first ingest, nightly job
+- [Sources](https://cuuush.github.io/memcal/sources/) — iMessage, WhatsApp, Slack, Telegram, Signal, email, calendar
+- [CLI](https://cuuush.github.io/memcal/clients/cli/) and [CLI reference](https://cuuush.github.io/memcal/api/cli/) — every command
+- [Integrations](https://cuuush.github.io/memcal/integrations/) — Hermes, OpenClaw, any MCP harness
+- [Hosting](https://cuuush.github.io/memcal/hosting/installation/) — configuration, scheduling, publishing
+- [Evaluation](https://cuuush.github.io/memcal/evaluation/) — how memory quality is measured
 
 Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Notable changes: [CHANGELOG.md](CHANGELOG.md).
