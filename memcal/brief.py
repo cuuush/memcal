@@ -70,7 +70,8 @@ def render(conn: sqlite3.Connection, cfg: Config, ref: date | None = None,
         _facts_block(conn, cfg),
     ]
     text = "\n\n".join(b for b in blocks if b).rstrip() + "\n"
-    return _trim(legend(surface) + text, cfg.brief_token_cap)
+    trimmed = _trim(legend(surface) + text, cfg.brief_token_cap)
+    return _reconcile_coverage(conn, trimmed, cfg.brief_token_cap)
 
 
 #: Inline activity hints are the exception path, not the rule: past this many in
@@ -135,10 +136,36 @@ def _collection_line(conn: sqlite3.Connection, cfg: Config) -> str | None:
     return f"[COLLECTION: {shown} — recent messages may be missing]"
 
 
-def _backlog_lines(conn: sqlite3.Connection) -> list[str]:
-    """Unreviewed traffic no plan is associated with, compactly and honestly."""
+def represented_keys(conn: sqlite3.Connection, cfg: Config,
+                     ref: date | None = None) -> set[str]:
+    """Keys of the events this brief actually surfaces: the week window with its
+    children, plus the Later selection after its commitment filter and cap.
+
+    A thread linked only to an event absent here has no visible activity hint
+    standing in for it, so the backlog must not treat it as covered. Date-range
+    membership is not enough — an unconfirmed opportunity or an event past the
+    Later cap sits in range yet is never rendered.
+    """
+    ref = ref or db.today()
+    window = events.window(conn, cfg.days_back, cfg.days_forward, ref)
+    keys = {ev.key for ev in window}
+    for ev in window:
+        if not ev.part_of:
+            keys.update(child.key for child in events.children_of(conn, ev.id))
+    keys.update(ev.key for ev in _later_selection(conn, cfg, ref)[0])
+    return keys
+
+
+def _backlog_lines(conn: sqlite3.Connection, cfg: Config,
+                   ref: date | None = None) -> list[str]:
+    """Unreviewed traffic no rendered plan is associated with, compactly and honestly.
+
+    Coverage is judged against the events this brief actually surfaces, so a
+    thread linked only to an event the brief does not render still shows here.
+    """
     out = []
-    for item in activity.unlinked_backlog(conn):
+    for item in activity.unlinked_backlog(
+            conn, represented=represented_keys(conn, cfg, ref)):
         out.append(f"[UNREVIEWED: {item['stream']}/{item['thread']} "
                    f"({item['waiting']} waiting) — new traffic not linked to any plan; "
                    f"not a confirmed opportunity]")
@@ -227,7 +254,7 @@ def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
     collection = _collection_line(conn, cfg)
     if collection:
         lines.append(collection)
-    lines.extend(_backlog_lines(conn))
+    lines.extend(_backlog_lines(conn, cfg, ref))
     return "\n".join(lines)
 
 
@@ -238,17 +265,24 @@ LATER_DAYS = 45
 LATER_LIMIT = 8
 
 
-def _later_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
-    """Renders upcoming committed events beyond the active weekly window."""
+def _later_selection(conn: sqlite3.Connection, cfg: Config,
+                     ref: date) -> tuple[list[events.Event], int]:
+    """The Later rows and their total. The one place the selection is decided, so
+    what the block renders and what the backlog treats as covered cannot diverge."""
     edge = ref + timedelta(days=cfg.days_forward)
     rows = [e for e in events.window(conn, 0, cfg.days_forward + LATER_DAYS, ref)
             if db.parse_date(e.date) > edge and _committed(e)]
-    if not rows:
+    return rows[:LATER_LIMIT], len(rows)
+
+
+def _later_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
+    """Renders upcoming committed events beyond the active weekly window."""
+    shown, total = _later_selection(conn, cfg, ref)
+    if not shown:
         return ""
     via = attribution(conn)
     asked = todos.questions_by_event(conn)
     lines = ["## Later"]
-    shown = rows[:LATER_LIMIT]
     state = _block_hints(conn, shown)
     for ev in shown:
         who = f" ({ev.subject})" if ev.needs_subject() else ""
@@ -266,8 +300,8 @@ def _later_block(conn: sqlite3.Connection, cfg: Config, ref: date) -> str:
                      + (" — " + " · ".join(tail) if tail else ""))
         _hint_after(lines, ev, state)
         lines.extend(_question_lines(asked.get(ev.id, [])))
-    if len(rows) > LATER_LIMIT:
-        lines.append(f"[{len(rows) - LATER_LIMIT} more beyond this; ask for a date]")
+    if total > LATER_LIMIT:
+        lines.append(f"[{total - LATER_LIMIT} more beyond this; ask for a date]")
     return "\n".join(lines)
 
 
@@ -606,6 +640,18 @@ def _is_protected(line: str) -> bool:
     return line.startswith("[") or line.startswith("Pages: ")
 
 
+#: Lines that disclose a coverage hole (uncollected, stale, or unreviewed input).
+_COVERAGE_PREFIXES = ("[COLLECTION:", "[STALE:", "[UNREVIEWED:")
+#: The claim that everything in a range is accounted for.
+_COMPLETE_PREFIX = "[complete for"
+#: Compact stand-in when the detailed coverage warnings do not fit the budget.
+_COVERAGE_TRIMMED = "[coverage incomplete — unreviewed or uncollected input not shown]"
+
+
+def _is_coverage(line: str) -> bool:
+    return line.lstrip() == _COVERAGE_TRIMMED or line.lstrip().startswith(_COVERAGE_PREFIXES)
+
+
 def _dropped_index(lines: list[str]) -> tuple[int, int] | None:
     prefer = ("## People and facts", "## Ask about", "## Open", "## This week")
     for header in prefer:
@@ -647,18 +693,75 @@ def _hard_cut(lines: list[str], token_cap: int) -> str:
     then drops a trailing orphaned half-unit if one remains.
     """
     marker = "\n… (trimmed)\n"
+    # A coverage warning cut away would leave a retained "[complete for …]" claim
+    # implying exhaustive coverage that no longer holds. Budget for a compact
+    # stand-in up front so the honest notice is never itself what overflows.
+    coverage_total = sum(1 for line in lines if _is_coverage(line))
+    tail = (f"\n{_COVERAGE_TRIMMED}{marker}" if coverage_total else marker)
     keep = len(lines)
     while keep > 0 and textclean.estimate_tokens(
-            "\n".join(lines[:keep]).rstrip() + marker) > token_cap:
+            "\n".join(lines[:keep]).rstrip() + tail) > token_cap:
         keep -= 1
     kept = lines[:keep]
-    if kept and _is_event_line(kept[-1]):
-        # Its warning line did not fit; the row goes too rather than reading
-        # as freshly verified.
-        kept = kept[:-1]
+    # An event and its warning are one unit. A trailing [event, warning] pair is
+    # whole and stays; only a dangling half is peeled — an event whose warning
+    # was cut would read as freshly verified, and a warning whose event was cut
+    # is orphaned. A warning always sits directly under its event, so checking
+    # the two ends independently (the old bug) dropped the warning of a fitting
+    # pair and stranded its row.
     if kept and _is_hint_line(kept[-1]):
-        kept = kept[:-1]
+        if len(kept) < 2 or not _is_event_line(kept[-2]):
+            kept = kept[:-1]                       # orphaned warning
+    elif kept and _is_event_line(kept[-1]) \
+            and keep < len(lines) and _is_hint_line(lines[keep]):
+        kept = kept[:-1]                           # its warning was the cut line
+    # If any coverage warning did not survive, a retained completeness claim is
+    # now false: drop it and disclose the hole in one compact line, so a trimmed
+    # brief never reads as exhaustive.
+    if sum(1 for line in kept if _is_coverage(line)) < coverage_total:
+        kept = [line for line in kept if not line.lstrip().startswith(_COMPLETE_PREFIX)]
+        return "\n".join(kept).rstrip() + f"\n{_COVERAGE_TRIMMED}{marker}"
     return "\n".join(kept).rstrip() + marker
+
+
+def _surviving_event_keys(conn: sqlite3.Connection, text: str) -> set[str]:
+    """Keys of the event rows that actually remain in the rendered brief.
+
+    Read from the final text, so a hint trimming removed no longer counts as
+    coverage. Event and hint drop as a unit, so a surviving row still carries its
+    hint."""
+    ids = {int(m) for m in re.findall(r"〔E(\d+)〕", text)}
+    if not ids:
+        return set()
+    placeholders = ",".join("?" * len(ids))
+    return {row["key"] for row in conn.execute(
+        f"SELECT key FROM events WHERE id IN ({placeholders})", tuple(ids))}
+
+
+def _reconcile_coverage(conn: sqlite3.Connection, text: str, token_cap: int) -> str:
+    """Post-trim honesty: coverage is judged against what actually survived.
+
+    `represented_keys` is computed before trimming, so an event whose hint stood
+    in for a thread's backlog can be cut by the budget while its suppression
+    stands. Recompute the backlog against the surviving events; for any pending
+    traffic now uncovered and not already disclosed, drop the completeness claim
+    and disclose the hole compactly, so a trimmed brief never implies exhaustive
+    coverage of input it no longer shows.
+    """
+    surviving = _surviving_event_keys(conn, text)
+    uncovered = activity.unlinked_backlog(conn, represented=surviving)
+    if not uncovered:
+        return text
+    lines = text.splitlines()
+    disclosed = {line.lstrip()[len("[UNREVIEWED:"):].strip().split(" (")[0]
+                 for line in lines if line.lstrip().startswith("[UNREVIEWED:")}
+    if all(f"{item['stream']}/{item['thread']}" in disclosed for item in uncovered):
+        return text                         # already shown in full
+    lines = [line for line in lines if not line.lstrip().startswith(_COMPLETE_PREFIX)]
+    if not any(_COVERAGE_TRIMMED in line or "coverage incomplete" in line
+               for line in lines):
+        lines.append(_COVERAGE_TRIMMED)
+    return _trim("\n".join(lines).rstrip() + "\n", token_cap)
 
 
 def write(conn: sqlite3.Connection, cfg: Config, ref: date | None = None) -> Path:

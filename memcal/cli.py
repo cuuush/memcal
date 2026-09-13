@@ -344,9 +344,12 @@ def cmd_open(args) -> int:
 def cmd_activity(args) -> int:
     """Read the new messages behind one plan, or the unlinked backlog."""
     from . import activity as activity_mod
+    from . import brief as brief_mod
     cfg, conn = open_ctx(args)
     if not args.ref:
-        items = activity_mod.unlinked_backlog(conn, limit=args.limit)
+        items = activity_mod.unlinked_backlog(
+            conn, limit=args.limit,
+            represented=brief_mod.represented_keys(conn, cfg))
         if not items:
             print("(no unlinked traffic waiting)")
             return 0
