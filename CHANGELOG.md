@@ -29,6 +29,13 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Known evidence times protect dream-created events from older same-day typed
+  corrections. Coverage warnings added after trimming stay inside the brief budget.
+
+- Hermes snapshot deduplication waits for completed API context. Timed-out or
+  discarded renders cannot suppress the next snapshot; unchanged turns carry a
+  freshness confirmation, and missing confirmation requires a local refresh.
+
 - Collection records now keep the all-page aggregate once per source attempt
   instead of overwriting it per page, and report `complete`, `incomplete`,
   `failed`, `unavailable`, or `unknown`. A quiet final page no longer erases

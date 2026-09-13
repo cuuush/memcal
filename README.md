@@ -283,6 +283,11 @@ ln -s /path/to/memcal/integrations/hermes/memcal ~/.hermes/plugins/memcal
 hermes memory setup
 ```
 
+On substantive Hermes turns, Memcal sends a fresh snapshot or a compact confirmation
+that the previously delivered snapshot still matches local state. Missing confirmation
+requires `memcal_refresh` before treating old context as current. Hermes versions that
+do not return API context on completed turns receive the full snapshot again.
+
 The Hermes and OpenClaw integrations expose the same basic behavior:
 
 - a fresh snapshot on every turn;
