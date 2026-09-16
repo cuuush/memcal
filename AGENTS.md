@@ -39,6 +39,9 @@ do not add dev notes or dated narratives here.
 
 - One worktree per track: `git worktree add ~/code/memcal-<topic> -b <branch>`,
   a sibling of this checkout. Work in the worktree, never on main directly.
+- Commit when the work is done — never leave a worktree with uncommitted changes.
+  The branch is the unit of handoff and merge; unstaged work is invisible to the
+  merge and lost if the worktree is removed.
 - Remove the worktree when its branch merges. `~/.config/opencode/opencode.jsonc`
   already permits these paths, so no approval prompts for touching them.
 - Never run `./install.sh` from a worktree: it repoints the single `memcal` on PATH at
@@ -98,6 +101,12 @@ do not add dev notes or dated narratives here.
   patch = fixes only), then: move entries under `## [X.Y.Z] - YYYY-MM-DD`, restore empty
   Unreleased, set the same version in `pyproject.toml`, commit, annotated `vX.Y.Z` tag.
   Never tag first (a test enforces changelog/version/tag agreement).
+- Bump the version only as part of an explicit release, never automatically — not when
+  merging a branch, shipping a feature, or "to line up the next tag". If unsure whether
+  a release was asked for, leave the version alone.
+- Pushing a `vX.Y.Z` tag triggers `.github/workflows/publish.yml`, which builds the
+  sdist/wheel and uploads to PyPI via Trusted Publishing (OIDC, no stored token). The
+  tag must match `pyproject.toml` or PyPI rejects the upload.
 - Never read or write the live `~/.memcal` store during development; tests use tmp dirs,
   benchmarks use scratch homes. Keep secrets, `calls/`, `tools/bench_output/`,
   `transcripts/`, and `*.db` out of version control (see `.gitignore`).
