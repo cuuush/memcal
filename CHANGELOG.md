@@ -51,6 +51,14 @@
 - Hermes `memcal_update` accepts `remove_participants` (parity with MCP) and surfaces
   mapped write outcomes without the flat “already said that” idiom; `docs/api/correct.md`
   documents `field_sources` / `context_source_ids`.
+- MCP `serverInfo.version` and package `__version__` now report `0.8.0` (matching
+  `pyproject.toml`).
+- `docs/clients/mcp.md` includes copy-paste Cursor and Claude Desktop MCP configs
+  plus a Linux Slack → MCP demo path.
+- Integrations index lists Hermes as 21 tools and MCP as 22.
+- On Linux (and other non-macOS hosts), `memcal schedule install` refuses to write
+  LaunchAgents and prints ready-to-paste cron lines for `memcal schedule run` /
+  `memcal ingest --due` instead.
 
 ## [0.8.0] - 2026-09-16
 
