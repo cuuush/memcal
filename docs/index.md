@@ -2,9 +2,11 @@
 
 ## Why memcal?
 
-**Memory + Calendar for AI agents.**
+**Agent calendar + nightly reconcile → brief in context.**
 
-Most memory systems for agents like OpenClaw or Hermes (Mem0, Hindsight) are good at saving things like preferences and observations, but fail at personal assistant tasks, like remembering you have a dentist appointment next Friday. Memcal attempts to bridge this gap by enabling an agent to maintain its own internal calendar of your life. On top of that, a nightly fact-gathering stage will scan sources like iMessage, email, WhatsApp, iCal, and more to automatically update the agent calendar.
+Most agent memory (Mem0, Hindsight, …) is great at preferences and RAG. It fails at personal-assistant questions like “what’s my weekend looking like?” Those need a **calendar of your life**, not another embedding store.
+
+Memcal maintains typed **events / todos / questions / wiki**, fed from the streams you already have (Slack, Messages, email, calendars, chat). A **nightly reconcile** merges the day; every turn your agent gets a small **brief** in context, with tools for depth and corrections.
 
 With Memcal, you can ask an agent, “What’s my weekend looking like?” and it will remember that your friend is free for dinner Saturday night, that the nonprofit you follow is having a member day, or even that your family is coming into town...
 

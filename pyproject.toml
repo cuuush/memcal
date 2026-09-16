@@ -7,6 +7,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Chris Cush", email = "chris@cuuush.com" }]
 requires-python = ">=3.11"
+keywords = ["mcp", "calendar", "memory", "agents", "openclaw", "hermes", "slack"]
 dependencies = [
     # Decode iMessage `attributedBody` typedstream blobs with a real deserializer
     # instead of a hand-rolled byte scraper. See memcal/sources/imessage.py.
@@ -23,6 +24,7 @@ classifiers = [
 Homepage = "https://github.com/cuuush/memcal"
 Repository = "https://github.com/cuuush/memcal"
 Issues = "https://github.com/cuuush/memcal/issues"
+Documentation = "https://cuuush.github.io/memcal/"
 
 # Per-source libraries are extras: a source that needs one imports it inside `connect()`
 # and reports the gap through `check()`, so not installing it disables that one source
