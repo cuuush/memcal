@@ -7,7 +7,11 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Chris Cush", email = "chris@cuuush.com" }]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    # Decode iMessage `attributedBody` typedstream blobs with a real deserializer
+    # instead of a hand-rolled byte scraper. See memcal/sources/imessage.py.
+    "pytypedstream>=0.1",
+]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Environment :: Console",
@@ -20,9 +24,9 @@ Homepage = "https://github.com/cuuush/memcal"
 Repository = "https://github.com/cuuush/memcal"
 Issues = "https://github.com/cuuush/memcal/issues"
 
-# The core stays dependency-free: every source that needs a library imports it inside
-# `connect()` and reports the gap through `check()`, so a missing extra disables one
-# source rather than breaking the registry. Install only what you actually feed it.
+# Per-source libraries are extras: a source that needs one imports it inside `connect()`
+# and reports the gap through `check()`, so not installing it disables that one source
+# rather than breaking the registry. Install only what you actually feed it.
 #
 #   pip install -e '.[slack]'        pip install -e '.[chat]'   # all of them
 #

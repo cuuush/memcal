@@ -107,6 +107,26 @@ class Config:
     # Automatically schedule reminder timestamps for obligations with deadlines.
     remind_deadlines: bool = True
 
+    # Which iMessage transport to read through:
+    #   bluebubbles  the BlueBubbles server (richer: groups, participants, clean text)
+    #   chatdb       read ~/Library/Messages/chat.db directly, never touch BlueBubbles
+    imessage_backend: str = "bluebubbles"
+
+    # When the backend is BlueBubbles and its server is unavailable, fall back to reading
+    # the local chat.db. Off means an unavailable BlueBubbles server is a hard failure.
+    imessage_fallback: bool = True
+
+    # Where the BlueBubbles server runs, which decides whether opening the app can help:
+    #   auto    infer from BLUEBUBBLES_URL (localhost is local, anything else remote)
+    #   local   this Mac — a down server may be opened
+    #   remote  another machine — never launch anything locally
+    bluebubbles_location: str = "auto"
+
+    # Open the local BlueBubbles.app when the backend is BlueBubbles and its server is
+    # down. Only ever launches an app installed on this Mac for a local server; a remote
+    # server is never launched. Gated further by `imessage_backend`/`bluebubbles_location`.
+    bluebubbles_autostart: bool = True
+
     # Number of execution waves to split cold-start ingestion into, allowing intermediate
     # state resolution across independent threads.
     cold_start_waves: int = 4
@@ -241,6 +261,10 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
         ("MEMCAL_SEMANTIC_WAKES", "semantic_wakes", _flag),
         ("MEMCAL_COLLECT_INTERVAL_MINUTES", "collect_interval_minutes", int),
         ("MEMCAL_REMIND_DEADLINES", "remind_deadlines", _flag),
+        ("MEMCAL_IMESSAGE_BACKEND", "imessage_backend", str),
+        ("MEMCAL_IMESSAGE_FALLBACK", "imessage_fallback", _flag),
+        ("MEMCAL_BLUEBUBBLES_LOCATION", "bluebubbles_location", str),
+        ("MEMCAL_BLUEBUBBLES_AUTOSTART", "bluebubbles_autostart", _flag),
     ):
         raw = env.get(name) or os.environ.get(name)
         if raw:

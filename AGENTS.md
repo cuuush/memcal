@@ -1,9 +1,11 @@
 # memcal
 
-Python 3.11+, standard library only (`pyproject.toml` has no dependencies). `./install.sh`
-puts a `memcal` launcher on PATH that runs from this checkout via `PYTHONPATH` — code
-edits take effect immediately, no reinstall. If dependencies are ever added, declare them
-in `pyproject.toml` and update `install.sh` in the same change.
+Python 3.11+. Third-party dependencies are fine — reach for a well-chosen library when it
+makes the code simpler or more reliable than hand-rolling. Declare runtime deps in
+`pyproject.toml` (`dependencies` for ones the core needs, `optional-dependencies` for ones
+only one source needs), and make sure `install.sh` resolves whatever the core requires.
+`./install.sh` puts a `memcal` launcher on PATH that runs from this checkout via
+`PYTHONPATH` — code edits take effect immediately, no reinstall.
 
 No lint, typecheck, formatter, or CI. Verification is unittest plus the temporal benchmark.
 User-facing operation belongs in `README.md`; contributor workflow in `CONTRIBUTING.md`;
