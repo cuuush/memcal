@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import base64
 import contextlib
 import errno
 import importlib.util
@@ -2011,23 +2012,41 @@ class TestTwoCasingsOfOneNameAreTwoPeople(Base):
     def test_whatsapps_own_notice_channel_is_not_a_person(self):
         self.assertFalse(identity.is_person("+0", "\u200eWhatsApp"))
 
-def _attributed(body: bytes, *, mutable: bool = True) -> bytes:
-    """A typedstream `attributedBody` shaped the way macOS actually writes one.
+def _ts_varint(n: int) -> bytes:
+    """typedstream's variable-length count: below 0x81 the byte is the count itself;
+    0x81 introduces a two-byte little-endian count, 0x82 a four-byte one."""
+    if n < 0x81:
+        return bytes([n])
+    if n <= 0xffff:
+        return b"\x81" + n.to_bytes(2, "little")
+    return b"\x82" + n.to_bytes(4, "little")
 
-    Lengths are in **bytes** and use typedstream's varint: below 0x81 the byte is the
-    count; 0x81 introduces a two-byte little-endian count.
+
+def _attributed(body: bytes, *, mutable: bool = True) -> bytes:
+    """A real `attributedBody` typedstream, byte-for-byte what macOS's NSArchiver writes
+    for `NSAttributedString(string:)` (and the mutable variant).
+
+    `body` is the UTF-8 of the message text — the parameter stays bytes so existing
+    callers are unchanged. The string is stored with a byte-length varint, and its
+    UTF-16 code-unit count follows as a second varint, exactly as macOS records it.
+    Verified byte-exact against `NSArchiver.archivedData` output in the decoder tests.
     """
-    if len(body) < 0x81:
-        length = bytes([len(body)])
-    else:
-        length = b"\x81" + len(body).to_bytes(2, "little")
-    head = b"\x04\x0bstreamtyped\x81\xe8\x03\x84\x01@\x84\x84\x84\x12NSAttributedString"
-    head += b"\x00\x84\x84\x08NSObject\x00\x85\x92\x84\x84\x84"
+    text = body.decode("utf-8")
+    chars = len(text.encode("utf-16-le")) // 2
     if mutable:
-        head += b"\x0fNSMutableString\x01\x84\x84\x08NSString\x01\x95\x84\x01+"
+        head = (b"\x04\x0bstreamtyped\x81\xe8\x03\x84\x01@\x84\x84\x84\x19"
+                b"NSMutableAttributedString\x00\x84\x84\x12NSAttributedString"
+                b"\x00\x84\x84\x08NSObject\x00\x85\x92\x84\x84\x84\x0f"
+                b"NSMutableString\x01\x84\x84\x08NSString\x01\x95\x84\x01+")
+        dict_ver = b"\x95"
     else:
-        head += b"\x08NSString\x01\x94\x84\x01+"
-    return head + length + body + b"\x86\x84\x02iI\x01\x01\x92\x84\x84\x84\x0cNSDictionary\x00"
+        head = (b"\x04\x0bstreamtyped\x81\xe8\x03\x84\x01@\x84\x84\x84\x12"
+                b"NSAttributedString\x00\x84\x84\x08NSObject\x00\x85\x92\x84\x84\x84\x08"
+                b"NSString\x01\x94\x84\x01+")
+        dict_ver = b"\x94"
+    mid = b"\x86\x84\x02iI\x01"
+    tail = b"\x92\x84\x84\x84\x0cNSDictionary\x00" + dict_ver + b"\x84\x01i\x00\x86\x86"
+    return head + _ts_varint(len(body)) + body + mid + _ts_varint(chars) + tail
 
 
 class TestAMessageBodyWasScrapedInsteadOfParsed(unittest.TestCase):
@@ -2079,6 +2098,25 @@ class TestAMessageBodyWasScrapedInsteadOfParsed(unittest.TestCase):
         self.assertNotIn("_", imessage.DECODER_KEY.replace("imessage.decoder_generation", ""))
         self.assertEqual("Definitely Kim\u2019s song", imessage.decode_attributed(
             _attributed("Definitely Kim\u2019s song".encode())))
+
+    def test_the_fixture_is_byte_identical_to_what_macos_writes(self):
+        """The whole suite trusts `_attributed`, so it is pinned to ground truth: these
+        are the exact blobs `NSArchiver.archivedData(withRootObject:)` produced for an
+        `NSAttributedString` and an `NSMutableAttributedString`, captured on macOS. If
+        the helper ever drifts from what the OS writes, this fails before anything else."""
+        plain = base64.b64decode(
+            "BAtzdHJlYW10eXBlZIHoA4QBQISEhBJOU0F0dHJpYnV0ZWRTdHJpbmcAhIQITlNP"
+            "YmplY3QAhZKEhIQITlNTdHJpbmcBlIQBKxB3ZSBwbGF5aW5nIGF0IDg/hoQCaUkB"
+            "EJKEhIQMTlNEaWN0aW9uYXJ5AJSEAWkAhoY=")
+        self.assertEqual(plain, _attributed(b"we playing at 8?", mutable=False))
+        mutable = base64.b64decode(
+            "BAtzdHJlYW10eXBlZIHoA4QBQISEhBlOU011dGFibGVBdHRyaWJ1dGVkU3RyaW5n"
+            "AISEEk5TQXR0cmlidXRlZFN0cmluZwCEhAhOU09iamVjdACFkoSEhA9OU011dGFi"
+            "bGVTdHJpbmcBhIQITlNTdHJpbmcBlYQBKxdoZWxsbyDwn5iKIGZyb20gbXV0YWJs"
+            "ZYaEAmlJARWShISEDE5TRGljdGlvbmFyeQCVhAFpAIaG")
+        self.assertEqual(mutable, _attributed("hello \U0001f60a from mutable".encode()))
+        self.assertEqual("hello \U0001f60a from mutable",
+                         imessage.decode_attributed(mutable))
 
 
 class TestHalfAnAnswerCouldStillDeleteRows(Base):
@@ -2309,7 +2347,7 @@ class TestABareReplacementCharacterWasArchivedAsSomethingSaid(Base):
     def test_the_generation_marker_moved_so_the_archived_rows_are_revisited(self):
         """The rows are not ones the repair missed: it re-derived every one and agreed
         with itself. Only a new generation makes it look again."""
-        self.assertEqual("3", imessage.DECODER_GENERATION)
+        self.assertEqual("4", imessage.DECODER_GENERATION)
         rid = self._archived("G1", "�")
         src = self._chat_db([("G1", None, _attributed("�".encode()))])
         db.set_meta(self.conn, imessage.DECODER_KEY, "2")
@@ -3680,6 +3718,192 @@ class TestCollectIntervalDrivesTheWakeInterval(unittest.TestCase):
                     self.cfg, now=now + timedelta(seconds=seconds))
                 self.assertIsNone(due)
                 self.assertIn("nothing missed", why)
+
+
+class TestDreamOpensBlueBubblesWhenItCan(Base):
+    """A nightly pass finds BlueBubbles down more often than not — the app is not
+    running until something wants it. Before pulling sources, the dream pass opens the
+    app when it can (a local install for a local server) so iMessage is read through
+    BlueBubbles rather than falling back to chat.db. The launch belongs to the pass,
+    not the transport: `ingest()` never starts a GUI app, so a plain `memcal ingest`
+    and the test suite never throw a window. A remote server, an uninstalled app, or
+    the knob off leaves the fall-through untouched.
+
+    The app is opened hidden and in the background (`open -g -j`), never fullscreen."""
+
+    def setUp(self):
+        super().setUp()
+        self.cfg.env = {"BLUEBUBBLES_PASSWORD": "pw"}
+
+    def _client(self, up_after: int):
+        """A client whose ping is refused for the first `up_after` calls, then answers."""
+        client = bluebubbles.BlueBubbles(self.cfg)
+        calls = {"n": 0}
+
+        def ping():
+            calls["n"] += 1
+            if calls["n"] <= up_after:
+                raise base.HttpError("URLError contacting localhost")
+            return True
+
+        client.ping = ping
+        return client, calls
+
+    def test_wake_opens_the_app_and_waits_for_it_to_answer(self):
+        client, calls = self._client(up_after=2)
+        notes: list[str] = []
+        ok = bluebubbles.wake_server(client, self.cfg, notes, opener=lambda: True,
+                                     sleep=lambda _s: None, poll=1.0, timeout=20.0)
+        self.assertTrue(ok)
+        self.assertEqual(3, calls["n"])          # two refusals, then up
+        self.assertTrue(any("opened the app" in n for n in notes))
+        self.assertTrue(any("came up" in n for n in notes))
+
+    def test_a_remote_url_is_never_opened(self):
+        self.cfg.env = {"BLUEBUBBLES_PASSWORD": "pw",
+                        "BLUEBUBBLES_URL": "http://192.168.1.9:1234"}
+        client = bluebubbles.BlueBubbles(self.cfg)
+        opened: list[bool] = []
+        ok = bluebubbles.wake_server(
+            client, self.cfg, [],
+            opener=lambda: opened.append(True) or True, sleep=lambda _s: None)
+        self.assertFalse(ok)
+        self.assertEqual([], opened)             # auto-detected remote: never attempted
+
+    def test_location_remote_blocks_launch_even_for_a_local_url(self):
+        """The explicit override wins over the URL: a localhost server the user has
+        declared remote is never launched."""
+        self.cfg.bluebubbles_location = "remote"
+        client, _ = self._client(up_after=99)     # url is localhost
+        opened: list[bool] = []
+        ok = bluebubbles.wake_server(
+            client, self.cfg, [],
+            opener=lambda: opened.append(True) or True, sleep=lambda _s: None)
+        self.assertFalse(ok)
+        self.assertEqual([], opened)
+
+    def test_location_local_allows_launch_for_a_nonlocal_url(self):
+        """And the other way: a server the user has declared local may be opened even
+        when its URL is not localhost (a hostname that resolves back to this Mac)."""
+        self.cfg.env = {"BLUEBUBBLES_PASSWORD": "pw",
+                        "BLUEBUBBLES_URL": "http://mymac.local:1234"}
+        self.cfg.bluebubbles_location = "local"
+        client, _ = self._client(up_after=0)      # answers immediately once "opened"
+        opened: list[bool] = []
+        ok = bluebubbles.wake_server(
+            client, self.cfg, [],
+            opener=lambda: opened.append(True) or True, sleep=lambda _s: None)
+        self.assertTrue(ok)
+        self.assertEqual([True], opened)
+
+    def test_an_uninstalled_app_gives_up_without_waiting(self):
+        client, _ = self._client(up_after=99)
+        slept: list[float] = []
+        ok = bluebubbles.wake_server(client, self.cfg, [], opener=lambda: False,
+                                     sleep=slept.append)
+        self.assertFalse(ok)
+        self.assertEqual([], slept)              # never launched, so never waited
+
+    def test_ensure_server_opens_bluebubbles_when_it_is_down(self):
+        with mock.patch.object(bluebubbles, "_open_app", return_value=True), \
+             mock.patch.object(bluebubbles.BlueBubbles, "ping",
+                               side_effect=[base.HttpError("down"), True]):
+            notes = bluebubbles.ensure_server(self.cfg, sleep=lambda _s: None)
+        self.assertTrue(any("opened the app" in n for n in notes))
+        self.assertTrue(any("came up" in n for n in notes))
+
+    def test_ensure_server_is_a_noop_when_already_up(self):
+        with mock.patch.object(bluebubbles, "_open_app") as opener, \
+             mock.patch.object(bluebubbles.BlueBubbles, "ping", return_value=True):
+            notes = bluebubbles.ensure_server(self.cfg)
+        opener.assert_not_called()
+        self.assertEqual([], notes)
+
+    def test_ensure_server_does_nothing_without_a_password(self):
+        """No BlueBubbles password means it is not the transport in use — nothing to
+        wake, and nothing that could be launched by accident on a store that never
+        configured it."""
+        self.cfg.env = {}
+        with mock.patch.object(bluebubbles, "_open_app") as opener:
+            notes = bluebubbles.ensure_server(self.cfg)
+        opener.assert_not_called()
+        self.assertEqual([], notes)
+
+    def test_autostart_off_never_launches(self):
+        self.cfg.bluebubbles_autostart = False
+        with mock.patch.object(bluebubbles, "_open_app") as opener:
+            notes = bluebubbles.ensure_server(self.cfg)
+        opener.assert_not_called()
+        self.assertEqual([], notes)
+
+    def test_the_transport_itself_never_launches_the_app(self):
+        """A plain ingest (or a test) must never start a GUI app — only the dream
+        pass's `ensure_server` does. Down server → error → chat.db fallback, no launch."""
+        with mock.patch.object(bluebubbles, "_open_app") as opener, \
+             mock.patch.object(bluebubbles.BlueBubbles, "ping",
+                               side_effect=base.HttpError("down")):
+            report = bluebubbles.ingest(self.conn, self.cfg, limit=10)
+        opener.assert_not_called()
+        self.assertIsNotNone(report.error)
+
+    def test_backend_chatdb_never_wakes_bluebubbles(self):
+        """With the chat.db backend chosen, BlueBubbles is out of the picture entirely —
+        the dream pass never even looks at it, let alone launches it."""
+        self.cfg.imessage_backend = "chatdb"
+        with mock.patch.object(bluebubbles, "_open_app") as opener, \
+             mock.patch.object(bluebubbles.BlueBubbles, "ping") as ping:
+            notes = bluebubbles.ensure_server(self.cfg)
+        opener.assert_not_called()
+        ping.assert_not_called()
+        self.assertEqual([], notes)
+
+
+class TestIMessageBackendSelection(Base):
+    """`imessage_backend` picks the transport and `imessage_fallback` decides whether an
+    unreachable BlueBubbles server quietly reads the local chat.db or fails hard."""
+
+    def setUp(self):
+        super().setUp()
+        self.cfg.env = {"BLUEBUBBLES_PASSWORD": "pw"}
+        self.src = imessage.IMessageSource()
+
+    def _report(self):
+        return base.IngestReport.opened("imessage", self.cfg)
+
+    def test_chatdb_backend_reads_the_database_and_skips_bluebubbles(self):
+        self.cfg.imessage_backend = "chatdb"
+        report = self._report()
+        with mock.patch.object(imessage, "ingest", return_value=base.IngestReport(
+                stream="imessage", read=3)) as local, \
+             mock.patch("memcal.sources.bluebubbles.ingest") as bb:
+            self.src.fetch(self.conn, self.cfg, report, 1000)
+        bb.assert_not_called()
+        local.assert_called_once()
+        self.assertEqual(3, report.read)
+
+    def test_bluebubbles_backend_falls_back_to_chatdb_by_default(self):
+        report = self._report()
+        with mock.patch("memcal.sources.bluebubbles.ingest",
+                        return_value=base.IngestReport(stream="imessage",
+                                                       error="server down")), \
+             mock.patch.object(imessage, "ingest", return_value=base.IngestReport(
+                 stream="imessage", read=5)) as local:
+            self.src.fetch(self.conn, self.cfg, report, 1000)
+        local.assert_called_once()
+        self.assertEqual(5, report.read)
+        self.assertTrue(any("chat.db" in n for n in report.notes))
+
+    def test_fallback_off_makes_a_down_server_a_hard_failure(self):
+        self.cfg.imessage_fallback = False
+        report = self._report()
+        with mock.patch("memcal.sources.bluebubbles.ingest",
+                        return_value=base.IngestReport(stream="imessage",
+                                                       error="server down")), \
+             mock.patch.object(imessage, "ingest") as local:
+            with self.assertRaises(spec.SourceError) as caught:
+                self.src.fetch(self.conn, self.cfg, report, 1000)
+        local.assert_not_called()                 # the database was never read
+        self.assertIn("fallback is off", str(caught.exception))
 
 
 def setUpModule():

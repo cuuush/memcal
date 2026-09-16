@@ -63,6 +63,10 @@ the output schema is passed inline as the `--json-schema` literal.
 | `MEMCAL_COLLECT_INTERVAL_MINUTES` | `5` (1–1440, minutes) | How often a checked source becomes due for `ingest --due` |
 | `MEMCAL_EMAIL_BACKFILL_DAYS` | `0` = horizon | First mail reach, then watermark |
 | `MEMCAL_PLATFORM_MUTE` | `show` | `show`, `ask`, or `mute` muted-chat evidence policy |
+| `MEMCAL_IMESSAGE_BACKEND` | `bluebubbles` | `bluebubbles` (server) or `chatdb` (local database). See [iMessage](../sources/imessage.md) |
+| `MEMCAL_IMESSAGE_FALLBACK` | on | With the BlueBubbles backend, read local `chat.db` when the server is unreachable; off = hard failure |
+| `MEMCAL_BLUEBUBBLES_LOCATION` | `auto` | `auto` (infer from URL), `local`, or `remote` — decides whether the app may be opened |
+| `MEMCAL_BLUEBUBBLES_AUTOSTART` | on | Open a down **local** BlueBubbles server (hidden) during the nightly pass |
 | `MEMCAL_ITEM_BUDGET` | `20000` | Lines per pass |
 | `MEMCAL_ITEMS_PER_ENTITY` | `2000` | Lines per bundle |
 | `MEMCAL_COLD_START_WAVES` | `4` (1–20) | Wave count for large first passes |

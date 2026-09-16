@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import base64
 import contextlib
 import errno
 import io
@@ -1251,13 +1252,13 @@ class TestIMessageDecoding(unittest.TestCase):
         self.assertTrue(imessage.apple_time(700000000 * 10**9).startswith("2023"))
 
     def test_attributed_body_is_parsed(self):
-        """The length byte here read `\x0e` for a 16-byte string until the parser
-        started respecting it. Nothing noticed, because the scraper it replaced read to
-        a terminator and ignored the length field entirely — so the fixture had been
-        describing a blob macOS would never write."""
-        blob = (b"streamtyped\x81\xe8\x03\x84\x01@\x84\x84\x84\x12NSAttributedString"
-                b"\x00\x84\x84\x08NSObject\x00\x85\x92\x84\x84\x84\x08NSString\x01\x94"
-                b"\x84\x01+\x10we playing at 8?\x86")
+        """Ground truth: this is the exact `attributedBody` blob macOS's NSArchiver
+        wrote for `NSAttributedString(string: "we playing at 8?")`, captured verbatim.
+        The decoder unarchives the real typedstream rather than scraping bytes."""
+        blob = base64.b64decode(
+            "BAtzdHJlYW10eXBlZIHoA4QBQISEhBJOU0F0dHJpYnV0ZWRTdHJpbmcAhIQITlNP"
+            "YmplY3QAhZKEhIQITlNTdHJpbmcBlIQBKxB3ZSBwbGF5aW5nIGF0IDg/hoQCaUkB"
+            "EJKEhIQMTlNEaWN0aW9uYXJ5AJSEAWkAhoY=")
         self.assertEqual("we playing at 8?", imessage.decode_attributed(blob))
 
 

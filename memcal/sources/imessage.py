@@ -8,12 +8,13 @@ before anything expensive runs.
 from __future__ import annotations
 
 import os
-import plistlib
-import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import typedstream
+from typedstream.types.foundation import NSString
 
 from .. import archive, db, gate, identity, textclean, threads
 from . import base
@@ -76,57 +77,54 @@ def resume_floor(conn: sqlite3.Connection) -> str | None:
     return (row[0] if row else None) or None
 
 
-#: The body of an `attributedBody` follows the `NSString` class declaration.
-#: The version byte varies by string class; match it flexibly.
-STRING_MARKER = re.compile(rb"NSString\x01.{0,2}\x84\x01\+", re.DOTALL)
+def _first_nsstring(node, depth: int = 0) -> str | None:
+    """The first NSString in an unarchived typedstream tree.
 
-
-def _typedstream_length(blob: bytes, start: int) -> tuple[int, int]:
-    """Read typedstream's variable-length byte count. Returns (length, next offset).
-
-    A byte below 0x81 is the count itself; 0x81 introduces a two-byte little-endian
-    count and 0x82 a four-byte one. Measured in **bytes, not characters** — an
-    apostrophe costs three of them.
+    An `NSAttributedString` archives as the backing string followed by its attribute
+    runs (ranges, dictionaries). The message text is that first string; everything
+    deeper is styling. `NSMutableString` is an `NSString` subclass, so both cases hit
+    the same branch.
     """
-    if start >= len(blob):
-        return 0, start
-    first = blob[start]
-    if first < 0x81:
-        return first, start + 1
-    width = 2 if first == 0x81 else 4
-    end = start + 1 + width
-    if end > len(blob):
-        return 0, len(blob)
-    return int.from_bytes(blob[start + 1:end], "little"), end
+    if isinstance(node, NSString):
+        return node.value
+    if depth > 8:
+        return None
+    children = getattr(node, "contents", None)
+    if children is None:
+        children = getattr(node, "values", None)
+    if children is None and hasattr(node, "value"):
+        children = [node.value]
+    if isinstance(children, (list, tuple)):
+        for child in children:
+            found = _first_nsstring(child, depth + 1)
+            if found is not None:
+                return found
+    return None
 
 
 def decode_attributed(blob) -> str:
-    """Newer messages leave `text` NULL and put the body in a typedstream blob."""
+    """Newer messages leave `text` NULL and put the body in an `attributedBody`
+    typedstream blob. `pytypedstream` deserializes it; its backing NSString is the text.
+
+    A blob that is not a well-formed typedstream (a truncated write, a format we do not
+    recognize) yields no text rather than an error — the same as a message with nothing
+    said in it.
+    """
     if not blob:
         return ""
     if isinstance(blob, str):
         return blob
     try:
-        parsed = plistlib.loads(blob, fmt=plistlib.FMT_BINARY)
-        if isinstance(parsed, dict):
-            for key in ("NSString", "string"):
-                if key in parsed:
-                    return textclean.spoken_text(str(parsed[key]))
+        obj = typedstream.unarchive_from_data(bytes(blob))
     except Exception:
-        pass
-
-    match = STRING_MARKER.search(blob)
-    if not match:
         return ""
-    length, start = _typedstream_length(blob, match.end())
-    if length <= 0:
-        return ""
-    body = blob[start:start + length].decode("utf-8", "replace")
-    return textclean.spoken_text(body)
+    text = _first_nsstring(obj)
+    return textclean.spoken_text(text) if text else ""
 
 
-#: Bumped when attributed-body decoding changes.
-DECODER_GENERATION = "3"
+#: Bumped when attributed-body decoding changes, so `repair_decoded_text` re-reads
+#: archived bodies with the current decoder. 4: pytypedstream replaced the byte scraper.
+DECODER_GENERATION = "4"
 DECODER_KEY = "imessage.decoder_generation"
 
 
@@ -266,17 +264,31 @@ def available() -> bool:
     return CHAT_DB.exists() and os.access(CHAT_DB, os.R_OK)
 
 
+def _backend(cfg) -> str:
+    return str(getattr(cfg, "imessage_backend", "bluebubbles") or "bluebubbles").lower()
+
+
 @register
 class IMessageSource(Source):
-    """Prefers the BlueBubbles server; falls back to reading chat.db directly."""
+    """Reads iMessage through the configured backend: the BlueBubbles server (with an
+    optional fall back to the local chat.db), or the chat.db directly."""
 
     name = "imessage"
-    description = "iMessage (BlueBubbles if running, else the local chat.db)"
+    description = "iMessage (BlueBubbles server or the local chat.db)"
     order = 20
 
     def fetch(self, conn, cfg, report, limit):
         from .bluebubbles import _absorb
         from .bluebubbles import ingest as bb_ingest
+        # `chatdb` reads the local database and never touches BlueBubbles.
+        if _backend(cfg) == "chatdb":
+            local = ingest(conn, limit=limit)
+            if local.error:
+                raise SourceError(local.error)
+            report.absorb(local)
+            return
+        # `bluebubbles`: read through the server, falling back to chat.db when the server
+        # is unavailable — unless the fallback is turned off, when that is a hard failure.
         try:
             result = bb_ingest(conn, cfg, limit=limit)
             if not result.error:
@@ -285,6 +297,9 @@ class IMessageSource(Source):
             reason = result.error
         except Exception as exc:
             reason = f"{type(exc).__name__}: {exc}"
+        if not getattr(cfg, "imessage_fallback", True):
+            raise SourceError(
+                f"BlueBubbles unavailable and the chat.db fallback is off: {reason}")
         local = ingest(conn, limit=limit)
         if local.error:
             raise SourceError(f"{local.error} (bluebubbles also unavailable: {reason[:80]})")
@@ -293,9 +308,14 @@ class IMessageSource(Source):
 
     def check(self, cfg):
         from .bluebubbles import BlueBubbles
+        if _backend(cfg) == "chatdb":
+            return (True, "via local chat.db") if available() else (False, "no chat.db access")
         try:
             if BlueBubbles(cfg).ping():
                 return True, "via bluebubbles"
-        except Exception:
-            pass
+        except Exception as exc:
+            if not getattr(cfg, "imessage_fallback", True):
+                return False, f"bluebubbles unavailable, fallback off: {str(exc)[:60]}"
+        if not getattr(cfg, "imessage_fallback", True):
+            return False, "bluebubbles not answering, fallback off"
         return (True, "via local chat.db") if available() else (False, "no chat.db access")
