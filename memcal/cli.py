@@ -1253,10 +1253,37 @@ def _dream_progress():
     return show
 
 
+def _ingest_all_for_dream(args, cfg: Config, conn: sqlite3.Connection) -> None:
+    """Pull every `ingest all` source before the pass reads the spool — the same order
+    the nightly runs them in (`ingest all`, then `dream`).
+
+    A bare `memcal dream` used to read only what was already spooled, so running it while
+    a source sat days behind extracted stale data and spent money doing it. Ingesting
+    first makes one command current by default; `--no-ingest` keeps the old spool-only
+    behavior. A pull failure is reported but never blocks the pass: dreaming over what is
+    already here is still worth doing.
+    """
+    chosen = [s for s in sources.all_sources(cfg) if s.in_all]
+    if not chosen:
+        return
+    print("ingest: pulling sources first (--no-ingest to skip)")
+    ingest_args = argparse.Namespace(limit=1000, rounds=sources.DEFAULT_ROUNDS)
+    try:
+        with lock.held(cfg):
+            _ingest_locked(ingest_args, cfg, conn, chosen, due=False)
+    except lock.Busy as exc:
+        print(f"ingest: {exc} — skipping the pull, dreaming over what is already here",
+              file=sys.stderr)
+    print()
+
+
 @_closes_direct_connections
 def cmd_dream(args) -> int:
     """One pass, or as many as it takes to drain the queue (`--rounds`)."""
     cfg, conn = open_ctx(args)
+    if (not args.dry_run and not getattr(args, "retry", None)
+            and not getattr(args, "no_ingest", False)):
+        _ingest_all_for_dream(args, cfg, conn)
     if getattr(args, "retry", None):
         from .dream import retry as retry_stage                    # noqa: PLC0415
         if args.dry_run:
@@ -1333,12 +1360,22 @@ def cmd_trace(args) -> int:
     for older rows created before local call logging existed.
     """
     cfg, conn = open_ctx(args)
-    rows = trace.find(conn, args.what or "")
-    if not rows:
+    needle = (args.what or "").strip()
+    rows = trace.find(conn, needle)
+
+    # A failed request never reaches the `generations` table — a provider CLI that never
+    # launched (`env: node: No such file or directory`) records no call, and a reply with
+    # no usable diff is filed on disk, not as a generation. So trace looked empty exactly
+    # when a pass had failed and doctor had sent the user here. Read those failures back
+    # for a run number, which is what doctor now points at.
+    run_id = int(needle) if needle.isdigit() else None
+    failures = calls.failures_for_run(cfg.home, run_id) if run_id is not None else []
+
+    if not rows and not failures:
         print("no calls recorded yet — run `memcal dream` first")
         return 1
 
-    if not args.what:
+    if not needle:
         print(f"{'run':>4}  {'when':16}  {'stage':8} {'cost':>8}  what")
         for row in rows:
             print(f"{row['run_id'] or '-':>4}  {str(row['created_at'])[:16]}  "
@@ -1367,6 +1404,19 @@ def cmd_trace(args) -> int:
             print(f"could not read it back: {exc}")
             continue
         print(trace.render(content, trace.stats(cfg.api_key, row["generation_id"])))
+        print()
+
+    for blob in failures[: args.limit]:
+        print("=" * 78)
+        print(f"FAILED  run {blob.get('run_id')}  {blob.get('stage')}  "
+              f"{blob.get('label')}")
+        print("=" * 78)
+        print(f"\n--- ERROR ---\n{str(blob.get('error') or '').strip()}")
+        for label, field in (("SYSTEM / SHARED CONTEXT", "prefix"),
+                             ("USER / BUNDLE", "suffix")):
+            value = str(blob.get(field) or "").strip()
+            if value:
+                print(f"\n--- {label} ---\n{value}")
         print()
     return 0
 
@@ -1731,7 +1781,8 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
             more = f"  (+{len(failures) - 1} more)" if len(failures) > 1 else ""
             add("Extraction", "last dream error", WARN,
                 _one_line(failures[0] if failures else str(last_run["error"])) + more,
-                fix="memcal trace            # the prompt, reasoning and reply")
+                fix=f"memcal trace {last_run['id']}   # what that request sent and the "
+                    f"full error")
 
     # Run totals must not exceed their recorded generation costs.
     ledger_error = db.get_meta(conn, trace.LEDGER_ERROR_KEY, "")
@@ -2309,6 +2360,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "what a first load needs, since one pass reads the newest "
                         "lines of each conversation and a 30-day import is several deep")
     s.add_argument("--dry-run", action="store_true", help="bundle and price it, call nothing")
+    s.add_argument("--no-ingest", action="store_true",
+                   help="don't pull sources first — dream over what is already spooled "
+                        "(the pass pulls every `ingest all` source first by default, so "
+                        "one command reads current data)")
     s.add_argument("--redo", nargs="?", const="all", metavar="SINCE",
                    help="re-read already-processed items ('all', or an ISO date)")
     s.add_argument("--no-sweep", action="store_true",
