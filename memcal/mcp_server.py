@@ -187,7 +187,7 @@ TOOLS = [
             "New messages behind one plan since its last review — the correction, "
             "not a keyword search. Use when the brief flags new activity on a row "
             "before giving current details for it. Reading changes nothing; cite "
-            "the [ids] in a memcal_update, or acknowledge them with memcal_reviewed "
+            "the [ids] in a memcal_update (prefer field_sources when fields differ), or acknowledge them with memcal_reviewed "
             "when the stored row still stands. Takes a brief handle like E46."),
         "inputSchema": {
             "type": "object",

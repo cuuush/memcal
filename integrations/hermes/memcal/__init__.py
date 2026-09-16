@@ -339,6 +339,7 @@ UPDATE_EVENT = {
                         "description": "whose thing this is; only to correct a row "
                                        "filed under the wrong person"},
             "add_participants": {"type": "array", "items": {"type": "string"}},
+            "remove_participants": {"type": "array", "items": {"type": "string"}},
             "note": {"type": "string", "description": "a detail with nowhere else to go"},
             "join_url": {"type": "string",
                          "description": "the link you attend through, for anything online. \"Online\" is a location; a Zoom link is this"},
@@ -369,8 +370,9 @@ ACTIVITY = {
         "New messages behind one plan since its last review — the correction, not a "
         "keyword search. Use when the brief flags new activity on a row before giving "
         "current details for it. Reading changes nothing; cite the line ids in a "
-        "memcal_update, or acknowledge them with memcal_reviewed when the stored row "
-        "still stands. Brief lines carry a handle such as E46; give it that."),
+        "memcal_update (prefer field_sources when fields have different supports), "
+        "or acknowledge them with memcal_reviewed when the stored row still stands. "
+        "Brief lines carry a handle such as E46; give it that."),
     "parameters": {
         "type": "object",
         "properties": {
@@ -681,6 +683,7 @@ def _w_update(live, conn, cfg, args, origin):
         note=args.get("note"), join_url=args.get("join_url"),
         series=args.get("series"),
         add_participants=args.get("add_participants") or [],
+        remove_participants=args.get("remove_participants") or [],
         field_sources=args.get("field_sources"),
         context_source_ids=args.get("context_source_ids"))
     event = outcome.event
@@ -694,7 +697,8 @@ def _w_update(live, conn, cfg, args, origin):
         elif outcome.rejected:
             body["changed"] = "rejected — see fields"
         else:
-            body["changed"] = "nothing — it already said that"
+            # Mapped request with only unchanged fields — never the flat no-op idiom.
+            body["changed"] = "unchanged — see fields"
     else:
         body["changed"] = changed or "nothing — it already said that"
     return (body, [("event", event.key, "updated")]
