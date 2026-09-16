@@ -37,13 +37,24 @@ cannot revise the field you corrected, while genuinely newer evidence still can.
 An event update can add or remove named participants explicitly. Memcal never
 infers a to-do is complete — it waits for an explicit completion or asks.
 
-A correction may cite the source lines it is based on (`source_ids` on
-`memcal_update`, `--source-ids` on `memcal reviewed`). A cited correction takes
-the evidence time of its *oldest* cited line, so a stale line cannot ride a newer
-one; a `source_id` that names no real row, or a line with no readable timestamp,
-is refused rather than treated as now. Values a row was created holding are
-protected by their founding evidence time, so the first edit — however old its
-source — cannot erase them.
+A correction may cite the source lines it is based on. Prefer
+`field_sources` on `memcal_add` / `memcal_update` (and the Hermes twins) when
+fields have different supporting messages: a map of field name → archive line
+ids. Each field uses the *newest* supporting timestamp. Optional
+`context_source_ids` are background only (no authority) and are valid only with
+`field_sources`. Do not combine flat `source_ids` with `field_sources`.
+
+Flat `source_ids` on `memcal_update` (and `--source-ids` on `memcal reviewed`)
+remain for single-authority corrections: the evidence time is the *oldest*
+cited line, so a stale line cannot ride a newer one. A `source_id` that names
+no real row, or a line with no readable timestamp, is refused rather than
+treated as now. Values a row was created holding are protected by their
+founding evidence time, so the first edit — however old its source — cannot
+erase them.
+
+Mapped writes return per-field outcomes (`applied` / `unchanged` / `rejected`,
+plus `evidence_advanced` when a newer same-value cite advances evidence). An
+all-rejected request never reads as a silent no-op.
 
 ## New activity
 
