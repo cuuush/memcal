@@ -7168,11 +7168,47 @@ class TestTheUnattendedPathNeverHeardOnRetry(Base):
         self.addCleanup(setattr, cli, "dream", real)
         args = argparse.Namespace(home=str(self.cfg.home), mode="nightly", model=None,
                                   limit=0, dry_run=False, no_sweep=True, redo=None,
-                                  rounds=1)
+                                  rounds=1, no_ingest=True)
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dream(args)
         self.assertIsNotNone(seen.get("progress"),
                              "the unattended path passed no progress callback")
+
+    def _dream_args(self, **over):
+        base = dict(home=str(self.cfg.home), mode="nightly", model=None, limit=0,
+                    dry_run=False, no_sweep=True, redo=None, rounds=1, retry=None,
+                    no_ingest=False)
+        base.update(over)
+        return argparse.Namespace(**base)
+
+    def test_a_bare_dream_pulls_sources_before_it_reads_the_spool(self):
+        """One command, current data: `memcal dream` runs `ingest all` first, the same
+        order the nightly does, so a source days behind is not extracted stale."""
+        pulled = {"n": 0}
+        real, cli.dream = cli.dream, lambda conn, cfg, **kw: type(
+            "R", (), {"errors": [], "nothing_new": True, "report": lambda s: "",
+                      "usage_summary": ""})()
+        self.addCleanup(setattr, cli, "dream", real)
+        real_ingest = cli._ingest_all_for_dream
+        cli._ingest_all_for_dream = lambda *a, **k: pulled.__setitem__("n", pulled["n"] + 1)
+        self.addCleanup(setattr, cli, "_ingest_all_for_dream", real_ingest)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_dream(self._dream_args())
+        self.assertEqual(pulled["n"], 1, "dream did not pull sources first")
+
+    def test_no_ingest_and_dry_run_skip_the_pull(self):
+        real, cli.dream = cli.dream, lambda conn, cfg, **kw: type(
+            "R", (), {"errors": [], "nothing_new": True, "report": lambda s: "",
+                      "usage_summary": ""})()
+        self.addCleanup(setattr, cli, "dream", real)
+        real_ingest = cli._ingest_all_for_dream
+        pulled = {"n": 0}
+        cli._ingest_all_for_dream = lambda *a, **k: pulled.__setitem__("n", pulled["n"] + 1)
+        self.addCleanup(setattr, cli, "_ingest_all_for_dream", real_ingest)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_dream(self._dream_args(no_ingest=True))
+            cli.cmd_dream(self._dream_args(dry_run=True))
+        self.assertEqual(pulled["n"], 0, "--no-ingest / --dry-run still pulled")
 
     def test_the_cli_prints_the_pass_as_it_happens(self):
         """Stages, waves and each request, not only the waits.
@@ -7368,6 +7404,60 @@ class TestTheCallsThatFailedNeverReachedDisk(Base):
         self.assertTrue(any("stopped:" in line for line in errors), errors)
         self.assertTrue(any("stopped:" in line for line in notes), notes)
         self.assertLessEqual(Waller.sent, 3, "kept sending after the wall")
+
+    def test_a_capacity_wall_stops_the_pass_like_a_quota_wall(self):
+        """A model at capacity will not clear inside one pass, so splitting and
+        re-sending into it is the same waste a quota wall is. It stops the pass and
+        leaves the queue for the next run."""
+        from memcal import llm
+
+        @self._mapper
+        class Full:
+            sent = 0
+
+            def complete(self, **kw):
+                Full.sent += 1
+                if Full.sent == 1:                    # truncated, so the pass splits it
+                    return llm.Reply(text='{"diffs": [', data=None,
+                                     usage=llm.Usage(calls=1),
+                                     model=kw.get("model", ""),
+                                     generation_id="gen-split",
+                                     finish_reason="length")
+                raise llm.CapacityExhausted(
+                    "Selected model is at capacity. Please try a different model.")
+
+        run_id = self._run_row()
+        self.cfg.pack_bundles = 2
+        _good, errors, notes = propose_stage.propose_all(
+            Full(), self.conn, self.cfg,
+            [self._bundle("person:Jordan"), self._bundle("person:Riley")],
+            run_id=run_id)
+        self.assertTrue(any("stopped:" in line for line in errors), errors)
+        self.assertTrue(any("stopped:" in line for line in notes), notes)
+        self.assertLessEqual(Full.sent, 3, "kept sending after the wall")
+
+    def test_a_capacity_probe_does_not_fan_out_the_rest_of_the_wave(self):
+        """When the cache-warming probe comes back at capacity, the other requests in
+        the wave would hit the same wall. They stay queued instead of being sent."""
+        from memcal import llm
+
+        @self._mapper
+        class Full:
+            sent = 0
+
+            def complete(self, **kw):
+                Full.sent += 1
+                raise llm.CapacityExhausted("Selected model is at capacity.")
+
+        run_id = self._run_row()
+        self.cfg.max_parallel = 2
+        self.cfg.pack_bundles = 1
+        self.cfg.propose_model = "openai/gpt-5.6-luna"      # a model that has a cache
+        bundles = [self._bundle(f"person:P{i}") for i in range(5)]
+        _good, errors, notes = propose_stage.propose_all(
+            Full(), self.conn, self.cfg, bundles, run_id=run_id)
+        self.assertEqual(Full.sent, 1, "fanned the wave out into a known wall")
+        self.assertTrue(any("stopped:" in line for line in notes), notes)
 
     def test_a_failure_is_never_filed_as_a_generation(self):
         """`generations.generation_id` is the key *OpenRouter* files a call under.

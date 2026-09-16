@@ -120,8 +120,8 @@ async function renderRetry(p) {
   note.style.margin = "0";
 
   if (passRunning) {
-    note.textContent = "A pass is running now — the log below is it. Retrying is offered "
-      + "again once it ends, if this run still needs it.";
+    note.textContent = "A pass is running — you're watching it below. The retry button "
+      + "comes back when it finishes, if anything still needs one.";
     row.append(note);
     n.append(row);
     box.append(n);

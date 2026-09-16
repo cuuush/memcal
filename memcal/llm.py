@@ -203,6 +203,15 @@ class LLMError(RuntimeError):
     pass
 
 
+class CapacityExhausted(LLMError):
+    """The provider refused for want of capacity ("at capacity", "try a different
+    model", "overloaded"). Unlike a one-off `LLMError`, it will not clear within a
+    single pass: the model that was full for one request is full for the next, so a
+    wave that keeps splitting and re-sending into it is pure waste. Callers stop the
+    pass on it and leave the queue for the next run, the same as `QuotaExhausted` —
+    the only difference is that this one is temporary and clears on its own later."""
+
+
 @dataclass
 class Usage:
     prompt_tokens: int = 0
@@ -388,7 +397,7 @@ class OpenRouter(CompletionClient):
             if capacity:
                 tally.waits += 1
                 if spent + wait > capacity_budget:
-                    raise LLMError(
+                    raise CapacityExhausted(
                         f"gave up after {spent:.0f}s of capacity waits "
                         f"({tally.waits} of them, {tally.requests} requests): "
                         f"{last}") from last
@@ -686,6 +695,13 @@ class ProgrammaticClient(CompletionClient):
         r"quota (?:reached|exceeded|exhausted)|out of (?:quota|credits)|"
         r"usage limit reached|upgrade your (?:subscription|plan)", re.I)
 
+    #: A temporary capacity refusal, told apart from a permanent quota wall above and
+    #: from an ordinary error. It will not clear inside one pass, so it stops the pass
+    #: rather than being split and re-sent; see `CapacityExhausted`.
+    _AT_CAPACITY = re.compile(
+        r"at capacity|over ?capacity|try a different model|overloaded|"
+        r"temporarily unavailable", re.I)
+
     @classmethod
     def _failure(cls, proc: subprocess.CompletedProcess,
                  detail: str = "") -> RuntimeError:
@@ -693,6 +709,8 @@ class ProgrammaticClient(CompletionClient):
                                or "no output").split())[:600]
         if cls._OUT_OF_QUOTA.search(message):
             return QuotaExhausted(message)
+        if cls._AT_CAPACITY.search(message):
+            return CapacityExhausted(message)
         return LLMError(message)
 
 
@@ -808,8 +826,13 @@ class Codex(ProgrammaticClient):
         failures = [event for event in events
                     if event.get("type") in ("error", "turn.failed")]
         if proc.returncode or failures:
-            detail = failures[-1] if failures else ""
-            raise self._failure(proc, str(detail))
+            # The event carries a human message inside `error.message` (or `message`);
+            # raising the whole `{"type": "turn.failed", ...}` dict is what put that
+            # unreadable blob in front of the user and in `runs.error`.
+            detail = failures[-1] if failures else {}
+            message = (((detail.get("error") or {}).get("message"))
+                       or detail.get("message") or str(detail or ""))
+            raise self._failure(proc, message)
         thread_id = next((event.get("thread_id") for event in events
                           if event.get("type") == "thread.started"), "")
         messages = [event.get("item") or {} for event in events
