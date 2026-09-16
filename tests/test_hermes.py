@@ -9,7 +9,6 @@ import json
 import os
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -488,10 +487,11 @@ class TestHermesProvider(unittest.TestCase):
         self.assertIn("WIKI PAGES MENTIONED THIS TURN", snapshot)
 
     def test_the_gate_applies_to_agent_turns_too(self):
+        # sync_turn archives synchronously (no worker thread), so the writes are on
+        # disk by the time it returns — read straight back, no sleep to wait out.
         provider = self._ready()
         provider.sync_turn("dinner with harper thursday at 7", "ok")
         provider.sync_turn("hey", "hi")
-        time.sleep(1.5)
         from memcal import config, db
         conn = db.open_db(config.load(self.tmp.name).db_path)
         archived = conn.execute("SELECT count(*) AS n FROM archive WHERE stream='agent'").fetchone()["n"]
@@ -504,7 +504,6 @@ class TestHermesProvider(unittest.TestCase):
         provider = self._ready()
         for text in ("first thing tomorrow", "second thing tomorrow"):
             provider.sync_turn(text, "ok")
-        time.sleep(1.5)
         from memcal import config, db
         conn = db.open_db(config.load(self.tmp.name).db_path)
         rows = conn.execute(
@@ -532,7 +531,6 @@ class TestHermesProvider(unittest.TestCase):
         before = conn.execute("SELECT count(*) AS n FROM archive").fetchone()["n"]
         conn.close()
         self._ready(context="subagent").sync_turn("a cron prompt", "ok")
-        time.sleep(1.0)
         conn = db.open_db(config.load(self.tmp.name).db_path)
         after = conn.execute("SELECT count(*) AS n FROM archive").fetchone()["n"]
         conn.close()

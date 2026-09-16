@@ -162,9 +162,12 @@ class TestTelegramLoginApiPair(unittest.TestCase):
         import memcal.sources.polled as polled
         cfg = self.cfg()
         source = telegram.TelegramSource()
+        # setup() prompts for the api pair (the behavior under test) and only then
+        # builds a Telethon client; stub _build so the test needs no telethon install.
         with mock.patch.object(polled, "ask",
                                side_effect=["123456", "abcdef1234567890"]), \
              mock.patch("builtins.input", return_value=""), \
+             mock.patch.object(source, "_build"), \
              self.saving(cfg) as save:
             ok, _message = source.setup(cfg)
         self.assertFalse(ok)  # empty phone ends it, after the pair was saved
@@ -179,7 +182,8 @@ class TestTelegramLoginApiPair(unittest.TestCase):
                         "TELEGRAM_API_HASH": "abcdef1234567890"})
         source = telegram.TelegramSource()
         with mock.patch.object(polled, "ask", return_value="") as ask, \
-             mock.patch.object(polled, "save_credential") as save:
+             mock.patch.object(polled, "save_credential") as save, \
+             mock.patch.object(source, "_build"):  # stub Telethon client build
             # Enter keeps both; EOF on the phone prompt ends it.
             with mock.patch("builtins.input", side_effect=EOFError):
                 ok, _message = source.setup(cfg)
