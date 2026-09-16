@@ -27,6 +27,10 @@ Key requirements:
 ## Testing flow
 
 - Run the smallest relevant unittest modules while iterating, then the full suite before handoff.
+- The full suite runs fastest through `python3 tools/run_tests.py`, which fans the modules
+  across cores in separate processes (roughly 5x quicker than `unittest discover`, and stricter
+  isolation). `python3 -m unittest discover -s tests` remains the equivalent single-process run.
+  Pass module names to either to scope a run: `python3 tools/run_tests.py test_core test_web`.
 - Run `python3 tools/benchmark_temporal.py --layer integration` when a change affects behavior
   exercised by the multi-day ingest, Merge, storage, dream, or brief scenarios.
 - Run the live model layer only to evaluate extraction or prompt behavior with a usable provider.

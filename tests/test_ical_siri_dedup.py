@@ -29,6 +29,19 @@ def _item(uid, title, days, *, calendar="Calendar", writable=True, hour=19):
     }
 
 
+def _local_hm(days, hour):
+    """The wall-clock time a `_item(hour=...)` fixture shows once ingested.
+
+    ical ingest renders event times in the host's local zone (`.astimezone()`),
+    so a fixture built at a UTC hour surfaces as that instant's *local* time. Deriving
+    the expectation the same way keeps time assertions correct on any host and under
+    `tools/clock_sweep.py`, rather than only where local time happens to equal UTC.
+    """
+    start = datetime.combine(db.today() + timedelta(days=days),
+                             datetime.min.time(), tzinfo=timezone.utc).replace(hour=hour)
+    return start.astimezone().strftime("%H:%M")
+
+
 def _snapshot(self, items):
     return ical.ingest_snapshot(
         self.conn, self.cfg, items,
@@ -87,7 +100,8 @@ class TestSameTitleDifferentTimesStaySeparate(Base):
         rows = [r for r in events.window(self.conn, 0, 10) if r.title == "1:1"]
         self.assertEqual(len(rows), 2,
                          "a 10:00 and a 15:00 meeting are two occasions, not one")
-        self.assertEqual({r.time for r in rows}, {"10:00", "15:00"})
+        self.assertEqual({r.time for r in rows},
+                         {_local_hm(3, 10), _local_hm(3, 15)})
 
     def test_a_timeless_entry_still_corroborates_a_timed_one(self):
         # A missing time on either side has nothing to disagree on, so the exact
