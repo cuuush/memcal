@@ -9,6 +9,24 @@
   switched off; the packed prompt rides in a temp file (`--prompt-file`) so a large
   propose wave stays under the shell argument limit, and the schema is passed inline
   as the `--json-schema` literal.
+- The iMessage transport is configurable. `MEMCAL_IMESSAGE_BACKEND` picks `bluebubbles`
+  (the server — groups, participants, clean text, and it can run on another machine) or
+  `chatdb` (read the local database directly, never touching BlueBubbles).
+  `MEMCAL_IMESSAGE_FALLBACK` (default on) decides whether an unreachable BlueBubbles
+  server quietly reads `chat.db` or fails hard. The server address is set with
+  `bluebubblesurl=` in the store's `.env` (defaults to `http://localhost:1234`), so a
+  remote server is a first-class option. Documented in the iMessage source page.
+- A nightly pass opens BlueBubbles when it finds a **local** server down, so iMessage is
+  read through it rather than falling back to `chat.db`. It launches the app hidden and
+  in the background (no window, never fullscreen), only launches an app installed on this
+  Mac, and never launches a remote server. `MEMCAL_BLUEBUBBLES_LOCATION` (`auto`/`local`/
+  `remote`) says where the server runs; `MEMCAL_BLUEBUBBLES_AUTOSTART` (default on) turns
+  the launching off. The launch happens only from the scheduled pass, never from a plain
+  `memcal ingest`.
+- iMessage `attributedBody` blobs (the typedstream body newer macOS leaves when
+  `message.text` is NULL) are decoded with the `pytypedstream` library instead of a
+  hand-rolled byte scraper — a real deserializer in place of a reverse-engineered
+  regex. `pytypedstream` is now a runtime dependency; `install.sh` installs it.
 
 ## [0.8.0] - 2026-09-16
 

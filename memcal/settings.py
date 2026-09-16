@@ -161,6 +161,38 @@ SETTINGS: tuple[Setting, ...] = (
             "How far back the first mail fetch goes. Later runs resume from a "
             "watermark and ignore this. 0 means the model horizon above.",
             "collect", kind="int", minimum=0, maximum=3_650, unit="days"),
+    Setting("MEMCAL_IMESSAGE_BACKEND", "imessage_backend", "iMessage transport",
+            "How to read iMessage. `bluebubbles` uses the BlueBubbles server (groups, "
+            "participants, clean text, and a server that can run on another machine); "
+            "`chatdb` reads ~/Library/Messages/chat.db on this Mac directly and never "
+            "touches BlueBubbles. Set the server address with `bluebubblesurl` and its "
+            "password with `bluebubbles` in the store's .env.",
+            "collect", kind="choice",
+            choices=(("bluebubbles", "bluebubbles · via the server"),
+                     ("chatdb", "chatdb · read the local database"))),
+    Setting("MEMCAL_IMESSAGE_FALLBACK", "imessage_fallback",
+            "Fall back to the local database",
+            "When the transport is BlueBubbles and its server cannot be reached, read "
+            "the local chat.db instead. Off makes an unreachable BlueBubbles server a "
+            "hard failure rather than quietly reading the database.",
+            "collect", kind="bool"),
+    Setting("MEMCAL_BLUEBUBBLES_LOCATION", "bluebubbles_location",
+            "Where BlueBubbles runs",
+            "Whether the BlueBubbles server is on this Mac, which decides whether opening "
+            "the app could help. `auto` infers it from the URL (localhost is local); "
+            "`local` allows a down server to be opened; `remote` never launches anything "
+            "here, for a server on another machine.",
+            "collect", kind="choice",
+            choices=(("auto", "auto · infer from the URL"),
+                     ("local", "local · this Mac"),
+                     ("remote", "remote · another machine"))),
+    Setting("MEMCAL_BLUEBUBBLES_AUTOSTART", "bluebubbles_autostart",
+            "Open BlueBubbles when it is down",
+            "When the transport is BlueBubbles and its server is not answering, open the "
+            "app (hidden, in the background) so the pass reads iMessage through it rather "
+            "than falling back to chat.db. Only launches an app already installed on this "
+            "Mac, and only for a local server (see 'Where BlueBubbles runs').",
+            "collect", kind="bool"),
     Setting("MEMCAL_PLATFORM_MUTE", "platform_mute", "Conversations you muted there",
             "What to do about a chat the platform itself reports as muted. It is "
             "evidence, not an instruction — you may have muted a group whose plans "

@@ -2,16 +2,13 @@
 # memcal installer.
 #
 # Puts a `memcal` on your PATH that points at *this* source tree rather than a copy,
-# so editing the code takes effect immediately with no reinstall. The core runtime has no
-# third-party dependencies, so there is nothing to compile or resolve here. Two sources
-# need a library and ask for it only when used, so they are extras rather than
-# dependencies and this installer stays free of a resolve step:
+# so editing the code takes effect immediately with no reinstall. The launcher runs from
+# the checkout via PYTHONPATH, so the core's runtime dependencies are installed here (into
+# the interpreter that will run it) rather than resolved by a `pip install` of memcal
+# itself. Per-source libraries stay optional extras and are asked for only when used:
 #
 #   pip install -e '.[chat]'      # Slack (slack_sdk) and Telegram (telethon)
 #   brew install signal-cli       # Signal, a JVM program rather than a Python package
-#
-# If anything ever becomes a hard dependency of the core, this installer must install it
-# before the launcher runs.
 #
 #   ./install.sh                 # ~/.local/bin/memcal, and `memcal init` if this is new
 #   ./install.sh --nightly       # ...and schedule the dream pass for 3am
@@ -92,6 +89,47 @@ step "python   $PY ($("$PY" -c 'import sys; print(".".join(map(str, sys.version_
 if [ ! -d "$ROOT/memcal" ]; then
     warn "no memcal package at $ROOT/memcal — is install.sh still next to the source?"
     exit 1
+fi
+
+# --------------------------------------------------------------- dependencies --
+
+# memcal is run from the checkout via PYTHONPATH, not `pip install`ed, so its core
+# runtime dependencies are installed straight into the interpreter that will run it.
+# The list is read from pyproject.toml so this stays in step with it automatically.
+say ""
+say "dependencies"
+DEPS=$("$PY" - "$ROOT" <<'PYEOF'
+import pathlib, sys, tomllib
+data = tomllib.loads((pathlib.Path(sys.argv[1]) / "pyproject.toml").read_text())
+print("\n".join(data["project"].get("dependencies", [])))
+PYEOF
+)
+if [ -n "$DEPS" ]; then
+    REQ=$(mktemp)
+    printf '%s\n' "$DEPS" > "$REQ"
+    # Plain install first; then the PEP 668 escape hatch for an externally-managed
+    # interpreter (Homebrew, system Python), where a normal install into user site is
+    # refused. `--user` keeps it out of the managed prefix; it still imports from the
+    # launcher, which adds only PYTHONPATH and leaves user site on sys.path.
+    pip_ok=0
+    for extra in "" "--user --break-system-packages"; do
+        # shellcheck disable=SC2086
+        if out=$("$PY" -m pip install --disable-pip-version-check $extra -r "$REQ" 2>&1); then
+            pip_ok=1; break
+        fi
+    done
+    printf '%s\n' "$out" | sed 's/^/  /'
+    rm -f "$REQ"
+    if [ "$pip_ok" -eq 1 ]; then
+        step "installed: $(printf '%s' "$DEPS" | tr '\n' ' ')"
+    else
+        warn "could not install core dependencies — memcal will not run until they are present:"
+        printf '%s\n' "$DEPS" | sed 's/^/    /' >&2
+        # shellcheck disable=SC2086
+        warn "install them by hand:  $PY -m pip install --user --break-system-packages $(printf '%s ' $DEPS)"
+    fi
+else
+    step "none"
 fi
 
 # ------------------------------------------------------------------- launcher --

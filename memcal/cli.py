@@ -1267,6 +1267,12 @@ def _ingest_all_for_dream(args, cfg: Config, conn: sqlite3.Connection) -> None:
     chosen = [s for s in sources.all_sources(cfg) if s.in_all]
     if not chosen:
         return
+    # Wake the local BlueBubbles server (hidden) before pulling, so iMessage reads
+    # through it rather than falling back to chat.db. Only the nightly/scheduled pass
+    # does this — never a plain `memcal ingest` — so no window is thrown at the user.
+    from .sources import bluebubbles as _bluebubbles                # noqa: PLC0415
+    for note in _bluebubbles.ensure_server(cfg):
+        print(f"ingest: {note}")
     print("ingest: pulling sources first (--no-ingest to skip)")
     ingest_args = argparse.Namespace(limit=1000, rounds=sources.DEFAULT_ROUNDS)
     try:
