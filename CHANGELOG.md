@@ -48,6 +48,9 @@
 - Mixed/invalid citation refusals name the affected fields and ask for `field_sources`;
   they never advise stripping citations or restating retrieved text as an uncited
   correction.
+- Hermes `memcal_update` accepts `remove_participants` (parity with MCP) and surfaces
+  mapped write outcomes without the flat “already said that” idiom; `docs/api/correct.md`
+  documents `field_sources` / `context_source_ids`.
 
 ## [0.8.0] - 2026-09-16
 

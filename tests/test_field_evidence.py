@@ -424,14 +424,23 @@ class TestAdapterSurfaces(_Base):
 
     def test_hermes_handler_passes_field_sources(self):
         import importlib.util
+        import sys
         hermes_path = (Path(__file__).resolve().parent.parent
                        / "integrations" / "hermes" / "memcal" / "__init__.py")
-        # Load only the schema dicts without executing plugin registration side effects
-        # by compiling the parameter blocks via live path equivalence: the handler
-        # source must mention field_sources.
-        src = hermes_path.read_text(encoding="utf-8")
-        self.assertIn('"field_sources"', src)
-        self.assertIn('field_sources=args.get("field_sources")', src)
+        # Stub Hermes ABC so the plugin loads without ~/.hermes installed.
+        import types
+        agent_mod = types.ModuleType("agent")
+        mp_mod = types.ModuleType("agent.memory_provider")
+        class MemoryProvider:  # noqa: D401 — test stub
+            pass
+        mp_mod.MemoryProvider = MemoryProvider
+        sys.modules.setdefault("agent", agent_mod)
+        sys.modules["agent.memory_provider"] = mp_mod
+        spec = importlib.util.spec_from_file_location(
+            "_memcal_hermes_fe_test", hermes_path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["_memcal_hermes_fe_test"] = module
+        spec.loader.exec_module(module)
         event = self.poker()
         settle = self.collect("chat", "s1", "5 Oak", "poker group",
                               ts="2026-09-12T10:00:00-04:00")
@@ -441,13 +450,19 @@ class TestAdapterSurfaces(_Base):
                                  ts="2026-09-12T09:00:00-04:00")
         new_time = self.collect("chat", "nt", "8pm", "poker group",
                                 ts="2026-09-12T11:00:00-04:00")
-        outcome = live.update_event(
-            self.conn, self.cfg, event.key, location="1 Pine", time="20:00",
-            field_sources={"location": [old_place], "time": [new_time]})
-        self.assertTrue(any(i.field == "location" and i.status == "rejected"
-                            for i in outcome.fields))
-        self.assertTrue(any(i.field == "time" and i.status == "applied"
-                            for i in outcome.fields))
+        body, _stamps = module._w_update(
+            live, self.conn, self.cfg,
+            {"which": event.key, "location": "1 Pine", "time": "20:00",
+             "field_sources": {"location": [old_place], "time": [new_time]}},
+            live.Origin.of("hermes"))
+        self.assertIn("fields", body)
+        statuses = {item["field"]: item["status"] for item in body["fields"]}
+        self.assertEqual("rejected", statuses.get("location"))
+        self.assertEqual("applied", statuses.get("time"))
+        joined = " ".join(body.get("summary") or [])
+        self.assertIn("Rejected: location", joined)
+        self.assertIn("Applied: time", joined)
+        self.assertNotEqual("nothing — it already said that", body.get("changed"))
 
 
 class TestFrozenOutcomeType(_Base):
