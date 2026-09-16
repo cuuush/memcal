@@ -1,27 +1,27 @@
 # memcal
 
-**Agent calendar + nightly reconcile → brief in context**
+**Memory + Calendar for AI agents**
 
 [![PyPI](https://img.shields.io/pypi/v/memcal)](https://pypi.org/project/memcal/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-cuuush.github.io-brightgreen)](https://cuuush.github.io/memcal/)
 
-Most agent memory (Mem0, Hindsight, …) is great at preferences and RAG. It fails at personal-assistant questions like “what’s my weekend looking like?” Those need a **calendar of your life**, not another embedding store.
+Most memory systems for agents like OpenClaw or Hermes (Mem0, Hindsight) are good at saving things like preferences and observations, but fail at personal assistant tasks, like remembering you have a dentist appointment next Friday. Memcal attempts to bridge this gap by enabling an agent to maintain its own internal calendar of your life. On top of that, a nightly fact-gathering stage will scan sources like iMessage, email, WhatsApp, iCal, and more to automatically update the agent calendar.
 
-Memcal maintains typed **events / todos / questions / wiki**, fed from the streams you already have (Slack, Messages, email, calendars, chat). A **nightly reconcile** merges the day; every turn your agent gets a small **brief** in context, with tools for depth and corrections.
+With Memcal, you can ask an agent, “What’s my weekend looking like?” and it will remember that your friend is free for dinner Saturday night, that the nonprofit you follow is having a member day, or even that your family is coming into town...
 
 <!-- Demo: synthetic brief screenshot — drop at docs/assets/demo-brief.png and uncomment:
 ![Example brief (synthetic)](docs/assets/demo-brief.png)
 -->
 
-## Why not just Mem0 / Hindsight?
+## Under the hood
 
-- **Write-time recency** — when a fact updates, the old value moves to history; read time isn’t a relevance fight ([memcal vs retrieval](https://cuuush.github.io/memcal/architecture/memcal-vs-rag/))
-- **Brief in the prompt** — “I’m bored” / “what’s this week” answers from context, not a lucky tool call
-- **Typed stores** — events, series, todos, questions, wiki (not a bag of memories)
-- **Multi-stream join** — Slack + email + calendar + agent chat resolve to one underlying thing
-- **Nightly dream pass** — observe → gate → propose → merge → brief, on a schedule
+- **Write-time recency** — updates move old values to history; read time isn’t a relevance fight ([memcal vs retrieval](https://cuuush.github.io/memcal/architecture/memcal-vs-rag/))
+- **Brief in the prompt** — the week is already in context for implicit questions
+- **Typed stores** — events, series, todos, questions, wiki
+- **Multi-stream join** — Slack, Messages, email, calendar, and agent chat resolve to one underlying thing
+- **Nightly dream pass** — observe → gate → propose → merge → brief
 
 ## Install
 
