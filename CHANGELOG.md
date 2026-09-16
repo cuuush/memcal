@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Added
+
+- Grok is a fifth model backend: `MEMCAL_LLM_PROVIDER=grok` runs xAI's Grok Build
+  CLI in headless mode against your existing Grok login (native model `grok-4.5`,
+  set with `MEMCAL_GROK_COMMAND`). Like the other CLI backends it returns one-shot
+  structured completions, with its tools, subagents, plan mode and web search
+  switched off; the packed prompt rides in a temp file (`--prompt-file`) so a large
+  propose wave stays under the shell argument limit, and the schema is passed inline
+  as the `--json-schema` literal.
+
 ## [0.8.0] - 2026-09-16
 
 ### Added

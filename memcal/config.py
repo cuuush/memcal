@@ -44,6 +44,7 @@ class Config:
     claude_command: str = "claude"
     codex_command: str = "codex"
     agy_command: str = "agy"
+    grok_command: str = "grok"
     llm_command_timeout: int = 900
 
     # Temporal window and token budget for the brief context.
@@ -211,6 +212,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
         ("MEMCAL_CLAUDE_COMMAND", "claude_command", str),
         ("MEMCAL_CODEX_COMMAND", "codex_command", str),
         ("MEMCAL_AGY_COMMAND", "agy_command", str),
+        ("MEMCAL_GROK_COMMAND", "grok_command", str),
         ("MEMCAL_LLM_COMMAND_TIMEOUT", "llm_command_timeout", int),
         ("MEMCAL_PROPOSE_MODEL", "propose_model", str),
         ("MEMCAL_SWEEP_MODEL", "sweep_model", str),
@@ -258,6 +260,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
         "claude-code": "claude-sonnet-5",
         "codex": "gpt-5.6-luna",
         "antigravity": "gemini-3.8-flash-high",
+        "grok": "grok-4.5",
     }
     default_model = defaults.get(cfg.llm_provider)
     if default_model:

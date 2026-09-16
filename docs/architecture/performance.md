@@ -46,14 +46,23 @@ answer and an immediate correct answer are never confused. See
 | Codex programmatic mode (default) | `gpt-5.6-luna` | Existing Codex login |
 | Claude Code programmatic mode | `claude-sonnet-5` | Existing Claude Code login |
 | Antigravity programmatic mode | `gemini-3.8-flash-high` | Existing Antigravity login |
+| Grok programmatic mode | `grok-4.5` | Existing Grok Build login |
 | OpenRouter | `openai/gpt-5.6-luna` | OpenRouter API key |
 
-The three CLI backends run as one-shot structured completions. Claude Code uses
+The four CLI backends run as one-shot structured completions. Claude Code uses
 print mode without persistent sessions or tools. Codex uses ephemeral `exec`
 sessions with a read-only sandbox and approvals disabled. Antigravity (`agy`)
 uses print mode with the sandbox on and slash commands disabled, and asks for
-structured output with `--json-schema`. All three replay staged extraction
-turns explicitly, so a pass does not depend on hidden session history. Prefer
+structured output with `--json-schema`. Grok runs Grok Build's headless mode
+(`--output-format json`) as a plain completion — tools, subagents, plan mode and
+web search all switched off, `--verbatim` so the prompt is sent as written — with
+the packed prompt in a temp file (`--prompt-file`) and the schema as the
+`--json-schema` literal. Like Antigravity it wraps every call in an agent
+preamble that bills tens of thousands of input tokens, so prefer it on a
+subscription where that is quota rather than money; a dry-run estimate uses the
+OpenRouter table, but a real run records the cost the CLI itself reports. All
+four replay staged extraction turns explicitly, so a pass does not depend on
+hidden session history. Prefer
 a flash model on Antigravity: its print mode wraps every prompt in an agent
 preamble that bills tens of thousands more input tokens per call — quota rather
 than money on a subscription, but the reason to prefer flash here. Antigravity

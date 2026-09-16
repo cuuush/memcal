@@ -195,7 +195,8 @@ def _provider_choice() -> str:
     choices = (("1", "codex", "Codex programmatic mode"),
                ("2", "claude-code", "Claude Code programmatic mode"),
                ("3", "antigravity", "Antigravity programmatic mode"),
-               ("4", "openrouter", "OpenRouter API key"))
+               ("4", "grok", "Grok programmatic mode"),
+               ("5", "openrouter", "OpenRouter API key"))
     print("LLM provider:")
     for number, _value, label in choices:
         print(f"  {number}. {label}")

@@ -175,7 +175,8 @@ def suggestions(cfg: Config, conn=None, provider_name: str = "",
     # An absolute path is what the nightly agent needs, and `which` already knows it.
     for key, command in (("MEMCAL_CODEX_COMMAND", cfg.codex_command),
                          ("MEMCAL_CLAUDE_COMMAND", cfg.claude_command),
-                         ("MEMCAL_AGY_COMMAND", cfg.agy_command)):
+                         ("MEMCAL_AGY_COMMAND", cfg.agy_command),
+                         ("MEMCAL_GROK_COMMAND", cfg.grok_command)):
         bare = Path(command).name or command
         resolved = shutil.which(bare)
         found[key] = _dedupe(

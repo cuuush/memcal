@@ -86,6 +86,7 @@ _PROVIDERS = (
     ("codex", "Codex"),
     ("claude-code", "Claude Code"),
     ("antigravity", "Antigravity"),
+    ("grok", "Grok"),
     ("openrouter", "OpenRouter · API key"),
 )
 
@@ -133,6 +134,10 @@ SETTINGS: tuple[Setting, ...] = (
             "Absolute path is safest: the nightly agent does not inherit your shell's "
             "PATH.",
             "provider", kind="combo", placeholder="agy"),
+    Setting("MEMCAL_GROK_COMMAND", "grok_command", "grok executable",
+            "Absolute path is safest: the nightly agent does not inherit your shell's "
+            "PATH.",
+            "provider", kind="combo", placeholder="grok"),
 
     # --------------------------------------------------------------------- brief --
     Setting("MEMCAL_DAYS_BACK", "days_back", "Days back",

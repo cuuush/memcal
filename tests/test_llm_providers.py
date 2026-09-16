@@ -42,6 +42,15 @@ class TestProviderNativeDefaults(unittest.TestCase):
         self.assertEqual(cfg.sweep_model, cfg.propose_model)
         self.assertEqual(cfg.match_model, cfg.propose_model)
 
+    def test_grok_selects_its_native_model_without_stage_overrides(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            (home / ".env").write_text("MEMCAL_LLM_PROVIDER=grok\n")
+            cfg = config.load(home)
+        self.assertEqual(cfg.propose_model, llm.PROVIDER_DEFAULT_MODELS["grok"])
+        self.assertEqual(cfg.sweep_model, cfg.propose_model)
+        self.assertEqual(cfg.match_model, cfg.propose_model)
+
     def test_codex_selects_luna_and_preserves_an_explicit_stage_model(self):
         with tempfile.TemporaryDirectory() as root:
             home = Path(root)
@@ -305,6 +314,80 @@ class TestAntigravityProgrammaticContract(unittest.TestCase):
                     model="gemini-3.8-flash-high", prefix="p", suffix="s")
 
 
+class TestGrokProgrammaticContract(unittest.TestCase):
+    def test_headless_json_returns_a_normal_completion_reply(self):
+        raw = {
+            "text": '{"ok":true}',
+            "structuredOutput": {"ok": True},
+            "sessionId": "session-1",
+            "stopReason": "end_turn",
+            "thought": "Two dates conflict.",
+            "total_cost_usd": 0.012,
+            "usage": {
+                "input_tokens": 11,
+                "cache_read_input_tokens": 3,
+                "cache_creation_input_tokens": 2,
+                "output_tokens": 4,
+                "reasoning_tokens": 40,
+            },
+        }
+        completed = subprocess.CompletedProcess([], 0, json.dumps(raw), "")
+        observed = {}
+
+        def execute(args, **kwargs):
+            observed["prompt"] = Path(args[args.index("--prompt-file") + 1]).read_text()
+            # `--json-schema` takes the schema as a literal argv string, not a path.
+            observed["schema"] = json.loads(args[args.index("--json-schema") + 1])
+            return completed
+
+        with tempfile.TemporaryDirectory() as root, mock.patch(
+                "memcal.llm.subprocess.run", side_effect=execute) as run:
+            reply = llm.Grok("grok", cwd=Path(root)).complete(
+                model="x-ai/grok-4.5", prefix="rules", suffix="bundle",
+                schema=SCHEMA, turns=[{"role": "assistant", "content": "earlier"}])
+
+        self.assertEqual(reply.data, {"ok": True})
+        self.assertEqual(reply.generation_id, "grok-session-1")
+        # input_tokens is the uncached prefix; cache read and write are beside it.
+        self.assertEqual(reply.usage.prompt_tokens, 16)
+        self.assertEqual(reply.usage.cached_tokens, 3)
+        self.assertEqual(reply.usage.completion_tokens, 4)
+        self.assertEqual(reply.usage.reasoning_tokens, 40)
+        self.assertEqual(reply.reasoning, "Two dates conflict.")
+        self.assertEqual(observed["schema"], SCHEMA)
+        args = run.call_args.args[0]
+        self.assertEqual(args[:5], ["grok", "--output-format", "json", "-m", "grok-4.5"])
+        # An agentic CLI is stripped to a plain completion: no tools, no prompt-time
+        # agent behaviors, no permission prompt to hang a headless run.
+        self.assertIn("--verbatim", args)
+        self.assertEqual(args[args.index("--tools") + 1], "")
+        self.assertEqual(args[args.index("--permission-mode") + 1], "dontAsk")
+        # The spec lives under the OpenRouter id; the CLI is given the native name and
+        # the tuned effort that row carries.
+        self.assertEqual(args[args.index("--reasoning-effort") + 1], "medium")
+        self.assertIn("<system>\nrules\n</system>", observed["prompt"])
+        self.assertIn("<assistant>\nearlier\n</assistant>", observed["prompt"])
+
+    def test_error_envelope_is_not_mistaken_for_a_reply(self):
+        raw = {"type": "error", "message": "Couldn't start session: not logged in"}
+        completed = subprocess.CompletedProcess([], 1, json.dumps(raw), "")
+        with tempfile.TemporaryDirectory() as root, mock.patch(
+                "memcal.llm.subprocess.run", return_value=completed):
+            with self.assertRaisesRegex(llm.LLMError, "not logged in"):
+                llm.Grok("grok", cwd=Path(root)).complete(
+                    model="grok-4.5", prefix="p", suffix="s")
+
+    def test_success_with_an_empty_response_is_a_failed_call(self):
+        raw = {"sessionId": "s", "stopReason": "end_turn", "text": "", "usage": {}}
+        completed = subprocess.CompletedProcess([], 0, json.dumps(raw), "")
+        with tempfile.TemporaryDirectory() as root, mock.patch(
+                "memcal.llm.subprocess.run", return_value=completed):
+            client = llm.Grok("grok", cwd=Path(root))
+            with self.assertRaisesRegex(llm.LLMError, "no response"):
+                client.complete(model="grok-4.5", prefix="p", suffix="s")
+        self.assertEqual(client.usage.calls, 0)
+
+
 class TestProviderFactory(unittest.TestCase):
     def test_factory_selects_each_configured_transport(self):
         with tempfile.TemporaryDirectory() as root:
@@ -314,12 +397,14 @@ class TestProviderFactory(unittest.TestCase):
             self.assertIsInstance(llm.client_for(cfg), llm.Codex)
             cfg.llm_provider = "antigravity"
             self.assertIsInstance(llm.client_for(cfg), llm.Antigravity)
+            cfg.llm_provider = "grok"
+            self.assertIsInstance(llm.client_for(cfg), llm.Grok)
 
     def test_every_cli_provider_has_a_command_field_a_default_model_and_a_status(self):
         """Three tables have to agree about a provider, and a new backend that is
         missing from one of them fails only at the moment someone selects it."""
         self.assertEqual(set(llm.PROVIDER_COMMANDS),
-                         {"claude-code", "codex", "antigravity"})
+                         {"claude-code", "codex", "antigravity", "grok"})
         for provider, backend in llm.PROVIDER_COMMANDS.items():
             with tempfile.TemporaryDirectory() as root:
                 cfg = config.Config(home=Path(root), llm_provider=provider)
