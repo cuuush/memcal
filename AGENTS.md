@@ -41,6 +41,12 @@ do not add dev notes or dated narratives here.
   a sibling of this checkout. Work in the worktree, never on main directly.
 - Remove the worktree when its branch merges. `~/.config/opencode/opencode.jsonc`
   already permits these paths, so no approval prompts for touching them.
+- Never run `./install.sh` from a worktree: it repoints the single `memcal` on PATH at
+  that worktree, so every later command — including ones run from this checkout — executes
+  the worktree's code, and removing the worktree leaves the launcher pointing at a path
+  that no longer exists. Run it from this checkout only, and re-run it here if a worktree
+  ever claimed the launcher. `grep MEMCAL_ROOT "$(command -v memcal)"` says which tree
+  the command actually runs.
 
 ## Hard rules
 
