@@ -346,7 +346,8 @@ def read(conn: sqlite3.Connection, kind: str, ref: str, *,
     selective review never resurfaces what it acknowledged. Reading never
     marks anything reviewed.
     """
-    links = associations(conn, kind, ref)
+    # Readers only consume strong associations; skip the weak-candidate scan.
+    links = associations(conn, kind, ref, strong_only=True)
     covered = reviewed_ids(conn, kind, ref)
     start = int(cursor or 0)
     items, total = _pending_rows(conn, links["strong"], covered,
