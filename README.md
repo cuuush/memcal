@@ -27,6 +27,8 @@ With Memcal, you can ask an agent, “What’s my weekend looking like?” and i
 
 Requires Python 3.11+, SQLite with FTS5, and one model backend (Codex by default; Claude Code, Antigravity, or OpenRouter also work).
 
+### Quick start
+
 ```bash
 pip install memcal
 memcal setup
@@ -34,7 +36,9 @@ memcal doctor
 memcal brief
 ```
 
-Linux demo path: connect [Slack](https://cuuush.github.io/memcal/sources/slack/) (`pip install 'memcal[slack]'`) and talk to the agent over MCP. macOS also supports Messages, EventKit, and launchd scheduling.
+Memcal is built first for **macOS** — Messages, Calendar (EventKit), and launchd scheduling are the full product path. Connect those, then ask the agent what your week looks like.
+
+Slack (`pip install 'memcal[slack]'`) and MCP work on any machine if you want chat without the Apple sources.
 
 From source (alternate):
 
