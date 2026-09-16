@@ -1,9 +1,24 @@
 [project]
 name = "memcal"
-version = "0.7.0"
+version = "0.8.0"
 description = "A calendar and a to-do list that live in context, fed by the streams you already get."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Chris Cush", email = "chris@cuuush.com" }]
 requires-python = ">=3.11"
 dependencies = []
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Environment :: Console",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+]
+
+[project.urls]
+Homepage = "https://github.com/cuuush/memcal"
+Repository = "https://github.com/cuuush/memcal"
+Issues = "https://github.com/cuuush/memcal/issues"
 
 # The core stays dependency-free: every source that needs a library imports it inside
 # `connect()` and reports the gap through `check()`, so a missing extra disables one
@@ -23,7 +38,7 @@ chat = ["slack_sdk>=3.27", "telethon>=1.36"]
 memcal = "memcal.cli:main"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 # Use find to include subpackages. An explicit list omits nested packages
