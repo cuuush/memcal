@@ -1229,9 +1229,17 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
         if (len(jobs) > cfg.max_parallel
                 and cfg.propose_model not in llm.NO_PROMPT_CACHE):
             first = client.map(jobs[:1], send, 1, on_done=finished)
-            rest = client.map(jobs[1:], send, cfg.max_parallel,
-                              on_done=lambda i, out: finished(i + 1, out))
-            results = [*first, *rest]
+            # The probe went out alone to warm the cache; if it came back against a wall
+            # (account out of allowance, or the model at capacity), every other request
+            # in this wave would hit the same wall. Don't fan them out — leave them
+            # queued for the next pass and hand back just the probe, so the caller
+            # records it and stops instead of firing the rest into a known wall.
+            if first and isinstance(first[0], (llm.QuotaExhausted, llm.CapacityExhausted)):
+                results = first
+            else:
+                rest = client.map(jobs[1:], send, cfg.max_parallel,
+                                  on_done=lambda i, out: finished(i + 1, out))
+                results = [*first, *rest]
         else:
             results = client.map(jobs, send, cfg.max_parallel, on_done=finished)
         again: list[list[Bundle]] = []
@@ -1272,25 +1280,30 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
             again += [[b] for b in group if worth_a_second_look(b, spoke, conn)]
         return again
 
-    def _spent() -> str:
-        """The quota wall, if a wave hit it. Retrying past it is pure waste."""
+    def _wall() -> str:
+        """A wall the wave hit, if any: the account out of allowance (permanent until
+        topped up) or the model at capacity (temporary, clears on its own). Both mean
+        the same thing for this pass — retrying past it is pure waste."""
         return next((str(outcome) for _group, _suffix, outcome in seen
-                     if isinstance(outcome, llm.QuotaExhausted)), "")
+                     if isinstance(outcome, (llm.QuotaExhausted,
+                                             llm.CapacityExhausted))), "")
 
     def _stop() -> tuple | None:
         """Stop, and say why. Checked after *every* wave, not only the first.
 
-        Splitting a request that failed for want of allowance produces two requests that
-        fail for want of allowance, and a pass that keeps going reports a low score for a
-        run in which no model read anything. Checking once meant an account that ran dry
-        during the split retries — or during the second look — kept firing into the wall
-        for the rest of the pass, which is the case this was written to prevent.
+        Splitting a request that hit a wall produces two requests that hit the same wall,
+        and a pass that keeps going reports a low score for a run in which no model read
+        anything. Checking once meant an account that ran dry — or a model that filled up
+        — during the split retries or the second look kept firing into the wall for the
+        rest of the pass, which is the case this was written to prevent. A model at
+        capacity is the same shape: it will not clear inside one pass, so the un-read
+        bundles stay queued and the next pass picks them up.
         """
-        spent = _spent()
-        if not spent:
+        hit = _wall()
+        if not hit:
             return None
-        notes.append(f"stopped: {spent}")
-        return good, errors + [f"stopped: {spent}"], notes
+        notes.append(f"stopped: {hit}")
+        return good, errors + [f"stopped: {hit}"], notes
 
     seen.clear()
     stranded = wave(groups)
