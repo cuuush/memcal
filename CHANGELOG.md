@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-16
+
 ### Added
 
 - Dream passes trip a circuit breaker instead of burning requests into an outage:
