@@ -282,6 +282,21 @@ ADD_EVENT = {
             "join_url": {"type": "string",
                          "description": "the link you attend through, for anything online. \"Online\" is a location; a Zoom link is this"},
             "series": {"type": "string", "description": "the recurring thing this is one of, as a slug ('tutoring'). Sets it where repetition alone could not prove it — a new instance then starts with what the series already knows"},
+            "field_sources": {
+                "type": "object",
+                "description": "map of field name → archive line ids supporting that field "
+                               "(newest timestamp wins per field). Prefer over flat "
+                               "source_ids when fields have different supporting messages.",
+                "additionalProperties": {"type": "array", "items": {"type": "integer"}},
+            },
+            "context_source_ids": {
+                "type": "array", "items": {"type": "integer"},
+                "description": "background archive ids; no field authority. "
+                               "Only valid with field_sources.",
+            },
+            "source_ids": {"type": "array", "items": {"type": "integer"},
+                           "description": "archive line ids supporting this creation (flat). "
+                                          "Do not combine with field_sources."},
         },
         "required": ["title", "when"],
     },
@@ -328,8 +343,21 @@ UPDATE_EVENT = {
             "join_url": {"type": "string",
                          "description": "the link you attend through, for anything online. \"Online\" is a location; a Zoom link is this"},
             "series": {"type": "string", "description": "the recurring thing this is one of, as a slug ('tutoring'). Sets it where repetition alone could not prove it — a new instance then starts with what the series already knows"},
+            "field_sources": {
+                "type": "object",
+                "description": "map of field name → archive line ids supporting that field "
+                               "(newest timestamp wins per field). Prefer over flat "
+                               "source_ids when fields have different supporting messages.",
+                "additionalProperties": {"type": "array", "items": {"type": "integer"}},
+            },
+            "context_source_ids": {
+                "type": "array", "items": {"type": "integer"},
+                "description": "background archive ids; no field authority. "
+                               "Only valid with field_sources.",
+            },
             "source_ids": {"type": "array", "items": {"type": "integer"},
-                           "description": "archive line ids from memcal_activity this change is based on"},
+                           "description": "archive line ids from memcal_activity (flat oldest-line). "
+                                          "Do not combine with field_sources."},
         },
         "required": ["which"],
     },
@@ -612,34 +640,65 @@ def _sourced(rows) -> list[dict]:
 
 
 def _w_add(live, conn, cfg, args, origin):
-    event, verb = live.add_event(
+    from memcal import actions as actions_mod
+    if args.get("source_ids") and not args.get("field_sources"):
+        cited = _cited_ids(args)
+        if cited:
+            origin = actions_mod.Origin.of(
+                origin.surface, origin.archive_ids, cited=cited,
+                session=origin.session, note=origin.note, op_id=origin.op_id)
+    outcome = live.add_event(
         conn, cfg, origin=origin, title=args.get("title", ""), when=args.get("when", ""),
         time=args.get("time"), location=args.get("location"),
         participants=args.get("participants") or [], status=args.get("status"),
         kind=args.get("kind"), subject=args.get("subject"), until=args.get("until"),
-        join_url=args.get("join_url"), series=args.get("series"))
-    return {verb: event.one_line()}, [("event", event.key, verb)]
+        join_url=args.get("join_url"), series=args.get("series"),
+        field_sources=args.get("field_sources"),
+        context_source_ids=args.get("context_source_ids"))
+    event, verb = outcome.event, outcome.verb
+    body = {verb: event.one_line()}
+    if outcome.fields:
+        body["fields"] = [item.as_dict() for item in outcome.fields]
+    return body, [("event", event.key, verb)]
 
 
 def _w_update(live, conn, cfg, args, origin):
     from memcal import actions as actions_mod
-    cited = _cited_ids(args)
+    if args.get("field_sources") and args.get("source_ids"):
+        raise live.LiveError(
+            "pass field_sources or source_ids, not both — a flat citation set "
+            "cannot be combined with per-field attribution")
+    cited = _cited_ids(args) if args.get("source_ids") and not args.get("field_sources") else []
     if cited:
         origin = actions_mod.Origin.of(
             origin.surface, origin.archive_ids, cited=cited,
             session=origin.session, note=origin.note, op_id=origin.op_id)
-    event, changed = live.update_event(
-        conn, cfg, args.get("which", ""), origin=origin, status=args.get("status"), when=args.get("when"),
+    outcome = live.update_event(
+        conn, cfg, args.get("which", ""), origin=origin, status=args.get("status"),
+        when=args.get("when"),
         until=args.get("until"), time=args.get("time"), location=args.get("location"),
         title=args.get("title"), kind=args.get("kind"), subject=args.get("subject"),
         note=args.get("note"), join_url=args.get("join_url"),
         series=args.get("series"),
-        add_participants=args.get("add_participants") or [])
-    # Saying what did *not* change is the part that stops the retry loop: an agent told
-    # only "written" re-sent the same correction three times, harder each time.
-    return ({"row": event.one_line(),
-             "changed": changed or "nothing — it already said that"},
-            [("event", event.key, "updated")] if changed else [])
+        add_participants=args.get("add_participants") or [],
+        field_sources=args.get("field_sources"),
+        context_source_ids=args.get("context_source_ids"))
+    event = outcome.event
+    changed = outcome.changed_lines
+    body = {"row": event.one_line()}
+    if outcome.fields and (outcome.rejected or args.get("field_sources")):
+        body["fields"] = [item.as_dict() for item in outcome.fields]
+        body["summary"] = outcome.summary_lines()
+        if changed:
+            body["changed"] = changed
+        elif outcome.rejected:
+            body["changed"] = "rejected — see fields"
+        else:
+            body["changed"] = "nothing — it already said that"
+    else:
+        body["changed"] = changed or "nothing — it already said that"
+    return (body, [("event", event.key, "updated")]
+            if (changed or outcome.rejected) else [])
 
 
 def _w_schedule(live, conn, cfg, args, origin):
