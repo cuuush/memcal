@@ -202,7 +202,20 @@ class TestCodexProgrammaticContract(unittest.TestCase):
         completed = subprocess.CompletedProcess([], 1, json.dumps(events[0]), "")
         with tempfile.TemporaryDirectory() as root, mock.patch(
                 "memcal.llm.subprocess.run", return_value=completed):
-            with self.assertRaisesRegex(llm.LLMError, "turn.failed"):
+            # The human message is surfaced, not the raw `{"type": "turn.failed", ...}`
+            # dict — that blob is what a user saw on the terminal and in `runs.error`.
+            with self.assertRaisesRegex(llm.LLMError, "bad auth") as caught:
+                llm.Codex("codex", cwd=Path(root)).complete(
+                    model="gpt-5.6-luna", prefix="p", suffix="s")
+            self.assertNotIn("turn.failed", str(caught.exception))
+
+    def test_a_capacity_turn_raises_a_capacity_exhaustion(self):
+        events = [{"type": "turn.failed", "error": {
+            "message": "Selected model is at capacity. Please try a different model."}}]
+        completed = subprocess.CompletedProcess([], 1, json.dumps(events[0]), "")
+        with tempfile.TemporaryDirectory() as root, mock.patch(
+                "memcal.llm.subprocess.run", return_value=completed):
+            with self.assertRaises(llm.CapacityExhausted):
                 llm.Codex("codex", cwd=Path(root)).complete(
                     model="gpt-5.6-luna", prefix="p", suffix="s")
 
@@ -408,11 +421,34 @@ class TestASpentSubscriptionIsNotWorthRetrying(unittest.TestCase):
         ):
             self.assertIsInstance(self._fail(message), llm.QuotaExhausted, message)
 
+    def test_a_capacity_refusal_is_its_own_kind_of_failure(self):
+        # Temporary, not permanent: a subclass of LLMError so ordinary handling still
+        # catches it, but told apart so the pass stops instead of splitting and
+        # re-sending into a model that is full for the rest of the pass.
+        for message in (
+                "Selected model is at capacity. Please try a different model.",
+                "The model is currently overloaded",
+                "service is temporarily unavailable",
+        ):
+            failure = self._fail(message)
+            self.assertIsInstance(failure, llm.CapacityExhausted, message)
+            self.assertIsInstance(failure, llm.LLMError, message)
+            self.assertNotIsInstance(failure, llm.QuotaExhausted, message)
+
+    def test_a_capacity_refusal_is_not_a_quota_wall(self):
+        # A full model clears on its own; an exhausted account does not. Misreading one
+        # as the other would either wait forever or top up when nothing is owed.
+        self.assertNotIsInstance(
+            self._fail("Selected model is at capacity"), llm.QuotaExhausted)
+        self.assertNotIsInstance(
+            self._fail("usage limit reached"), llm.CapacityExhausted)
+
     def test_an_ordinary_failure_stays_ordinary(self):
         for message in ("invalid model name", "connection reset", "no output"):
             failure = self._fail(message)
             self.assertIsInstance(failure, llm.LLMError, message)
             self.assertNotIsInstance(failure, llm.QuotaExhausted, message)
+            self.assertNotIsInstance(failure, llm.CapacityExhausted, message)
 
     def test_the_reset_window_survives_into_the_message(self):
         failure = self._fail("Individual quota reached. Resets in 166h33m20s.")
