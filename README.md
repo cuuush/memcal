@@ -1,38 +1,68 @@
 # memcal
 
-**Memory + Calendar for AI agents**
+**Agent calendar + nightly reconcile → brief in context**
 
-Most memory systems for agents like OpenClaw or Hermes (Mem0, Hindsight) are good at saving things like preferences and observations, but fail at personal assistant tasks, like remembering you have a dentist appointment next Friday. Memcal attempts to bridge this gap by enabling an agent to maintain its own internal calendar of your life. On top of that, a nightly fact-gathering stage will scan sources like iMessage, email, WhatsApp, iCal, and more to automatically update the agent calendar.
+[![PyPI](https://img.shields.io/pypi/v/memcal)](https://pypi.org/project/memcal/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-cuuush.github.io-brightgreen)](https://cuuush.github.io/memcal/)
 
-With Memcal, you can ask an agent, “What’s my weekend looking like?” and it will remember that your friend is free for dinner Saturday night, that the nonprofit you follow is having a member day, or even that your family is coming into town...
+Most agent memory (Mem0, Hindsight, …) is great at preferences and RAG. It fails at personal-assistant questions like “what’s my weekend looking like?” Those need a **calendar of your life**, not another embedding store.
 
-## Getting started
+Memcal maintains typed **events / todos / questions / wiki**, fed from the streams you already have (Slack, Messages, email, calendars, chat). A **nightly reconcile** merges the day; every turn your agent gets a small **brief** in context, with tools for depth and corrections.
 
-Requires Python 3.11+, SQLite with FTS5, and one model backend (Codex by
-default; Claude Code, Antigravity, or OpenRouter also work).
+<!-- Demo: synthetic brief screenshot — drop at docs/assets/demo-brief.png and uncomment:
+![Example brief (synthetic)](docs/assets/demo-brief.png)
+-->
+
+## Why not just Mem0 / Hindsight?
+
+- **Write-time recency** — when a fact updates, the old value moves to history; read time isn’t a relevance fight ([memcal vs retrieval](https://cuuush.github.io/memcal/architecture/memcal-vs-rag/))
+- **Brief in the prompt** — “I’m bored” / “what’s this week” answers from context, not a lucky tool call
+- **Typed stores** — events, series, todos, questions, wiki (not a bag of memories)
+- **Multi-stream join** — Slack + email + calendar + agent chat resolve to one underlying thing
+- **Nightly dream pass** — observe → gate → propose → merge → brief, on a schedule
+
+## Install
+
+Requires Python 3.11+, SQLite with FTS5, and one model backend (Codex by default; Claude Code, Antigravity, or OpenRouter also work).
 
 ```bash
-git clone https://github.com/cuuush/memcal.git
-cd memcal
-./install.sh
+pip install memcal
 memcal setup
 memcal doctor
 memcal brief
 ```
 
-Memcal reads sensitive personal data and sends selected source text to the
-model provider you configure — read the [privacy notes](https://cuuush.github.io/memcal/privacy/)
-before connecting real accounts.
+Linux demo path: connect [Slack](https://cuuush.github.io/memcal/sources/slack/) (`pip install 'memcal[slack]'`) and talk to the agent over MCP. macOS also supports Messages, EventKit, and launchd scheduling.
+
+From source (alternate):
+
+```bash
+git clone https://github.com/cuuush/memcal.git
+cd memcal
+./install.sh
+```
+
+Memcal reads sensitive personal data and sends selected source text to the model provider you configure — read the [privacy notes](https://cuuush.github.io/memcal/privacy/) before connecting real accounts.
+
+## MCP (any harness)
+
+```bash
+python3 -m memcal.mcp_server
+```
+
+Native plugins: [Hermes](https://cuuush.github.io/memcal/integrations/hermes/) · [OpenClaw](https://cuuush.github.io/memcal/integrations/openclaw/)
 
 ## Learn more
 
-Full guides live at **https://cuuush.github.io/memcal/**:
+Full guides: **https://cuuush.github.io/memcal/**
 
 - [Quickstart](https://cuuush.github.io/memcal/quickstart/) — install, first ingest, nightly job
-- [Sources](https://cuuush.github.io/memcal/sources/) — iMessage, WhatsApp, Slack, Telegram, Signal, email, calendar
-- [CLI](https://cuuush.github.io/memcal/clients/cli/) and [CLI reference](https://cuuush.github.io/memcal/api/cli/) — every command
-- [Integrations](https://cuuush.github.io/memcal/integrations/) — Hermes, OpenClaw, any MCP harness
-- [Hosting](https://cuuush.github.io/memcal/hosting/installation/) — configuration, scheduling, publishing
+- [Sources](https://cuuush.github.io/memcal/sources/) — Slack, Telegram, WhatsApp, iMessage, Signal, email, calendar, …
+- [CLI](https://cuuush.github.io/memcal/clients/cli/) · [MCP](https://cuuush.github.io/memcal/clients/mcp/) · [Integrations](https://cuuush.github.io/memcal/integrations/)
 - [Evaluation](https://cuuush.github.io/memcal/evaluation/) — how memory quality is measured
 
 Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Notable changes: [CHANGELOG.md](CHANGELOG.md).
+
+**Status:** experimental but usable. Extraction accuracy is the frontier.
