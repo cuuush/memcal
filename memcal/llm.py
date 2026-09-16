@@ -1,4 +1,4 @@
-"""Completion clients for OpenRouter, Claude Code, Codex, and Antigravity.
+"""Completion clients for OpenRouter, Claude Code, Codex, Antigravity, and Grok.
 
 Stdlib only. The dream pass sends N independent calls that share a byte-identical
 prefix within each wave, so the prefix is marked cacheable and the varying bundle
@@ -565,7 +565,7 @@ def _codex_reasoning(events: list[dict]) -> str:
 #: use bare native names, so the prefix maps them back to the shared spec.
 #: Antigravity is absent: one command serves several model families, so no
 #: single prefix selects the right row; its names carry their own budget.
-_VENDOR_PREFIX = {"claude-code": "anthropic/", "codex": "openai/"}
+_VENDOR_PREFIX = {"claude-code": "anthropic/", "codex": "openai/", "grok": "x-ai/"}
 
 
 def _native_model(provider: str, model: str) -> str:
@@ -960,11 +960,112 @@ class Antigravity(ProgrammaticClient):
         return reply
 
 
+class Grok(ProgrammaticClient):
+    """Grok Build headless mode as a stateless structured-completion backend.
+
+    Its `--output-format json` envelope mirrors Claude Code's print mode: one JSON
+    object carrying `text`, an optional `structuredOutput`, a `usage` block, and a
+    `sessionId`. Reasoning is a single `thought` string; a failure exits non-zero and
+    emits `{"type": "error", "message": ...}`.
+    """
+
+    provider = "grok"
+
+    def complete(self, *, model: str, prefix: str, suffix: str,
+                 schema: dict | None = None, schema_name: str = "diff",
+                 max_tokens: int = 8000, cache_prefix: bool = True,
+                 capture_reasoning: bool = False, provider=None,
+                 json_object: bool = False, reasoning_effort: str | None = None,
+                 turns: list[dict] | None = None,
+                 service_tier: str | None = None) -> Reply:
+        del schema_name, max_tokens, cache_prefix, capture_reasoning, provider
+        del json_object, service_tier
+        native = _native_model(self.provider, model)
+        if reasoning_effort is None:
+            reasoning_effort = _spec_for(self.provider, model).reasoning_effort
+        # Grok Build is an agentic coding CLI, so a plain structured completion has to
+        # switch every agent affordance off: no tools, subagents, plan mode or web
+        # search, no permission prompt to hang a headless run, and `--verbatim` so the
+        # flattened prompt is sent as written rather than re-wrapped in a coding preamble.
+        args = [self.command, "--output-format", "json", "-m", native,
+                "--verbatim", "--no-plan", "--no-subagents", "--disable-web-search",
+                "--tools", "", "--permission-mode", "dontAsk"]
+        if reasoning_effort:
+            args += ["--reasoning-effort", reasoning_effort]
+        prompt_path = ""
+        try:
+            # A packed propose wave is multi-KB; passing the prompt through argv would
+            # risk the system argument limit, so it rides in a file the CLI reads
+            # (`--prompt-file` is itself a single-turn/headless trigger). The schema is
+            # far smaller and has no file form, so it goes on argv as a literal — which
+            # `--json-schema` requires, and which also implies JSON output.
+            fd, prompt_path = tempfile.mkstemp(prefix="memcal-prompt-", suffix=".txt")
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(_programmatic_prompt(prefix, suffix, turns))
+            args += ["--prompt-file", prompt_path]
+            if schema:
+                args += ["--json-schema", json.dumps(schema, separators=(",", ":"))]
+            proc = self._run(args, "")
+        finally:
+            if prompt_path:
+                try:
+                    os.unlink(prompt_path)
+                except OSError:
+                    pass
+        try:
+            raw = json.loads(proc.stdout)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise self._failure(proc, f"Grok returned invalid JSON: {exc}") from exc
+        if proc.returncode or raw.get("type") == "error":
+            raise self._failure(proc, raw.get("message") or raw.get("error") or "")
+        text = str(raw.get("text") or "")
+        # `--json-schema` puts the constrained object under `structuredOutput`; older
+        # builds spelled it `structured_output`. Fall back to parsing `text` otherwise.
+        data = raw.get("structuredOutput")
+        if data is None:
+            data = raw.get("structured_output")
+        if data is None:
+            data = _parse_json(text)
+        if data is None and not text.strip():
+            # An empty success is a turn cut short, not an empty diff; raising records
+            # the failed call and re-queues the bundle.
+            raise self._failure(
+                proc, "Grok reported success with no response — usually a turn cut off "
+                      "by MEMCAL_LLM_COMMAND_TIMEOUT. Raise it, or lower "
+                      "MEMCAL_PACK_BUNDLES so a turn finishes sooner")
+        usage_raw = raw.get("usage") or {}
+        # `input_tokens` counts only the uncached prefix; cache reads and writes are
+        # reported beside it, so the whole prompt is the sum of the three.
+        cached = int(usage_raw.get("cache_read_input_tokens") or 0)
+        prompt_tokens = (int(usage_raw.get("input_tokens") or 0) + cached
+                         + int(usage_raw.get("cache_creation_input_tokens") or 0))
+        finish = str(raw.get("stopReason") or "")
+        if finish == "max_tokens":
+            finish = "length"
+        spent = Usage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=int(usage_raw.get("output_tokens") or 0),
+            cached_tokens=cached,
+            reasoning_tokens=int(usage_raw.get("reasoning_tokens") or 0),
+            cost=float(raw.get("total_cost_usd") or 0), calls=1, requests=1,
+        )
+        reply = Reply(
+            text=text, data=data, usage=spent, model=native,
+            generation_id="grok-" + str(raw.get("sessionId") or raw.get("requestId")
+                                        or time.time_ns()),
+            reasoning=str(raw.get("thought") or "").strip(),
+            finish_reason=finish or "stop",
+        )
+        self._charge(spent)
+        return reply
+
+
 PROVIDER_DEFAULT_MODELS = {
     "openrouter": "openai/gpt-5.6-luna",
     "claude-code": "claude-sonnet-5",
     "codex": "gpt-5.6-luna",
     "antigravity": "gemini-3.8-flash-high",
+    "grok": "grok-4.5",
 }
 
 @dataclass(frozen=True)
@@ -985,6 +1086,7 @@ PROVIDER_COMMANDS: dict[str, CliBackend] = {
     "codex": CliBackend(Codex, lambda cfg: cfg.codex_command, "MEMCAL_CODEX_COMMAND"),
     "antigravity": CliBackend(Antigravity, lambda cfg: cfg.agy_command,
                               "MEMCAL_AGY_COMMAND"),
+    "grok": CliBackend(Grok, lambda cfg: cfg.grok_command, "MEMCAL_GROK_COMMAND"),
 }
 
 #: What a store with no `MEMCAL_LLM_PROVIDER` uses. Kept beside the table it has to

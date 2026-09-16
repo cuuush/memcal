@@ -20,21 +20,32 @@ the store.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `MEMCAL_LLM_PROVIDER` | `codex` | `codex`, `claude-code`, `antigravity`, or `openrouter` |
+| `MEMCAL_LLM_PROVIDER` | `codex` | `codex`, `claude-code`, `antigravity`, `grok`, or `openrouter` |
 | `MEMCAL_PROPOSE_MODEL` | provider native | Night-traffic proposer — the main cost |
 | `MEMCAL_SWEEP_MODEL` | provider native | Stale-row and question revisitor |
 | `MEMCAL_MATCH_MODEL` | provider native | Merge arbitrator for real conflicts |
 | `MEMCAL_REASONING_EFFORT` | model default | `low`, `medium`, or `high` |
 | `MEMCAL_MAX_PARALLEL` | `8` (1–64) | In-flight model requests |
 | `MEMCAL_LLM_COMMAND_TIMEOUT` | `900` (30–7200s) | CLI-provider timeout |
-| `MEMCAL_CODEX_COMMAND` / `MEMCAL_CLAUDE_COMMAND` / `MEMCAL_AGY_COMMAND` | `codex` / `claude` / `agy` | Absolute path safest under launchd |
+| `MEMCAL_CODEX_COMMAND` / `MEMCAL_CLAUDE_COMMAND` / `MEMCAL_AGY_COMMAND` / `MEMCAL_GROK_COMMAND` | `codex` / `claude` / `agy` / `grok` | Absolute path safest under launchd |
 
 Provider natives: Codex → `gpt-5.6-luna`, Claude Code → `claude-sonnet-5`,
-Antigravity → `gemini-3.8-flash-high`. Authenticate the selected CLI first
-(`codex login`, `claude auth login`, a signed-in `agy` session); OpenRouter needs
+Antigravity → `gemini-3.8-flash-high`, Grok → `grok-4.5`. Authenticate the
+selected CLI first (`codex login`, `claude auth login`, a signed-in `agy`
+session, `grok` signed in to your xAI account); OpenRouter needs
 `OPENROUTER_API_KEY`. Memcal checks that the command exists; the CLI itself
 reports authentication trouble on the first real completion. Unknown model names stay valid — catalogs change faster
 than validation lists.
+
+Grok Build is installed with `npm i -g @xai-official/grok` (or the installer at
+`https://x.ai/cli/install.sh`); `grok --oauth` signs in through the browser. Avoid
+`brew install grok` — that is an unrelated formula.
+
+Grok runs [Grok Build](https://docs.x.ai/build/cli/reference)'s headless mode
+(`--output-format json`) as a plain completion — its tools, subagents, plan mode
+and web search are all switched off. The packed prompt rides in a temp file
+(`--prompt-file`) so a large propose wave never crosses the shell argument limit;
+the output schema is passed inline as the `--json-schema` literal.
 
 ### Brief
 
@@ -89,6 +100,7 @@ Scripted setup:
 memcal setup --provider codex
 memcal setup --provider claude-code
 memcal setup --provider antigravity
+memcal setup --provider grok
 memcal setup --provider codex --model gpt-5.6-luna
 memcal setup --provider openrouter --api-key "sk-or-..."
 ```
