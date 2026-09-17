@@ -11,9 +11,7 @@ Most memory systems for agents like OpenClaw or Hermes (Mem0, Hindsight) are goo
 
 With Memcal, you can ask an agent, “What’s my weekend looking like?” and it will remember that your friend is free for dinner Saturday night, that the nonprofit you follow is having a member day, or even that your family is coming into town...
 
-<!-- Demo: synthetic brief screenshot — drop at docs/assets/demo-brief.png and uncomment:
 ![Example brief (synthetic)](docs/assets/demo-brief.png)
--->
 
 ## Under the hood
 
@@ -69,4 +67,3 @@ Full guides: **https://cuuush.github.io/memcal/**
 
 Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Notable changes: [CHANGELOG.md](CHANGELOG.md).
 
-**Status:** experimental but usable. Extraction accuracy is the frontier.
