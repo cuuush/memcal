@@ -545,7 +545,7 @@ class TestFreshnessCorrectness81(_Base):
         self.assertNotIn(phone, text)
         self.assertNotIn("+1555", text)
         self.assertIn("unknown number", text)
-        # Frozen copy shape (Integrations mirror ACTIVITY_HINT_FORMAT).
+        # Frozen copy shape (Integrations mirror FRESHNESS_HINT_FORMAT).
         self.assertIn("since this plan was reviewed", text)
         self.assertIn("may have changed", text)
         self.assertIn("memcal_activity(handle=", text)

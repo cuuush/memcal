@@ -16,7 +16,7 @@ streams ──▶ observe ──▶ gate ──▶ spool ──▶ dream (nightl
 
 - **Day:** connectors collect new traffic without model calls. Freshness hints flag
   activity that could affect known context.
-- **Turn:** the agent receives the brief plus any activity hints, reads original
+- **Turn:** the agent receives the brief plus any freshness hints, reads original
   messages when an answer needs checking, and applies evidence-backed corrections
   through typed tools.
 - **Night:** dream reconciles everything collected into typed state and re-renders
