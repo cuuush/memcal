@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from memcal import activity, archive, brief, db, live, textclean
+from memcal import activity, archive, brief, db, live, textclean, threads, trace
 
 
 class _Base(unittest.TestCase):
@@ -349,8 +349,9 @@ class TestBacklogDisclosesUnrepresentedThreads(_Base):
         self._event_with_thread_evidence("2025-09-12", "friends", "poker?")
         self.collect("chat", "new", "rooftop party this Sunday at 7pm?", "friends")
         self.assertIn(("chat", "friends"), self._backlog_threads())
-        self.assertIn("[UNREVIEWED: chat/friends",
-                      brief.render(self.conn, self.cfg))
+        rendered = brief.render(self.conn, self.cfg)
+        self.assertNotIn("[UNREVIEWED:", rendered)
+        self.assertIn("coverage incomplete", rendered)
 
     def test_a_thread_linked_to_an_in_window_event_stays_covered(self):
         self._event_with_thread_evidence("2026-09-12", "crew", "poker?")
@@ -372,7 +373,7 @@ class TestBacklogDisclosesUnrepresentedThreads(_Base):
                           origin=live.Origin.of("test", cited=[src]))
         self.collect("chat", "new", "rooftop party this Sunday at 7pm?", "friends")
         full = brief.render(self.conn, self.cfg)
-        self.assertNotIn("[UNREVIEWED: chat/friends", full)   # covered by the hint
+        self.assertNotIn("[UNREVIEWED:", full)
         self.assertIn("New activity: chat/friends", full)
 
         saw_trimmed = False
@@ -380,7 +381,7 @@ class TestBacklogDisclosesUnrepresentedThreads(_Base):
             self.cfg.brief_token_cap = cap
             out = brief.render(self.conn, self.cfg)
             hint_present = "New activity: chat/friends" in out
-            disclosed = "[UNREVIEWED" in out or "coverage incomplete" in out
+            disclosed = "coverage incomplete" in out
             if not hint_present and "〔E" in out:
                 saw_trimmed = True
             # Invariant: never claim completeness while friends is uncovered and
@@ -396,8 +397,9 @@ class TestBacklogDisclosesUnrepresentedThreads(_Base):
                                           kind="opportunity", status="tentative")
         self.collect("chat", "new", "rooftop party this Sunday at 7pm?", "friends")
         self.assertIn(("chat", "friends"), self._backlog_threads())
-        self.assertIn("[UNREVIEWED: chat/friends",
-                      brief.render(self.conn, self.cfg))
+        rendered = brief.render(self.conn, self.cfg)
+        self.assertNotIn("[UNREVIEWED:", rendered)
+        self.assertIn("coverage incomplete", rendered)
 
 
 class TestHardCutKeepsUnits(_Base):
@@ -450,8 +452,7 @@ class TestHardCutKeepsCoverageHonest(_Base):
             '〔E1〕 Sun Sep 13 "Outing 01" — maybe',
             '〔E2〕 Sun Sep 13 "Outing 02" — maybe',
             "[complete for Wed 9 Sep – Sat 19 Sep; look up anything outside that]",
-            "[UNREVIEWED: chat/crew (1 waiting) — new traffic not linked to any "
-            "plan; not a confirmed opportunity]",
+            "[coverage incomplete — unreviewed traffic not linked to any plan]",
         ]
         # A cap that keeps the events (and the honest notice) but not the
         # detailed coverage warning.
@@ -460,7 +461,7 @@ class TestHardCutKeepsCoverageHonest(_Base):
             + "\n[coverage incomplete — unreviewed or uncollected input not shown]"
             + "\n… (trimmed)\n")
         out = brief._hard_cut(lines, cap)
-        self.assertNotIn("[UNREVIEWED", out)            # detailed warning was cut
+        self.assertNotIn("[UNREVIEWED:", out)
         self.assertNotIn("[complete for", out)          # false claim removed
         self.assertIn("coverage incomplete", out)       # hole disclosed compactly
 
@@ -481,13 +482,98 @@ class TestHardCutKeepsCoverageHonest(_Base):
                            when="2026-09-13", origin=live.Origin.of("test"))
         self.collect("chat", "inv", "rooftop party this Sunday at 7pm?", "crew")
         full = brief.render(self.conn, self.cfg)
-        self.assertIn("[UNREVIEWED: chat/crew", full)
+        self.assertNotIn("[UNREVIEWED:", full)
+        self.assertIn("coverage incomplete", full)
         self.cfg.brief_token_cap = 180
         out = brief.render(self.conn, self.cfg)
         if "[complete for" in out:
             # If the completeness claim survived, the coverage hole must be shown.
-            self.assertTrue("[UNREVIEWED" in out or "coverage incomplete" in out,
-                            out)
+            self.assertIn("coverage incomplete", out)
+
+
+
+class TestFreshnessCorrectness81(_Base):
+    """Issue #81: ical churn ≠ hint; safe labels; no UNREVIEWED PII footer."""
+
+    def test_ical_only_pending_does_not_hint_on_brief(self):
+        from memcal.sources import ical
+        item = {"uid": "u-dentist", "title": "Dentist",
+                "start": "2026-09-20T14:00:00", "end": "2026-09-20T15:00:00",
+                "all_day": False, "location": "", "description": "", "url": "",
+                "calendar_name": "Home", "calendar_uid": "cal-1", "writable": True}
+        rev1 = ical._revision(ical._identity(item), item)
+        self.conn.execute(
+            "INSERT INTO archive(stream, external_id, ts, thread, text, created_at)"
+            " VALUES('ical', ?, '2026-09-01T10:00:00', 'cal-1', 'Dentist', ?)",
+            (rev1, db.now()))
+        self.conn.commit()
+        event, _ = live.add_event(self.conn, self.cfg, title="Dentist visit",
+                                  when="2026-09-20", origin=live.Origin.of("test"))
+        first = self.conn.execute(
+            "SELECT id FROM archive WHERE external_id = ?", (rev1,)).fetchone()["id"]
+        trace.stamp(self.conn, kind="event", ref=event.key, verb="inserted",
+                    entity="calendar:Home", stage="ical", archive_ids=[first])
+        self.conn.commit()
+        moved = dict(item, start="2026-09-20T15:00:00")
+        rev2 = ical._revision(ical._identity(moved), moved)
+        self.conn.execute(
+            "INSERT INTO archive(stream, external_id, ts, thread, text, created_at)"
+            " VALUES('ical', ?, '2026-09-01T12:00:00', 'cal-1', 'Dentist moved', ?)",
+            (rev2, db.now()))
+        self.conn.commit()
+        # activity.pending still sees the family revision (reader path).
+        self.assertEqual(
+            activity.pending(self.conn, "event", event.key)["strong_total"], 1)
+        # Brief must not raise a hint for calendar self-feed churn alone.
+        text = brief.render(self.conn, self.cfg)
+        self.assertNotIn("New activity", text)
+        self.assertIn("Dentist visit", text)
+
+    def test_chat_strong_link_hints_with_safe_label_not_raw_phone(self):
+        phone = "+15551234567"
+        m1 = self.collect("imessage", "m1", "poker saturday?", phone,
+                          handle=phone)
+        threads.record(self.conn, "imessage", phone, label=None, is_group=False)
+        self.conn.commit()
+        event, _ = live.add_event(self.conn, self.cfg, title="Poker night",
+                                  when="2026-09-12", origin=live.Origin.of("test"))
+        live.update_event(self.conn, self.cfg, event.key, note="plan",
+                          origin=live.Origin.of("test", cited=[m1]))
+        self.collect("imessage", "m2", "moved to Sunday?", phone, handle=phone)
+        text = brief.render(self.conn, self.cfg)
+        self.assertIn("New activity:", text)
+        self.assertNotIn(phone, text)
+        self.assertNotIn("+1555", text)
+        self.assertIn("unknown number", text)
+        # Frozen copy shape (Integrations mirror ACTIVITY_HINT_FORMAT).
+        self.assertIn("since this plan was reviewed", text)
+        self.assertIn("may have changed", text)
+        self.assertIn("memcal_activity(handle=", text)
+
+    def test_chat_label_preferred_when_richer_than_raw_thread(self):
+        phone = "+15559876543"
+        m1 = self.collect("imessage", "m1", "poker saturday?", phone,
+                          handle=phone, person="Jordan")
+        threads.record(self.conn, "imessage", phone, label="Jordan",
+                       is_group=False)
+        self.conn.commit()
+        event, _ = live.add_event(self.conn, self.cfg, title="Poker night",
+                                  when="2026-09-12", origin=live.Origin.of("test"))
+        live.update_event(self.conn, self.cfg, event.key, note="plan",
+                          origin=live.Origin.of("test", cited=[m1]))
+        self.collect("imessage", "m2", "moved to Sunday?", phone,
+                     handle=phone, person="Jordan")
+        text = brief.render(self.conn, self.cfg)
+        self.assertIn("New activity: imessage/Jordan", text)
+        self.assertNotIn(phone, text)
+
+    def test_unlinked_backlog_has_no_unreviewed_pii_footer(self):
+        self.collect("chat", "u0", "rooftop party friday?", "rooftop crew")
+        text = brief.render(self.conn, self.cfg)
+        self.assertNotIn("[UNREVIEWED:", text)
+        self.assertNotIn("rooftop crew", text)  # thread id must not leak in footer
+        self.assertIn("coverage incomplete", text)
+
 
 
 if __name__ == "__main__":

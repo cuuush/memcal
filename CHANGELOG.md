@@ -1,6 +1,22 @@
 ## [Unreleased]
 
+### Fixed
+
+- Brief activity hints ignore calendar (iCal) self-feed churn: UNTHREADED family
+  revisions no longer raise a "New activity" line on an ical-backed event. Chat /
+  email / other conversational strong links still hint. Hint ≠ apply — flag text
+  only (`ACTIVITY_HINT_FORMAT` is frozen for Integrations to mirror).
+- Activity hint labels no longer leak raw phone or opaque ids; they prefer
+  `threads.label` / whois display names when richer, else `threads.title()`, else
+  "unknown number" / a short title. Displayed pending counts cap at `99+`, and a
+  hint requires a review mark so never-reviewed threads cannot dump whole-history
+  sizes into the brief.
+- The `[UNREVIEWED: stream/thread …]` brief footer is gone (it dumped PII). Unlinked
+  backlog, when present, is a single non-identifying `[coverage incomplete …]`
+  notice. See `docs/notes/freshness-gap-81.md`.
+
 ### Added
+
 
 - Grok is a fifth model backend: `MEMCAL_LLM_PROVIDER=grok` runs xAI's Grok Build
   CLI in headless mode against your existing Grok login (native model `grok-4.5`,
