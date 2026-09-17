@@ -135,23 +135,13 @@ class TestTheUsersOwnFactsRideTheBrief(Base):
             self.cfg.brief_token_cap = cap
             text = brief.render(self.conn, self.cfg)
             for i in range(5):
-                # A cut inside a value would keep the head and drop the tail. The
-                # safe-room guard means a value is present whole or not at all.
+                # A cut inside a value would keep the head and drop the tail.
+                # Collapsing whole About-you values to the pointer before any
+                # hard cut, plus a line-boundary hard cut, means a value is
+                # present whole or not at all.
                 if f"HEAD{i}" in text:
                     self.assertIn(f"TAIL{i}", text,
                                   f"value {i} was bisected at cap {cap}")
-
-    def test_the_safe_room_backs_a_cut_off_an_about_you_line(self):
-        line = brief.ABOUT_YOU_PREFIX + "home: 14 Example Lane, Apartment 3B"
-        out = "## People and facts\n" + line + "\n"
-        (_body, start, end), = brief._about_spans(out)
-        # A cut that lands inside the line is pulled back to its start, so the
-        # address is never split across the boundary; a cut at or past its end
-        # leaves the whole line intact and needs no adjustment.
-        for room in range(start + 1, end):
-            self.assertEqual(brief._about_you_safe_room(out, room), start,
-                             f"a cut at {room} bisected the About-you line")
-        self.assertEqual(brief._about_you_safe_room(out, end), end)
 
     def test_many_self_facts_overflow_with_a_count_not_a_cut(self):
         for i in range(40):

@@ -633,26 +633,6 @@ def _trim(text: str, token_cap: int) -> str:
     return out
 
 
-def _about_spans(out: str) -> list[tuple[str, int, int]]:
-    """(line, start, end) for every About-you line in `out`."""
-    spans: list[tuple[str, int, int]] = []
-    pos = 0
-    for line in out.splitlines(keepends=True):
-        body = line.rstrip("\n")
-        if body.startswith("About you"):
-            spans.append((body, pos, pos + len(body)))
-        pos += len(line)
-    return spans
-
-
-def _about_you_safe_room(out: str, room: int) -> int:
-    """Back a character-cut point off an About-you line so facts are never bisected."""
-    for _line, start, end in _about_spans(out):
-        if start < room < end:
-            return start
-    return room
-
-
 def _is_event_line(line: str) -> bool:
     text = line.lstrip()
     return text.startswith("〔") or text.startswith("↳ 〔")
