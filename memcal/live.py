@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections import Counter
+from dataclasses import dataclass
 
 from . import actions, archive, brief, db, events, gate, series, todos, trace, wiki
 from .config import Config
@@ -80,6 +81,111 @@ class LiveError(Exception):
     def __init__(self, message: str, **detail):
         super().__init__(message)
         self.detail = detail
+
+
+# ------------------------------------------------ field-evidence outcomes ----
+#: Public caller names that normalize to a stored mutable field.
+_FIELD_ALIASES = {"when": "date"}
+#: Caller-facing names that assert the participants field after normalization.
+_PARTICIPANT_OPS = frozenset({"add_participants", "remove_participants", "participants"})
+
+
+@dataclass(frozen=True)
+class FieldOutcome:
+    """Per-field decision from a typed live event write.
+
+    Frozen for Integrations: ``status`` is one of ``applied``, ``unchanged``,
+    ``rejected``. ``evidence_advanced`` is True when the value stayed the same
+    but a newer supporting statement advanced that field's evidence timestamp.
+    """
+
+    field: str
+    status: str
+    reason: str = ""
+    source_ids: tuple[int, ...] = ()
+    evidence_advanced: bool = False
+    old: str = ""
+    new: str = ""
+
+    def as_dict(self) -> dict:
+        return {
+            "field": self.field,
+            "status": self.status,
+            "reason": self.reason,
+            "source_ids": list(self.source_ids),
+            "evidence_advanced": self.evidence_advanced,
+            "old": self.old,
+            "new": self.new,
+        }
+
+
+@dataclass(frozen=True)
+class EventWriteOutcome:
+    """Structured result of ``add_event`` / ``update_event``.
+
+    Unpacks as ``(event, verb)`` for add compatibility or ``(event, changed)``
+    for update compatibility when ``compat`` is set accordingly. Adapters that
+    need per-field decisions read ``fields`` directly — never reconstruct them.
+    """
+
+    event: object
+    verb: str
+    fields: tuple[FieldOutcome, ...] = ()
+    compat: str = "verb"  # "verb" | "changed"
+    #: When True, ``changed_lines`` is empty so flat callers see a replay no-op
+    #: while ``fields`` still carries the recorded structured outcome.
+    silent_replay: bool = False
+
+    @property
+    def changed_lines(self) -> list[str]:
+        if self.silent_replay:
+            return []
+        lines = []
+        for item in self.fields:
+            if item.status == "applied" and item.evidence_advanced:
+                lines.append(f"{item.field}: evidence advanced")
+            elif item.status == "applied":
+                lines.append(f"{item.field}: {item.old} → {item.new}")
+        return lines
+
+    @property
+    def rejected(self) -> tuple[FieldOutcome, ...]:
+        return tuple(item for item in self.fields if item.status == "rejected")
+
+    @property
+    def applied(self) -> tuple[FieldOutcome, ...]:
+        return tuple(item for item in self.fields if item.status == "applied")
+
+    def outcome_dict(self) -> dict:
+        return {"verb": self.verb, "fields": [item.as_dict() for item in self.fields]}
+
+    def summary_lines(self) -> list[str]:
+        """Human-readable applied / rejected lines for agent surfaces."""
+        lines = []
+        for item in self.fields:
+            if item.status == "applied" and item.evidence_advanced:
+                lines.append(f"Applied: {item.field} (evidence advanced)")
+            elif item.status == "applied":
+                lines.append(f"Applied: {item.field} → {item.new}")
+            elif item.status == "rejected":
+                support = (", ".join(str(i) for i in item.source_ids)
+                           if item.source_ids else "no support")
+                reason = item.reason or "rejected"
+                lines.append(f"Rejected: {item.field} — {reason} (sources: {support})")
+            elif item.status == "unchanged":
+                lines.append(f"Unchanged: {item.field}")
+        return lines
+
+    def __iter__(self):
+        yield self.event
+        if self.compat == "changed":
+            yield self.changed_lines
+        else:
+            yield self.verb
+
+    def __getitem__(self, index):
+        return (self.event, self.changed_lines if self.compat == "changed"
+                else self.verb)[index]
 
 
 def _refresh(conn: sqlite3.Connection, cfg: Config, *keys: str) -> None:
@@ -246,7 +352,8 @@ def _cited_or_reject(conn: sqlite3.Connection, origin: Origin) -> Origin:
     if dropped:
         raise LiveError(
             "some cited lines don't exist — re-read the activity and cite real "
-            "source_ids from it, or restate this as an uncited correction.")
+            "archive line ids. For corrections that touch more than one field, "
+            "pass field_sources so each field names its own supporting lines.")
     return origin
 
 
@@ -277,16 +384,248 @@ def _cited_ts(conn: sqlite3.Connection, ids: tuple[int, ...]) -> str | None:
         except (TypeError, ValueError):
             raise LiveError(
                 "a cited line has no readable timestamp — its evidence time "
-                "can't be trusted; cite lines with valid times, or restate "
-                "this as a new correction.")
+                "can't be trusted; cite lines with valid times. For mixed-age "
+                "corrections, pass field_sources so each field keeps its own "
+                "supporting timestamp.")
     if not stamps:
         return None
     return min(stamps).isoformat(timespec="seconds")
 
 
+
+def _newest_ts(conn: sqlite3.Connection, ids: list[int] | tuple[int, ...]) -> str:
+    """Newest strict timestamp among archive ids (field-local authority)."""
+    if not ids:
+        raise LiveError("a field_sources entry needs at least one archive line id")
+    found = {row["id"]: row["ts"] for row in conn.execute(
+        f"""SELECT id, ts FROM archive WHERE id IN
+            ({",".join("?" * len(ids))})""", ids)}
+    missing = [i for i in ids if i not in found]
+    if missing:
+        raise LiveError(
+            "some cited lines don't exist — re-read the activity and cite real "
+            "archive line ids. For corrections that touch more than one field, "
+            "pass field_sources so each field names its own supporting lines.",
+            missing=missing)
+    stamps = []
+    for i in ids:
+        try:
+            stamps.append(db.parse_ts(str(found[i] or ""), strict=True))
+        except (TypeError, ValueError):
+            raise LiveError(
+                "a cited line has no readable timestamp — its evidence time "
+                "can't be trusted; cite lines with valid times. For mixed-age "
+                "corrections, pass field_sources so each field keeps its own "
+                "supporting timestamp.")
+    return max(stamps).isoformat(timespec="seconds")
+
+
+def _normalize_field_name(name: str) -> str:
+    """Map public aliases (e.g. ``when``) to stored mutable fields."""
+    key = str(name or "").strip()
+    if key in _FIELD_ALIASES:
+        return _FIELD_ALIASES[key]
+    if key in _PARTICIPANT_OPS:
+        return "participants"
+    return key
+
+
+def _normalize_field_sources(raw) -> dict[str, list[int]]:
+    """Validate and normalize a field_sources map; reject conflicts/empties."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise LiveError("field_sources must be a map of field name → archive line ids")
+    out: dict[str, list[int]] = {}
+    seen_alias: dict[str, str] = {}
+    for key, ids in raw.items():
+        public = str(key or "").strip()
+        stored = _normalize_field_name(public)
+        if public in _FIELD_ALIASES and stored in raw and public != stored:
+            raise LiveError(
+                f"conflicting field aliases {public!r} and {stored!r} — supply one")
+        if stored in seen_alias and seen_alias[stored] != public:
+            raise LiveError(
+                f"conflicting field aliases {seen_alias[stored]!r} and {public!r} "
+                f"— both map to {stored!r}")
+        seen_alias[stored] = public
+        if stored not in events.MUTABLE and stored not in events.CLEARABLE:
+            raise LiveError(f"unknown field in field_sources: {public!r}")
+        if not isinstance(ids, (list, tuple)) or not ids:
+            raise LiveError(
+                f"field_sources[{public!r}] needs a non-empty list of archive line ids")
+        try:
+            cleaned = [int(i) for i in ids]
+        except (TypeError, ValueError):
+            raise LiveError(
+                f"field_sources[{public!r}] must be archive line ids, e.g. [12, 13]")
+        # Stable unique order: first occurrence wins, duplicates ignored.
+        uniq: list[int] = []
+        for i in cleaned:
+            if i not in uniq:
+                uniq.append(i)
+        out[stored] = uniq
+    return out
+
+
+def _normalize_context_ids(raw) -> list[int]:
+    if raw in (None, "", []):
+        return []
+    if isinstance(raw, str):
+        raw = raw.replace(",", " ").split()
+    try:
+        ids = [int(i) for i in raw]
+    except (TypeError, ValueError):
+        raise LiveError("context_source_ids must be archive line ids, e.g. [90]")
+    uniq: list[int] = []
+    for i in ids:
+        if i not in uniq:
+            uniq.append(i)
+    return uniq
+
+
+def _asserted_fields(payload: dict, wipe: tuple[str, ...] = (),
+                     *, include_routing: bool = False) -> set[str]:
+    """Fields the caller is asserting or clearing (not internal routing defaults)."""
+    names = set()
+    for name, value in payload.items():
+        if name == "key":
+            continue
+        if name not in events.MUTABLE:
+            continue
+        if value in (None, [], "") and name not in wipe:
+            continue
+        names.add(name)
+    names.update(n for n in wipe if n in events.CLEARABLE or n in events.MUTABLE)
+    return names
+
+
+def _require_field_coverage(asserted: set[str], field_sources: dict[str, list[int]],
+                            *, created: dict | None = None) -> None:
+    """Every asserted field needs explicit support; reject extras too."""
+    covered = set(field_sources)
+    missing = sorted(asserted - covered)
+    if missing:
+        raise LiveError(
+            "field_sources must cover every asserted field: missing "
+            + ", ".join(missing),
+            missing=missing)
+    # Extra keys that are not being asserted are an agent error.
+    extra = sorted(covered - asserted)
+    if extra and created is None:
+        raise LiveError(
+            "field_sources names fields that were not asserted: "
+            + ", ".join(extra),
+            extra=extra)
+
+
+def _validate_context_ids(conn: sqlite3.Connection, ids: list[int]) -> None:
+    if not ids:
+        return
+    have = {row["id"] for row in conn.execute(
+        f"SELECT id FROM archive WHERE id IN ({','.join('?' * len(ids))})", ids)}
+    missing = [i for i in ids if i not in have]
+    if missing:
+        raise LiveError(
+            "some context_source_ids don't exist — re-read the activity and cite "
+            "real archive line ids",
+            missing=missing)
+
+
+def _field_evidence_map(conn: sqlite3.Connection,
+                        field_sources: dict[str, list[int]]) -> dict[str, str]:
+    """Per-field newest supporting timestamp — never a max across fields."""
+    return {name: _newest_ts(conn, ids) for name, ids in field_sources.items()}
+
+
+def _review_ids_for(outcomes: tuple[FieldOutcome, ...]) -> list[int]:
+    """Acknowledge only evidence accepted for this decision; shared IDs stay pending."""
+    accepted: set[int] = set()
+    rejected: set[int] = set()
+    for item in outcomes:
+        if item.status == "rejected":
+            rejected.update(item.source_ids)
+        elif item.status in ("applied", "unchanged"):
+            accepted.update(item.source_ids)
+    return sorted(accepted - rejected)
+
+
+def _outcomes_from_report(
+        report, *, before: dict, after, requested: dict[str, object],
+        wipe: tuple[str, ...] = (),
+        field_sources: dict[str, list[int]] | None = None,
+        flat_ids: list[int] | None = None) -> tuple[FieldOutcome, ...]:
+    """Build frozen FieldOutcome values from an UpsertReport + request."""
+    sources = field_sources or {}
+    flat = tuple(flat_ids or ())
+    applied = set(report.applied)
+    stale = set(report.stale)
+    advanced = set(report.advanced)
+    out: list[FieldOutcome] = []
+    names = sorted(set(requested) | set(wipe) | set(sources))
+    for name in names:
+        if name == "key":
+            continue
+        if name not in events.MUTABLE and name not in events.CLEARABLE:
+            continue
+        ids = tuple(sources.get(name, flat))
+        old_v = before.get(name, "")
+        new_v = getattr(after, name, "") if after is not None else requested.get(name, "")
+        old_s = "" if old_v in (None, []) else (
+            db.jdump(old_v) if isinstance(old_v, list) else str(old_v))
+        new_s = "" if new_v in (None, []) else (
+            db.jdump(new_v) if isinstance(new_v, list) else str(new_v))
+        if name in wipe and name not in requested:
+            new_s = ""
+        if name in advanced:
+            out.append(FieldOutcome(
+                field=name, status="applied", source_ids=ids,
+                evidence_advanced=True, old=old_s, new=new_s))
+        elif name in applied:
+            out.append(FieldOutcome(
+                field=name, status="applied", source_ids=ids,
+                old=old_s, new=new_s))
+        elif name in stale:
+            out.append(FieldOutcome(
+                field=name, status="rejected",
+                reason="source predates the stored value",
+                source_ids=ids, old=old_s, new=str(requested.get(name, new_s) or "")))
+        else:
+            out.append(FieldOutcome(
+                field=name, status="unchanged", source_ids=ids,
+                old=old_s, new=new_s))
+    return tuple(out)
+
+
+def _replay_outcome(conn: sqlite3.Connection, op_id: str, event,
+                    *, compat: str) -> EventWriteOutcome | None:
+    """Return a recorded outcome for an already-completed operation."""
+    prior = actions.get(conn, op_id)
+    if prior is None:
+        return None
+    raw = prior.outcome or {}
+    items = []
+    for entry in raw.get("fields") or []:
+        items.append(FieldOutcome(
+            field=str(entry.get("field") or ""),
+            status=str(entry.get("status") or "unchanged"),
+            reason=str(entry.get("reason") or ""),
+            source_ids=tuple(int(i) for i in (entry.get("source_ids") or [])),
+            evidence_advanced=bool(entry.get("evidence_advanced")),
+            old=str(entry.get("old") or ""),
+            new=str(entry.get("new") or "")))
+    return EventWriteOutcome(
+        event=event, verb=str(raw.get("verb") or prior.verb),
+        fields=tuple(items), compat=compat)
+
+
 def _stamp_live(conn: sqlite3.Connection, kind: str, ref: str, verb: str, *,
                 origin: Origin = actions.UNKNOWN, fields: dict | None = None,
-                based_on: str = "", op_id: str = "", commit: bool = True) -> None:
+                based_on: str = "", op_id: str = "", commit: bool = True,
+                review_ids: list[int] | None = None,
+                field_sources: dict | None = None,
+                context_source_ids: list[int] | None = None,
+                outcome: dict | None = None) -> None:
     """Record provenance, evidence and the completed operation for a typed write.
 
     Provenance says which conversation the information came from; evidence points
@@ -294,78 +633,139 @@ def _stamp_live(conn: sqlite3.Connection, kind: str, ref: str, verb: str, *,
     only supply if it knows its own turn; and the action record is the part the
     nightly pass reads. The writer identity lives in `written_by`, never in the
     provenance entity — see `_origin_pointer`. Only explicitly cited lines count
-    as reviewed — the authorship turn never does.
+    as reviewed — the authorship turn never does. When `review_ids` is passed
+    (field-attributed writes), only those ids are acknowledged — never the whole
+    citation union, and never context-only ids.
     """
     origin, _dropped = _valid_citations(conn, origin)
+    reviewed = (list(review_ids) if review_ids is not None else list(origin.cited))
+    archive_ids = [*origin.archive_ids, *origin.cited]
+    if context_source_ids:
+        archive_ids = [*archive_ids, *[i for i in context_source_ids
+                                       if i not in archive_ids]]
     trace.stamp(conn, kind=kind, ref=ref, verb=verb,
                 entity=_origin_pointer(conn, origin),
                 stage="live", run_id=None, generation_id=None,
-                archive_ids=[*origin.archive_ids, *origin.cited],
-                review_ids=list(origin.cited))
+                archive_ids=archive_ids,
+                review_ids=reviewed)
     actions.record(conn, kind=kind, ref=ref, verb=verb, origin=origin,
                    fields=fields or {}, based_on=based_on, op_id=op_id,
-                   commit=commit)
+                   commit=commit, field_sources=field_sources,
+                   context_source_ids=context_source_ids, outcome=outcome)
 
 
 def add_event(conn: sqlite3.Connection, cfg: Config, *, title: str, when: str,
               origin: Origin = actions.UNKNOWN,
-              **fields) -> tuple[events.Event, str]:
-    """A plan the user just described. No model: they said the fields, the agent has them."""
+              field_sources=None, context_source_ids=None,
+              **fields) -> EventWriteOutcome:
+    """A plan the user just described. No model: they said the fields, the agent has them.
+
+    Optional ``field_sources`` maps each asserted field to supporting archive line
+    ids (newest timestamp per field). ``context_source_ids`` are background only.
+    Returns an ``EventWriteOutcome`` unpackable as ``(event, verb)``.
+    """
     title = (title or "").strip()
     if not title:
         raise LiveError("an event needs a title")
     start, _span = db.parse_when(when)
-    payload = {k: v for k, v in fields.items() if v not in (None, "", [])}
+    # Pop attribution kwargs that must not land in the event payload.
+    raw_fs = field_sources
+    raw_ctx = context_source_ids
+    payload = {k: v for k, v in fields.items()
+               if k not in ("field_sources", "context_source_ids")
+               and v not in (None, "", [])}
     payload.update(title=title, date=start.isoformat())
     if payload.get("until"):
         payload["until"] = db.parse_when(str(payload["until"]))[0].isoformat()
-    # Same mutation-time citation rule as update_event: an invalid citation is
-    # refused here too, since add_event can match and update an existing row.
-    origin = _cited_or_reject(conn, origin)
-    # Preserve the founding evidence time so the created fields have a real
-    # precedence baseline. Without it a cited creation stores no evidence time,
-    # its fields floor at empty, and the very first correction — however old its
-    # source — silently overwrites them. The originating turn (or cited lines)
-    # says when these values were established; the tool's run time never does,
-    # which is why a genuinely newer source predating execution still wins.
-    evidence_ts = None
-    support = list(origin.cited) or list(origin.archive_ids)
-    if support:
-        said_at = _cited_ts(conn, tuple(support))
-        if said_at is not None:
-            evidence_ts = {name: said_at for name in payload
-                           if name in events.MUTABLE}
+
+    flat_cited = bool(origin.cited)
+    fs = _normalize_field_sources(raw_fs)
+    ctx = _normalize_context_ids(raw_ctx)
+    if fs and flat_cited:
+        raise LiveError(
+            "pass field_sources or source_ids, not both — a flat citation set "
+            "cannot be combined with per-field attribution")
+    if ctx and not fs:
+        raise LiveError(
+            "context_source_ids require field_sources — background context has "
+            "no authority without explicit per-field support")
+
+    if fs:
+        # Creation asserts every supplied mutable field (title+date always).
+        asserted = _asserted_fields(payload)
+        _require_field_coverage(asserted, fs)
+        _validate_context_ids(conn, ctx)
+        evidence_ts = _field_evidence_map(conn, fs)
+        # Origin citations for review come from accepted fields after the write.
+        origin = actions.Origin.of(
+            origin.surface, origin.archive_ids, cited=(),
+            session=origin.session, note=origin.note or "field_sources attribution",
+            op_id=origin.op_id)
+    else:
+        origin = _cited_or_reject(conn, origin)
+        evidence_ts = None
+        support = list(origin.cited) or list(origin.archive_ids)
+        if support:
+            said_at = _cited_ts(conn, tuple(support))
+            if said_at is not None:
+                evidence_ts = {name: said_at for name in payload
+                               if name in events.MUTABLE}
+
+    request = {**payload}
+    if fs:
+        request["field_sources"] = {k: list(v) for k, v in sorted(
+            (n, ids) for n, ids in fs.items())}
+        request["context_source_ids"] = list(ctx)
     op = actions.plan(kind="event", ref=f"new:{db.slugify(title, 48)}",
-                      verb="inserted", origin=origin, request=payload, at=db.now())
+                      verb="inserted", origin=origin, request=request, at=db.now())
     with _atomic(conn):
         if actions.seen(conn, op):
-            # Replay inside the write transaction so the check cannot go stale.
             existing = events.find_match(conn, title=title, on=payload["date"],
                                          participants=payload.get("participants") or [])
             if existing is not None:
-                return existing, "unchanged"
-        event, verb = events.upsert(conn, payload, written_by="live",
-                                    evidence_ts=evidence_ts, commit=False)
+                replayed = _replay_outcome(conn, op, existing, compat="verb")
+                if replayed is not None:
+                    return replayed
+                return EventWriteOutcome(existing, "unchanged", compat="verb")
+        report = events.upsert(conn, payload, written_by="live",
+                               evidence_ts=evidence_ts, commit=False)
+        event, verb = report.event, report.verb
+        before = {name: "" for name in events.MUTABLE}
+        outcomes = _outcomes_from_report(
+            report, before=before, after=event,
+            requested={n: payload[n] for n in payload if n in events.MUTABLE},
+            field_sources=fs or None,
+            flat_ids=list(origin.cited) or list(origin.archive_ids))
         if verb != "unchanged":
+            review = _review_ids_for(outcomes) if fs else None
+            moved = {name: ["", str(payload.get(name) or "")]
+                     for name in ("date", "time", "title", "location", "status")
+                     if payload.get(name)}
             _stamp_live(conn, "event", event.key, verb, origin=origin, commit=False,
-                        op_id=op,
-                        fields={name: ["", str(payload.get(name) or "")]
-                                for name in ("date", "time", "title", "location",
-                                             "status")
-                                if payload.get(name)})
+                        op_id=op, fields=moved, review_ids=review,
+                        field_sources=fs or None, context_source_ids=ctx or None,
+                        outcome={"verb": verb,
+                                 "fields": [o.as_dict() for o in outcomes]})
     _refresh(conn, cfg, event.key)
-    return event, verb
+    return EventWriteOutcome(event, verb, outcomes, compat="verb")
 
 
 def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
                  add_participants: list[str] | None = None,
                  remove_participants: list[str] | None = None,
                  origin: Origin = actions.UNKNOWN,
-                 **changes) -> tuple[events.Event, list[str]]:
-    """Change a row the user can see. Returns it rendered, so nothing needs re-reading."""
+                 field_sources=None, context_source_ids=None,
+                 **changes) -> EventWriteOutcome:
+    """Change a row the user can see. Returns an EventWriteOutcome unpackable as
+    ``(event, changed_lines)``.
+    """
     event = find_event(conn, which)
+    raw_fs = field_sources
+    raw_ctx = context_source_ids
+    # Drop attribution keys if they arrived via **changes.
+    changes = {k: v for k, v in changes.items()
+               if k not in ("field_sources", "context_source_ids")}
     payload: dict = {k: v for k, v in changes.items() if v not in (None, "", [])}
-    # Empty string means clear; omitted means untouched. Only the typed path may clear.
     wipe = tuple(name for name, value in changes.items()
                  if value == "" and name in events.CLEARABLE)
     if payload.get("when"):
@@ -376,13 +776,14 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
         raise LiveError(f"status must be one of {', '.join(events.STATUSES)}")
     if payload.get("kind") and payload["kind"] not in events.KINDS:
         raise LiveError(f"kind must be one of {', '.join(events.KINDS)}")
+    participant_asserted = bool(add_participants or remove_participants
+                                or "participants" in changes)
     if add_participants or remove_participants:
         removed = {name.casefold() for name in (remove_participants or [])}
         payload["participants"] = sorted(
             (set(event.participants) | set(add_participants or []))
             - {name for name in event.participants if name.casefold() in removed})
     if not payload and not wipe:
-        # Name clearable fields so a refused clear reads as a refusal, not a no-op.
         asked = [name for name, value in changes.items() if value == ""]
         if asked:
             raise LiveError(
@@ -393,65 +794,144 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
 
     before = {name: getattr(event, name) for name in events.MUTABLE}
     based_on = _version_of(conn, "event", event.key)
-    # Always by key so re-matching cannot retarget the write.
     payload["key"] = event.key
-    payload.setdefault("date", event.date)
-    # Citations are validated before the mutation, and only cited lines count as
-    # reviewed: the authorship turn proves who asked, never what was considered.
-    origin = _cited_or_reject(conn, origin)
-    # A source-backed correction carries its messages' hour into precedence: an
-    # old line cannot undo a newer settlement, while a genuinely newer line
-    # applies whenever it was read. A plain user correction carries its turn's
-    # hour the same way — what the user said at 11:00 outranks a 10:00 message
-    # and yields to genuinely newer evidence either side of it. Only a write
-    # with neither turn nor citation keeps the old run-time semantics. One
-    # stamp — the oldest cited line's, since per-line field attribution is not
-    # recoverable from text — covers the changed fields, while untouched fields
-    # keep whatever evidence time they already hold.
-    evidence_ts = None
-    support = list(origin.cited) or list(origin.archive_ids)
-    if support:
-        said_at = _cited_ts(conn, tuple(support))
-        if said_at is not None:
-            # Cleared fields (`wipe`) carry the same evidence time as set ones:
-            # a destructive clear is a revision and must clear the same
-            # precedence bar, not slip past a guard built only from `payload`.
-            evidence_ts = {name: said_at for name in (*payload, *wipe)
-                           if name in events.MUTABLE}
-    # Plan replay keys from the request, not current values, so retries stay recognisable.
+    # Date added only to address an existing event is routing, not an assertion —
+    # unless the caller explicitly supplied when/date.
+    # MCP/Hermes pass when=None for unused optional kwargs — that is not an assertion.
+    date_asserted = (changes.get("when") not in (None, "")
+                     or changes.get("date") not in (None, ""))
+    if not date_asserted:
+        payload.setdefault("date", event.date)
+
+    flat_cited = bool(origin.cited)
+    fs = _normalize_field_sources(raw_fs)
+    ctx = _normalize_context_ids(raw_ctx)
+    if fs and flat_cited:
+        raise LiveError(
+            "pass field_sources or source_ids, not both — a flat citation set "
+            "cannot be combined with per-field attribution")
+    if ctx and not fs:
+        raise LiveError(
+            "context_source_ids require field_sources — background context has "
+            "no authority without explicit per-field support")
+
+    if fs:
+        asserted = set()
+        for name in payload:
+            if name in ("key",):
+                continue
+            if name == "date" and not date_asserted:
+                continue
+            if name in events.MUTABLE:
+                asserted.add(name)
+        asserted.update(wipe)
+        if participant_asserted:
+            asserted.add("participants")
+        _require_field_coverage(asserted, fs)
+        _validate_context_ids(conn, ctx)
+        evidence_ts = _field_evidence_map(conn, fs)
+        origin = actions.Origin.of(
+            origin.surface, origin.archive_ids, cited=(),
+            session=origin.session, note=origin.note or "field_sources attribution",
+            op_id=origin.op_id)
+    else:
+        origin = _cited_or_reject(conn, origin)
+        evidence_ts = None
+        support = list(origin.cited) or list(origin.archive_ids)
+        if support:
+            said_at = _cited_ts(conn, tuple(support))
+            if said_at is not None:
+                # Routing-only date (addressing the row) is not an assertion and
+                # must not receive this citation's evidence time — otherwise a
+                # same-value reaffirmation path would advance date spuriously.
+                evidence_ts = {name: said_at for name in (*payload, *wipe)
+                               if name in events.MUTABLE
+                               and (name != "date" or date_asserted)}
+
+    request = {**payload, "clear": sorted(wipe)}
+    if fs:
+        request["field_sources"] = {k: list(v) for k, v in sorted(fs.items())}
+        request["context_source_ids"] = list(ctx)
     op = actions.plan(kind="event", ref=event.key, verb="updated", origin=origin,
-                      request={**payload, "clear": sorted(wipe)}, at=db.now())
+                      request=request, at=db.now())
     with _atomic(conn):
         if actions.seen(conn, op):
-            return event, []
-        updated, _verb = events.upsert(conn, payload, written_by="live", match=False,
-                                       clear=wipe, evidence_ts=evidence_ts,
-                                       replace_participants=bool(remove_participants),
-                                       commit=False)
-        moved = {name: [str(before[name]), str(getattr(updated, name))]
-                 for name in events.MUTABLE
-                 if str(before[name]) != str(getattr(updated, name))}
-        if not moved and evidence_ts and _would_change(before, payload, wipe):
-            # A genuine revision lost on evidence time: what's stored was
-            # settled by evidence at least as new as this correction's. Say so
-            # plainly instead of reporting a no-op — and record nothing, so no
-            # mark moves either. The remedy is worded for what the caller
-            # actually supplied: only a citation can be called "those lines".
-            if origin.cited:
+            current = events.get(conn, event.key) or event
+            replayed = _replay_outcome(conn, op, current, compat="changed")
+            if fs and replayed is not None:
+                # Field-attributed replay returns the recorded structured outcome.
+                return replayed
+            # Flat callers treat replay as a silent no-op (empty changed list).
+            return EventWriteOutcome(
+                current, "unchanged",
+                fields=() if replayed is None else replayed.fields,
+                compat="changed", silent_replay=True)
+        report = events.upsert(conn, payload, written_by="live", match=False,
+                               clear=wipe, evidence_ts=evidence_ts,
+                               replace_participants=bool(remove_participants),
+                               commit=False)
+        updated = report.event
+        requested = {n: payload[n] for n in payload
+                     if n in events.MUTABLE and (n != "date" or date_asserted)}
+        for name in wipe:
+            requested.setdefault(name, "")
+        outcomes = _outcomes_from_report(
+            report, before=before, after=updated, requested=requested,
+            wipe=wipe, field_sources=fs or None,
+            flat_ids=list(origin.cited) or list(origin.archive_ids))
+
+        if not fs:
+            # Legacy flat path: all-rejected genuine revision still raises.
+            moved_legacy = {name: [str(before[name]), str(getattr(updated, name))]
+                            for name in events.MUTABLE
+                            if str(before[name]) != str(getattr(updated, name))}
+            if (not moved_legacy and not report.advanced and evidence_ts
+                    and _would_change(before, payload, wipe)):
+                affected = sorted(
+                    n for n in (*payload, *wipe)
+                    if n in events.MUTABLE and n != "key"
+                    and (n != "date" or date_asserted))
+                named = ", ".join(affected) if affected else "those fields"
+                if origin.cited:
+                    raise LiveError(
+                        f"those lines are older than what's stored for {named} — "
+                        "they can't revise it. Resubmit with field_sources so each "
+                        "field cites its own supporting lines (field_sources), or "
+                        "cite newer evidence for the affected fields.")
                 raise LiveError(
-                    "those lines are older than what's stored — they can't revise it. "
-                    "Cite newer evidence, or restate this as a new correction.")
-            raise LiveError(
-                "what's stored already reflects newer evidence — this correction "
-                "can't revise it. Cite the newer messages it's based on, or "
-                "restate it as a new correction.")
-        # Record operations only when something moved; no-op calls are not decisions.
-        if moved:
+                    f"what's stored already reflects newer evidence for {named} — "
+                    "this correction can't revise it. Cite the newer messages it's "
+                    "based on via field_sources for each affected field.")
+            if moved_legacy or report.advanced:
+                fields_moved = {
+                    name: [str(before[name]), str(getattr(updated, name))]
+                    for name in events.MUTABLE
+                    if str(before[name]) != str(getattr(updated, name))
+                    or name in report.advanced}
+                _stamp_live(conn, "event", updated.key, "updated", origin=origin,
+                            fields=fields_moved, based_on=based_on, op_id=op,
+                            commit=False,
+                            outcome={"verb": "updated",
+                                     "fields": [o.as_dict() for o in outcomes]})
+        elif report.applied or report.advanced:
+            # Field-attributed partial/full success.
+            review = _review_ids_for(outcomes)
+            fields_moved = {
+                name: [str(before[name]), str(getattr(updated, name))]
+                for name in events.MUTABLE
+                if str(before[name]) != str(getattr(updated, name))
+                or name in report.advanced}
             _stamp_live(conn, "event", updated.key, "updated", origin=origin,
-                        fields=moved, based_on=based_on, op_id=op, commit=False)
+                        fields=fields_moved, based_on=based_on, op_id=op,
+                        commit=False, review_ids=review,
+                        field_sources=fs, context_source_ids=ctx,
+                        outcome={"verb": "updated",
+                                 "fields": [o.as_dict() for o in outcomes]})
+        # Wholly rejected or genuine no-op: leave event/history/review untouched.
     _refresh(conn, cfg, updated.key)
-    changed = [f"{name}: {old} → {new}" for name, (old, new) in sorted(moved.items())]
-    return updated, changed
+    verb = ("updated" if (report.applied or report.advanced)
+            else "unchanged")
+    return EventWriteOutcome(updated, verb, outcomes, compat="changed")
 
 
 def _would_change(before: dict, payload: dict, wipe: tuple) -> bool:
@@ -469,6 +949,7 @@ def _would_change(before: dict, payload: dict, wipe: tuple) -> bool:
                 and str(value) != str(before.get(name)):
             return True
     return False
+
 
 
 def reviewed(conn: sqlite3.Connection, cfg: Config, which: str, *,

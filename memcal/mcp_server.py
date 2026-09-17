@@ -30,7 +30,7 @@ TOOLS = [
     {
         "name": "memcal_open",
         "description": (
-            "Open one line of the brief and get everything memcal knows about it. The "
+            "Open a brief handle or wiki page (me, page names, recorded aliases). The "
             "brief is an index: it names what is happening and who is there, and holds "
             "the rest here. Use this whenever the answer needs a detail the line does "
             "not carry — the street address, the invite or join link, whether it "
@@ -43,7 +43,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "ref": {"type": "string",
-                        "description": "a brief handle, e.g. E258 or T2"},
+                        "description": "a brief handle (E258, T2), page name, alias, or me"},
             },
             "required": ["ref"], "additionalProperties": False,
         },
@@ -51,7 +51,8 @@ TOOLS = [
     {
         "name": "memcal_open_page",
         "description": (
-            "Read remembered facts about a person or topic. Accept me, page names, "
+            "Deprecated: prefer memcal_open, which also opens wiki pages. Read "
+            "remembered facts about a person or topic. Accept me, page names, "
             "recorded aliases. Return facts first, then evidence/supplementary detail.\n"
             "Facts already in the brief answer directly; the brief's `Pages:` line "
             "names, in parentheses, the facts each page holds — 'what should I get "
@@ -186,7 +187,7 @@ TOOLS = [
             "New messages behind one plan since its last review — the correction, "
             "not a keyword search. Use when the brief flags new activity on a row "
             "before giving current details for it. Reading changes nothing; cite "
-            "the [ids] in a memcal_update, or acknowledge them with memcal_reviewed "
+            "the [ids] in a memcal_update (prefer field_sources when fields differ), or acknowledge them with memcal_reviewed "
             "when the stored row still stands. Takes a brief handle like E46."),
         "inputSchema": {
             "type": "object",
@@ -227,6 +228,21 @@ TOOLS = [
                              "description": "the link you attend through, for anything "
                                             "online. Not the same as where it is"},
                 "series": {"type": "string", "description": "the recurring thing this is one of, as a slug ('tutoring'). Sets it where repetition alone could not prove it — a new instance then starts with what the series already knows"},
+                "field_sources": {
+                    "type": "object",
+                    "description": "map of field name → archive line ids supporting that field "
+                                   "(newest timestamp wins per field). Prefer this over flat "
+                                   "source_ids when fields have different supporting messages.",
+                    "additionalProperties": {"type": "array", "items": {"type": "integer"}},
+                },
+                "context_source_ids": {
+                    "type": "array", "items": {"type": "integer"},
+                    "description": "background archive ids used to interpret the request; "
+                                   "no field authority. Only valid with field_sources.",
+                },
+                "source_ids": {"type": "array", "items": {"type": "integer"},
+                               "description": "archive [ids] supporting this creation (flat). "
+                                              "Do not combine with field_sources."},
             },
             "required": ["title", "when"], "additionalProperties": False,
         },
@@ -264,8 +280,21 @@ TOOLS = [
                                             "online. Not the same as where it is"},
                 "series": {"type": "string", "description": "the recurring thing this is one of, as a slug ('tutoring'). Sets it where repetition alone could not prove it — a new instance then starts with what the series already knows"},
                 "note": {"type": "string"},
+                "field_sources": {
+                    "type": "object",
+                    "description": "map of field name → archive line ids supporting that field "
+                                   "(newest timestamp wins per field). Prefer this over flat "
+                                   "source_ids when fields have different supporting messages.",
+                    "additionalProperties": {"type": "array", "items": {"type": "integer"}},
+                },
+                "context_source_ids": {
+                    "type": "array", "items": {"type": "integer"},
+                    "description": "background archive ids used to interpret the request; "
+                                   "no field authority. Only valid with field_sources.",
+                },
                 "source_ids": {"type": "array", "items": {"type": "integer"},
-                               "description": "archive [ids] from memcal_activity this change is based on"},
+                               "description": "archive [ids] from memcal_activity this change is based on "
+                                              "(flat oldest-line rule). Do not combine with field_sources."},
             },
             "required": ["which"], "additionalProperties": False,
         },
@@ -500,7 +529,7 @@ def _render_search_hits(hits: list[dict], query: str, limit: int) -> str:
                 ts = str((meta or {}).get("ts") or "")[:10]
                 bits.append(f"{slot} ({src}{', ' + ts if ts else ''})")
             lines.append(f"  provenance: {'; '.join(bits)}")
-        lines.append(f"  open with memcal_open_page slug='{hit['slug']}'")
+        lines.append(f"  open with memcal_open ref='{hit['slug']}'")
     if len(hits) == limit:
         lines.append("(bounded: more may exist; narrow the query or raise limit)")
     return "\n".join(lines) + "\n"
@@ -610,25 +639,21 @@ class Server:
             return activity_mod.format_read(
                 page, weak, label=str(args.get("handle", "")).strip())
 
-        if name == "memcal_open":
-            # No `kind` argument, unlike `memcal_source`. The handle already says which
-            # table it is, and every parameter a caller can get wrong is a parameter a
-            # caller does get wrong.
-            return detail.open_handle(self.conn, self.cfg, str(args.get("ref", "")))
-
         if name == "memcal_open_page":
-            # Self (`me`, established self names, recorded aliases) resolves
-            # first; otherwise the normal canonical path. Facts lead via
-            # `_render_page`; encounters and short cited lines follow.
-            raw = str(args.get("slug", "") or "")
+            return self.call("memcal_open", {"ref": args.get("slug", "")})
+
+        if name == "memcal_open":
+            raw = str(args.get("ref", "") or "")
+            if detail.parse_handle(raw):
+                return detail.open_handle(self.conn, self.cfg, raw)
             try:
                 self_target = wiki.resolve_self_page(
                     self.conn, self.cfg.wiki_dir, raw)
             except wiki.SelfAmbiguous as exc:
                 cands = ", ".join(exc.candidates)
                 return (f"Ambiguous self page for {raw!r}: {cands}. "
-                        f"Open one explicitly, e.g. memcal_open_page with "
-                        f"slug='{exc.candidates[0]}'. Nothing was created or "
+                        f"Open one explicitly, e.g. memcal_open with "
+                        f"ref='{exc.candidates[0]}'. Nothing was created or "
                         f"merged; writes need an explicit page.")
             slug = (self_target if self_target is not None
                     else wiki.canonical(self.cfg.wiki_dir, raw))
@@ -665,7 +690,7 @@ class Server:
                 return (f"No matching wiki fact for {query!r}. This means no stored "
                         f"fact matched — not that the user never told us. Try "
                         f"memcal_search_archive for original statements, or "
-                        f"memcal_open_page if you know the page.")
+                        f"memcal_open if you know the page.")
             return _render_search_hits(hits, query, limit)
 
         if name == "memcal_list_days":
@@ -792,17 +817,32 @@ class Server:
             raise ValueError(f"unknown tool {name}")
         conn, cfg = self.conn, self.cfg
         if name == "memcal_add":
-            event, verb = live.add_event(
-                conn, cfg, origin=self.origin(),
+            origin = self.origin()
+            if args.get("source_ids"):
+                origin = self._cited(args)
+            outcome = live.add_event(
+                conn, cfg, origin=origin,
                 title=args.get("title", ""), when=args.get("when", ""),
                 time=args.get("time"), location=args.get("location"),
                 participants=args.get("participants") or [], status=args.get("status"),
                 kind=args.get("kind"), subject=args.get("subject"), until=args.get("until"),
-                join_url=args.get("join_url"), series=args.get("series"))
+                join_url=args.get("join_url"), series=args.get("series"),
+                field_sources=args.get("field_sources"),
+                context_source_ids=args.get("context_source_ids"))
+            event, verb = outcome.event, outcome.verb
+            if outcome.fields:
+                detail = "\n".join(outcome.summary_lines())
+                return f"{verb}: {event.one_line()}\n{detail}"
             return f"{verb}: {event.one_line()}"
         if name == "memcal_update":
-            event, changed = live.update_event(
-                conn, cfg, args.get("which", ""), origin=self._cited(args),
+            origin = (self._cited(args) if args.get("source_ids")
+                      and not args.get("field_sources") else self.origin())
+            if args.get("field_sources") and args.get("source_ids"):
+                raise live.LiveError(
+                    "pass field_sources or source_ids, not both — a flat citation set "
+                    "cannot be combined with per-field attribution")
+            outcome = live.update_event(
+                conn, cfg, args.get("which", ""), origin=origin,
                 status=args.get("status"),
                 when=args.get("when"), until=args.get("until"), time=args.get("time"),
                 location=args.get("location"), title=args.get("title"),
@@ -810,9 +850,20 @@ class Server:
                 note=args.get("note"), join_url=args.get("join_url"),
                 series=args.get("series"),
                 add_participants=args.get("add_participants") or [],
-                remove_participants=args.get("remove_participants") or [])
-            return (event.one_line() + "\nchanged: "
-                    + ("; ".join(changed) if changed else "nothing — it already said that"))
+                remove_participants=args.get("remove_participants") or [],
+                field_sources=args.get("field_sources"),
+                context_source_ids=args.get("context_source_ids"))
+            event = outcome.event
+            if outcome.fields and (outcome.rejected or args.get("field_sources")):
+                detail = "\n".join(outcome.summary_lines())
+                return f"{event.one_line()}\n{detail}"
+            changed = outcome.changed_lines
+            if changed:
+                return event.one_line() + "\nchanged: " + "; ".join(changed)
+            if outcome.rejected:
+                detail = "\n".join(outcome.summary_lines())
+                return f"{event.one_line()}\n{detail}"
+            return event.one_line() + "\nchanged: nothing — it already said that"
         if name == "memcal_schedule":
             rule, log = live.set_schedule(
                 conn, cfg, args.get("which", ""), origin=self.origin(),
@@ -868,7 +919,7 @@ class Server:
             return _ok(request_id, {
                 "protocolVersion": params.get("protocolVersion", PROTOCOL_VERSION),
                 "capabilities": {"tools": {}, "resources": {}},
-                "serverInfo": {"name": "memcal", "version": "0.1.0"},
+                "serverInfo": {"name": "memcal", "version": "0.8.0"},
             })
         if method in ("notifications/initialized", "notifications/cancelled"):
             return None

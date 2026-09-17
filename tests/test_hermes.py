@@ -5,12 +5,15 @@ Skipped when Hermes isn't installed, so the suite stays green anywhere.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -617,6 +620,84 @@ class TestAToolShippedOnOneSurfaceOnly(unittest.TestCase):
                  "memcal_conversation", "memcal_search_archive"}
         self.assertEqual(reads & mcp, reads & hermes,
                          "a read tool exists on one surface and not the other")
+
+
+class TestHermesUnifiedOpenRouting(unittest.TestCase):
+    def setUp(self):
+        from memcal import config, db
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.cfg = config.load(self.tmp.name)
+        self.cfg.ensure_dirs()
+        self.conn = db.open_db(self.cfg.db_path)
+        self.addCleanup(self.conn.close)
+        db.set_today("2026-08-10")
+        self.addCleanup(db.set_today, None)
+        host = ModuleType("agent.memory_provider")
+        host.MemoryProvider = object
+        spec = importlib.util.spec_from_file_location(
+            "_memcal_hermes_routing", PLUGIN / "memcal" / "__init__.py")
+        module = importlib.util.module_from_spec(spec)
+        with mock.patch.dict(sys.modules, {"agent.memory_provider": host}):
+            spec.loader.exec_module(module)
+        self.provider = module.MemcalMemoryProvider()
+        self.provider._cfg = self.cfg
+        self.provider._refresh = lambda: None
+
+    def open(self, target):
+        result = self.provider.handle_tool_call("memcal_open", {"ref": target})
+        self.assertEqual(result, self.provider.handle_tool_call(
+            "memcal_open_page", {"slug": target}))
+        return result
+
+    def test_handles_use_detail_and_never_fall_back_to_a_page(self):
+        from memcal import detail, events, wiki
+        event, _ = events.upsert(self.conn, {"title": "Routing dinner", "date": "2026-08-10"})
+        for target in (f"E{event.id}", f"〔e{event.id}〕", f"[ e {event.id} ]"):
+            with self.subTest(target=target):
+                self.assertEqual(self.open(target), detail.open_handle(self.conn, self.cfg, target))
+                self.assertIn("Routing dinner", self.open(target))
+        wiki.set_slot(self.cfg.wiki_dir, "e999999", "likes", "Pokemon",
+                      source="test", conn=self.conn)
+        self.assertIn("no row", self.open("E999999"))
+
+    def test_pages_self_names_and_aliases_keep_the_profile_shape(self):
+        from memcal import identity, wiki
+        identity.set_me(self.conn, "Casey Morgan")
+        wiki.set_slot(self.cfg.wiki_dir, "casey-morgan", "dog", "Comet",
+                      source="test", conn=self.conn)
+        wiki.add_alias(self.cfg.wiki_dir, "casey-morgan", "CJ")
+        wiki.set_slot(self.cfg.wiki_dir, "quinn-brooks", "likes", "Pokemon",
+                      source="test", conn=self.conn)
+        wiki.add_alias(self.cfg.wiki_dir, "quinn-brooks", "Q")
+        for target, slug in (("me", "casey-morgan"), ("Casey Morgan", "casey-morgan"),
+                             ("CJ", "casey-morgan"), ("quinn-brooks", "quinn-brooks"),
+                             ("Quinn Brooks", "quinn-brooks"), ("Q", "quinn-brooks")):
+            with self.subTest(target=target):
+                self.assertEqual(json.loads(self.open(target)),
+                                 wiki.profile(self.conn, self.cfg.wiki_dir, slug))
+        self.assertEqual(wiki.list_pages(self.cfg.wiki_dir), ["casey-morgan", "quinn-brooks"])
+
+    def test_missing_and_ambiguous_self_reads_keep_structured_errors(self):
+        from memcal import identity, wiki
+        self.assertIn("no self page yet", json.loads(self.open("me"))["error"])
+        self.assertIn("no such page", json.loads(self.open("nobody"))["error"])
+        self.assertEqual(wiki.list_pages(self.cfg.wiki_dir), [])
+        identity.set_me(self.conn, "Casey Morgan")
+        for slug in ("me", "casey-morgan"):
+            wiki.set_slot(self.cfg.wiki_dir, slug, "dog", "Comet",
+                          source="test", conn=self.conn)
+        result = json.loads(self.open("me"))
+        self.assertIn("ambiguous self page", result["error"])
+        self.assertEqual(result["candidates"], ["casey-morgan", "me"])
+        self.assertIn("memcal_open with ref=", result["hint"])
+        self.assertNotIn("memcal_open_page", result["hint"])
+
+    def test_schemas_advertise_pages_and_deprecate_only_the_alias(self):
+        schemas = {tool["name"]: tool for tool in self.provider.get_tool_schemas()}
+        self.assertIn("wiki page", schemas["memcal_open"]["description"])
+        self.assertIn("Deprecated", schemas["memcal_open_page"]["description"])
+        self.assertIn("prefer memcal_open", schemas["memcal_open_page"]["description"])
 
 
 def tearDownModule():

@@ -450,7 +450,8 @@ class TestWeekendCoverage(_Base):
         self.conn.commit()
         text = brief.render(self.conn, self.cfg)
         self.assertIn("Poker night", text)
-        self.assertIn("UNREVIEWED: chat/rooftop crew (1 waiting)", text)
+        self.assertNotIn("[UNREVIEWED:", text)
+        self.assertIn("coverage incomplete", text)
         self.assertNotIn("rooftop party tonight", text)
         self.assertEqual(self.conn.execute(
             "SELECT count(*) n FROM events").fetchone()["n"], 1)

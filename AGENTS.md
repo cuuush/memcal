@@ -74,8 +74,11 @@ do not add dev notes or dated narratives here.
 
 ## Verify
 
-- Iterate with `python3 -m unittest tests.test_<module>`, then
-  `python3 -m unittest discover -s tests` before handoff.
+- Iterate with `python3 -m unittest -b tests.test_<module>`, then
+  `python3 -m unittest discover -b -s tests` before handoff. Always pass `-b`
+  (`--buffer`): setup wizards (Slack/Telegram token provisioning) print
+  real user-facing prose that is correct in production but pure noise under a
+  test run — buffering hides it and still surfaces it for any test that fails.
 - When touching ingest, merge, typed storage, dream application, or brief rendering, also run
   `python3 tools/benchmark_temporal.py --layer integration` (free, ~1s; oracle answers, so a
   green run says nothing about model accuracy). A before/after pair helps ambiguous

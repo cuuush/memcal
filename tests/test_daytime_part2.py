@@ -365,7 +365,8 @@ class TestGeneratedDaytimeScheduling(unittest.TestCase):
         fake_plist = Path(self.tmp.name) / "com.memcal.nightly.plist"
         retired = [Path(self.tmp.name) / f"{label}.plist"
                    for label in schedule.RETIRED_LABELS]
-        with mock.patch.object(schedule, "_launchctl", return_value=(0, "")), \
+        with mock.patch.object(schedule, "_is_macos", return_value=True), \
+                mock.patch.object(schedule, "_launchctl", return_value=(0, "")), \
                 mock.patch.object(schedule, "build_app_bundle", return_value=[]), \
                 mock.patch.object(schedule, "plist_path", return_value=fake_plist), \
                 mock.patch.object(schedule, "retired_plist_paths", return_value=retired):

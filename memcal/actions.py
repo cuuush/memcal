@@ -77,15 +77,24 @@ class Action:
     based_on: str = ""
     session: str = ""
     at: str = ""
+    field_sources: dict = field(default_factory=dict)
+    context_source_ids: list[int] = field(default_factory=list)
+    outcome: dict = field(default_factory=dict)
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Action":
+        keys = set(row.keys())
         return cls(
             op_id=row["op_id"], kind=row["kind"], ref=row["ref"], verb=row["verb"],
             surface=row["surface"], fields=db.jload(row["fields"], {}),
             source_ids=db.jload(row["source_ids"], []),
             source_note=row["source_note"] or "", based_on=row["based_on"] or "",
-            session=row["session"] or "", at=row["at"])
+            session=row["session"] or "", at=row["at"],
+            field_sources=db.jload(row["field_sources"], {})
+            if "field_sources" in keys else {},
+            context_source_ids=db.jload(row["context_source_ids"], [])
+            if "context_source_ids" in keys else [],
+            outcome=db.jload(row["outcome"], {}) if "outcome" in keys else {})
 
     @property
     def changed(self) -> list[str]:
@@ -139,10 +148,21 @@ def seen(conn: sqlite3.Connection, identifier: str) -> bool:
                         (identifier,)).fetchone() is not None
 
 
+def get(conn: sqlite3.Connection, op_id: str) -> Action | None:
+    """Load one completed operation by its idempotency key."""
+    if not op_id:
+        return None
+    row = conn.execute("SELECT * FROM actions WHERE op_id = ?", (op_id,)).fetchone()
+    return Action.from_row(row) if row else None
+
+
 def record(conn: sqlite3.Connection, *, kind: str, ref: str, verb: str,
            origin: Origin = UNKNOWN, fields: dict | None = None,
            based_on: str | None = None, at: str | None = None,
-           op_id: str = "", commit: bool = False) -> str:
+           op_id: str = "", commit: bool = False,
+           field_sources: dict | None = None,
+           context_source_ids: list[int] | None = None,
+           outcome: dict | None = None) -> str:
     """Write one completed operation. Returns its id; a repeat is a no-op.
 
     `op_id` is the identity `plan()` computed before the change was made. Deliberately
@@ -155,14 +175,19 @@ def record(conn: sqlite3.Connection, *, kind: str, ref: str, verb: str,
     stamp = at or db.now()
     identifier = op_id or plan(kind=kind, ref=ref, verb=verb, origin=origin,
                                request=fields, at=stamp)
+    fs = field_sources or {}
+    ctx = list(context_source_ids or [])
+    out = outcome or {}
     conn.execute(
         """INSERT INTO actions(op_id, kind, ref, verb, surface, session, fields,
-                               source_ids, source_note, based_on, at)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(op_id) DO NOTHING""",
+                               source_ids, source_note, based_on, at,
+                               field_sources, context_source_ids, outcome)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(op_id) DO NOTHING""",
         (identifier, kind, ref, verb, origin.surface, origin.session or None,
          db.jdump(fields), db.jdump(list(origin.archive_ids)),
          origin.note or (None if origin.sourced else NO_SOURCE_NOTE),
-         based_on or None, stamp),
+         based_on or None, stamp,
+         db.jdump(fs), db.jdump(ctx), db.jdump(out)),
     )
     if commit:
         conn.commit()
