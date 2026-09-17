@@ -71,7 +71,8 @@ def _load_memcal():
 OPEN_PAGE = {
     "name": "memcal_open_page",
     "description": (
-        "Read remembered facts about a person or topic. Accept me, page names, "
+        "Deprecated: prefer memcal_open, which also opens wiki pages. Read "
+        "remembered facts about a person or topic. Accept me, page names, "
         "recorded aliases. Return facts first, then evidence/supplementary detail.\n"
         "Facts already in the brief answer directly; the brief's `Pages:` line "
         "names, in parentheses, the facts each page holds — 'what is Jordan into', "
@@ -175,7 +176,7 @@ SEARCH_ARCHIVE = {
 OPEN = {
     "name": "memcal_open",
     "description": (
-        "Open one line of the memcal brief and get everything memcal knows about it. "
+        "Open a brief handle or wiki page (me, page names, recorded aliases). "
         "The brief is an index — it names what is happening and who is there, and holds "
         "the rest here.\n"
         "Reach for this whenever the answer needs a detail the line does not carry: the "
@@ -188,7 +189,7 @@ OPEN = {
     "parameters": {
         "type": "object",
         "properties": {
-            "ref": {"type": "string", "description": "brief handle, e.g. E258"}
+            "ref": {"type": "string", "description": "brief handle (E258), page name, alias, or me"}
         },
         "required": ["ref"],
     },
@@ -831,7 +832,7 @@ class MemcalMemoryProvider(MemoryProvider):
             "the Calendar.app event into the snapshot.\n\n"
             "Facts already in the brief answer directly — including your facts in "
             "'About you'. When the brief names a page but not the value, open it "
-            "with memcal_open_page (accepts me, page names, recorded aliases); when "
+            "with memcal_open (accepts me, page names, recorded aliases); when "
             "the page is unknown, find it with memcal_search_wiki; only then search "
             "source messages with memcal_search_archive (when the wiki does not "
             "answer, or to inspect evidence behind a claim).\n\n"
@@ -1109,9 +1110,13 @@ class MemcalMemoryProvider(MemoryProvider):
         from memcal import archive, db, events, wiki
 
         if tool_name == "memcal_open_page":
-            # Same contract as the MCP surface: self resolves first, facts lead
-            # in the profile, miss offers actionable candidates.
-            raw = str(args.get("slug", "") or "")
+            return self._dispatch(conn, "memcal_open", {"ref": args.get("slug", "")})
+
+        if tool_name == "memcal_open":
+            from memcal import detail
+            raw = str(args.get("ref", "") or "")
+            if detail.parse_handle(raw):
+                return detail.open_handle(conn, self._cfg, raw)
             try:
                 self_target = wiki.resolve_self_page(
                     conn, self._cfg.wiki_dir, raw)
@@ -1119,8 +1124,8 @@ class MemcalMemoryProvider(MemoryProvider):
                 return json.dumps({
                     "error": f"ambiguous self page for {raw!r}",
                     "candidates": exc.candidates,
-                    "hint": ("open one explicitly, e.g. memcal_open_page with "
-                             f"slug='{exc.candidates[0]}'"),
+                    "hint": ("open one explicitly, e.g. memcal_open with "
+                             f"ref='{exc.candidates[0]}'"),
                 })
             slug = (self_target if self_target is not None
                     else wiki.canonical(self._cfg.wiki_dir, raw))
@@ -1162,17 +1167,10 @@ class MemcalMemoryProvider(MemoryProvider):
                     "message": (f"No matching wiki fact for {query!r}. This means "
                                 f"no stored fact matched — not that the user never "
                                 f"told us. Try memcal_search_archive for original "
-                                f"statements, or memcal_open_page if you know the page."),
+                                f"statements, or memcal_open if you know the page."),
                 })
             return json.dumps({"query": query, "results": hits,
                                "truncated": len(hits) == limit})
-
-        if tool_name == "memcal_open":
-            # Both surfaces or neither. `memcal_source` and `memcal_open_source` are
-            # the same tool under two names because one of them was added here and not
-            # there; the cross-surface contract test exists to catch that drift.
-            from memcal import detail
-            return detail.open_handle(conn, self._cfg, args.get("ref", ""))
 
         if tool_name == "memcal_open_source":
             from memcal import trace

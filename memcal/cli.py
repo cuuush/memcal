@@ -11,7 +11,6 @@ import difflib
 import getpass
 import json
 import os
-import re
 import shutil
 import sqlite3
 import subprocess
@@ -100,7 +99,7 @@ def _closes_direct_connections(func):
 #: What a handle looks like when a human types it. The brief prints `〔E286〕`; the
 #: brackets are for a model reading prose and are a nuisance at a shell, so both spellings
 #: resolve and every listing here prints the bare one.
-HANDLE_RE = re.compile(r"^[〔\[]?\s*([ETQSetqs])\s*(\d+)\s*[〕\]]?$")
+HANDLE_RE = detail.HANDLE_RE
 
 #: `brief.source_tag` without the brackets. Same handle, typable.
 def handle(kind: str, row_id: int | None) -> str:
@@ -334,11 +333,29 @@ def cmd_brief(args) -> int:
 
 @_closes_direct_connections
 def cmd_open(args) -> int:
-    """Follow a handle to the row it names."""
     cfg, conn = open_ctx(args)
-    text = detail.open_handle(conn, cfg, args.ref)
-    sys.stdout.write(text if text.endswith("\n") else text + "\n")
-    return 1 if text.startswith("(not a memcal handle") or text.startswith("no row") else 0
+    return _open_target(conn, cfg, args.ref)
+
+
+def _open_target(conn: sqlite3.Connection, cfg: Config, target: str) -> int:
+    if detail.parse_handle(target):
+        text = detail.open_handle(conn, cfg, target)
+        sys.stdout.write(text if text.endswith("\n") else text + "\n")
+        return 1 if text.startswith("no row") else 0
+    try:
+        self_target = wiki.resolve_self_page(conn, cfg.wiki_dir, target)
+    except wiki.SelfAmbiguous as exc:
+        print(f"Ambiguous self page for {target!r}: {', '.join(exc.candidates)}. "
+              f"Open one explicitly with memcal open {exc.candidates[0]}.")
+        return 1
+    slug = (self_target if self_target is not None
+            else wiki.canonical(cfg.wiki_dir, target))
+    page = wiki.read(cfg.wiki_dir, slug) if slug else None
+    if not page:
+        print(f"no page for {target}. Pages: {', '.join(wiki.list_pages(cfg.wiki_dir)) or '(none)'}")
+        return 1
+    sys.stdout.write(page.render())
+    return 0
 
 
 @_closes_direct_connections
@@ -612,12 +629,7 @@ def cmd_page(args) -> int:
                                 section=args.section, source="cli")
         print(message if ok else f"error: {message}")
         return 0 if ok else 1
-    page = wiki.read(cfg.wiki_dir, args.slug)
-    if not page:
-        print(f"no page for {args.slug}. Pages: {', '.join(wiki.list_pages(cfg.wiki_dir)) or '(none)'}")
-        return 1
-    sys.stdout.write(page.render())
-    return 0
+    return _open_target(conn, cfg, args.slug)
 
 
 def cmd_pages(args) -> int:
@@ -2109,8 +2121,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--yes", action="store_true", help="setup without confirmation")
     s.set_defaults(func=cmd_openclaw)
 
-    s = sub.add_parser("open", help="everything known about one handle (E286, T7, Q12)")
-    s.add_argument("ref", help="a handle from the brief, `week` or `todos`")
+    s = sub.add_parser("open", help="read a handle (E286, T7, Q12) or wiki page")
+    s.add_argument("ref", help="a brief handle, page name, recorded alias, or 'me'")
     s.set_defaults(func=cmd_open)
 
     s = sub.add_parser("activity", help="new messages behind one plan, or the backlog")
@@ -2233,7 +2245,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("key", help="a handle (S2) or the key, both printed by `memcal standing`")
     s.set_defaults(func=cmd_forget)
 
-    s = sub.add_parser("page", help="read a wiki page, or fill a slot")
+    s = sub.add_parser("page", help="alias for open on reads; optionally fill a wiki slot")
     s.add_argument("slug", help="the page name, as printed by `memcal pages`")
     s.add_argument("slot", nargs="?",
                    help="a named fact on the page; omit to read the whole page")

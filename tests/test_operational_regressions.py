@@ -737,7 +737,8 @@ class TestAnIndexOfNamesCannotBeUsedToDecideAnything(Base):
                     current_resume="documents/casey-morgan-resume.pdf")
         text = brief.render(self.conn, self.cfg)
         self.assertIn("current resume", text)
-        self.assertIn("memcal_open_page", text)
+        self.assertIn("memcal_open", text)
+        self.assertNotIn("memcal_open_page", text)
 
     def test_a_page_with_nothing_on_it_is_still_named(self):
         # An empty page has nothing to advertise, and dropping its name would lose the
@@ -1548,11 +1549,12 @@ class TestTheCliCouldNotOpenWhatItPrinted(Base):
         self.assertIn("Tutoring", out.getvalue())
 
     def test_open_says_what_a_handle_looks_like_when_given_a_dud(self):
+        """Unknown non-handles try the wiki path; misses list known pages."""
         args = argparse.Namespace(home=str(self.cfg.home), ref="banana")
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertEqual(1, cli.cmd_open(args))
-        self.assertIn("E258", out.getvalue())
+        self.assertIn("no page for banana", out.getvalue())
 
     def test_the_legend_names_a_verb_the_reader_can_actually_type(self):
         cli_text = brief.render(self.conn, self.cfg, surface="cli")
@@ -1569,10 +1571,7 @@ class TestTheCliCouldNotOpenWhatItPrinted(Base):
         alongside the code it guards proves nothing.
         """
         self.assertEqual(
-            "[〔E#〕〔T#〕〔Q#〕 handles open with memcal_open — full detail: the "
-            "address, the links, the messages it came from, and what has changed. "
-            "Pages open with memcal_open_page; the names in parentheses after a page "
-            "are the facts it holds]\n\n",
+            "[〔E#〕〔T#〕〔Q#〕 handles and pages open with memcal_open]\n\n",
             brief.legend("agent"))
         self.assertEqual(brief.legend("agent"), brief.legend("nonsense-surface"))
 
