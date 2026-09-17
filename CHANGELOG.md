@@ -2,6 +2,7 @@
 
 ### Added
 
+- Coding-agent install packaging: root `AGENTS.md` now leads with Hermes / OpenClaw / MCP harness setup (Mac-first; email+MCP on Linux), plus `skills/memcal-install` for assistants that load the skills standard (`npx skills add … --skill memcal-install`).
 - Grok is a fifth model backend: `MEMCAL_LLM_PROVIDER=grok` runs xAI's Grok Build
   CLI in headless mode against your existing Grok login (native model `grok-4.5`,
   set with `MEMCAL_GROK_COMMAND`). Like the other CLI backends it returns one-shot

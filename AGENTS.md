@@ -1,15 +1,129 @@
 # memcal
 
-Python 3.11+. Third-party dependencies are fine — reach for a well-chosen library when it
-makes the code simpler or more reliable than hand-rolling. Declare runtime deps in
-`pyproject.toml` (`dependencies` for ones the core needs, `optional-dependencies` for ones
-only one source needs), and make sure `install.sh` resolves whatever the core requires.
-`./install.sh` puts a `memcal` launcher on PATH that runs from this checkout via
-`PYTHONPATH` — code edits take effect immediately, no reinstall.
+**Memory + Calendar for AI agents.** A coding agent can install and wire MemCal
+into Hermes, OpenClaw, or any MCP harness from this file — no product tour required.
+Contributor layout and hard rules live further down.
 
-No lint, typecheck, formatter, or CI. Verification is unittest plus the temporal benchmark.
-User-facing operation belongs in `README.md`; contributor workflow in `CONTRIBUTING.md`;
-do not add dev notes or dated narratives here.
+Canonical docs: https://cuuush.github.io/memcal/ · skill pack: [`skills/memcal-install`](skills/memcal-install/SKILL.md)
+
+## Install MemCal for an agent harness
+
+### 0. Preconditions
+
+- Python 3.11+, SQLite with FTS5
+- One model backend: Codex (default), Claude Code, Antigravity, Grok, or OpenRouter
+- **macOS** for Messages / WhatsApp / Calendar / Reminders / launchd scheduling
+- **Linux**: use email (IMAP / Proton Bridge) + MCP (and Slack/Telegram if desired); do not promise iMessage or EventKit
+
+Never write to a live `~/.memcal` during development tests — use tmp homes. For a
+real user install, `~/.memcal` is the store.
+
+### 1. Install the CLI (from this checkout)
+
+```bash
+git clone https://github.com/cuuush/memcal.git
+cd memcal
+./install.sh          # PATH launcher via PYTHONPATH; edits apply immediately
+memcal setup          # provider + model → ~/.memcal/.env
+memcal doctor
+memcal brief
+```
+
+PyPI alternate: `pip install memcal` then the same `setup` / `doctor` / `brief` sequence.
+Chat extras: `pip install "memcal[slack]"` or `"memcal[chat]"`.
+
+`MEMCAL_HOME` (default `~/.memcal`) selects the store; `MEMCAL_SRC` points Hermes at
+this checkout when not on `PYTHONPATH`.
+
+### 2. Choose a harness path
+
+| Goal | Path |
+|---|---|
+| Hermes agent | Native memory provider — §3 |
+| OpenClaw agent | Plugin + MCP — §4 |
+| Cursor / Claude Code / any MCP client | Stdio MCP only — §5 |
+| Linux personal sources | Email (+ optional Slack/Telegram) — §6 |
+
+### 3. Hermes (memory provider)
+
+```bash
+# From the memcal checkout:
+mkdir -p ~/.hermes/plugins
+ln -sfn "$(pwd)/integrations/hermes/memcal" ~/.hermes/plugins/memcal
+hermes memory setup
+```
+
+Verify: start a Hermes session and confirm a `MEMCAL SNAPSHOT` / `MEMCAL CURRENT`
+block appears; tools `memcal_open`, `memcal_activity`, `memcal_add`, … should list.
+Set `MEMCAL_SRC` if Hermes cannot import `memcal` (defaults to `~/code/memcal`).
+
+Details: https://cuuush.github.io/memcal/integrations/hermes/
+
+### 4. OpenClaw (plugin + MCP)
+
+```bash
+memcal openclaw setup     # links plugin, enables it, registers stdio MCP
+openclaw gateway restart
+memcal openclaw status    # plugin + MCP checks
+```
+
+Non-interactive / CI: ensure `openclaw` is on PATH; `memcal openclaw setup` may
+prompt — prefer answering yes, or run the underlying `openclaw plugins install
+--link …` / `plugins enable memcal` / `mcp set memcal …` sequence the CLI uses.
+
+Details: https://cuuush.github.io/memcal/integrations/openclaw/
+
+### 5. Any MCP harness (Cursor, Claude Code, …)
+
+```bash
+python3 -m memcal.mcp_server   # stdio
+```
+
+Register that command as an MCP server in the client. Resource `memcal://brief`
+exposes the snapshot; tools cover recall and typed writes.
+Optional: inject `brief.md` from `$MEMCAL_HOME` into the system prompt.
+
+Details: https://cuuush.github.io/memcal/clients/mcp/
+
+### 6. Linux sources (email + MCP)
+
+Mac-local Messages / EventKit are not available. Minimum credible path:
+
+```bash
+# After memcal setup:
+# Put Proton Bridge (or IMAP) credentials in ~/.memcal/.env — see docs/sources/email.md
+memcal ingest email --limit 50
+memcal brief
+python3 -m memcal.mcp_server
+```
+
+Optional chat on Linux: Slack or Telegram (`pip install "memcal[slack]"` /
+`"memcal[telegram]"`), then `memcal ingest slack --limit 20`.
+
+Nightly scheduling on Linux is not launchd — use cron calling `memcal dream`
+(or refuse / document; see hosting docs). Do not run `memcal schedule install`
+expecting macOS launchd behavior on Linux.
+
+### 7. Done when
+
+- `memcal doctor` is clean enough to run
+- `memcal brief` prints a snapshot (even if empty)
+- Chosen harness shows memcal tools / injection
+- Privacy: user has seen https://cuuush.github.io/memcal/privacy/ before connecting real accounts
+
+---
+
+## Contributing in this repository
+
+Python 3.11+. Prefer well-chosen libraries over hand-rolls; declare runtime
+deps in `pyproject.toml`. `./install.sh` puts a `memcal` launcher on PATH via
+`PYTHONPATH` — code edits take effect immediately. Never run `./install.sh` from
+a worktree (see Worktrees).
+
+No lint, typecheck, formatter, or CI beyond publish. Verification is unittest plus
+the temporal benchmark. User-facing operation belongs in `README.md`; contributor
+workflow in `CONTRIBUTING.md`; harness install belongs above — do not add dated
+narratives here.
 
 ## Layout (`memcal/` package — not flat files)
 
@@ -44,8 +158,7 @@ do not add dev notes or dated narratives here.
 - Commit when the work is done — never leave a worktree with uncommitted changes.
   The branch is the unit of handoff and merge; unstaged work is invisible to the
   merge and lost if the worktree is removed.
-- Remove the worktree when its branch merges. `~/.config/opencode/opencode.jsonc`
-  already permits these paths, so no approval prompts for touching them.
+- Remove the worktree when its branch merges.
 - Never run `./install.sh` from a worktree: it repoints the single `memcal` on PATH at
   that worktree, so every later command — including ones run from this checkout — executes
   the worktree's code, and removing the worktree leaves the launcher pointing at a path
