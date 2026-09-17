@@ -272,11 +272,57 @@ def _run_openclaw(command: list[str]) -> tuple[bool, str]:
     return proc.returncode == 0, text
 
 
+def _openclaw_config_path():
+    """Where OpenClaw keeps its config, honouring OPENCLAW_CONFIG / OPENCLAW_HOME."""
+    from pathlib import Path
+    override = os.environ.get("OPENCLAW_CONFIG")
+    if override:
+        return Path(override).expanduser()
+    home = os.environ.get("OPENCLAW_HOME")
+    base = Path(home).expanduser() if home else Path.home() / ".openclaw"
+    return base / "openclaw.json"
+
+
+def _prune_stale_openclaw_plugins(path=None) -> list[str]:
+    """Drop memcal plugin links whose directory is gone, returning what was removed.
+
+    An earlier `setup` in a checkout or worktree that no longer exists leaves its
+    `integrations/openclaw` path in `plugins.load.paths`. OpenClaw then rejects the
+    whole config as invalid, which blocks every mutating command — including the
+    `plugins install` this very setup runs, a deadlock `openclaw doctor --fix` will
+    not break because it pauses auto-removal while discovery is erroring. We remove
+    only paths that end in `integrations/openclaw` and are absent from disk, so no
+    other plugin's link is ever touched.
+    """
+    from pathlib import Path
+    if path is None:
+        path = _openclaw_config_path()
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return []
+    paths = (((data.get("plugins") or {}).get("load") or {}).get("paths"))
+    if not isinstance(paths, list):
+        return []
+    stale = [p for p in paths
+             if isinstance(p, str)
+             and p.replace("\\", "/").rstrip("/").endswith("integrations/openclaw")
+             and not Path(p).exists()]
+    if not stale:
+        return []
+    data["plugins"]["load"]["paths"] = [p for p in paths if p not in stale]
+    Path(path).write_text(json.dumps(data, indent=2) + "\n")
+    return stale
+
+
 def cmd_openclaw(args) -> int:
     """Install or inspect the native prompt hook plus memcal's stdio MCP server."""
     cfg = config.load(getattr(args, "home", None))
     plugin = config.PROJECT_ROOT / "integrations" / "openclaw"
     if args.action == "status":
+        stale = _prune_stale_openclaw_plugins()
+        for gone in stale:
+            print(f"pruned stale plugin link {gone}")
         checks = (("plugin", ["openclaw", "plugins", "inspect", "memcal", "--runtime", "--json"]),
                   ("mcp", ["openclaw", "mcp", "show", "memcal", "--json"]))
         failed = False
@@ -296,24 +342,33 @@ def cmd_openclaw(args) -> int:
             print("nothing changed")
             return 1
 
+    for gone in _prune_stale_openclaw_plugins():
+        print(f"pruned stale plugin link {gone}")
+
     mcp = json.dumps({
         "command": sys.executable,
         "args": ["-m", "memcal.mcp_server"],
         "cwd": str(config.PROJECT_ROOT),
         "env": {"MEMCAL_HOME": str(cfg.home)},
     }, separators=(",", ":"))
-    commands = (
-        ["openclaw", "plugins", "install", "--link", str(plugin)],
-        ["openclaw", "plugins", "enable", "memcal"],
-        ["openclaw", "mcp", "set", "memcal", mcp],
+    steps = (
+        (f"linking plugin at {plugin}",
+         ["openclaw", "plugins", "install", "--link", str(plugin)]),
+        ("enabling plugin memcal",
+         ["openclaw", "plugins", "enable", "memcal"]),
+        (f"registering MCP server (cwd {config.PROJECT_ROOT}, MEMCAL_HOME {cfg.home})",
+         ["openclaw", "mcp", "set", "memcal", mcp]),
     )
-    for command in commands:
+    for description, command in steps:
+        print(f"→ {description}")
         ok, text = _run_openclaw(command)
         if not ok:
-            print(f"error: {' '.join(command[:3])}: {text}", file=sys.stderr)
+            print(f"  failed: {' '.join(command[:3])}: {text}", file=sys.stderr)
             return 1
-    print("OpenClaw now has fresh memcal context and the memcal MCP tools.")
-    print("Restart the OpenClaw gateway before the next agent turn.")
+        print(f"  ok{f' — {text}' if text and text != 'ok' else ''}")
+    print("\nOpenClaw now has fresh memcal context and the memcal MCP tools.")
+    print("Restart the OpenClaw gateway before the next agent turn:")
+    print("  openclaw gateway restart && memcal openclaw status")
     return 0
 
 
