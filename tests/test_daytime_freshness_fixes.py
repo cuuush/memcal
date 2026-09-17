@@ -550,6 +550,22 @@ class TestFreshnessCorrectness81(_Base):
         self.assertIn("may have changed", text)
         self.assertIn("memcal_activity(handle=", text)
 
+    def test_email_strong_link_hint_says_sender_not_number(self):
+        addr = "billing@vendor.example"
+        m1 = self.collect("email", "e1", "your invoice", addr, handle=addr)
+        threads.record(self.conn, "email", addr, label=None, is_group=False)
+        self.conn.commit()
+        event, _ = live.add_event(self.conn, self.cfg, title="Pay invoice",
+                                  when="2026-09-12", origin=live.Origin.of("test"))
+        live.update_event(self.conn, self.cfg, event.key, note="plan",
+                          origin=live.Origin.of("test", cited=[m1]))
+        self.collect("email", "e2", "reminder: invoice due", addr, handle=addr)
+        text = brief.render(self.conn, self.cfg)
+        self.assertIn("New activity:", text)
+        self.assertNotIn(addr, text)
+        self.assertNotIn("unknown number", text)
+        self.assertIn("unknown sender", text)
+
     def test_chat_label_preferred_when_richer_than_raw_thread(self):
         phone = "+15559876543"
         m1 = self.collect("imessage", "m1", "poker saturday?", phone,

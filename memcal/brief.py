@@ -139,7 +139,8 @@ def _hint_label(conn: sqlite3.Connection, stream: str, thread: str) -> str:
 
     Prefer ``threads.label`` / whois display names when richer; else a human
     thread name; else ``threads.title()``. Never print raw phone / email /
-    Proton / opaque ids — fall back to "unknown number" or a short title.
+    Proton / opaque ids — fall back to "unknown number" (phone-shaped),
+    "unknown sender" (email), or a short title.
     """
     stored = ""
     if thread:
@@ -170,7 +171,9 @@ def _hint_label(conn: sqlite3.Connection, stream: str, thread: str) -> str:
                              or digits == raw.lstrip("+")):
         return "unknown number"
     if _looks_like_raw_id(raw):
-        return "unknown number" if len(digits) >= 7 or "@" in raw else (
+        if "@" in raw:
+            return "unknown sender"
+        return "unknown number" if len(digits) >= 7 else (
             raw[:24] + "…" if len(raw) > 24 else raw)
     return raw if len(raw) <= 40 else raw[:39] + "…"
 
