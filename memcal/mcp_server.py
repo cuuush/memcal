@@ -30,7 +30,7 @@ TOOLS = [
     {
         "name": "memcal_open",
         "description": (
-            "Open one line of the brief and get everything memcal knows about it. The "
+            "Open a brief handle or wiki page (me, page names, recorded aliases). The "
             "brief is an index: it names what is happening and who is there, and holds "
             "the rest here. Use this whenever the answer needs a detail the line does "
             "not carry — the street address, the invite or join link, whether it "
@@ -43,7 +43,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "ref": {"type": "string",
-                        "description": "a brief handle, e.g. E258 or T2"},
+                        "description": "a brief handle (E258, T2), page name, alias, or me"},
             },
             "required": ["ref"], "additionalProperties": False,
         },
@@ -51,7 +51,8 @@ TOOLS = [
     {
         "name": "memcal_open_page",
         "description": (
-            "Read remembered facts about a person or topic. Accept me, page names, "
+            "Deprecated: prefer memcal_open, which also opens wiki pages. Read "
+            "remembered facts about a person or topic. Accept me, page names, "
             "recorded aliases. Return facts first, then evidence/supplementary detail.\n"
             "Facts already in the brief answer directly; the brief's `Pages:` line "
             "names, in parentheses, the facts each page holds — 'what should I get "
@@ -500,7 +501,7 @@ def _render_search_hits(hits: list[dict], query: str, limit: int) -> str:
                 ts = str((meta or {}).get("ts") or "")[:10]
                 bits.append(f"{slot} ({src}{', ' + ts if ts else ''})")
             lines.append(f"  provenance: {'; '.join(bits)}")
-        lines.append(f"  open with memcal_open_page slug='{hit['slug']}'")
+        lines.append(f"  open with memcal_open ref='{hit['slug']}'")
     if len(hits) == limit:
         lines.append("(bounded: more may exist; narrow the query or raise limit)")
     return "\n".join(lines) + "\n"
@@ -610,25 +611,21 @@ class Server:
             return activity_mod.format_read(
                 page, weak, label=str(args.get("handle", "")).strip())
 
-        if name == "memcal_open":
-            # No `kind` argument, unlike `memcal_source`. The handle already says which
-            # table it is, and every parameter a caller can get wrong is a parameter a
-            # caller does get wrong.
-            return detail.open_handle(self.conn, self.cfg, str(args.get("ref", "")))
-
         if name == "memcal_open_page":
-            # Self (`me`, established self names, recorded aliases) resolves
-            # first; otherwise the normal canonical path. Facts lead via
-            # `_render_page`; encounters and short cited lines follow.
-            raw = str(args.get("slug", "") or "")
+            return self.call("memcal_open", {"ref": args.get("slug", "")})
+
+        if name == "memcal_open":
+            raw = str(args.get("ref", "") or "")
+            if detail.parse_handle(raw):
+                return detail.open_handle(self.conn, self.cfg, raw)
             try:
                 self_target = wiki.resolve_self_page(
                     self.conn, self.cfg.wiki_dir, raw)
             except wiki.SelfAmbiguous as exc:
                 cands = ", ".join(exc.candidates)
                 return (f"Ambiguous self page for {raw!r}: {cands}. "
-                        f"Open one explicitly, e.g. memcal_open_page with "
-                        f"slug='{exc.candidates[0]}'. Nothing was created or "
+                        f"Open one explicitly, e.g. memcal_open with "
+                        f"ref='{exc.candidates[0]}'. Nothing was created or "
                         f"merged; writes need an explicit page.")
             slug = (self_target if self_target is not None
                     else wiki.canonical(self.cfg.wiki_dir, raw))
@@ -665,7 +662,7 @@ class Server:
                 return (f"No matching wiki fact for {query!r}. This means no stored "
                         f"fact matched — not that the user never told us. Try "
                         f"memcal_search_archive for original statements, or "
-                        f"memcal_open_page if you know the page.")
+                        f"memcal_open if you know the page.")
             return _render_search_hits(hits, query, limit)
 
         if name == "memcal_list_days":

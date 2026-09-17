@@ -35,19 +35,18 @@ def structured(text: str) -> list[dict]:
 
 #: Explains handles and wiki pages for each surface. Examples use `#` rather than
 #: digits to prevent scanners from misinterpreting them as active handles.
+#: Agent gets one quiet line; CLI keeps a slightly clearer spelling.
 LEGENDS = {
-    "agent": ("handles open with memcal_open", "Pages open with memcal_open_page"),
-    "cli": ("handles open with `memcal open E258`", "Pages open with `memcal page <name>`"),
+    "agent": "[〔E#〕〔T#〕〔Q#〕 handles and pages open with memcal_open]\n\n",
+    "cli": ("[〔E#〕〔T#〕〔Q#〕 handles open with `memcal open E258`. "
+            "Pages open with `memcal open <name>`; the names in parentheses "
+            "after a page are the facts it holds]\n\n"),
 }
 DEFAULT_SURFACE = "agent"
 
 
 def legend(surface: str = DEFAULT_SURFACE) -> str:
-    rows, pages = LEGENDS.get(surface) or LEGENDS[DEFAULT_SURFACE]
-    return (f"[〔E#〕〔T#〕〔Q#〕 {rows} — full detail: the "
-            "address, the links, the messages it came from, and what has changed. "
-            f"{pages}; the names in parentheses after a page "
-            "are the facts it holds]\n\n")
+    return LEGENDS.get(surface) or LEGENDS[DEFAULT_SURFACE]
 
 
 #: Default agent legend string for backward compatibility.
@@ -508,11 +507,11 @@ ABOUT_YOU_MAX_CHARS = 700
 
 #: Stable pointer prefix for the self facts. `me` resolves through
 #: `wiki.self_slug()` so the brief never hardcodes a personal slug.
-ABOUT_YOU_PREFIX = "About you (open with memcal_open_page me): "
+ABOUT_YOU_PREFIX = "About you (open with memcal_open me): "
 
 #: Overflow placeholder when trimming must drop self fact values. Keeps the
 #: pointer so the facts stay one tool call away.
-ABOUT_YOU_TRIMMED = ("About you (open with memcal_open_page me): "
+ABOUT_YOU_TRIMMED = ("About you (open with memcal_open me): "
                      "[trimmed — open the page for your facts]")
 
 
@@ -535,7 +534,7 @@ def _about_you_line(conn: sqlite3.Connection, cfg: Config) -> str:
     except wiki.SelfAmbiguous as exc:
         return ("About you: ambiguous self page "
                 f"({', '.join(exc.candidates)}) — open one with "
-                "memcal_open_page <name> to inspect")
+                "memcal_open <name> to inspect")
     if not wiki.exists(cfg.wiki_dir, slug):
         return ""
     page = wiki.read(cfg.wiki_dir, slug)
