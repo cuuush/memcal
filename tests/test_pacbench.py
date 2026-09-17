@@ -175,5 +175,33 @@ class ImplicitControlIsAnsweredByRetrieval(unittest.TestCase):
         self.assertEqual((g.correct, g.misrepresented), (1, 0))
 
 
+class RendererPreservesTheKey(unittest.TestCase):
+    def setUp(self):
+        from pacbench.render import Beat
+        self.beat = Beat(channel="groupme", sender="Jordan Vance",
+                         draft="moving poker to Saturday 8pm at 44 Birch Ave",
+                         must_include=("Saturday", "8pm", "44 Birch"))
+
+    def test_no_generator_is_the_draft_verbatim(self):
+        from pacbench.render import render
+        self.assertEqual(render(self.beat), self.beat.draft)
+
+    def test_entails_reports_dropped_tokens(self):
+        from pacbench.render import entails
+        self.assertEqual(entails("poker is Saturday at 8pm", self.beat), ["44 Birch"])
+        self.assertEqual(entails("Saturday 8pm at 44 Birch Ave, be there", self.beat), [])
+
+    def test_render_refuses_a_rewrite_that_drops_a_fact(self):
+        from pacbench.render import RenderError, render
+        with self.assertRaises(RenderError):
+            render(self.beat, generate=lambda _p: "poker moved to Saturday night, come by")
+
+    def test_render_accepts_a_faithful_rewrite(self):
+        from pacbench.render import render
+        out = render(self.beat,
+                     generate=lambda _p: "heads up — poker's Saturday 8pm now, 44 Birch Ave")
+        self.assertIn("44 Birch", out)
+
+
 if __name__ == "__main__":
     unittest.main()
