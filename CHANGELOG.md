@@ -28,6 +28,16 @@
   hand-rolled byte scraper — a real deserializer in place of a reverse-engineered
   regex. `pytypedstream` is now a runtime dependency; `install.sh` installs it.
 
+### Changed
+
+- `memcal open` / `memcal_open` open both brief handles and wiki pages (`me`, page
+  names, recorded aliases). `memcal page` and `memcal_open_page` remain as read
+  aliases; page slot-write stays on `memcal page`. Search/open hints point at the
+  unified verb.
+- The agent brief legend is one quiet line — handles and pages open with
+  `memcal_open` — dropping the long "full detail" essay. About-you / trim /
+  ambiguity pointers say `memcal_open me` (CLI legend keeps `memcal open`).
+
 ## [0.8.0] - 2026-09-16
 
 ### Added
