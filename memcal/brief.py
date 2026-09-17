@@ -85,25 +85,133 @@ def render(conn: sqlite3.Connection, cfg: Config, ref: date | None = None,
 #: one block the rest fold into a single overflow line rather than burying plans.
 MAX_HINTS_PER_BLOCK = 8
 
+#: Display cap so a never-reviewed / huge thread cannot dominate the brief
+#: (2351-style). Past this the brief shows "99+".
+HINT_COUNT_CAP = 99
+
+#: Frozen hint copy for Integrations / Hermes to mirror. Hint ≠ apply: this
+#: line only flags; it never invents a replacement date, address, or status.
+#: See docs/notes/freshness-gap-81.md.
+ACTIVITY_HINT_FORMAT = (
+    "  ↳ New activity: {where} — {count} message(s){extra} since this plan was "
+    "reviewed. It may have changed; open with memcal_activity(handle={handle}) "
+    "before giving current details."
+)
+
+#: Same flag for a plan that was never reviewed: the signal (a linked thread
+#: has traffic) is still worth surfacing, but the copy must not claim a review
+#: that never happened. The count is capped (HINT_COUNT_CAP) so a large
+#: never-reviewed thread cannot dominate the brief.
+ACTIVITY_HINT_UNREVIEWED_FORMAT = (
+    "  ↳ New activity: {where} — {count} message(s){extra} on a linked thread "
+    "not yet reviewed. It may bear on this plan; open with "
+    "memcal_activity(handle={handle}) before giving current details."
+)
+
+#: Phone-ish / long opaque ids must never appear in a brief hint label.
+_PHONE_LIKE = re.compile(r"^\+?[\d\s\-().]{7,}$")
+_LONG_HEX = re.compile(r"^[0-9a-fA-F\-_]{24,}$")
+_LONG_B64 = re.compile(r"^[A-Za-z0-9+/=]{28,}$")
+
+
+def _looks_like_raw_id(text: str) -> bool:
+    """True when a label would leak a phone, email handle, uuid, or opaque id."""
+    t = (text or "").strip()
+    if not t:
+        return True
+    if threads.is_opaque(t):
+        return True
+    if _PHONE_LIKE.match(t):
+        return True
+    # Bare email / address handles are not brief-safe labels.
+    if "@" in t and " " not in t:
+        return True
+    compact = t.replace("-", "").replace("_", "")
+    if len(compact) >= 24 and all(c in "0123456789abcdefABCDEF" for c in compact):
+        return True
+    if _LONG_HEX.match(t) or _LONG_B64.match(t):
+        return True
+    return False
+
+
+def _hint_label(conn: sqlite3.Connection, stream: str, thread: str) -> str:
+    """Safe human label for an activity hint.
+
+    Prefer ``threads.label`` / whois display names when richer; else a human
+    thread name; else ``threads.title()``. Never print raw phone / email /
+    Proton / opaque ids — fall back to "unknown number" or a short title.
+    """
+    stored = ""
+    if thread:
+        row = conn.execute(
+            "SELECT label FROM threads WHERE stream = ? AND thread = ?",
+            (stream, thread)).fetchone()
+        stored = ((row["label"] if row else None) or "").strip()
+    titled = (threads.title(conn, stream, thread) or "").strip() if thread else ""
+    thread_name = (thread or "").strip()
+    safe_stored = stored if stored and not _looks_like_raw_id(stored) else ""
+    safe_titled = titled if titled and not _looks_like_raw_id(titled) else ""
+    safe_thread = (thread_name if thread_name and not _looks_like_raw_id(thread_name)
+                   else "")
+    # CoS: label / whois display first when richer; human room name before a
+    # handle-shaped title(); never the raw id.
+    if safe_stored and safe_titled:
+        pick = safe_stored if len(safe_stored) >= len(safe_titled) else safe_titled
+    else:
+        pick = safe_stored or safe_titled
+    pick = pick or safe_thread
+    if pick:
+        return pick
+    raw = thread_name or (stream or "").strip()
+    if not raw:
+        return "unknown"
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) >= 7 and (_PHONE_LIKE.match(raw) or raw.startswith("+")
+                             or digits == raw.lstrip("+")):
+        return "unknown number"
+    if _looks_like_raw_id(raw):
+        return "unknown number" if len(digits) >= 7 or "@" in raw else (
+            raw[:24] + "…" if len(raw) > 24 else raw)
+    return raw if len(raw) <= 40 else raw[:39] + "…"
+
+
+def _format_hint_count(total: int) -> str:
+    if total > HINT_COUNT_CAP:
+        return f"{HINT_COUNT_CAP}+"
+    return str(total)
+
 
 def _activity_hint(conn: sqlite3.Connection, event) -> str | None:
-    """One compact warning when a plan's sources moved since its last review.
+    """One compact warning when a plan's linked sources have new traffic.
 
     Says the plan *may* have changed and names how to read the messages. It
-    never invents a replacement date, address, or status.
+    never invents a replacement date, address, or status. Calendar (UNTHREADED
+    ical) self-feed churn is not a hint — only conversational strong links.
+    A never-reviewed plan still hints (with honest, capped copy); dropping it
+    entirely hid legitimate new activity on the great majority of plans.
     """
-    found = activity.pending(conn, "event", event.key, limit=3, strong_only=True)
+    found = activity.pending(
+        conn, "event", event.key, limit=3, strong_only=True,
+        conversational_only=True)
     if not found["strong_total"]:
         return None
     first = found["strong"][0]
-    where = (f"{first['stream']}/{first['thread']}" if first["thread"]
-             else first["stream"])
-    extra = f" (+{found['strong_total'] - len(found['strong'])} more)" \
-        if found["strong_total"] > len(found["strong"]) else ""
-    return (f"  ↳ New activity: {where} — {found['strong_total']} message(s)"
-            f"{extra} since this plan was reviewed. It may have changed;"
-            f" open with memcal_activity(handle={source_tag('event', event.id).strip('〔〕')})"
-            f" before giving current details.")
+    label = _hint_label(conn, first["stream"], first.get("thread") or "")
+    where = f"{first['stream']}/{label}" if label else first["stream"]
+    # "+N more" would re-print the raw total the cap is meant to hide, so it is
+    # only shown while the count itself is uncapped ("99+" already means "more").
+    hidden = found["strong_total"] - len(found["strong"])
+    extra = (f" (+{hidden} more)"
+             if hidden > 0 and found["strong_total"] <= HINT_COUNT_CAP else "")
+    handle = source_tag("event", event.id).strip("〔〕")
+    # "since reviewed" only when a review actually happened; otherwise flag the
+    # traffic honestly. The count is capped either way so a huge never-reviewed
+    # thread cannot dominate the brief (2351-style).
+    template = (ACTIVITY_HINT_FORMAT if (found["reviewed"] or found["mark"])
+                else ACTIVITY_HINT_UNREVIEWED_FORMAT)
+    return template.format(
+        where=where, count=_format_hint_count(found["strong_total"]),
+        extra=extra, handle=handle)
 
 
 def _collection_line(conn: sqlite3.Connection, cfg: Config) -> str | None:
@@ -178,23 +286,27 @@ def represented_keys(conn: sqlite3.Connection, cfg: Config,
     return {ev.key for ev in _rendered_events(conn, window, later_shown)}
 
 
+#: Non-PII stand-in when unlinked backlog exists. Never names stream/thread
+#: (the old `[UNREVIEWED: stream/thread …]` form leaked phones and handles).
+_BACKLOG_NOTICE = (
+    "[coverage incomplete — unreviewed traffic not linked to any plan]"
+)
+
+
 def _backlog_lines(conn: sqlite3.Connection, cfg: Config,
                    ref: date | None = None, *,
                    represented: "set[str] | None" = None) -> list[str]:
-    """Unreviewed traffic no rendered plan is associated with, compactly and honestly.
+    """Unreviewed traffic no rendered plan is associated with — one non-PII line.
 
-    Coverage is judged against the events this brief actually surfaces, so a
-    thread linked only to an event the brief does not render still shows here.
-    `represented` is passed in by `render` to avoid recomputing the window.
+    Coverage is judged against the events this brief actually surfaces. The
+    old per-thread `[UNREVIEWED: stream/thread …]` footer dumped identifiers;
+    MVP emits at most a single non-identifying notice (or nothing).
     """
     if represented is None:
         represented = represented_keys(conn, cfg, ref)
-    out = []
-    for item in activity.unlinked_backlog(conn, represented=represented):
-        out.append(f"[UNREVIEWED: {item['stream']}/{item['thread']} "
-                   f"({item['waiting']} waiting) — new traffic not linked to any plan; "
-                   f"not a confirmed opportunity]")
-    return out
+    if activity.unlinked_backlog(conn, represented=represented):
+        return [_BACKLOG_NOTICE]
+    return []
 
 
 def _block_hints(conn: sqlite3.Connection, ordered) -> dict:
@@ -671,7 +783,9 @@ def _is_protected(line: str) -> bool:
 
 
 #: Lines that disclose a coverage hole (uncollected, stale, or unreviewed input).
-_COVERAGE_PREFIXES = ("[COLLECTION:", "[STALE:", "[UNREVIEWED:")
+#: `[UNREVIEWED: stream/thread…]` was removed — it leaked PII; backlog uses
+#: `_BACKLOG_NOTICE` / `_COVERAGE_TRIMMED` instead.
+_COVERAGE_PREFIXES = ("[COLLECTION:", "[STALE:", "[coverage incomplete")
 #: The claim that everything in a range is accounted for.
 _COMPLETE_PREFIX = "[complete for"
 #: Compact stand-in when the detailed coverage warnings do not fit the budget.
@@ -799,14 +913,10 @@ def _reconcile_coverage(conn: sqlite3.Connection, text: str, token_cap: int, *,
     if not uncovered:
         return text
     lines = text.splitlines()
-    disclosed = {line.lstrip()[len("[UNREVIEWED:"):].strip().split(" (")[0]
-                 for line in lines if line.lstrip().startswith("[UNREVIEWED:")}
-    if all(f"{item['stream']}/{item['thread']}" in disclosed for item in uncovered):
-        return text                         # already shown in full
+    if any("coverage incomplete" in line for line in lines):
+        return text                         # already disclosed (non-PII)
     lines = [line for line in lines if not line.lstrip().startswith(_COMPLETE_PREFIX)]
-    if not any(_COVERAGE_TRIMMED in line or "coverage incomplete" in line
-               for line in lines):
-        lines.append(_COVERAGE_TRIMMED)
+    lines.append(_COVERAGE_TRIMMED)
     return _trim("\n".join(lines).rstrip() + "\n", token_cap)
 
 
