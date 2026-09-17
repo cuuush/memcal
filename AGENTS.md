@@ -8,107 +8,142 @@ Canonical docs: https://cuuush.github.io/memcal/ · skill pack: [`skills/memcal-
 
 ## Install MemCal for an agent harness
 
+Mac-first product path. Coding agents: follow this section (or load
+[`skills/memcal-install`](skills/memcal-install/SKILL.md)) — no product tour.
+
+Honest tool counts: **MCP 22** (+ `memcal://brief` resource); **Hermes 21**
+(prefetch replaces `memcal_brief`). Host agents are required for Hermes/OpenClaw —
+memcal does not install them.
+
 ### 0. Preconditions
 
 - Python 3.11+, SQLite with FTS5
 - One model backend: Codex (default), Claude Code, Antigravity, Grok, or OpenRouter
 - **macOS** for Messages / WhatsApp / Calendar / Reminders / launchd scheduling
-- **Linux**: use email (IMAP / Proton Bridge) + MCP (and Slack/Telegram if desired); do not promise iMessage or EventKit
+- **Linux**: email (IMAP / Proton Bridge) + MCP; optional Slack/GroupMe/Telegram — never promise iMessage or EventKit
+- Hermes path needs a current Hermes with memory plugins; OpenClaw path needs `openclaw` CLI ≥ `2026.7.1`
 
 Never write to a live `~/.memcal` during development tests — use tmp homes. For a
-real user install, `~/.memcal` is the store.
+real user install, `~/.memcal` is the store (`MEMCAL_HOME`).
 
 ### 1. Install the CLI (from this checkout)
 
 ```bash
 git clone https://github.com/cuuush/memcal.git
 cd memcal
-./install.sh          # PATH launcher via PYTHONPATH; edits apply immediately
-memcal setup          # provider + model → ~/.memcal/.env
+./install.sh                 # PATH launcher; do NOT pass --nightly on Linux
+export PATH="$HOME/.local/bin:$PATH"
 memcal doctor
+memcal setup                 # provider + model → ~/.memcal/.env
 memcal brief
 ```
 
-PyPI alternate: `pip install memcal` then the same `setup` / `doctor` / `brief` sequence.
+PyPI alternate: `pip install memcal` then the same `doctor` / `setup` / `brief` sequence.
 Chat extras: `pip install "memcal[slack]"` or `"memcal[chat]"`.
 
-`MEMCAL_HOME` (default `~/.memcal`) selects the store; `MEMCAL_SRC` points Hermes at
-this checkout when not on `PYTHONPATH`.
+`MEMCAL_SRC` / checkout `cwd` / `PYTHONPATH` from `install.sh` make `python3 -m memcal.mcp_server` resolve.
 
 ### 2. Choose a harness path
 
 | Goal | Path |
 |---|---|
-| Hermes agent | Native memory provider — §3 |
-| OpenClaw agent | Plugin + MCP — §4 |
-| Cursor / Claude Code / any MCP client | Stdio MCP only — §5 |
-| Linux personal sources | Email (+ optional Slack/Telegram) — §6 |
+| Cursor / Claude Desktop / any MCP client | §3 MCP (works without Hermes/OpenClaw) |
+| Hermes agent | §4 (requires Hermes already installed) |
+| OpenClaw agent | §5 (requires `openclaw` ≥ 2026.7.1) |
+| Linux personal sources | §6 email + MCP |
 
-### 3. Hermes (memory provider)
+### 3. MCP first (any harness)
+
+Smoke:
 
 ```bash
-# From the memcal checkout:
+python3 -m memcal.mcp_server   # stdio JSON-RPC; 22 tools + memcal://brief
+```
+
+**Cursor** — `~/.cursor/mcp.json` or project `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "memcal": {
+      "command": "python3",
+      "args": ["-m", "memcal.mcp_server"],
+      "env": {
+        "MEMCAL_HOME": "/home/YOU/.memcal"
+      }
+    }
+  }
+}
+```
+
+From a git checkout (not an installed package), also set `"cwd": "/path/to/memcal"`
+so `-m memcal.mcp_server` resolves, or use the same Python that runs `memcal` after
+`./install.sh`.
+
+**Claude Desktop** — same JSON shape:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
+
+Restart the client; smoke with `memcal_brief`. Optional: `MEMCAL_HARNESS` /
+`MEMCAL_SESSION` for turn attribution. Stdio only today — no hosted HTTP MCP URL.
+
+Details: https://cuuush.github.io/memcal/clients/mcp/
+
+### 4. Hermes (memory provider)
+
+Requires Hermes already installed.
+
+```bash
 mkdir -p ~/.hermes/plugins
 ln -sfn "$(pwd)/integrations/hermes/memcal" ~/.hermes/plugins/memcal
 hermes memory setup
 ```
 
-Verify: start a Hermes session and confirm a `MEMCAL SNAPSHOT` / `MEMCAL CURRENT`
-block appears; tools `memcal_open`, `memcal_activity`, `memcal_add`, … should list.
-Set `MEMCAL_SRC` if Hermes cannot import `memcal` (defaults to `~/code/memcal`).
+Symlink the **`integrations/hermes/memcal` package directory** (not the parent
+`hermes/` folder). Set `MEMCAL_SRC` to this checkout if import fails (Hermes may
+default to `~/code/memcal`).
+
+Verify: `MEMCAL SNAPSHOT` / `MEMCAL CURRENT` inject; **21** tools list (`memcal_open`,
+`memcal_open_source`, typed writes, … — prefetch replaces `memcal_brief`).
 
 Details: https://cuuush.github.io/memcal/integrations/hermes/
 
-### 4. OpenClaw (plugin + MCP)
+### 5. OpenClaw (plugin + stdio MCP)
+
+Requires `openclaw` on PATH (`>=2026.7.1`).
 
 ```bash
-memcal openclaw setup     # links plugin, enables it, registers stdio MCP
+memcal openclaw setup --yes   # link plugin, enable, register MCP
 openclaw gateway restart
-memcal openclaw status    # plugin + MCP checks
+memcal openclaw status        # plugins inspect + mcp show
 ```
 
-Non-interactive / CI: ensure `openclaw` is on PATH; `memcal openclaw setup` may
-prompt — prefer answering yes, or run the underlying `openclaw plugins install
---link …` / `plugins enable memcal` / `mcp set memcal …` sequence the CLI uses.
+`setup` runs `openclaw plugins install --link <checkout>/integrations/openclaw`,
+`plugins enable memcal`, and `mcp set memcal` with `python3 -m memcal.mcp_server`
+(`cwd` = checkout, `MEMCAL_HOME` set). Plugin points at the checkout — code edits
+need no reinstall; restart the gateway after setup.
 
 Details: https://cuuush.github.io/memcal/integrations/openclaw/
 
-### 5. Any MCP harness (Cursor, Claude Code, …)
-
-```bash
-python3 -m memcal.mcp_server   # stdio
-```
-
-Register that command as an MCP server in the client. Resource `memcal://brief`
-exposes the snapshot; tools cover recall and typed writes.
-Optional: inject `brief.md` from `$MEMCAL_HOME` into the system prompt.
-
-Details: https://cuuush.github.io/memcal/clients/mcp/
-
 ### 6. Linux sources (email + MCP)
 
-Mac-local Messages / EventKit are not available. Minimum credible path:
-
 ```bash
-# After memcal setup:
-# Put Proton Bridge (or IMAP) credentials in ~/.memcal/.env — see docs/sources/email.md
+# Proton Bridge / IMAP credentials in ~/.memcal/.env — see docs/sources/email.md
 memcal ingest email --limit 50
 memcal brief
 python3 -m memcal.mcp_server
 ```
 
-Optional chat on Linux: Slack or Telegram (`pip install "memcal[slack]"` /
-`"memcal[telegram]"`), then `memcal ingest slack --limit 20`.
-
-Nightly scheduling on Linux is not launchd — use cron calling `memcal dream`
-(or refuse / document; see hosting docs). Do not run `memcal schedule install`
-expecting macOS launchd behavior on Linux.
+Optional: Slack or GroupMe/Telegram (`pip install "memcal[slack]"` / chat extras),
+then ingest with a limit. Do not run `memcal schedule install` expecting launchd on
+Linux — post-#78 it refuses and prints cron guidance; prefer documenting cron →
+`memcal dream` rather than inventing a schedule here.
 
 ### 7. Done when
 
-- `memcal doctor` is clean enough to run
-- `memcal brief` prints a snapshot (even if empty)
-- Chosen harness shows memcal tools / injection
+- `memcal doctor` / `memcal brief` run
+- Chosen harness shows memcal tools / injection (MCP 22 or Hermes 21)
 - Privacy: user has seen https://cuuush.github.io/memcal/privacy/ before connecting real accounts
 
 ---
