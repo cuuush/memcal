@@ -66,15 +66,14 @@ Prefer **email** over macOS-only sources. Slack or GroupMe are fine token-based
 alternates if email ingest isn’t set up yet.
 
 1. `./install.sh` (do **not** pass `--nightly` on Linux) then `memcal doctor`
-2. `memcal setup` · `pip install -e '.[slack]'` · `memcal login slack`
-3. `memcal ingest slack --limit 20`
+2. `memcal setup` · configure email ingest · `memcal login` for your mail source
+3. `memcal ingest email --limit 20` (or your mail source name)
 4. Wire MCP with the JSON above · call `memcal_brief` → `memcal_activity` →
    `memcal_update` with flat `source_ids` when correcting from activity
 
-Nightly / daytime collect without launchd: run `memcal ingest slack` (or
-`memcal schedule run`) from user cron — see the Linux branch of
-`memcal schedule install` once that escape hatch lands. Until then, do not run
-`memcal schedule install` on Linux (it targets LaunchAgents).
+Nightly / daytime collect without launchd: run `memcal ingest email` (or
+`memcal schedule run`) from user cron. On Linux, `memcal schedule install`
+refuses LaunchAgents and prints a cron snippet — use that instead of launchd.
 
 Tool tables: [MCP server](../api/mcp.md) · [Recall](../api/recall.md) ·
 [Remember](../api/remember.md) · [Correct](../api/correct.md).
