@@ -81,7 +81,9 @@ class TestOpenClawSetupRegistersBothBoundaries(unittest.TestCase):
                 return True, "ok"
 
             args = argparse.Namespace(home=root, action="setup", yes=True)
-            with mock.patch("memcal.cli._run_openclaw", side_effect=run):
+            with mock.patch("memcal.cli._run_openclaw", side_effect=run), \
+                    mock.patch("memcal.cli._openclaw_config_path",
+                               return_value=Path(root) / "absent.json"):
                 result = cli.cmd_openclaw(args)
 
         self.assertEqual(result, 0)
@@ -91,6 +93,52 @@ class TestOpenClawSetupRegistersBothBoundaries(unittest.TestCase):
         mcp = json.loads(commands[2][4])
         self.assertEqual(mcp["args"], ["-m", "memcal.mcp_server"])
         self.assertEqual(mcp["env"]["MEMCAL_HOME"], root)
+
+
+class TestOpenClawPrunesStalePluginLinks(unittest.TestCase):
+    def test_prune_removes_only_gone_memcal_links(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            live = root / "checkout" / "integrations" / "openclaw"
+            live.mkdir(parents=True)
+            other = root / ".openclaw" / "memory-palace"
+            other.mkdir(parents=True)
+            dead = root / "gone" / "integrations" / "openclaw"  # never created
+            cfg_path = root / "openclaw.json"
+            cfg_path.write_text(json.dumps({
+                "plugins": {"load": {"paths": [str(other), str(dead), str(live)]}},
+                "keep": True,
+            }))
+
+            removed = cli._prune_stale_openclaw_plugins(cfg_path)
+
+            self.assertEqual(removed, [str(dead)])
+            data = json.loads(cfg_path.read_text())
+            self.assertEqual(data["plugins"]["load"]["paths"], [str(other), str(live)])
+            self.assertTrue(data["keep"])  # unrelated config is untouched
+
+    def test_prune_is_a_safe_noop_when_absent_or_unparseable(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            self.assertEqual(cli._prune_stale_openclaw_plugins(root / "missing.json"), [])
+            junk = root / "junk.json"
+            junk.write_text("{ not json")
+            self.assertEqual(cli._prune_stale_openclaw_plugins(junk), [])
+
+    def test_setup_prunes_before_installing(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            cfg_path = root / "openclaw.json"
+            dead = root / "gone" / "integrations" / "openclaw"
+            cfg_path.write_text(json.dumps(
+                {"plugins": {"load": {"paths": [str(dead)]}}}))
+            args = argparse.Namespace(home=str(root), action="setup", yes=True)
+            with mock.patch("memcal.cli._run_openclaw", return_value=(True, "ok")), \
+                    mock.patch("memcal.cli._openclaw_config_path", return_value=cfg_path):
+                result = cli.cmd_openclaw(args)
+            self.assertEqual(result, 0)
+            self.assertEqual(
+                json.loads(cfg_path.read_text())["plugins"]["load"]["paths"], [])
 
 
 if __name__ == "__main__":
