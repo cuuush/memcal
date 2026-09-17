@@ -32,7 +32,7 @@ class RelevantEventGraphTest(unittest.TestCase):
                 **fields,
             },
             written_by="dream:nightly",
-        )[0]
+        ).event
 
     def link(self, event, entity: str):
         trace.stamp(

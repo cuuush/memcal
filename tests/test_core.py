@@ -4528,7 +4528,7 @@ class TestAnAmendmentFindsWhatItAmends(Base):
             {"date": self.saturday, "kind": "commitment", "subject": "me",
              "title": "Beer garden in Harbor Point", "location": "Harbor Point",
              "status": "mentioned", "participants": ["Quinn Brooks", "Rowan Vale"]},
-            written_by="dream:nightly")[0].key
+            written_by="dream:nightly").event.key
 
     def settled_it(self, entity, text, *, person="Quinn Brooks", days_ago=2):
         """A line a past pass was reading when it wrote the row, and the link to it."""
@@ -4653,7 +4653,7 @@ class TestAnAmendmentFindsWhatItAmends(Base):
         far = events.upsert(
             self.conn, {"date": self.d(70), "kind": "commitment", "subject": "me",
                         "title": "Rowan's thing", "status": "confirmed",
-                        "participants": ["Rowan Vale"]}, written_by="dream:nightly")[0].key
+                        "participants": ["Rowan Vale"]}, written_by="dream:nightly").event.key
         self.assertNotIn(far, [e.key for e in events.window(
             self.conn, self.cfg.days_back, self.cfg.days_forward)])
         bundle = self.amendment("person:Rowan Vale", "can we push it a week",
