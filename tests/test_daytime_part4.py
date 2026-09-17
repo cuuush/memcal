@@ -139,14 +139,16 @@ class TestBacklogAndCoverage(_Base):
             self.collect("chat", f"u{i}", f"rooftop party friday {i}?",
                          "rooftop crew")
         text = brief.render(self.conn, self.cfg)
-        self.assertIn("UNREVIEWED: chat/rooftop crew (3 waiting)", text)
+        self.assertNotIn("[UNREVIEWED:", text)
+        self.assertIn("coverage incomplete", text)
         self.assertNotIn("rooftop party", text)
         # Muted chatter never leaks through the backlog surface.
         threads.record(self.conn, "chat", "rooftop crew", is_group=True)
         self.conn.execute("UPDATE threads SET decision='mute'"
                           " WHERE stream='chat' AND thread='rooftop crew'")
         self.conn.commit()
-        self.assertNotIn("UNREVIEWED", brief.render(self.conn, self.cfg))
+        self.assertNotIn("coverage incomplete — unreviewed traffic not linked",
+                         brief.render(self.conn, self.cfg))
 
     def test_failed_collection_warns_distinctly_from_activity(self):
         from memcal.sources.spec import Source, SourceError
@@ -381,7 +383,8 @@ class TestTrimKeepsUnits(_Base):
                         return_value=[Down()]):
             text = brief.render(self.conn, self.cfg)
         self.assertIn("[COLLECTION: chatdown (bridge closed)", text)
-        self.assertIn("[UNREVIEWED: chat/crew", text)
+        self.assertNotIn("[UNREVIEWED:", text)
+        self.assertIn("coverage incomplete", text)
 
 
 class TestIncompleteCoverage(_Base):

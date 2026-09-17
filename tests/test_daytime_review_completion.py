@@ -72,7 +72,8 @@ class TestReconciledCoverageFitsBudget(ReviewBase):
                         self.assertLessEqual(textclean.estimate_tokens(out), cap, out)
                         if "New activity: chat/friends" not in out:
                             removed = True
-                            self.assertTrue("[UNREVIEWED:" in out or "coverage incomplete" in out, out)
+                            self.assertIn("coverage incomplete", out)
+                            self.assertNotIn("[UNREVIEWED:", out)
                             self.assertNotIn("[complete for", out)
                     self.assertTrue(removed)
                 finally:
