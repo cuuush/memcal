@@ -7,13 +7,20 @@ agent surfaces so they cannot drift.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 
-from . import brief, calls, dates, db, events, legacy, presentation, series, threads, todos, trace, wiki
+from . import calls, dates, db, events, legacy, presentation, series, threads, todos, trace, wiki
 from .config import Config
 
 #: What `resolve_source` calls each kind, so a caller only ever needs the handle.
 KINDS = ("event", "todo", "question", "standing")
+HANDLE_RE = re.compile(r"^[〔\[]?\s*([ETQSetqs])\s*(\d+)\s*[〕\]]?$")
+
+
+def parse_handle(token: str) -> str | None:
+    match = HANDLE_RE.match(str(token or "").strip())
+    return f"{match.group(1).upper()}{match.group(2)}" if match else None
 
 
 def open_handle(conn: sqlite3.Connection, cfg: Config, token: str) -> str:
@@ -21,11 +28,11 @@ def open_handle(conn: sqlite3.Connection, cfg: Config, token: str) -> str:
 
     Accepts printed handles (`E258`, `T2`, `Q12`); no `kind` argument needed.
     """
-    handle = brief.parse_source(str(token or "").strip().strip("〔〕"))
+    handle = parse_handle(token)
     if not handle:
         return (f"(not a memcal handle: {token!r} — the brief prints them like E258, "
                 "T2, Q12 or S4)")
-    resolved = trace.resolve_source(conn, str(token).strip().strip("〔〕"))
+    resolved = trace.resolve_source(conn, handle)
     if resolved.get("error"):
         return resolved["error"]
     kind, ref = resolved["kind"], resolved["ref"]
