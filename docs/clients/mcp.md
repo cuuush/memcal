@@ -27,7 +27,7 @@ Add to your MCP config (often `~/.cursor/mcp.json` or project `.cursor/mcp.json`
       "command": "python3",
       "args": ["-m", "memcal.mcp_server"],
       "env": {
-        "MEMCAL_HOME": "/home/YOU/.memcal"
+        "MEMCAL_HOME": "${HOME}/.memcal"
       }
     }
   }
@@ -51,7 +51,7 @@ Add to `claude_desktop_config.json` (macOS:
       "command": "python3",
       "args": ["-m", "memcal.mcp_server"],
       "env": {
-        "MEMCAL_HOME": "/home/YOU/.memcal"
+        "MEMCAL_HOME": "${HOME}/.memcal"
       }
     }
   }
@@ -65,7 +65,7 @@ Restart the client after editing. Smoke: call `memcal_brief`.
 Prefer **email** over macOS-only sources. Slack or GroupMe are fine token-based
 alternates if email ingest isn’t set up yet.
 
-1. `./install.sh` (do **not** pass `--nightly` on Linux) then `memcal doctor`
+1. `./install.sh` (do **not** pass `--nightly` — the 3am launchd dream pass — on Linux) then `memcal doctor`
 2. `memcal setup` · configure email ingest · `memcal login` for your mail source
 3. `memcal ingest email --limit 20` (or your mail source name)
 4. Wire MCP with the JSON above · call `memcal_brief` → `memcal_activity` →
