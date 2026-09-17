@@ -27,6 +27,12 @@
   `message.text` is NULL) are decoded with the `pytypedstream` library instead of a
   hand-rolled byte scraper — a real deserializer in place of a reverse-engineered
   regex. `pytypedstream` is now a runtime dependency; `install.sh` installs it.
+- Live event add/update accept optional `field_sources` (field → archive line ids) and
+  `context_source_ids` (background only). Each field uses the newest supporting
+  timestamp; flat `source_ids` keep the oldest-line rule. Writes return structured
+  per-field outcomes (`applied` / `unchanged` / `rejected`, with `evidence_advanced`
+  when a newer same-value cite advances evidence). MCP and the in-repo Hermes adapter
+  pass the new arguments through.
 
 ### Changed
 
@@ -37,6 +43,14 @@
 - The agent brief legend is one quiet line — handles and pages open with
   `memcal_open` — dropping the long "full detail" essay. About-you / trim /
   ambiguity pointers say `memcal_open me` (CLI legend keeps `memcal open`).
+- `activity.read` requests strong-only associations so pagination does not scan weak
+  candidates.
+- Mixed/invalid citation refusals name the affected fields and ask for `field_sources`;
+  they never advise stripping citations or restating retrieved text as an uncited
+  correction.
+- Hermes `memcal_update` accepts `remove_participants` (parity with MCP) and surfaces
+  mapped write outcomes without the flat “already said that” idiom; `docs/api/correct.md`
+  documents `field_sources` / `context_source_ids`.
 
 ## [0.8.0] - 2026-09-16
 
