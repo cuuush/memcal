@@ -81,7 +81,7 @@ def render(conn: sqlite3.Connection, cfg: Config, ref: date | None = None,
     return _reconcile_coverage(conn, trimmed, cfg.brief_token_cap, id_to_key=id_to_key)
 
 
-#: Inline activity hints are the exception path, not the rule: past this many in
+#: Inline freshness hints are the exception path, not the rule: past this many in
 #: one block the rest fold into a single overflow line rather than burying plans.
 MAX_HINTS_PER_BLOCK = 8
 
@@ -92,7 +92,7 @@ HINT_COUNT_CAP = 99
 #: Frozen hint copy for Integrations / Hermes to mirror. Hint ≠ apply: this
 #: line only flags; it never invents a replacement date, address, or status.
 #: See docs/notes/freshness-gap-81.md.
-ACTIVITY_HINT_FORMAT = (
+FRESHNESS_HINT_FORMAT = (
     "  ↳ New activity: {where} — {count} message(s){extra} since this plan was "
     "reviewed. It may have changed; open with memcal_activity(handle={handle}) "
     "before giving current details."
@@ -102,7 +102,7 @@ ACTIVITY_HINT_FORMAT = (
 #: has traffic) is still worth surfacing, but the copy must not claim a review
 #: that never happened. The count is capped (HINT_COUNT_CAP) so a large
 #: never-reviewed thread cannot dominate the brief.
-ACTIVITY_HINT_UNREVIEWED_FORMAT = (
+FRESHNESS_HINT_UNREVIEWED_FORMAT = (
     "  ↳ New activity: {where} — {count} message(s){extra} on a linked thread "
     "not yet reviewed. It may bear on this plan; open with "
     "memcal_activity(handle={handle}) before giving current details."
@@ -135,7 +135,7 @@ def _looks_like_raw_id(text: str) -> bool:
 
 
 def _hint_label(conn: sqlite3.Connection, stream: str, thread: str) -> str:
-    """Safe human label for an activity hint.
+    """Safe human label for an freshness hint.
 
     Prefer ``threads.label`` / whois display names when richer; else a human
     thread name; else ``threads.title()``. Never print raw phone / email /
@@ -184,7 +184,7 @@ def _format_hint_count(total: int) -> str:
     return str(total)
 
 
-def _activity_hint(conn: sqlite3.Connection, event) -> str | None:
+def _freshness_hint(conn: sqlite3.Connection, event) -> str | None:
     """One compact warning when a plan's linked sources have new traffic.
 
     Says the plan *may* have changed and names how to read the messages. It
@@ -210,8 +210,8 @@ def _activity_hint(conn: sqlite3.Connection, event) -> str | None:
     # "since reviewed" only when a review actually happened; otherwise flag the
     # traffic honestly. The count is capped either way so a huge never-reviewed
     # thread cannot dominate the brief (2351-style).
-    template = (ACTIVITY_HINT_FORMAT if (found["reviewed"] or found["mark"])
-                else ACTIVITY_HINT_UNREVIEWED_FORMAT)
+    template = (FRESHNESS_HINT_FORMAT if (found["reviewed"] or found["mark"])
+                else FRESHNESS_HINT_UNREVIEWED_FORMAT)
     return template.format(
         where=where, count=_format_hint_count(found["strong_total"]),
         extra=extra, handle=handle)
@@ -277,7 +277,7 @@ def represented_keys(conn: sqlite3.Connection, cfg: Config,
     """Keys of the events this brief actually surfaces: the week window's rendered
     rows with their children, plus the Later selection after its cap.
 
-    A thread linked only to an event absent here has no visible activity hint
+    A thread linked only to an event absent here has no visible freshness hint
     standing in for it, so the backlog must not treat it as covered. Date-range
     membership is not enough — an unconfirmed opportunity, an event past the
     Later cap, or a nested event whose parent is outside the window sits in range
@@ -320,7 +320,7 @@ def _block_hints(conn: sqlite3.Connection, ordered) -> dict:
     """
     hints = {}
     for ev in ordered:
-        hint = _activity_hint(conn, ev)
+        hint = _freshness_hint(conn, ev)
         if hint:
             hints[ev.id] = hint
     return {"hints": hints,

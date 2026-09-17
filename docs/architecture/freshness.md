@@ -110,7 +110,7 @@ unconfirmed opportunity or an event past the Later cap still surfaces its traffi
 ## Reach long-running sessions
 
 Hints travel on the existing per-turn prefetch path, not a second copy in a cached
-system prompt: the current brief and activity hints arrive before the assistant
+system prompt: the current brief and freshness hints arrive before the assistant
 answers a substantive turn, with the user's original message kept separate from
 injected context. A changed brief is re-injected as a `MEMCAL SNAPSHOT`; an
 unchanged turn carries a compact `MEMCAL CURRENT` confirmation with the matching

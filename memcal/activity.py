@@ -322,7 +322,7 @@ def pending(conn: sqlite3.Connection, kind: str, ref: str,
     """Associated observations minus exactly the covered ones.
 
     `strong_only` skips the weak association scan and its arrivals query for
-    callers that read only the strong side (e.g. the brief's activity hint).
+    callers that read only the strong side (e.g. the brief's freshness hint).
     `conversational_only` drops UNTHREADED streams (ical family revisions) so a
     calendar row's own feed churn is not treated as a plan hint.
     """
