@@ -1,4 +1,4 @@
 # Demo assets
 
-Place the synthetic brief screenshot here as `demo-brief.png` (no real contacts).
-Then uncomment the image embed in the repo root `README.md`.
+- `demo-chat.gif` — fictional sample agent conversation for the README
+  (Maya's rooftop / farmer's market). No real contacts or phones.
