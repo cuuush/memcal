@@ -13,7 +13,7 @@ With Memcal, you can ask an agent, “What’s my weekend looking like?” and i
 
 ![Vague “Maya thing” → confirmed plan + who’s in](docs/assets/demo-chat.png)
 
-Those replies land immediately — Memcal keeps a pre-rendered brief of your week in the agent’s context, so Hermes isn’t stuck waiting on a long tool call just to recall Saturday.
+Instant answers: Memcal pre-renders a brief of your week into the prompt, so Hermes can answer without firing off a long, expensive lookup first.
 
 ## Under the hood
 
