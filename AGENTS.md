@@ -1,15 +1,165 @@
 # memcal
 
-Python 3.11+. Third-party dependencies are fine — reach for a well-chosen library when it
-makes the code simpler or more reliable than hand-rolling. Declare runtime deps in
-`pyproject.toml` (`dependencies` for ones the core needs, `optional-dependencies` for ones
-only one source needs), and make sure `install.sh` resolves whatever the core requires.
-`./install.sh` puts a `memcal` launcher on PATH that runs from this checkout via
-`PYTHONPATH` — code edits take effect immediately, no reinstall.
+**Memory + Calendar for AI agents.** A coding agent can install and wire MemCal
+into Hermes, OpenClaw, or any MCP harness from this file — no product tour required.
+Contributor layout and hard rules live further down.
 
-No lint, typecheck, formatter, or CI. Verification is unittest plus the temporal benchmark.
-User-facing operation belongs in `README.md`; contributor workflow in `CONTRIBUTING.md`;
-do not add dev notes or dated narratives here.
+Canonical docs: https://cuuush.github.io/memcal/ · skill pack: [`skills/memcal-install`](skills/memcal-install/SKILL.md)
+
+## Install MemCal for an agent harness
+
+Mac-first product path. Coding agents: follow this section (or load
+[`skills/memcal-install`](skills/memcal-install/SKILL.md)) — no product tour.
+
+Honest tool counts: **MCP 22** (+ `memcal://brief` resource); **Hermes 21**
+(prefetch replaces `memcal_brief`). Host agents are required for Hermes/OpenClaw —
+memcal does not install them.
+
+### 0. Preconditions
+
+- Python 3.11+, SQLite with FTS5
+- One model backend: Codex (default), Claude Code, Antigravity, Grok, or OpenRouter
+- **macOS** for Messages / WhatsApp / Calendar / Reminders / launchd scheduling
+- **Linux**: email (IMAP / Proton Bridge) + MCP; optional Slack/GroupMe/Telegram — never promise iMessage or EventKit
+- Hermes path needs a current Hermes with memory plugins; OpenClaw path needs `openclaw` CLI ≥ `2026.7.1`
+
+Never write to a live `~/.memcal` during development tests — use tmp homes. For a
+real user install, `~/.memcal` is the store (`MEMCAL_HOME`).
+
+### 1. Install the CLI (from this checkout)
+
+```bash
+git clone https://github.com/cuuush/memcal.git
+cd memcal
+./install.sh                 # PATH launcher; --nightly also schedules the 3am dream pass (macOS launchd only — never pass it on Linux)
+export PATH="$HOME/.local/bin:$PATH"
+memcal doctor
+memcal setup                 # provider + model → ~/.memcal/.env
+memcal brief
+```
+
+PyPI alternate: `pip install memcal` then the same `doctor` / `setup` / `brief` sequence.
+Chat extras: `pip install "memcal[slack]"` or `"memcal[chat]"`.
+
+`MEMCAL_SRC` / checkout `cwd` / `PYTHONPATH` from `install.sh` make `python3 -m memcal.mcp_server` resolve.
+
+### 2. Choose a harness path
+
+| Goal | Path |
+|---|---|
+| Cursor / Claude Desktop / any MCP client | §3 MCP (works without Hermes/OpenClaw) |
+| Hermes agent | §4 (requires Hermes already installed) |
+| OpenClaw agent | §5 (requires `openclaw` ≥ 2026.7.1) |
+| Linux personal sources | §6 email + MCP |
+
+### 3. MCP first (any harness)
+
+Smoke:
+
+```bash
+python3 -m memcal.mcp_server   # stdio JSON-RPC; 22 tools + memcal://brief
+```
+
+**Cursor** — `~/.cursor/mcp.json` or project `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "memcal": {
+      "command": "python3",
+      "args": ["-m", "memcal.mcp_server"],
+      "env": {
+        "MEMCAL_HOME": "${HOME}/.memcal"
+      }
+    }
+  }
+}
+```
+
+From a git checkout (not an installed package), also set `"cwd": "/path/to/memcal"`
+so `-m memcal.mcp_server` resolves, or use the same Python that runs `memcal` after
+`./install.sh`.
+
+**Claude Desktop** — same JSON shape:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
+
+Restart the client; smoke with `memcal_brief`. Optional: `MEMCAL_HARNESS` /
+`MEMCAL_SESSION` for turn attribution. Stdio only today — no hosted HTTP MCP URL.
+
+Details: https://cuuush.github.io/memcal/clients/mcp/
+
+### 4. Hermes (memory provider)
+
+Requires Hermes already installed.
+
+```bash
+mkdir -p ~/.hermes/plugins
+ln -sfn "$(pwd)/integrations/hermes/memcal" ~/.hermes/plugins/memcal
+hermes memory setup
+```
+
+Symlink the **`integrations/hermes/memcal` package directory** (not the parent
+`hermes/` folder). Set `MEMCAL_SRC` to this checkout if import fails (Hermes may
+default to `~/code/memcal`).
+
+Verify: `MEMCAL SNAPSHOT` / `MEMCAL CURRENT` inject; **21** tools list (`memcal_open`,
+`memcal_open_source`, typed writes, … — prefetch replaces `memcal_brief`).
+
+Details: https://cuuush.github.io/memcal/integrations/hermes/
+
+### 5. OpenClaw (plugin + stdio MCP)
+
+Requires `openclaw` on PATH (`>=2026.7.1`).
+
+```bash
+memcal openclaw setup --yes   # link plugin, enable, register MCP (--yes skips the confirm prompt)
+openclaw gateway restart
+memcal openclaw status        # plugins inspect + mcp show
+```
+
+`setup` runs `openclaw plugins install --link <checkout>/integrations/openclaw`,
+`plugins enable memcal`, and `mcp set memcal` with `python3 -m memcal.mcp_server`
+(`cwd` = checkout, `MEMCAL_HOME` set). Plugin points at the checkout — code edits
+need no reinstall; restart the gateway after setup.
+
+Details: https://cuuush.github.io/memcal/integrations/openclaw/
+
+### 6. Linux sources (email + MCP)
+
+```bash
+# Proton Bridge / IMAP credentials in ~/.memcal/.env — see docs/sources/email.md
+memcal ingest email --limit 50
+memcal brief
+python3 -m memcal.mcp_server
+```
+
+Optional: Slack or GroupMe/Telegram (`pip install "memcal[slack]"` / chat extras),
+then ingest with a limit. `memcal schedule install` is launchd-only: on Linux it
+writes nothing and prints cron lines instead — use those verbatim (nightly
+`memcal schedule run` default 03:00, optional daytime `memcal ingest --due` every
+30m), or run `memcal dream` by hand. Never invent launchd plist paths on Linux.
+
+### 7. Done when
+
+- `memcal doctor` / `memcal brief` run
+- Chosen harness shows memcal tools / injection (MCP 22 or Hermes 21)
+- Privacy: user has seen https://cuuush.github.io/memcal/privacy/ before connecting real accounts
+
+---
+
+## Contributing in this repository
+
+Python 3.11+. Prefer well-chosen libraries over hand-rolls; declare runtime
+deps in `pyproject.toml`. `./install.sh` puts a `memcal` launcher on PATH via
+`PYTHONPATH` — code edits take effect immediately. Never run `./install.sh` from
+a worktree (see Worktrees).
+
+No lint, typecheck, formatter, or CI beyond publish. Verification is unittest plus
+the temporal benchmark. User-facing operation belongs in `README.md`; contributor
+workflow in `CONTRIBUTING.md`; harness install belongs above — do not add dated
+narratives here.
 
 ## Layout (`memcal/` package — not flat files)
 
@@ -44,8 +194,7 @@ do not add dev notes or dated narratives here.
 - Commit when the work is done — never leave a worktree with uncommitted changes.
   The branch is the unit of handoff and merge; unstaged work is invisible to the
   merge and lost if the worktree is removed.
-- Remove the worktree when its branch merges. `~/.config/opencode/opencode.jsonc`
-  already permits these paths, so no approval prompts for touching them.
+- Remove the worktree when its branch merges.
 - Never run `./install.sh` from a worktree: it repoints the single `memcal` on PATH at
   that worktree, so every later command — including ones run from this checkout — executes
   the worktree's code, and removing the worktree leaves the launcher pointing at a path

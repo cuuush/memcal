@@ -5,7 +5,7 @@ prompt, prefetches relevant wiki pages, and archives each inbound user turn
 exactly once.
 
 ```bash
-memcal openclaw setup
+memcal openclaw setup --yes   # --yes skips the confirm prompt
 openclaw gateway restart
 memcal openclaw status
 ```
