@@ -629,6 +629,28 @@ def install(cfg: Config, *, hour: int = DEFAULT_HOUR, minute: int = DEFAULT_MINU
     cfg.ensure_dirs()
     out = []
 
+    # Non-macOS: refuse launchd. Print cron instead of writing LaunchAgents.
+    if not _is_macos():
+        cron = (
+            f"{minute} {hour} * * * "
+            f'PATH="$HOME/.local/bin:/usr/bin" '
+            f'memcal schedule run >>"$HOME/.memcal/logs/cron-nightly.log" 2>&1'
+        )
+        daytime = (
+            f"*/30 * * * * "
+            f'PATH="$HOME/.local/bin:/usr/bin" '
+            f'memcal ingest --due >>"$HOME/.memcal/logs/cron-ingest.log" 2>&1'
+        )
+        return [
+            "schedule install is launchd-only today; nothing was written on this host.",
+            "Nightly (edit hour/minute as needed; default 03:00 local):",
+            f"  {cron}",
+            "Daytime collect (optional — every 30m, due sources only):",
+            f"  {daytime}",
+            "Or run once owed: memcal schedule run",
+            f"log dir: {cfg.home / 'logs'}",
+        ]
+
     out.extend(build_app_bundle(cfg, force=force_rebuild))
 
     script = script_path(cfg)
