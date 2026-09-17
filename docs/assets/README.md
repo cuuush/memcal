@@ -1,4 +1,4 @@
 # Demo assets
 
-- `demo-chat.gif` — fictional sample agent conversation for the README
-  (Maya's rooftop / farmer's market). No real contacts or phones.
+- `demo-chat.png` — fictional 3-turn chat: vague “Maya thing” resolves to
+  confirmed plan + who’s in. No real contacts or phones.
