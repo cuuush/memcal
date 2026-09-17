@@ -81,13 +81,13 @@ class TestPostBodiesAreJsonOnlyWhenTheyHaveBytes(unittest.TestCase):
 
     def test_nonempty_form_or_unspecified_bodies_are_rejected_before_json_parsing(self):
         for content_type in ("", "text/plain", "application/x-www-form-urlencoded"):
-            stream = mock.Mock()
+            channel = mock.Mock()
             with self.subTest(content_type=content_type), self.assertRaises(
                     web.RequestBodyError) as caught:
                 web._read_json_body(
-                    {"Content-Length": "2", "Content-Type": content_type}, stream)
+                    {"Content-Length": "2", "Content-Type": content_type}, channel)
             self.assertEqual(caught.exception.status, 415)
-            stream.read.assert_not_called()
+            channel.read.assert_not_called()
 
     def test_an_empty_post_keeps_the_legacy_empty_object_behavior(self):
         self.assertEqual(web._read_json_body({}, io.BytesIO()), {})

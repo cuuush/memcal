@@ -25,7 +25,7 @@ out. That works for documents. It fails for a life.
 | Stores passages, ranks at read | Reconciles into typed rows at write |
 | Timestamp vs relevance, every query | Recency resolved once, moves to history |
 | Needs a query string | Brief already holds the week; implicit questions answer from context |
-| Cross-stream joins at read time | Bundling by entity joins at ingest |
+| Cross-channel joins at read time | Bundling by entity joins at ingest |
 | Stale copies compete forever | One value per row; corrections win per-field by said-time |
 | Uncertainty is silence or confabulation | Uncertainty is a typed question with evidence |
 

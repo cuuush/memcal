@@ -133,7 +133,7 @@ memcal dream
 
 ## How watermarks, budget, and rounds work here
 
-Signal is a `StreamSource`: one stream, one cursor key (`signal.received`).
+Signal is a `StreamSource`: one channel, one cursor key (`signal.received`).
 
 - **The cursor is a high-water mark, not a rewind cursor.** The ack happens inside
   `signal-cli` during `receive()`. The stored watermark (latest send timestamp) is

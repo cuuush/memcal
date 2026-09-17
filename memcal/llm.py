@@ -528,7 +528,7 @@ _CODEX_REASONING_FIELDS = ("text", "content", "summary_text", "delta")
 
 
 def _codex_reasoning(events: list[dict]) -> str:
-    """Extract the readable reasoning summary from a `codex exec --json` stream.
+    """Extract the readable reasoning summary from a `codex exec --json` channel.
 
     Only the summary is readable; the chain itself stays encrypted.
     Returns "" when the CLI emits none.

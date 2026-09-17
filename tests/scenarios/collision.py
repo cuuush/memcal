@@ -86,19 +86,19 @@ class Op:
     label: str = ""
 
 
-def msg(at: str, text: str, *, who: str, stream: str = "imessage",
+def msg(at: str, text: str, *, who: str, channel: str = "imessage",
         thread: str | None = None, from_me: bool = False, written_at: str = "",
         alt: str = "", group: bool = False, verdict: str | None = None) -> Op:
     """A source line. `alt` is the same statement said differently, for the wording variant."""
     return Op(at=at, kind="message", written_at=written_at, payload=dict(
-        text=text, alt=alt, who=who, stream=stream, thread=thread, from_me=from_me,
+        text=text, alt=alt, who=who, channel=channel, thread=thread, from_me=from_me,
         group=group, verdict=verdict))
 
 
 def agent(at: str, text: str, *, alt: str = "") -> Op:
-    """The user talking to their assistant. Arrives on the `agent` stream, addressed to a machine."""
+    """The user talking to their assistant. Arrives on the `agent` channel, addressed to a machine."""
     return Op(at=at, kind="message", payload=dict(
-        text=text, alt=alt, who="me", stream="agent", thread="conversation",
+        text=text, alt=alt, who="me", channel="agent", thread="conversation",
         from_me=True, group=False, verdict=None, addressed_to="machine"))
 
 
@@ -356,7 +356,7 @@ def _f3_stale_reinstatement() -> Scenario:
             # Written before the cancellation, collected after it. Nothing in it is news.
             msg(day(1, "21:00"),
                 "Confirming your ticket: Friday September 18, doors 8pm, Bowery Ballroom.",
-                who="Cameron Ortiz", stream="email", thread="tickets@bowery.example",
+                who="Cameron Ortiz", channel="email", thread="tickets@bowery.example",
                 written_at=day(1, "07:30"),
                 alt="Your ticket is confirmed — Fri Sep 18, doors 8pm, Bowery Ballroom."),
             nightly(day(1, "23:30")),
@@ -446,7 +446,7 @@ def _f5_three_names() -> Scenario:
             msg(day(0, "13:00"),
                 "Devon's Housewarming Party — Saturday, September 19 at 6:00 PM, "
                 "55 Linden Avenue. Please RSVP.",
-                who="Devon Park", stream="email", thread="invites@partiful.example",
+                who="Devon Park", channel="email", thread="invites@partiful.example",
                 alt="You're invited to Devon's Housewarming Party on Sat Sep 19, 6 PM."),
             nightly(day(0, "23:30")),
             mark(day(1, "07:00"), "after-pass"),
@@ -488,7 +488,7 @@ def _f6_same_provider() -> Scenario:
             msg(day(0, "16:00"),
                 "Your physio session with Riverton PT is confirmed for Friday "
                 "September 18 at 5:00 PM.",
-                who="Nadia Okoro", stream="email", thread="clinic@riverton.example",
+                who="Nadia Okoro", channel="email", thread="clinic@riverton.example",
                 alt="Booking confirmed: Physio, Riverton PT, Fri Sep 18, 5:00 PM."),
             nightly(day(0, "23:30")),
             mark(day(1, "07:00"), "after-pass"),
@@ -537,7 +537,7 @@ def _f6b_explicit_reschedule() -> Scenario:
             msg(day(0, "16:00"),
                 "Your physio session with Riverton PT has been moved from Monday "
                 "September 14 to Friday September 18, still 5:00 PM.",
-                who="Nadia Okoro", stream="email", thread="clinic@riverton.example",
+                who="Nadia Okoro", channel="email", thread="clinic@riverton.example",
                 alt="Rescheduled: your Riverton PT physio moves from Mon Sep 14 to "
                     "Fri Sep 18, 5:00 PM."),
             nightly(day(0, "23:30")),
@@ -588,7 +588,7 @@ def _f7_one_occurrence() -> Scenario:
             msg(day(0, "18:00"),
                 "Confirming your physio moved to Wednesday September 16 at 5pm. "
                 "Your other Monday sessions are unchanged.",
-                who="Nadia Okoro", stream="email", thread="clinic@riverton.example",
+                who="Nadia Okoro", channel="email", thread="clinic@riverton.example",
                 alt="Moved: physio Wed Sep 16, 5pm. Mondays otherwise as usual."),
             nightly(day(0, "23:30")),
             mark(day(1, "07:00"), "after-pass"),
@@ -718,7 +718,7 @@ def _f10_linked_work() -> Scenario:
             msg(day(0, "18:00"),
                 "Your tickets are confirmed for Spider-Man at the IMAX on Saturday "
                 "September 19 at 7:40 PM. Seats H8 and H9.",
-                who="Devon Park", stream="email", thread="orders@cinema.example",
+                who="Devon Park", channel="email", thread="orders@cinema.example",
                 alt="Order confirmed — Spider-Man, IMAX, Sat Sep 19, 7:40 PM, H8/H9."),
             nightly(day(0, "23:30")),
             mark(day(1, "07:00"), "after-pass"),
@@ -880,7 +880,7 @@ def apply_variant(scenario: Scenario, variant: str, seed: int) -> list[Op]:
     elif variant == "distractor":
         extra = []
         for op in ops:
-            if op.kind != "message" or op.payload.get("stream") == "agent":
+            if op.kind != "message" or op.payload.get("channel") == "agent":
                 continue
             noise = dict(op.payload)
             noise["text"] = rng.choice(_DISTRACTORS)
@@ -983,29 +983,29 @@ def seed_home(home: Path, settings: dict | None = None
 
 def _deliver(conn, cfg, op: Op, *, index: int, run_tag: str) -> int | None:
     payload = op.payload
-    stream = payload.get("stream") or "imessage"
+    channel = payload.get("channel") or "imessage"
     who = payload.get("who") or "Alex Rivera"
     thread = payload.get("thread") or (
-        "conversation" if stream == "agent" else who)
+        "conversation" if channel == "agent" else who)
     # Written time is what the store reasons about; arrival time is when it learns it.
     ts = op.written_at or op.at
-    report = base.IngestReport.opened(stream, cfg)
+    report = base.IngestReport.opened(channel, cfg)
     suffix = "dupe" if payload.get("dupe_of") is not None else str(index)
-    external = f"{run_tag}:{stream}:{index}:{suffix}"
-    if stream == "email":
+    external = f"{run_tag}:{channel}:{index}:{suffix}"
+    if channel == "email":
         return base.deliver(
-            conn, report, stream="email", external_id=external, ts=ts,
+            conn, report, channel="email", external_id=external, ts=ts,
             text=payload["text"], thread=thread, handle=thread, person=None,
             from_me=False, counterpart=thread,
             meta={"folder": "INBOX", "subject": payload["text"][:60]},
             verdict=gate.Verdict(True, "unknown-sender"))
-    if stream == "agent":
+    if channel == "agent":
         return base.deliver(
-            conn, report, stream="agent", external_id=external, ts=ts,
+            conn, report, channel="agent", external_id=external, ts=ts,
             text=payload["text"], thread="conversation", from_me=True, person="me",
             addressed_to="machine", verdict=gate.Verdict(True, "directive"))
     return base.deliver(
-        conn, report, stream=stream, external_id=external, ts=ts,
+        conn, report, channel=channel, external_id=external, ts=ts,
         text=payload["text"], thread=thread, handle=CAST.get(who), person=who,
         from_me=bool(payload.get("from_me")), is_group=bool(payload.get("group")),
         verdict=gate.Verdict(True, payload.get("verdict") or "temporal"))
@@ -1118,7 +1118,7 @@ def run_scenario(scenario: Scenario, home: Path, *, variant: str = "plain",
             db.set_today(op.at)
             if op.kind == "message":
                 archive_id = _deliver(conn, cfg, op, index=index, run_tag=tag)
-                if archive_id and op.payload.get("stream") == "agent":
+                if archive_id and op.payload.get("channel") == "agent":
                     turn = [archive_id]
                 conn.commit()
             elif op.kind == "tool":

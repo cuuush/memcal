@@ -166,7 +166,7 @@ from its own per-chat watermark (`telegram.<peer>:<id>` → message id, e.g.
   `stopped after N rounds — the last one added nothing …` on a stalled round,
   `stopped at 25 rounds with more waiting — run again, or raise --rounds` at the
   cap, `caught up over N rounds` on multi-round success.
-- **Re-runs.** Idempotent: archive dedupe on `(stream, external_id)` plus
+- **Re-runs.** Idempotent: archive dedupe on `(channel, external_id)` plus
   per-chat `min_id` watermarks. Nothing-new re-runs make no message calls.
 - **Dormant-chat skip.** First run only: a chat whose last dialog date is older than
   `initial_days = 30` is not read at all (`N dormant skipped on initial load`).

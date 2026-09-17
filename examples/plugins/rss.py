@@ -49,7 +49,7 @@ class RSSSource(Source):
                 newest = max(newest, entry["id"])
                 deliver(
                     conn, report,
-                    stream=self.name,
+                    channel=self.name,
                     external_id=entry["id"],
                     ts=entry["ts"],
                     text=entry["text"],

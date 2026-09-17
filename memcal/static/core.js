@@ -32,7 +32,7 @@ export function toast(msg) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 3200);
 }
 /* -------------------------------------------------------------- routing -- */
-export const state = {view: "gate", verdict: "", stream: "", days: "14", q: "", reason: "",
+export const state = {view: "gate", verdict: "", channel: "", days: "14", q: "", reason: "",
                offset: 0, shape: "grouped", cstream: "", cq: "",
                // Wiki tab: the search box and which page is open on the right.
                wq: "", wikiSlug: "",
@@ -95,14 +95,14 @@ export async function loadOverview() {
     box.append(t);
   }
 
-  const sel = $("#stream"), had = sel.value;
-  sel.innerHTML = '<option value="">every stream</option>';
+  const sel = $("#channel"), had = sel.value;
+  sel.innerHTML = '<option value="">every channel</option>';
   const rows = $("#streams"); rows.innerHTML = "";
   const max = Math.max(1, ...o.streams.map(s => s.n));
   for (const s of o.streams) {
-    sel.append(new Option(s.stream, s.stream));
-    const row = el("div", "stream-row");
-    const name = el("div", "name"); name.append(el("span", null, s.stream));
+    sel.append(new Option(s.channel, s.channel));
+    const row = el("div", "channel-row");
+    const name = el("div", "name"); name.append(el("span", null, s.channel));
     const age = el("em", s.stale ? "stale" : null,
                    s.stale ? `stale — ${s.stale} old` : `last seen ${s.last_seen}`);
     name.append(age);

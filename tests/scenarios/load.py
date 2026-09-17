@@ -71,7 +71,7 @@ def seed(home: Path) -> tuple[sqlite3.Connection, config.Config]:
 
     identity.add_top_tier(conn, "Harper")
     profile_source = archive.append(
-        conn, stream="fixture", external_id="seed-profile", ts="2026-08-01T09:00:00-04:00",
+        conn, channel="fixture", external_id="seed-profile", ts="2026-08-01T09:00:00-04:00",
         text="Casey lives in North End and their dog is Comet.")
     wiki.set_slot(cfg.wiki_dir, "casey", "neighborhood", "North End",
                   source="fixture", conn=conn)
@@ -80,7 +80,7 @@ def seed(home: Path) -> tuple[sqlite3.Connection, config.Config]:
         trace.stamp(conn, kind="wiki", ref=ref, verb="seeded", entity="fixture",
                     archive_ids=[profile_source])
     calendar_source = archive.append(
-        conn, stream="fixture", external_id="seed-calendar", ts="2026-08-01T09:01:00-04:00",
+        conn, channel="fixture", external_id="seed-calendar", ts="2026-08-01T09:01:00-04:00",
         text=("The U&Me calendar is the shared calendar for Casey and Harper; "
               "we call it our cal, shared cal, or u&me."))
     wiki.set_slot(cfg.wiki_dir, "u-and-me-calendar", "meaning",
@@ -224,14 +224,14 @@ def _load_mail(conn, cfg, day: int) -> base.IngestReport:
 # ------------------------------------------------------------------------- agent --
 
 def _load_agent(conn, cfg, day: int) -> base.IngestReport:
-    """The agent stream — them stating something to their assistant, on purpose."""
+    """The agent channel — them stating something to their assistant, on purpose."""
     report = base.IngestReport.opened("agent", cfg)
     lines = json.loads((FIX / "agent" / "lines.json").read_text())
     cutoff = day_end(day)
     for line in lines:
         if datetime.fromisoformat(line["ts"]) > cutoff:
             continue
-        base.deliver(conn, report, stream="agent", external_id=f"agent:{line['id']}",
+        base.deliver(conn, report, channel="agent", external_id=f"agent:{line['id']}",
                      addressed_to="machine",
                      ts=line["ts"], text=line["text"], thread="conversation",
                      from_me=True, person="me")
@@ -280,7 +280,7 @@ def agent_actions(conn, cfg, day: int) -> list[str]:
                            if row.get("src") == "agent"
                            and row.get("beat") == action.get("beat")), None)
             archived = (conn.execute(
-                "SELECT id FROM archive WHERE stream='agent' AND external_id=?",
+                "SELECT id FROM archive WHERE channel='agent' AND external_id=?",
                 (f"agent:{source['id']}",)).fetchone() if source else None)
             origin = live.Origin.of(
                 "benchmark", [archived["id"]] if archived else (), op_id=action["id"])
@@ -296,7 +296,7 @@ def agent_actions(conn, cfg, day: int) -> list[str]:
 # -------------------------------------------------------------------------- main --
 
 def ingest_day(conn, cfg, day: int, *, quiet: bool = False) -> list[base.IngestReport]:
-    """Every stream, up to the end of the given fake day. Watermarks make it additive."""
+    """Every channel, up to the end of the given fake day. Watermarks make it additive."""
     scratch = cfg.home / "scratch" / "ChatStorage.sqlite"
     reports = [
         _load_bluebubbles(conn, cfg, day),

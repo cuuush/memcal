@@ -35,7 +35,7 @@ class SpamBoundaryTest(unittest.TestCase):
     def test_task_scam_is_blocked_even_when_imessage_is_read_in_full(self):
         verdict = gate.gate_message(
             TASK_SCAM,
-            stream="imessage",
+            channel="imessage",
             is_group=True,
         )
         self.assertFalse(verdict)
@@ -45,7 +45,7 @@ class SpamBoundaryTest(unittest.TestCase):
         text = ("I'm recruiting for a remote Python role at Example. "
                 "The salary range is $140k–$170k. Are you interested?")
         self.assertFalse(gate.is_task_scam(text))
-        self.assertTrue(gate.gate_message(text, stream="imessage"))
+        self.assertTrue(gate.gate_message(text, channel="imessage"))
 
     def test_partiful_placeholder_words_do_not_link_unrelated_events(self):
         for offset, title in ((8, "We're Going to Solstice!!!"), (23, "Jack's 30th")):

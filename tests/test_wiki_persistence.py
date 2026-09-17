@@ -98,7 +98,7 @@ class TestApplyDiffsCommitsRowsAndProvenanceTogether(Base):
     def _proposal(self):
         archive.append(
             self.conn,
-            stream="imessage",
+            channel="imessage",
             external_id="atomic-1",
             ts=f"{db.today().isoformat()}T12:00:00-04:00",
             text="Dinner tomorrow. Jordan moved to Riverton and also goes by Jordy.",

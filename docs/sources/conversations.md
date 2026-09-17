@@ -1,7 +1,7 @@
 # Agent conversations
 
 Inbound user turns from the Hermes and OpenClaw integrations archive like any
-other stream — under the agent stream, threaded by session. They matter twice:
+other channel — under the agent channel, threaded by session. They matter twice:
 they are evidence ("Poker moved to Saturday, I'm still going" is a genuine user
 correction), and they are the turns freshness hints must reach.
 

@@ -196,7 +196,7 @@ function renderTimeline(timeline) {
         line.append(el("span", "tsrcwho", cite.who || "?"),
                     el("span", "tsrcwhen", cite.ts || ""),
                     el("span", "tsrctext", cite.text || ""));
-        line.title = `${cite.stream}${cite.thread ? " · " + cite.thread : ""}`;
+        line.title = `${cite.channel}${cite.thread ? " · " + cite.thread : ""}`;
         line.onclick = () => openConversation(cite);
         lines.append(line);
       }
@@ -219,11 +219,11 @@ async function openConversation(cite) {
   let holder = panel.querySelector(".convopreview");
   if (!holder) { holder = el("div", "wikipreview convopreview"); panel.append(holder); }
   holder.innerHTML = '<div class="empty">opening conversation…</div>';
-  const out = await api("/api/conversation?stream=" + encodeURIComponent(cite.stream)
+  const out = await api("/api/conversation?channel=" + encodeURIComponent(cite.channel)
     + "&thread=" + encodeURIComponent(cite.thread || "")
     + "&around=" + encodeURIComponent(cite.ts || ""));
   holder.innerHTML = "";
-  holder.append(el("div", "bname", `Conversation · ${cite.thread || cite.stream}`));
+  holder.append(el("div", "bname", `Conversation · ${cite.thread || cite.channel}`));
   for (const line of (out.lines || out || [])) {
     const row = el("div", "timeline-src" + (line.id === cite.id ? " ishere" : ""));
     row.append(el("span", "tsrcwho", line.who || "?"),
@@ -296,7 +296,7 @@ export function renderWikiProfile(page, holder) {
           row.append(el("span", "tsrcwho", cite.who || "?"),
                      el("span", "tsrcwhen", String(cite.ts || "").slice(0, 16).replace("T", " ")),
                      el("span", "tsrctext", cite.text || ""));
-          row.title = `${cite.stream || ""}${cite.thread ? " · " + cite.thread : ""}`;
+          row.title = `${cite.channel || ""}${cite.thread ? " · " + cite.thread : ""}`;
           row.onclick = () => openConversation(cite);
           wrap.append(row);
         }

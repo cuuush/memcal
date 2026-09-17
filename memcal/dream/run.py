@@ -638,7 +638,7 @@ def _drop_muted(conn: sqlite3.Connection) -> int:
         """UPDATE spool SET processed_at = ?
             WHERE processed_at IS NULL AND archive_id IN
               (SELECT a.id FROM archive a JOIN threads t
-                 ON t.stream = a.stream AND t.thread = a.thread
+                 ON t.channel = a.channel AND t.thread = a.thread
                 WHERE t.decision = 'mute')""", (db.now(),))
     conn.commit()
     return cur.rowcount

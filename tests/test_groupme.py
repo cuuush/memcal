@@ -224,7 +224,7 @@ class TestGroupMeProfileResolution(unittest.TestCase):
     def seed(self, *, thread: str = "Ravers", gated: bool = True,
              person: str | None = None) -> None:
         archive.append(
-            self.conn, stream="groupme", external_id=f"old-{thread}",
+            self.conn, channel="groupme", external_id=f"old-{thread}",
             ts=db.now(), text="festival tomorrow", thread=thread,
             handle="groupme:42", person=person, from_me=False,
             meta={"seen_name": "Q-Money"}, gated=gated,
@@ -314,7 +314,7 @@ class TestGroupMeProfileResolution(unittest.TestCase):
         summary = self.summary()
         self.run_with(summary, self.detail())
         archive.append(
-            self.conn, stream="groupme", external_id="new-speaker",
+            self.conn, channel="groupme", external_id="new-speaker",
             ts="9999-01-01T00:00:00+00:00", text="tomorrow?",
             thread="Ravers", handle="groupme:99", from_me=False,
             meta={"seen_name": "New Kid"}, gated=True,
@@ -382,7 +382,7 @@ class TestGroupMeRosterNamingQueue(unittest.TestCase):
     def _ingest(self, *, members):
         # A roster is only fetched for a group with gated traffic — `_included_group`.
         archive.append(
-            self.conn, stream="groupme", external_id="ravers-1", ts=db.now(),
+            self.conn, channel="groupme", external_id="ravers-1", ts=db.now(),
             text="festival tomorrow", thread="Ravers", handle="groupme:42",
             from_me=False, gated=True, gate_reason="temporal")
         self.conn.commit()
@@ -413,7 +413,7 @@ class TestGroupMeRosterNamingQueue(unittest.TestCase):
     def test_an_unnamed_member_reaches_the_naming_queue(self):
         self._ingest(members=[{"user_id": "42", "nickname": "Q-Money"}])
         rows = self.conn.execute(
-            "SELECT handle, stream FROM unresolved WHERE stream = 'groupme'").fetchall()
+            "SELECT handle, channel FROM unresolved WHERE channel = 'groupme'").fetchall()
         self.assertEqual([row["handle"] for row in rows], ["groupme:42"])
 
     def test_ingest_backfills_cached_rosters_once(self):
@@ -438,9 +438,9 @@ class TestGroupMeRosterNamingQueue(unittest.TestCase):
             groupme.ingest(self.conn, self.cfg)
             groupme.ingest(self.conn, self.cfg)
         row = self.conn.execute(
-            "SELECT stream, seen_name FROM unresolved WHERE handle = 'groupme:42'"
+            "SELECT channel, seen_name FROM unresolved WHERE handle = 'groupme:42'"
         ).fetchone()
-        self.assertEqual((row["stream"], row["seen_name"]), ("groupme", "Q-Money"))
+        self.assertEqual((row["channel"], row["seen_name"]), ("groupme", "Q-Money"))
         self.assertEqual(1, self.conn.execute(
             "SELECT count FROM unresolved WHERE handle = 'groupme:42'"
         ).fetchone()["count"])
@@ -448,7 +448,7 @@ class TestGroupMeRosterNamingQueue(unittest.TestCase):
     def test_detail_roster_is_recorded(self):
         self._ingest(members=[{"user_id": "42", "nickname": "Q-Money"}])
         self.assertEqual(1, self.conn.execute(
-            "SELECT count(*) AS n FROM thread_members WHERE stream = 'groupme'"
+            "SELECT count(*) AS n FROM thread_members WHERE channel = 'groupme'"
         ).fetchone()["n"])
 
     def test_empty_roster_records_nothing(self):

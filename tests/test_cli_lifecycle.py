@@ -98,7 +98,7 @@ class TestDirectCommandsCloseTheirDatabase(unittest.TestCase):
 
     def test_ingest_closes_on_its_early_unknown_source_return(self):
         def runner(tmp):
-            args = argparse.Namespace(home=tmp, stream="missing", stale=False,
+            args = argparse.Namespace(home=tmp, channel="missing", stale=False,
                                       limit=10, rounds=1)
             with mock.patch.object(cli.sources, "get", return_value=None), \
                     mock.patch.object(cli.sources, "names", return_value=[]):

@@ -5,7 +5,7 @@ export async function loadChats() {
   const box = $("#chats");
   box.innerHTML = '<div class="empty">reading the archive…</div>';
   const p = new URLSearchParams();
-  if (state.cstream) p.set("stream", state.cstream);
+  if (state.cstream) p.set("channel", state.cstream);
   if (state.cq) p.set("q", state.cq);
   const data = await api("/api/chats?" + p);
   if (data.error) { box.innerHTML = '<div class="empty">could not load</div>'; return; }
@@ -13,8 +13,8 @@ export async function loadChats() {
   const rows = data.threads || [];
   $("#ccount").textContent = `${nf(rows.length)} conversations`;
   const sel = $("#cstream"), had = sel.value;
-  sel.innerHTML = '<option value="">every stream</option>';
-  for (const s of [...new Set(rows.map(t => t.stream))].sort())
+  sel.innerHTML = '<option value="">every channel</option>';
+  for (const s of [...new Set(rows.map(t => t.channel))].sort())
     sel.append(Object.assign(el("option", null, s), {value: s}));
   sel.value = had;
   box.innerHTML = "";
@@ -68,7 +68,7 @@ function chatRow(t, max, urgent) {
   const theirs = el("i", "s"); theirs.style.width = (100 * (t.n - t.mine) / max) + "%";
   bar.append(mine, theirs);
   sum.append(bar, el("span", "gname", t.title || t.thread));
-  sum.append(el("span", "pill archive", t.stream));
+  sum.append(el("span", "pill archive", t.channel));
   if (t.group) sum.append(el("span", "pill", `${t.members || "?"} people`));
   if (t.collision) {
     const c = el("span", "pill");
@@ -126,7 +126,7 @@ function chatRow(t, max, urgent) {
 }
 
 async function decideChat(t, decision) {
-  const out = await api("/api/chat", {stream: t.stream, thread: t.thread, decision});
+  const out = await api("/api/chat", {channel: t.channel, thread: t.thread, decision});
   if (out.error) return;
   toast(decision === "mute"
     ? `muted — ${nf(out.retired || 0)} queued line(s) dropped, all still in the archive`

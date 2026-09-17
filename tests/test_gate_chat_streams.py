@@ -16,22 +16,22 @@ CHAT_STREAMS = ("imessage", "whatsapp", "groupme", "slack", "telegram", "signal"
 
 class TestChatShortRepliesPassInFull(Base):
     """The "yeah" / "can't that night" case: short chat replies carry no temporal
-    token of their own, so every chat stream passes them without a content test."""
+    token of their own, so every chat channel passes them without a content test."""
 
     def test_short_replies_pass_on_every_chat_stream(self):
-        self.assertTrue(CHAT_STREAMS, "the chat-stream list must not be empty")
-        for stream in CHAT_STREAMS:
+        self.assertTrue(CHAT_STREAMS, "the chat-channel list must not be empty")
+        for channel in CHAT_STREAMS:
             for text in ("yeah", "can't that night"):
-                with self.subTest(stream=stream, text=text):
-                    verdict = gate.gate_message(text, stream=stream)
-                    self.assertTrue(verdict, f"{text!r} on {stream} should pass")
-                    self.assertEqual(verdict.reason, f"all-of:{stream}")
+                with self.subTest(channel=channel, text=text):
+                    verdict = gate.gate_message(text, channel=channel)
+                    self.assertTrue(verdict, f"{text!r} on {channel} should pass")
+                    self.assertEqual(verdict.reason, f"all-of:{channel}")
 
     def test_affectionate_noise_passes_on_chat_but_not_email(self):
-        for stream in CHAT_STREAMS:
-            with self.subTest(stream=stream):
-                self.assertTrue(gate.gate_message("i love you", stream=stream))
-        self.assertFalse(gate.gate_message("i love you", stream="email"))
+        for channel in CHAT_STREAMS:
+            with self.subTest(channel=channel):
+                self.assertTrue(gate.gate_message("i love you", channel=channel))
+        self.assertFalse(gate.gate_message("i love you", channel="email"))
 
 
 class TestBareReactionsPassOnChat(Base):
@@ -40,20 +40,20 @@ class TestBareReactionsPassOnChat(Base):
     something."""
 
     def test_bare_emoji_passes_on_every_chat_stream(self):
-        self.assertTrue(CHAT_STREAMS, "the chat-stream list must not be empty")
-        for stream in CHAT_STREAMS:
-            with self.subTest(stream=stream):
-                verdict = gate.gate_message("👀", stream=stream)
+        self.assertTrue(CHAT_STREAMS, "the chat-channel list must not be empty")
+        for channel in CHAT_STREAMS:
+            with self.subTest(channel=channel):
+                verdict = gate.gate_message("👀", channel=channel)
                 self.assertTrue(verdict, "bare 👀 should pass on chat")
-                self.assertEqual(verdict.reason, f"all-of:{stream}")
+                self.assertEqual(verdict.reason, f"all-of:{channel}")
 
     def test_emoji_beside_words_passes_in_full(self):
-        self.assertTrue(CHAT_STREAMS, "the chat-stream list must not be empty")
-        for stream in CHAT_STREAMS:
-            with self.subTest(stream=stream):
-                verdict = gate.gate_message("👀 that place looks good", stream=stream)
+        self.assertTrue(CHAT_STREAMS, "the chat-channel list must not be empty")
+        for channel in CHAT_STREAMS:
+            with self.subTest(channel=channel):
+                verdict = gate.gate_message("👀 that place looks good", channel=channel)
                 self.assertTrue(verdict)
-                self.assertEqual(verdict.reason, f"all-of:{stream}")
+                self.assertEqual(verdict.reason, f"all-of:{channel}")
 
 
 class TestBulkEmailStaysGated(Base):
@@ -61,7 +61,7 @@ class TestBulkEmailStaysGated(Base):
 
     def test_newsletter_body_without_signal_does_not_pass_as_email(self):
         self.assertFalse(gate.gate_message("Huge sale now, shop the new arrivals",
-                                           stream="email"))
+                                           channel="email"))
 
     def test_bulk_sender_is_read_last_not_excluded(self):
         verdict = gate.gate_email(
@@ -75,13 +75,13 @@ class TestBulkEmailStaysGated(Base):
 
 
 class TestChatStreamsPassInFull(Base):
-    """Volume/cost sanity: no chat stream is content-gated; email is not in the set."""
+    """Volume/cost sanity: no chat channel is content-gated; email is not in the set."""
 
     def test_every_chat_stream_passes_in_full(self):
-        self.assertTrue(CHAT_STREAMS, "the chat-stream list must not be empty")
-        for stream in CHAT_STREAMS:
-            with self.subTest(stream=stream):
-                self.assertIn(stream, gate.PASS_ALL_STREAMS)
+        self.assertTrue(CHAT_STREAMS, "the chat-channel list must not be empty")
+        for channel in CHAT_STREAMS:
+            with self.subTest(channel=channel):
+                self.assertIn(channel, gate.PASS_ALL_STREAMS)
 
     def test_email_is_not_a_pass_all_stream(self):
         self.assertNotIn("email", gate.PASS_ALL_STREAMS)

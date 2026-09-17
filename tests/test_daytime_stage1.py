@@ -55,7 +55,7 @@ class _Scripted(Source):
             _, ids, more = page
             for eid in ids:
                 base.deliver(
-                    conn, report, stream=self.name, external_id=eid,
+                    conn, report, channel=self.name, external_id=eid,
                     ts=db.now(), text=f"daytime note {eid} about dinner?",
                     thread="daytime-thread", handle="friend@example.com",
                 )
@@ -64,7 +64,7 @@ class _Scripted(Source):
             _, ids, message = page
             for eid in ids:
                 base.deliver(
-                    conn, report, stream=self.name, external_id=eid,
+                    conn, report, channel=self.name, external_id=eid,
                     ts=db.now(), text=f"daytime note {eid} about dinner?",
                     thread="daytime-thread", handle="friend@example.com",
                 )
@@ -94,7 +94,7 @@ class _Base(unittest.TestCase):
         finally:
             archive.close_collection(self.conn, cid)
         row = self.conn.execute(
-            "SELECT * FROM collection_sources WHERE collection_id = ? AND stream = ?",
+            "SELECT * FROM collection_sources WHERE collection_id = ? AND channel = ?",
             (cid, source.name)).fetchone()
         return cid, report, dict(row) if row else None
 
@@ -205,7 +205,7 @@ class TestPreflightAndUnexpectedFailures(_Base):
                 return True, "ready"
 
             def fetch(self, conn, cfg, report, limit):
-                base.deliver(conn, report, stream="up", external_id="u1",
+                base.deliver(conn, report, channel="up", external_id="u1",
                              ts=db.now(), text="up note about dinner?",
                              thread="t", handle="friend@example.com")
 
@@ -220,7 +220,7 @@ class TestPreflightAndUnexpectedFailures(_Base):
                 catch_up(src, self.conn, self.cfg, collection_id=cid)
         finally:
             archive.close_collection(self.conn, cid)
-        rows = {r["stream"]: dict(r) for r in self.conn.execute(
+        rows = {r["channel"]: dict(r) for r in self.conn.execute(
             "SELECT * FROM collection_sources WHERE collection_id = ?", (cid,))}
         self.assertEqual(rows["down"]["status"], "unavailable")
         self.assertIn("credential", rows["down"]["error"] or "")
@@ -266,7 +266,7 @@ class TestDueSelectionOnRecordedOutcomes(_Base):
     def test_message_timestamps_do_not_drive_due(self):
         self._check_at("2026-09-12T11:00:00")
         self.conn.execute(
-            "INSERT INTO archive(stream, external_id, ts, thread, text, created_at)"
+            "INSERT INTO archive(channel, external_id, ts, thread, text, created_at)"
             " VALUES('daytime','old1','2020-01-01T00:00:00','t','old note',?)",
             (db.now(),))
         self.conn.commit()
@@ -295,7 +295,7 @@ class TestDueSelectionOnRecordedOutcomes(_Base):
         self.assertIn("never", reason)
         cid = archive.open_collection(self.conn, mode="cli")
         self.conn.execute(
-            "INSERT INTO collection_sources(collection_id, stream, read, archived,"
+            "INSERT INTO collection_sources(collection_id, channel, read, archived,"
             " passed, finished_at, status) VALUES(?,?,?,?,?,?,?)",
             (cid, "legacy", 0, 0, 0, db.now(), "unknown"))
         self.conn.commit()
@@ -308,7 +308,7 @@ class TestDueSelectionOnRecordedOutcomes(_Base):
         self._check_at("2026-09-12T11:00:00")
         future = (db.now_dt() + timedelta(hours=2)).isoformat()
         self.conn.execute(
-            "UPDATE collection_sources SET finished_at = ? WHERE stream = 'daytime'",
+            "UPDATE collection_sources SET finished_at = ? WHERE channel = 'daytime'",
             (future,))
         self.conn.commit()
         due, reason = archive.source_due(self.conn, "daytime", self.cfg)
@@ -318,7 +318,7 @@ class TestDueSelectionOnRecordedOutcomes(_Base):
     def test_timezone_offsets_compare_as_instants(self):
         cid = archive.open_collection(self.conn, mode="cli")
         self.conn.execute(
-            "INSERT INTO collection_sources(collection_id, stream, read, archived,"
+            "INSERT INTO collection_sources(collection_id, channel, read, archived,"
             " passed, finished_at, status) VALUES(?,?,?,?,?,?,?)",
             (cid, "tz", 0, 0, 0, "2026-09-12T11:00:00+00:00", "complete"))
         self.conn.commit()
@@ -343,7 +343,7 @@ class TestDueCommandIsANoopWhenNothingIsDue(unittest.TestCase):
         self.home = str(Path(self.tmp.name) / "store")
 
     def _args(self, **kw):
-        args = argparse.Namespace(home=self.home, stream="all", stale=False,
+        args = argparse.Namespace(home=self.home, channel="all", stale=False,
                                   due=False, limit=50, rounds=3)
         for key, value in kw.items():
             setattr(args, key, value)
@@ -516,8 +516,8 @@ class TestCliAndWebAgree(_Base):
             name = "old"
 
             def run(self, conn, cfg, *, limit=1000):  # no collection_id/progress/record
-                report = base.IngestReport(stream=self.name)
-                base.deliver(conn, report, stream=self.name, external_id="o1",
+                report = base.IngestReport(channel=self.name)
+                base.deliver(conn, report, channel=self.name, external_id="o1",
                              ts=db.now(), text="old plugin note about dinner?",
                              thread="t", handle="friend@example.com")
                 return report
@@ -542,13 +542,13 @@ class TestCliAndWebAgree(_Base):
                 "CREATE TABLE collections(id INTEGER PRIMARY KEY, started_at TEXT,"
                 " finished_at TEXT, mode TEXT, read INTEGER DEFAULT 0,"
                 " archived INTEGER DEFAULT 0, passed INTEGER DEFAULT 0, error TEXT);"
-                "CREATE TABLE collection_sources(collection_id INTEGER, stream TEXT,"
+                "CREATE TABLE collection_sources(collection_id INTEGER, channel TEXT,"
                 " read INTEGER DEFAULT 0, archived INTEGER DEFAULT 0,"
                 " passed INTEGER DEFAULT 0, muted INTEGER DEFAULT 0,"
                 " too_old INTEGER DEFAULT 0, error TEXT, note TEXT,"
-                " finished_at TEXT, PRIMARY KEY(collection_id, stream));"
+                " finished_at TEXT, PRIMARY KEY(collection_id, channel));"
                 "INSERT INTO collections(id, started_at, mode) VALUES(1, '2026-01-01', 'cli');"
-                "INSERT INTO collection_sources(collection_id, stream, finished_at)"
+                "INSERT INTO collection_sources(collection_id, channel, finished_at)"
                 " VALUES(1, 'email', '2026-01-01T00:00:00');")
             conn.commit()
             db.migrate(conn)
@@ -575,7 +575,7 @@ class TestSyntheticDaytimeDelivery(_Base):
             cid, report, row = self._collect(src)
         self.assertEqual(report.archived, 1)
         archived = self.conn.execute(
-            "SELECT * FROM archive WHERE stream = 'daytime' AND external_id = 'day1'"
+            "SELECT * FROM archive WHERE channel = 'daytime' AND external_id = 'day1'"
         ).fetchone()
         self.assertIsNotNone(archived)
         spooled = self.conn.execute(
@@ -583,11 +583,11 @@ class TestSyntheticDaytimeDelivery(_Base):
         self.assertIsNotNone(spooled)
         # Re-delivery keeps identity and does not duplicate.
         before = self.conn.execute(
-            "SELECT count(*) n FROM archive WHERE stream='daytime'").fetchone()["n"]
+            "SELECT count(*) n FROM archive WHERE channel='daytime'").fetchone()["n"]
         _cid2, report2, _row2 = self._collect(
             _Scripted([("messages", ["day1"], False)], name="daytime"))
         after = self.conn.execute(
-            "SELECT count(*) n FROM archive WHERE stream='daytime'").fetchone()["n"]
+            "SELECT count(*) n FROM archive WHERE channel='daytime'").fetchone()["n"]
         self.assertEqual(before, after)
         self.assertEqual(report2.archived, 0)
 
@@ -601,10 +601,10 @@ class TestSyntheticDaytimeDelivery(_Base):
         self.assertTrue(verdict.excluded)
         threads.record(self.conn, "daytime", "hushed", is_group=True)
         self.conn.execute(
-            "UPDATE threads SET decision='mute' WHERE stream='daytime' AND thread='hushed'")
+            "UPDATE threads SET decision='mute' WHERE channel='daytime' AND thread='hushed'")
         self.conn.commit()
-        report2 = base.IngestReport(stream="daytime")
-        base.deliver(self.conn, report2, stream="daytime", external_id="m1",
+        report2 = base.IngestReport(channel="daytime")
+        base.deliver(self.conn, report2, channel="daytime", external_id="m1",
                      ts=db.now(), text="hushed note about dinner?",
                      thread="hushed", handle="friend@example.com", is_group=True)
         self.assertEqual(report2.muted, 1)

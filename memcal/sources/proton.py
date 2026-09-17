@@ -377,7 +377,7 @@ def archived_id(conn: sqlite3.Connection, message_id: str) -> str:
     if not bare:
         return bare
     row = conn.execute(
-        "SELECT external_id FROM archive WHERE stream = 'email' AND external_id IN (?,?)"
+        "SELECT external_id FROM archive WHERE channel = 'email' AND external_id IN (?,?)"
         " ORDER BY id LIMIT 1", (bare, f"<{bare}>")).fetchone()
     return str(row["external_id"]) if row else bare
 
@@ -412,7 +412,7 @@ def conversation_key(conn, *, own: str, parent: str, chain: list[str],
         # before ids were normalised is filed with its angle brackets, and missing it
         # would start a second conversation halfway through the first one.
         row = conn.execute(
-            "SELECT thread FROM archive WHERE stream = 'email'"
+            "SELECT thread FROM archive WHERE channel = 'email'"
             " AND external_id IN (?,?) ORDER BY id LIMIT 1",
             (candidate, f"<{candidate}>")).fetchone()
         if row and row["thread"]:
@@ -474,7 +474,7 @@ def _handle_message(conn, cfg, report, bridge, uid, headers, folder,
 
     base.deliver(
         conn, report,
-        stream="email",
+        channel="email",
         external_id=message_id,
         ts=ts,
         text=text,
@@ -540,7 +540,7 @@ def recoverable(conn: sqlite3.Connection, *, limit: int = 0) -> list[sqlite3.Row
         # marker existed carry no trace of it — and a sender the user has since blocked
         # must not have their mail opened by a repair pass that only reads what was
         # written down at the time.
-        "SELECT * FROM archive WHERE stream = 'email'"
+        "SELECT * FROM archive WHERE channel = 'email'"
         " AND coalesce(gate_reason, '') NOT LIKE 'blocked:%' ORDER BY ts DESC")
         if _needs_body(db.jload(row["meta"], {}))]
     return rows[:limit] if limit else rows

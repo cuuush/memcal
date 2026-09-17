@@ -23,32 +23,32 @@ def counterparts(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> dict[tupl
     Resolved the same way bundling resolves it, so what this shows is what the dream
     pass will actually group on.
     """
-    keys = {(r["stream"], r["thread"]) for r in rows if r["thread"]}
+    keys = {(r["channel"], r["thread"]) for r in rows if r["thread"]}
     if not keys:
         return {}
     threads = sorted({t for _s, t in keys})
     marks = ",".join("?" * len(threads))
     speakers: dict[tuple, set[str]] = {}
     for row in conn.execute(
-        f"""SELECT DISTINCT stream, thread, person FROM archive
+        f"""SELECT DISTINCT channel, thread, person FROM archive
              WHERE thread IN ({marks}) AND from_me = 0
                AND person IS NOT NULL AND person != 'me'""", threads):
-        speakers.setdefault((row["stream"], row["thread"]), set()).add(row["person"])
+        speakers.setdefault((row["channel"], row["thread"]), set()).add(row["person"])
 
     out = {}
-    for stream, thread in keys:
-        who = speakers.get((stream, thread), set())
+    for channel, thread in keys:
+        who = speakers.get((channel, thread), set())
         if len(who) == 1:
-            out[(stream, thread)] = next(iter(who))
+            out[(channel, thread)] = next(iter(who))
         elif len(who) > 1:
-            out[(stream, thread)] = f"group of {len(who)}"
-        elif stream == "email":
-            out[(stream, thread)] = thread        # the address is the counterpart
+            out[(channel, thread)] = f"group of {len(who)}"
+        elif channel == "email":
+            out[(channel, thread)] = thread        # the address is the counterpart
     return out
 
 
 def _who(row: sqlite3.Row, with_whom: dict[tuple, str] | None = None) -> str:
-    other = (with_whom or {}).get((row["stream"], row["thread"]))
+    other = (with_whom or {}).get((row["channel"], row["thread"]))
     if row["from_me"]:
         return f"me → {other}" if other else "me"
     return row["person"] or row["handle"] or "?"
@@ -94,9 +94,9 @@ def _item(row: sqlite3.Row, with_whom: dict[tuple, str] | None = None) -> dict:
     return {
         "id": row["id"],
         "ts": str(row["ts"]),
-        "stream": row["stream"],
+        "channel": row["channel"],
         # The conversation this line is in — what "don't care" acts on when there is no
-        # address to blame, which is every chat stream.
+        # address to blame, which is every chat channel.
         "thread": row["thread"] or "",
         "who": _who(row, with_whom),
         "address": None if row["from_me"] else (row["handle"] or None),
@@ -129,7 +129,7 @@ def _body_state(meta: dict) -> str:
 
 
 ITEM_SELECT = """
-    SELECT a.id, a.stream, a.ts, a.thread, a.handle, a.person, a.from_me, a.text,
+    SELECT a.id, a.channel, a.ts, a.thread, a.handle, a.person, a.from_me, a.text,
            a.meta, a.gated, a.gate_reason,
            s.id AS spool_id, s.processed_at, s.run_id, s.entity,
            coalesce(s.priority, 'normal') AS priority
@@ -141,7 +141,7 @@ ITEM_SELECT = """
 # sender otherwise. Mail has no threads worth the name, so for email the address *is*
 # the conversation. The rollup groups by this and the row expansion filters by it, so
 # it lives in one place — the two drifting apart is a group that opens onto nothing.
-GROUP_KEY = ("CASE WHEN a.stream = 'email' THEN coalesce(a.handle, a.thread, '?')"
+GROUP_KEY = ("CASE WHEN a.channel = 'email' THEN coalesce(a.handle, a.thread, '?')"
              " ELSE coalesce(a.thread, a.handle, '?') END")
 
 
@@ -160,14 +160,14 @@ QUEUE_CLAUSES = {
 }
 
 
-def _filters(*, stream: str = "", verdict: str = "", reason: str = "",
+def _filters(*, channel: str = "", verdict: str = "", reason: str = "",
              q: str = "", days: int = 0, group: str = "",
              queue: str = "", priority: str = "") -> tuple[str, list]:
     # Old builds archived a daily iCal health marker. It remains immutable and
     # searchable, but it is operational bookkeeping rather than something the gate
     # observed, so it does not belong in this feed.
     where, args = [
-        "NOT (a.stream = 'ical' AND a.external_id LIKE 'snapshot:%')"
+        "NOT (a.channel = 'ical' AND a.external_id LIKE 'snapshot:%')"
     ], []
     if queue in QUEUE_CLAUSES:
         where.append(QUEUE_CLAUSES[queue])
@@ -177,9 +177,9 @@ def _filters(*, stream: str = "", verdict: str = "", reason: str = "",
     if priority in ("normal", "low"):
         where.append("coalesce(s.priority, 'normal') = ?")
         args.append(priority)
-    if stream:
-        where.append("a.stream = ?")
-        args.append(stream)
+    if channel:
+        where.append("a.channel = ?")
+        args.append(channel)
     # An exact key, not a search. A group chat's key is its identifier — an opaque GUID
     # for an unnamed one — and no message contains it, so matching it as text finds
     # nothing at all.
@@ -211,12 +211,12 @@ def _filters(*, stream: str = "", verdict: str = "", reason: str = "",
 ARCHIVE_JOIN = " FROM archive a LEFT JOIN spool s ON s.archive_id = a.id"
 
 
-def items(conn: sqlite3.Connection, *, stream: str = "", verdict: str = "",
+def items(conn: sqlite3.Connection, *, channel: str = "", verdict: str = "",
           reason: str = "", q: str = "", days: int = 0, group: str = "",
           queue: str = "", priority: str = "", limit: int = 100,
           offset: int = 0) -> dict:
     """The feed: what the gate saw, what it decided, and where the item ended up."""
-    clause, args = _filters(stream=stream, verdict=verdict, reason=reason, q=q,
+    clause, args = _filters(channel=channel, verdict=verdict, reason=reason, q=q,
                             days=days, group=group, queue=queue, priority=priority)
     rows = conn.execute(
         ITEM_SELECT + clause + " ORDER BY a.ts DESC LIMIT ? OFFSET ?",
@@ -227,7 +227,7 @@ def items(conn: sqlite3.Connection, *, stream: str = "", verdict: str = "",
     ).fetchone()["n"]
 
     # Facets ignore the reason filter, so the chips stay put when one is clicked.
-    fclause, fargs = _filters(stream=stream, verdict=verdict, q=q, days=days,
+    fclause, fargs = _filters(channel=channel, verdict=verdict, q=q, days=days,
                               group=group, queue=queue, priority=priority)
     facets = conn.execute(
         "SELECT a.gate_reason AS reason, a.gated, count(*) AS n" + ARCHIVE_JOIN
@@ -244,7 +244,7 @@ def items(conn: sqlite3.Connection, *, stream: str = "", verdict: str = "",
     }
 
 
-def groups(conn: sqlite3.Connection, *, stream: str = "", verdict: str = "",
+def groups(conn: sqlite3.Connection, *, channel: str = "", verdict: str = "",
            reason: str = "", q: str = "", days: int = 0, queue: str = "",
            priority: str = "", limit: int = 200) -> dict:
     """The same feed, rolled up by who it came from.
@@ -253,10 +253,10 @@ def groups(conn: sqlite3.Connection, *, stream: str = "", verdict: str = "",
     raw material for one — you cannot see that 381 of them are the dog park until they
     are next to each other. Same filters as the feed, so a reason chip narrows both.
     """
-    clause, args = _filters(stream=stream, verdict=verdict, reason=reason, q=q,
+    clause, args = _filters(channel=channel, verdict=verdict, reason=reason, q=q,
                             days=days, queue=queue, priority=priority)
     rows = conn.execute(
-        f"""SELECT a.stream, {GROUP_KEY} AS key,
+        f"""SELECT a.channel, {GROUP_KEY} AS key,
                   count(*) AS n, sum(a.gated) AS gated, sum(a.from_me) AS mine,
                   sum(a.gate_reason = 'calendar-structured') AS structured,
                   sum(length(a.text)) AS chars, max(a.ts) AS last_ts, min(a.ts) AS first_ts,
@@ -272,9 +272,9 @@ def groups(conn: sqlite3.Connection, *, stream: str = "", verdict: str = "",
     hushed = threads.muted(conn)
     out = []
     for row in rows:
-        key = (row["stream"], row["key"])
+        key = (row["channel"], row["key"])
         out.append({
-            "stream": row["stream"],
+            "channel": row["channel"],
             "key": row["key"],
             "title": names.get(key, row["key"]),
             "n": row["n"],
@@ -294,13 +294,13 @@ def groups(conn: sqlite3.Connection, *, stream: str = "", verdict: str = "",
     return {"groups": out, "total": len(out)}
 
 
-def conversations(conn: sqlite3.Connection, cfg: Config, *, stream: str = "",
+def conversations(conn: sqlite3.Connection, cfg: Config, *, channel: str = "",
                   q: str = "") -> dict:
     """Every chat, plus the ones worth asking about. Refreshes the derived numbers first."""
     threads.refresh(conn)
     policy = cfg.platform_mute
     threads.apply_platform_mutes(conn, policy)
-    everything = threads.rows(conn, stream=stream, q=q, policy=policy)
+    everything = threads.rows(conn, channel=channel, q=q, policy=policy)
     return {"threads": everything,
             "review": threads.review(conn, policy=policy),
             "min_items": threads.REVIEW_MIN_ITEMS,
@@ -343,7 +343,7 @@ def senders(conn: sqlite3.Connection, *, q: str = "", decision: str = "",
                   sum(CASE WHEN s.run_id IS NOT NULL THEN 1 ELSE 0 END) AS seen,
                   max(a.ts) AS last_seen
              FROM archive a LEFT JOIN spool s ON s.archive_id = a.id
-            WHERE a.stream = 'email' AND a.from_me = 0 AND a.handle IS NOT NULL"""
+            WHERE a.channel = 'email' AND a.from_me = 0 AND a.handle IS NOT NULL"""
         + clause +
         " GROUP BY 1 ORDER BY n DESC LIMIT ?", args + [limit],
     ).fetchall()
@@ -355,7 +355,7 @@ def senders(conn: sqlite3.Connection, *, q: str = "", decision: str = "",
                        SELECT handle, meta,
                               row_number() OVER (PARTITION BY handle ORDER BY ts DESC) AS rn
                          FROM archive
-                        WHERE stream = 'email' AND from_me = 0 AND handle IS NOT NULL
+                        WHERE channel = 'email' AND from_me = 0 AND handle IS NOT NULL
                      ) WHERE rn = 1""")}
 
     table = {r["address"]: r for r in conn.execute("SELECT * FROM senders")}
@@ -410,7 +410,7 @@ def set_sender(conn: sqlite3.Connection, cfg: Config, address: str, decision: st
         cur = conn.execute(
             """UPDATE spool SET processed_at = ?
                 WHERE processed_at IS NULL AND archive_id IN
-                  (SELECT id FROM archive WHERE stream='email' AND handle = ?)""",
+                  (SELECT id FROM archive WHERE channel='email' AND handle = ?)""",
             (db.now(), address),
         )
         retired = cur.rowcount
@@ -426,7 +426,7 @@ def block(conn: sqlite3.Connection, cfg: Config, payload: dict) -> dict:
     why = (payload.get("reason") or "").strip() or None
 
     address = (payload.get("address") or "").strip().lower()
-    stream = (payload.get("stream") or "").strip()
+    channel = (payload.get("channel") or "").strip()
     thread = (payload.get("thread") or "").strip()
 
     # An event id is the handle the agent is most likely to have: it just proposed the
@@ -442,10 +442,10 @@ def block(conn: sqlite3.Connection, cfg: Config, payload: dict) -> dict:
             return {"error": "no record of which conversation that event came from"}
         kind, _, rest = str(row["entity"]).partition(":")
         if kind == "thread":
-            stream, _, thread = rest.partition(":")
+            channel, _, thread = rest.partition(":")
             # For mail the thread key *is* the address, and blocking a sender is a
             # stronger, more useful statement than muting one address's thread.
-            if stream == "email":
+            if channel == "email":
                 address, thread = thread.lower(), ""
         else:
             # A person bundle. Muting a friend is not what "I don't care about this" ever
@@ -458,12 +458,12 @@ def block(conn: sqlite3.Connection, cfg: Config, payload: dict) -> dict:
                          reason=why or f"{by}: don't care")
         out["blocked"] = address
         return out
-    if stream and thread:
-        out = threads.decide(conn, stream, thread, "mute",
+    if channel and thread:
+        out = threads.decide(conn, channel, thread, "mute",
                              reason=why or f"{by}: don't care", by=by)
-        out["blocked"] = f"{stream}/{thread}"
+        out["blocked"] = f"{channel}/{thread}"
         return out
-    return {"error": "nothing to block — give an address, a stream+thread, or an event_id"}
+    return {"error": "nothing to block — give an address, a channel+thread, or an event_id"}
 
 
 def _queue_sender(conn: sqlite3.Connection, cfg: Config, address: str) -> int:
@@ -471,13 +471,13 @@ def _queue_sender(conn: sqlite3.Connection, cfg: Config, address: str) -> int:
     rows = conn.execute(
         """SELECT a.id, a.person, a.thread FROM archive a
             LEFT JOIN spool s ON s.archive_id = a.id
-           WHERE a.stream = 'email' AND a.handle = ? AND s.id IS NULL
+           WHERE a.channel = 'email' AND a.handle = ? AND s.id IS NULL
              AND substr(a.ts, 1, 10) >= ?""",
         (address, cutoff),
     ).fetchall()
     for row in rows:
         archive.spool_add(conn, row["id"], gate.entity_for(
-            person=row["person"], thread=row["thread"], stream="email", is_group=False))
+            person=row["person"], thread=row["thread"], channel="email", is_group=False))
     return len(rows)
 
 
@@ -488,7 +488,7 @@ def queue_item(conn: sqlite3.Connection, cfg: Config, archive_id: int, action: s
     that record is the whole point of this page — and the queue carries the override.
     """
     row = conn.execute(
-        "SELECT id, stream, ts, person, thread, meta FROM archive WHERE id = ?", (archive_id,)
+        "SELECT id, channel, ts, person, thread, meta FROM archive WHERE id = ?", (archive_id,)
     ).fetchone()
     if not row:
         return {"error": "no such item"}
@@ -496,7 +496,7 @@ def queue_item(conn: sqlite3.Connection, cfg: Config, archive_id: int, action: s
         if not archive.within_horizon(str(row["ts"]), cfg.spool_horizon_days):
             return {"error": f"older than the {cfg.spool_horizon_days}-day spool horizon"}
         archive.spool_add(conn, row["id"], gate.entity_for(
-            person=row["person"], thread=row["thread"], stream=row["stream"],
+            person=row["person"], thread=row["thread"], channel=row["channel"],
             is_group=bool((db.jload(row["meta"], {}) or {}).get("group"))))
         # Clear the run too, or a re-queued item reads as already-read the moment it
         # is queued.

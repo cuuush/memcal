@@ -46,7 +46,7 @@ class Base(unittest.TestCase):
 
     def _turn(self, text: str, *, thread: str = "hermes:s1") -> int:
         return archive.append(
-            self.conn, stream="agent",
+            self.conn, channel="agent",
             external_id=f"turn:{db.slugify(text, 24)}:{thread}",
             ts=db.now(), text=text, thread=thread, person="me", from_me=True,
             addressed_to="machine", gated=True, gate_reason="directive")

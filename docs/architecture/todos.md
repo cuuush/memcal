@@ -22,7 +22,7 @@ memcal todo "Ask Rowan about the toll letter" --when "Rowan back from Italy" --w
 ## Closure is conversational
 
 How a to-do dies is a real problem. You return the borrowed item in person and no
-stream ever reports it; left alone, the brief fills with zombies and stops being
+channel ever reports it; left alone, the brief fills with zombies and stops being
 trustworthy. So memcal never infers completion — the agent raises the question at
 a plausible moment ("You were out in Lakeview yesterday — did you ever give Rowan
 that EZ-Pass back?") and you confirm. `done` is explicit, or asked.

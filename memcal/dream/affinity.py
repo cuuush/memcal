@@ -83,15 +83,15 @@ def _origin(row, entity: str) -> str:
     mentions instead would let the loudest sender in the mailbox out-vote a person, and
     it is also what decides whether a word is a platform tag or a real subject.
     """
-    stream = str(row["stream"] or "")
+    channel = str(row["channel"] or "")
     handle = str(row["handle"] or "")
-    if stream == "email" and "@" in handle:
+    if channel == "email" and "@" in handle:
         return f"email:{handle.rsplit('@', 1)[-1].lower()}"
     if handle:
-        return f"{stream}:{handle}".lower()
+        return f"{channel}:{handle}".lower()
     # User-authored rows often have no handle. Use the thread as the fallback voice so
     # unrelated conversations are not collapsed into one speaker.
-    return f"{stream}:{entity}".lower()
+    return f"{channel}:{entity}".lower()
 
 
 def fragments(bundle) -> list[Fragment]:

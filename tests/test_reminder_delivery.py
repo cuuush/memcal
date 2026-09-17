@@ -129,7 +129,7 @@ class TestReminderDeliveryAppendsOneSessionTurn(unittest.TestCase):
         payload = json.loads(_run_due_reminders(
             "--home", self.home, "--format", "json").strip().splitlines()[-1])
         thread = f"hermes:{self.session}"
-        before = trace.conversation(self.conn, stream="agent", thread=thread)
+        before = trace.conversation(self.conn, channel="agent", thread=thread)
         self.assertEqual(before, [], "no referent before the wake turn")
         transcript: list = []
         before_n = self.conn.execute(
@@ -159,7 +159,7 @@ class TestReminderDeliveryAppendsOneSessionTurn(unittest.TestCase):
         self.assertEqual(meta.get("origin"), module.REMINDER_ORIGIN)
         # The simulated follow-up now has a referent in context.
         followup = "yeah I'll do it tomorrow"
-        convo = trace.conversation(self.conn, stream="agent", thread=thread)
+        convo = trace.conversation(self.conn, channel="agent", thread=thread)
         texts = [line["text"] for line in convo]
         self.assertTrue(any("return the EZ-Pass" in text for text in texts),
                         "the reminder text must be in the session transcript")

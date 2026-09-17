@@ -16,7 +16,7 @@ Checklist before relying on a custom source:
 
 1. `memcal sources` reports it usable (or the exact gap).
 2. `memcal ingest <name> --limit 20` archives and queues sane lines.
-3. `memcal gatecheck --stream <name>` shows the gate admitting the right shape.
+3. `memcal gatecheck --channel <name>` shows the gate admitting the right shape.
 4. `memcal dream --dry-run` prices the resulting bundles.
 
 Authoring details: [Custom sources](../integrations/custom.md).

@@ -14,7 +14,7 @@ matches the platform:
 
 A plain `Source` implements `fetch` plus `check` (the RSS example is exactly
 this). `PolledSource` / `StreamSource` implement `connect` plus their hooks
-(`conversations` / `history` / `normalize`, or `stream` / `normalize`) plus
+(`conversations` / `history` / `normalize`, or `channel` / `normalize`) plus
 `check`. Add identity mapping so handles resolve; `memcal sources` and
 `memcal doctor` report through `check`. Watermarks, budgets, rounds, dedupe,
 gating, and spooling come from the shared path — collection, review accounting,

@@ -11,9 +11,9 @@ from .base import IngestReport, adapt_progress
 
 
 class Source:
-    """Base class for every stream. Subclasses override `name` and `fetch`."""
+    """Base class for every channel. Subclasses override `name` and `fetch`."""
 
-    #: CLI name — `memcal ingest <name>`. Also the `stream` column in the archive.
+    #: CLI name — `memcal ingest <name>`. Also the `channel` column in the archive.
     name: str = ""
     #: One line, shown by `memcal sources`.
     description: str = ""
@@ -25,9 +25,9 @@ class Source:
     order: int = 50
     #: What proves this source healthy — the data, or the read.
     #:
-    #: ``"stream"`` (default): new archive rows. ``"snapshot"``: a successful
+    #: ``"channel"`` (default): new archive rows. ``"snapshot"``: a successful
     #: read. The mode must match the source shape or staleness is misreported.
-    health: str = "stream"
+    health: str = "channel"
 
     def fetch(self, conn: sqlite3.Connection, cfg: Config, report: IngestReport,
               limit: int) -> None:
@@ -35,7 +35,7 @@ class Source:
 
         Use `watermark(conn, key)` / `set_watermark(conn, key, value)` to resume rather
         than re-reading everything; every item is deduplicated on
-        (stream, external_id) anyway, so a replay is safe but wasteful.
+        (channel, external_id) anyway, so a replay is safe but wasteful.
         """
         raise NotImplementedError
 
@@ -67,7 +67,7 @@ class Source:
         `record=False` for intermediate pages and finalizes the all-page aggregate
         once itself, so a quiet last page cannot erase earlier pages.
         """
-        report = IngestReport(stream=self.name,
+        report = IngestReport(channel=self.name,
                               horizon_days=getattr(cfg, "spool_horizon_days",
                                                    IngestReport.horizon_days),
                               progress=adapt_progress(progress),

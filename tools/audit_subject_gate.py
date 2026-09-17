@@ -27,7 +27,7 @@ conn = db.open_db(cfg.db_path)
 
 rows = conn.execute(
     """SELECT handle, gated, gate_reason, meta, ts FROM archive
-        WHERE stream = 'email' AND handle IS NOT NULL""").fetchall()
+        WHERE channel = 'email' AND handle IS NOT NULL""").fetchall()
 
 rescued = defaultdict(list)      # skipped today, event subject → would now pass
 agreed = 0                       # already passing, subject also says event

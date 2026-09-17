@@ -29,18 +29,18 @@ class _Base(unittest.TestCase):
     def tearDown(self):
         self.conn.close()
 
-    def collect(self, stream, eid, text, thread, handle="friend@example.com",
+    def collect(self, channel, eid, text, thread, handle="friend@example.com",
                 ts=None, **kw):
         """One message through the real delivery path. Returns its archive id."""
         from memcal.sources.base import IngestReport
-        report = IngestReport(stream=stream)
-        base.deliver(self.conn, report, stream=stream, external_id=eid,
+        report = IngestReport(channel=channel)
+        base.deliver(self.conn, report, channel=channel, external_id=eid,
                      ts=ts or db.now(), text=text, thread=thread,
                      handle=handle, **kw)
         self.conn.commit()
         row = self.conn.execute(
-            "SELECT id FROM archive WHERE stream = ? AND external_id = ?",
-            (stream, eid)).fetchone()
+            "SELECT id FROM archive WHERE channel = ? AND external_id = ?",
+            (channel, eid)).fetchone()
         return row["id"] if row else None
 
     def poker(self, title="Poker night"):
@@ -65,7 +65,7 @@ class TestNewActivityNominatesWithoutChangingFacts(_Base):
                 side_effect=AssertionError("nomination runs no model")):
             found = activity.pending(self.conn, "event", event.key)
             links = activity.associations(self.conn, "event", event.key)
-        self.assertEqual(links["strong"], [{"stream": "chat",
+        self.assertEqual(links["strong"], [{"channel": "chat",
                                             "thread": "poker group"}])
         m2 = self.collect("chat", "m2", "moved to Sunday at my new place",
                           "poker group")
@@ -74,7 +74,7 @@ class TestNewActivityNominatesWithoutChangingFacts(_Base):
         self.assertEqual([i["id"] for i in found["strong"]], [m2, m3])
         row = found["strong"][0]
         self.assertEqual(
-            (row["stream"], row["thread"], row["text"]),
+            (row["channel"], row["thread"], row["text"]),
             ("chat", "poker group", "moved to Sunday at my new place"))
         self.assertTrue(row["ts"])
         after = self.conn.execute(
@@ -323,12 +323,12 @@ class TestMutesIgnoresAndQuietRelevance(_Base):
         self.collect("chat", "m2", "moved to Sunday?", "poker group")
         threads.record(self.conn, "chat", "poker group", is_group=True)
         self.conn.execute("UPDATE threads SET decision='mute'"
-                          " WHERE stream='chat' AND thread='poker group'")
+                          " WHERE channel='chat' AND thread='poker group'")
         self.conn.commit()
         self.assertEqual(activity.pending(self.conn, "event", event.key)
                          ["strong_total"], 0)
         self.conn.execute("UPDATE threads SET decision=NULL"
-                          " WHERE stream='chat' AND thread='poker group'")
+                          " WHERE channel='chat' AND thread='poker group'")
         identity.set_sender(self.conn, "loud@example.com", "ignore", "no",
                             source="you")
         m3 = self.collect("chat", "m3", "moved again?", "poker group",
@@ -389,7 +389,7 @@ class TestThreadLevelNoChangeReview(_Base):
         live.update_event(self.conn, self.cfg, event.key, note="plan",
                           origin=live.Origin.of("test", cited=[m1]))
         turn_id = archive_mod.append(
-            self.conn, stream="agent", external_id="hermes:s:turn:1",
+            self.conn, channel="agent", external_id="hermes:s:turn:1",
             ts=db.now(), text="is poker still saturday?", thread="hermes:s",
             person="me", from_me=True, addressed_to="machine", gated=True,
             gate_reason="question")
@@ -410,7 +410,7 @@ class TestThreadLevelNoChangeReview(_Base):
         rev2 = ical._revision(ical._identity(two), two)
         for eid, rev, title in (("c1", rev1, "Dentist"), ("c2", rev2, "Haircut")):
             self.conn.execute(
-                "INSERT INTO archive(stream, external_id, ts, thread, text,"
+                "INSERT INTO archive(channel, external_id, ts, thread, text,"
                 " created_at) VALUES('ical', ?, '2026-09-01T10:00:00', 'cal-1', ?, ?)",
                 (rev, title, db.now()))
         self.conn.commit()
@@ -427,7 +427,7 @@ class TestThreadLevelNoChangeReview(_Base):
         changed = dict(two, start="2026-09-20T16:00:00")
         rev2b = ical._revision(ical._identity(two), changed)
         self.conn.execute(
-            "INSERT INTO archive(stream, external_id, ts, thread, text, created_at)"
+            "INSERT INTO archive(channel, external_id, ts, thread, text, created_at)"
             " VALUES('ical', ?, '2026-09-01T11:00:00', 'cal-1', 'Haircut moved', ?)",
             (rev2b, db.now()))
         self.conn.commit()
@@ -437,7 +437,7 @@ class TestThreadLevelNoChangeReview(_Base):
         moved = dict(one, start="2026-09-20T15:00:00")
         rev1b = ical._revision(ical._identity(one), moved)
         self.conn.execute(
-            "INSERT INTO archive(stream, external_id, ts, thread, text, created_at)"
+            "INSERT INTO archive(channel, external_id, ts, thread, text, created_at)"
             " VALUES('ical', ?, '2026-09-01T12:00:00', 'cal-1', 'Dentist moved', ?)",
             (rev1b, db.now()))
         self.conn.commit()
@@ -524,7 +524,7 @@ class TestSourceBackedPrecedence(_Base):
     def _turn_at(self, ts, text="user correction"):
         from memcal import archive as archive_mod
         turn_id = archive_mod.append(
-            self.conn, stream="agent", external_id=f"hermes:s:turn:{ts}",
+            self.conn, channel="agent", external_id=f"hermes:s:turn:{ts}",
             ts=ts, text=text, thread="hermes:s", person="me", from_me=True,
             addressed_to="machine", gated=True, gate_reason="question")
         self.conn.commit()

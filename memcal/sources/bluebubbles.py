@@ -260,7 +260,7 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 1000) -> base.
             newest = max(newest, int(created or 0))
             base.deliver(
                 conn, report,
-                stream="imessage",
+                channel="imessage",
                 external_id=message.get("guid") or f"bb:{message.get('originalROWID')}",
                 ts=to_iso(created),
                 text=text,

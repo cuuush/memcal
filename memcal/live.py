@@ -35,12 +35,12 @@ def remember(conn: sqlite3.Connection, cfg: Config, text: str, *,
     """One thing said to the agent, written now. Same diff machinery as the dream pass."""
     stamp = db.now()
     archive_id = archive.append(
-        conn, stream="agent", external_id=f"live:{stamp}:{db.slugify(text, 32)}",
+        conn, channel="agent", external_id=f"live:{stamp}:{db.slugify(text, 32)}",
         ts=stamp, text=text, thread="conversation", person=speaker,
         from_me=(speaker == "me"), addressed_to="machine",
         gated=True, gate_reason="live",
     )
-    item = _Row(ts=stamp, stream="agent", thread="conversation", person=speaker,
+    item = _Row(ts=stamp, channel="agent", thread="conversation", person=speaker,
                 handle=None, from_me=(speaker == "me"), text=text,
                 addressed_to="machine")
     bundle = Bundle(entity=gate.bundle_entity(speaker, "conversation", "agent"), items=[item])
@@ -291,21 +291,21 @@ def _origin_pointer(conn: sqlite3.Connection, origin: Origin) -> str:
     for aid in list(getattr(origin, "archive_ids", ()) or ()):
         try:
             row = conn.execute(
-                "SELECT stream, thread, person FROM archive WHERE id = ?",
+                "SELECT channel, thread, person FROM archive WHERE id = ?",
                 (int(aid),)).fetchone()
         except (ValueError, TypeError, sqlite3.Error):
             continue
         if row is None:
             continue
-        stream = (row["stream"] or "").strip()
+        channel = (row["channel"] or "").strip()
         thread = (row["thread"] or "").strip()
         person = (row["person"] or "").strip()
         if thread:
-            return f"thread:{stream or 'agent'}:{thread}"
+            return f"thread:{channel or 'agent'}:{thread}"
         if person:
             return f"person:{person}"
-        if stream:
-            return f"stream:{stream}"
+        if channel:
+            return f"channel:{channel}"
     session = (getattr(origin, "session", "") or "").strip()
     surface = (getattr(origin, "surface", "") or "").strip()
     if session and surface and surface != "unknown":

@@ -84,7 +84,7 @@ class Message:
 class _Budgeted:
     """Bookkeeping both shapes need: budget, progress phases, delivery."""
 
-    #: Included in `memcal sources`; also the `stream` column and the watermark prefix.
+    #: Included in `memcal sources`; also the `channel` column and the watermark prefix.
     name: str = ""
     #: Largest page this platform will return in one request.
     page: int = 100
@@ -110,7 +110,7 @@ class _Budgeted:
             meta.setdefault("group", True)
         base.deliver(
             conn, report,
-            stream=self.name,
+            channel=self.name,
             external_id=message.external_id,
             ts=message.ts,
             text=message.text,
@@ -336,12 +336,12 @@ class StreamSource(_Budgeted, Source):
         conn.commit()
 
 
-def link_me(conn: sqlite3.Connection, report: base.IngestReport, stream: str,
+def link_me(conn: sqlite3.Connection, report: base.IngestReport, channel: str,
             my_id: str, *, name: str = "me", setting: str = "") -> str:
     """Link the owner's handle, or note why their messages will look wrong."""
     my_id = str(my_id or "").strip()
     if my_id:
-        identity.link(conn, f"{stream}:{my_id}", name or "me", source=stream)
+        identity.link(conn, f"{channel}:{my_id}", name or "me", source=channel)
     elif setting:
         report.notes.append(
             f"{setting} is unset — your own messages will read as another "

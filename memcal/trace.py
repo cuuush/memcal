@@ -224,22 +224,22 @@ def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
     expanded: dict[int, sqlite3.Row] = {row["id"]: row for row in linked}
     if context:
         for row in linked:
-            if not row["thread"] or row["stream"] in UNTHREADED_STREAMS:
+            if not row["thread"] or row["channel"] in UNTHREADED_STREAMS:
                 continue
             before = conn.execute(
                 """SELECT * FROM archive
-                    WHERE stream = ? AND thread = ? AND
+                    WHERE channel = ? AND thread = ? AND
                           (ts < ? OR (ts = ? AND id < ?))
                     ORDER BY ts DESC, id DESC LIMIT ?""",
-                (row["stream"], row["thread"], row["ts"], row["ts"], row["id"],
+                (row["channel"], row["thread"], row["ts"], row["ts"], row["id"],
                  context),
             ).fetchall()
             after = conn.execute(
                 """SELECT * FROM archive
-                    WHERE stream = ? AND thread = ? AND
+                    WHERE channel = ? AND thread = ? AND
                           (ts > ? OR (ts = ? AND id > ?))
                     ORDER BY ts, id LIMIT ?""",
-                (row["stream"], row["thread"], row["ts"], row["ts"], row["id"],
+                (row["channel"], row["thread"], row["ts"], row["ts"], row["id"],
                  context),
             ).fetchall()
             neighbours = [*reversed(before), *after]
@@ -249,7 +249,7 @@ def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
     rows = [{
         "id": row["id"],
         "ts": str(row["ts"]),
-        "stream": row["stream"],
+        "channel": row["channel"],
         "thread": row["thread"] or "",
         "who": "me" if row["from_me"] else (row["person"] or row["handle"] or "?"),
         "text": row["text"] or "",
@@ -277,17 +277,17 @@ def _mark_source_shifts(conn: sqlite3.Connection, rows: list[dict]) -> list[dict
     previous = None
     for row in rows:
         stamp = db.parse_ts(row["ts"])
-        key = (row["stream"], row["thread"])
+        key = (row["channel"], row["thread"])
         changed_conversation = previous is None or key != previous[0]
         changed_day = previous is not None and stamp.date() != previous[1].date()
         if changed_conversation or changed_day:
             where = names.get(key, "") or row["thread"]
-            if row["stream"] == "agent" and row["thread"].startswith("hermes:"):
+            if row["channel"] == "agent" and row["thread"].startswith("hermes:"):
                 channel = "Hermes chat"
-            elif row["stream"] == "imessage":
+            elif row["channel"] == "imessage":
                 channel = f"iMessage with {where}" if where else "iMessage"
             else:
-                channel = f"{row['stream']} · {where}" if where else row["stream"]
+                channel = f"{row['channel']} · {where}" if where else row["channel"]
             gap = ""
             if previous is not None:
                 days = (stamp.date() - previous[1].date()).days
@@ -306,14 +306,14 @@ def citations(conn: sqlite3.Connection, kind: str, ref: str) -> dict:
     a whole conversation as a fallback.
     """
     rows = conn.execute(
-        """SELECT a.stream, a.thread, a.ts FROM evidence e JOIN archive a ON a.id = e.archive_id
+        """SELECT a.channel, a.thread, a.ts FROM evidence e JOIN archive a ON a.id = e.archive_id
             WHERE e.kind = ? AND e.ref = ?""", (kind, ref)).fetchall()
     spooled = conn.execute(
         """SELECT count(DISTINCT s.id) AS n FROM provenance p
              JOIN spool s ON s.run_id = p.run_id AND s.entity = p.entity
             WHERE p.kind = ? AND p.ref = ?""", (kind, ref)).fetchone()["n"]
     names = titles(conn) if rows else {}
-    where = sorted({names.get((r["stream"], r["thread"]), r["thread"] or r["stream"])
+    where = sorted({names.get((r["channel"], r["thread"]), r["thread"] or r["channel"])
                     for r in rows})
     stamps = sorted(str(r["ts"]) for r in rows)
     return {
@@ -337,7 +337,7 @@ def titles(conn: sqlite3.Connection) -> dict[tuple, str]:
     return threads.titles(conn)
 
 
-def conversation(conn: sqlite3.Connection, *, stream: str, thread: str,
+def conversation(conn: sqlite3.Connection, *, channel: str, thread: str,
                  around: str = "", before: int = 12, after: int = 12,
                  limit: int = 60) -> list[dict]:
     """The exchange around one moment, as it was actually said.
@@ -347,17 +347,17 @@ def conversation(conn: sqlite3.Connection, *, stream: str, thread: str,
     """
     if around:
         earlier = conn.execute(
-            """SELECT * FROM archive WHERE stream = ? AND thread = ? AND ts <= ?
+            """SELECT * FROM archive WHERE channel = ? AND thread = ? AND ts <= ?
                 ORDER BY ts DESC, id DESC LIMIT ?""",
-            (stream, thread, around, before)).fetchall()
+            (channel, thread, around, before)).fetchall()
         later = conn.execute(
-            """SELECT * FROM archive WHERE stream = ? AND thread = ? AND ts > ?
-                ORDER BY ts, id LIMIT ?""", (stream, thread, around, after)).fetchall()
+            """SELECT * FROM archive WHERE channel = ? AND thread = ? AND ts > ?
+                ORDER BY ts, id LIMIT ?""", (channel, thread, around, after)).fetchall()
         rows = [*reversed(earlier), *later]
     else:
         rows = list(reversed(conn.execute(
-            """SELECT * FROM archive WHERE stream = ? AND thread = ?
-                ORDER BY ts DESC, id DESC LIMIT ?""", (stream, thread, limit)).fetchall()))
+            """SELECT * FROM archive WHERE channel = ? AND thread = ?
+                ORDER BY ts DESC, id DESC LIMIT ?""", (channel, thread, limit)).fetchall()))
     return [_line(row) for row in rows[:limit]]
 
 
@@ -365,7 +365,7 @@ def _line(row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
         "ts": str(row["ts"])[:16],
-        "stream": row["stream"],
+        "channel": row["channel"],
         "thread": row["thread"] or "",
         "who": "me" if row["from_me"] else (row["person"] or row["handle"] or "?"),
         "text": row["text"] or "",

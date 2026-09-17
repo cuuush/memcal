@@ -37,7 +37,7 @@ def build(source: Path, dest: Path, *, keep_agent: bool = False) -> None:
     conn.execute("UPDATE spool SET processed_at=NULL, run_id=NULL")
     if not keep_agent:
         conn.execute("DELETE FROM spool WHERE archive_id IN "
-                     "(SELECT id FROM archive WHERE stream='agent')")
+                     "(SELECT id FROM archive WHERE channel='agent')")
     restored = _restore_feed_rows(conn)
     for pattern in MODEL_WRITERS:
         conn.execute("DELETE FROM events WHERE written_by LIKE ?", (pattern,))
@@ -49,7 +49,7 @@ def build(source: Path, dest: Path, *, keep_agent: bool = False) -> None:
         "SELECT count(*) FROM spool WHERE processed_at IS NULL").fetchone()[0]
     agent = conn.execute(
         "SELECT count(*) FROM spool s JOIN archive a ON a.id = s.archive_id "
-        "WHERE a.stream='agent'").fetchone()[0]
+        "WHERE a.channel='agent'").fetchone()[0]
     kept = conn.execute("SELECT count(*) FROM events").fetchone()[0]
     conn.close()
 
@@ -88,7 +88,7 @@ def main() -> int:
     ap.add_argument("--source", type=Path, default=None,
                     help="store to copy from (default: the configured MEMCAL_HOME)")
     ap.add_argument("--keep-agent", action="store_true",
-                    help="leave the agent stream in — only to measure how much it leaks")
+                    help="leave the agent channel in — only to measure how much it leaks")
     args = ap.parse_args()
     source = args.source or config.load().home
     if not (source / "memcal.db").is_file():

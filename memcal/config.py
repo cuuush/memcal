@@ -79,8 +79,8 @@ class Config:
     propose_stages: str = ""
 
     # Bundle wire layout format:
-    #   v1               standard format with stream tag on every line
-    #   v2-quiet-stream  omits redundant stream tags on single-stream bundles, retaining 'agent'
+    #   v1               standard format with channel tag on every line
+    #   v2-quiet-stream  omits redundant channel tags on single-channel bundles, retaining 'agent'
     bundle_format: str = "v1"
 
     # Default model identifiers for propose, sweep, and match operations. `match_model`

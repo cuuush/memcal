@@ -8,7 +8,7 @@ export async function loadGate() {
 }
 function feedQuery() {
   const p = new URLSearchParams({limit: "100", offset: String(state.offset)});
-  for (const k of ["verdict", "stream", "reason", "q", "queue"]) if (state[k]) p.set(k, state[k]);
+  for (const k of ["verdict", "channel", "reason", "q", "queue"]) if (state[k]) p.set(k, state[k]);
   // A day window and the queue are two different questions, and asking both at once is
   // how "waiting for the next dream" ends up hiding the month-old mail that is also
   // waiting. The queue filter owns the window when it is on.
@@ -42,7 +42,7 @@ async function loadRollup() {
   const box = $("#rollup");
   box.innerHTML = '<div class="empty">loading…</div>';
   const p = new URLSearchParams({limit: "400"});
-  for (const k of ["verdict", "stream", "reason", "q", "queue"]) if (state[k]) p.set(k, state[k]);
+  for (const k of ["verdict", "channel", "reason", "q", "queue"]) if (state[k]) p.set(k, state[k]);
   if (state.days !== "0" && !state.queue) p.set("days", state.days);
   const [rolled, feed] = await Promise.all([
     api("/api/groups?" + p), api("/api/items?" + feedQuery()),
@@ -70,7 +70,7 @@ function rollupRow(g, max) {
   bar.append(pass, structured, skip);
   sum.append(bar);
   sum.append(el("span", "gname", g.title || g.key));
-  sum.append(el("span", "pill archive", g.stream));
+  sum.append(el("span", "pill archive", g.channel));
   if (g.muted) {
     const m = el("span", "pill"); m.style.cssText = "border-color:var(--warn);color:var(--warn)";
     m.textContent = "muted"; sum.append(m);
@@ -88,7 +88,7 @@ function rollupRow(g, max) {
     d.append(inner);
     // Ask for the conversation by key, not as a text search: a group chat's key is an
     // identifier no message contains, so searching for it finds none of its own lines.
-    const p = new URLSearchParams({limit: "60", group: g.key, stream: g.stream});
+    const p = new URLSearchParams({limit: "60", group: g.key, channel: g.channel});
     for (const k of ["verdict", "reason", "q"]) if (state[k]) p.set(k, state[k]);
     if (state.days !== "0") p.set("days", state.days);
     const data = await api("/api/items?" + p);
@@ -145,7 +145,7 @@ function itemRow(it) {
   }
   // The counterweight to a gate that now reads subject lines: it errs towards letting
   // things through, so saying no has to be one click and has to stick.
-  if (it.state !== "structured" && (it.address || (it.stream && it.thread))) {
+  if (it.state !== "structured" && (it.address || (it.channel && it.thread))) {
     const b = el("button", null, "don't care");
     b.title = it.address
       ? `Never spend a model call on ${it.address} again.`
@@ -165,7 +165,7 @@ async function expand(row, it) {
   const full = await api("/api/item?id=" + it.id);
   const box = el("div", "detail");
   box.append(Object.assign(el("pre"), {textContent: full.text || "(empty)"}));
-  const bits = [`${full.stream} · ${full.ts}`,
+  const bits = [`${full.channel} · ${full.ts}`,
                 full.state === "structured" ? "path: structured direct write" : `gate: ${full.reason}`,
                 full.entity ? `bundle: ${full.entity}` : "not bundled",
                 full.address || ""].filter(Boolean);
@@ -183,10 +183,10 @@ async function queue(id, action) {
    which is what stops the subject test from reopening it on the next well-worded
    reminder. The same endpoint the CLI and the agent use. */
 async function block(it) {
-  const what = it.address || `${it.stream}/${it.thread}`;
+  const what = it.address || `${it.channel}/${it.thread}`;
   if (!confirm(`Never spend a model call on ${what} again?\n\n`
              + `Nothing is deleted — it stays in the archive and stays searchable.`)) return;
-  const body = it.address ? {address: it.address} : {stream: it.stream, thread: it.thread};
+  const body = it.address ? {address: it.address} : {channel: it.channel, thread: it.thread};
   const out = await api("/api/block", {...body, by: "you"});
   if (out.error) return toast(out.error);
   toast(`blocked ${out.blocked}`
@@ -246,7 +246,7 @@ $("#verdict").onclick = e => {
     x.setAttribute("aria-pressed", String(x === b)));
   loadFeed(true);
 };
-$("#stream").onchange = e => { state.stream = e.target.value; loadFeed(true); };
+$("#channel").onchange = e => { state.channel = e.target.value; loadFeed(true); };
 $("#days").onchange = e => { state.days = e.target.value; loadGate(); };
 let qTimer;
 $("#q").oninput = e => { clearTimeout(qTimer); qTimer = setTimeout(() => {

@@ -48,7 +48,7 @@ class TestOpenClawArchivesOnlyInboundTurn(unittest.TestCase):
                 session_id="session-1", message_id="message-1")
             conn = db.open_db(cfg.db_path)
             rows = conn.execute(
-                "SELECT * FROM archive WHERE stream = 'agent'").fetchall()
+                "SELECT * FROM archive WHERE channel = 'agent'").fetchall()
             conn.close()
 
         self.assertIsNotNone(first)

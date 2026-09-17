@@ -10,7 +10,7 @@ was *written* versus when memcal *collected* it. A delayed old message is new to
 the archive even though its source timestamp is old — per-field precedence later
 runs on when evidence was said, so the distinction matters.
 
-Rows deduplicate on `(stream, external_id)`, so re-runs and redelivery are safe.
+Rows deduplicate on `(channel, external_id)`, so re-runs and redelivery are safe.
 Source and thread identity travel with every row, which is what lets later stages
 link an event's supporting evidence back to the exact thread it came from. The
 archive is full-text indexed (SQLite FTS5) and searchable at any time:
@@ -88,7 +88,7 @@ nonzero with the reason.
 ## Agent conversations
 
 Inbound user turns from the Hermes and OpenClaw integrations archive the same way,
-under the agent stream. Only the user's original message is kept as user-authored
+under the agent channel. Only the user's original message is kept as user-authored
 evidence — assistant replies, injected snapshots, and tool output are excluded so
 they can never become "facts" later. See [Agent conversations](../sources/conversations.md)
 and [Daytime freshness](freshness.md).

@@ -14,7 +14,7 @@ proves an earlier one was considered, so coverage is one row per observation
 and holes stay holes until something actually covers them.
 
 Associations nominate; the model judges. A strong link is an exact
-``(stream, thread)`` already cited as evidence for the fact. A weak link shares
+``(channel, thread)`` already cited as evidence for the fact. A weak link shares
 a participant *and* a distinctive title term with it, and is always labeled as
 the weaker guess it is. One shared person alone never marks anything changed.
 
@@ -116,19 +116,19 @@ def advance_thread(conn: sqlite3.Connection, items, *,
     by_thread: dict[tuple[str, str], list[int]] = {}
     for item in items:
         try:
-            stream, thread, aid = item["stream"], item["thread"] or "", int(item["id"])
+            channel, thread, aid = item["channel"], item["thread"] or "", int(item["id"])
         except (KeyError, TypeError, ValueError):
             continue
-        if not aid or stream in skip:
+        if not aid or channel in skip:
             continue
-        by_thread.setdefault((stream, thread), []).append(aid)
+        by_thread.setdefault((channel, thread), []).append(aid)
     moved = 0
-    for (stream, thread), ids in by_thread.items():
+    for (channel, thread), ids in by_thread.items():
         refs = conn.execute(
             """SELECT DISTINCT e.kind, e.ref FROM evidence e
                  JOIN archive a ON a.id = e.archive_id
-                WHERE a.stream = ? AND coalesce(a.thread, '') = ?""",
-            (stream, thread)).fetchall()
+                WHERE a.channel = ? AND coalesce(a.thread, '') = ?""",
+            (channel, thread)).fetchall()
         for row in refs:
             moved += note_review(conn, row["kind"], row["ref"], ids,
                                  by_run=by_run, by_stage=by_stage, commit=False)
@@ -151,11 +151,11 @@ def evidence_threads(conn: sqlite3.Connection, kind: str, ref: str,
     from . import archive as archive_mod  # noqa: PLC0415
     from . import trace as trace_mod  # noqa: PLC0415
     unthreaded = trace_mod.UNTHREADED_STREAMS
-    return [(row["stream"], row["thread"] or "") for row in conn.execute(
-        """SELECT DISTINCT a.stream AS stream, coalesce(a.thread, '') AS thread
+    return [(row["channel"], row["thread"] or "") for row in conn.execute(
+        """SELECT DISTINCT a.channel AS channel, coalesce(a.thread, '') AS thread
              FROM evidence e JOIN archive a ON a.id = e.archive_id
             WHERE e.kind = ? AND e.ref = ? AND a.thread IS NOT NULL
-              AND a.stream NOT IN (%s)
+              AND a.channel NOT IN (%s)
             ORDER BY 1, 2""" % ",".join("?" * (len(archive_mod.INTERNAL_STREAMS)
                                                 + len(unthreaded))),
         (kind, ref, *archive_mod.INTERNAL_STREAMS, *unthreaded))]
@@ -165,7 +165,7 @@ def evidence_families(conn: sqlite3.Connection, kind: str, ref: str,
                       ) -> list[tuple[str, str]]:
     """Cited item families for streams without conversations.
 
-    On an unthreaded stream (a calendar) the thread names a whole collection,
+    On an unthreaded channel (a calendar) the thread names a whole collection,
     so sharing it proves nothing. What recurs is the item: for those streams
     the external id leads with a stable identity (`identity:digest`), and a
     new revision of a cited item is activity on exactly that item.
@@ -174,11 +174,11 @@ def evidence_families(conn: sqlite3.Connection, kind: str, ref: str,
     unthreaded = trace_mod.UNTHREADED_STREAMS
     if not unthreaded:
         return []
-    return [(row["stream"], row["family"]) for row in conn.execute(
-        """SELECT DISTINCT a.stream AS stream,
+    return [(row["channel"], row["family"]) for row in conn.execute(
+        """SELECT DISTINCT a.channel AS channel,
                   substr(a.external_id, 1, instr(a.external_id, ':') - 1) AS family
              FROM evidence e JOIN archive a ON a.id = e.archive_id
-            WHERE e.kind = ? AND e.ref = ? AND a.stream IN (%s)
+            WHERE e.kind = ? AND e.ref = ? AND a.channel IN (%s)
               AND instr(a.external_id, ':') > 0
             ORDER BY 1, 2""" % ",".join("?" * len(unthreaded)),
         (kind, ref, *unthreaded))]
@@ -225,28 +225,28 @@ def associations(conn: sqlite3.Connection, kind: str, ref: str,
     `strong_only` skips the weak candidate scan (a whole-archive per-person
     lookup) for callers that never read `weak` — it returns an empty list.
     """
-    strong = [{"stream": s, "thread": t} for s, t in evidence_threads(conn, kind, ref)]
-    strong += [{"stream": s, "family": f} for s, f in evidence_families(conn, kind, ref)]
-    strong_keys = {(item["stream"], item.get("thread") or "") for item in strong}
+    strong = [{"channel": s, "thread": t} for s, t in evidence_threads(conn, kind, ref)]
+    strong += [{"channel": s, "family": f} for s, f in evidence_families(conn, kind, ref)]
+    strong_keys = {(item["channel"], item.get("thread") or "") for item in strong}
     weak: list[dict] = []
     persons = () if strong_only else ref_persons(conn, kind, ref)
     terms = distinctive_terms(_title_for(conn, kind, ref)) if persons else []
     if persons and terms:
         candidates = conn.execute(
-            """SELECT DISTINCT stream, thread FROM archive
+            """SELECT DISTINCT channel, thread FROM archive
                 WHERE thread IS NOT NULL AND thread != ''
                   AND (person IN (%s) OR handle IN (%s))""" % (
                 ",".join("?" * len(persons)), ",".join("?" * len(persons))),
             [*persons, *persons]).fetchall()
         for row in candidates:
-            key = (row["stream"], row["thread"] or "")
+            key = (row["channel"], row["thread"] or "")
             if key in strong_keys or not key[1]:
                 continue
             lowered = key[1].lower()
             hit = next((term for term in terms if term in lowered), "")
             if not hit:
                 continue
-            weak.append({"stream": key[0], "thread": key[1],
+            weak.append({"channel": key[0], "thread": key[1],
                          "why": f"shared participant plus {hit!r}"})
             if len(weak) >= WEAK_THREAD_CAP:
                 break
@@ -264,24 +264,24 @@ def _pending_rows(conn: sqlite3.Connection, pairs: list[dict],
     both — they must not leak, nor inflate the count. Automatic low relevance
     alone hides nothing.
 
-    Pairs name either a conversation (`stream` + `thread`) or, on streams
-    without conversations, one cited item (`stream` + `family`).
+    Pairs name either a conversation (`channel` + `thread`) or, on streams
+    without conversations, one cited item (`channel` + `family`).
     """
     if not pairs:
         return [], 0
     clauses, args = [], []
     for pair in pairs:
         if pair.get("family"):
-            clauses.append("(a.stream = ? AND (a.external_id = ?"
+            clauses.append("(a.channel = ? AND (a.external_id = ?"
                            " OR a.external_id LIKE ? ESCAPE '\\'))")
-            args += [pair["stream"], pair["family"],
+            args += [pair["channel"], pair["family"],
                      pair["family"].replace("\\", "\\\\")
                      .replace("%", "\\%").replace("_", "\\_") + ":%"]
         else:
-            clauses.append("(a.stream = ? AND coalesce(a.thread, '') = ?)")
-            args += [pair["stream"], pair.get("thread") or ""]
+            clauses.append("(a.channel = ? AND coalesce(a.thread, '') = ?)")
+            args += [pair["channel"], pair.get("thread") or ""]
     clause = " OR ".join(clauses)
-    scope = ("LEFT JOIN threads t ON t.stream = a.stream AND t.thread = a.thread"
+    scope = ("LEFT JOIN threads t ON t.channel = a.channel AND t.thread = a.thread"
              " LEFT JOIN senders s ON s.address = a.handle")
     hidden = ("coalesce(t.decision, '') != 'mute'"
               " AND NOT (s.decision IN ('archive', 'ignore')"
@@ -307,7 +307,7 @@ def _pending_rows(conn: sqlite3.Connection, pairs: list[dict],
         "id": row["id"],
         "ts": str(row["ts"]),
         "arrived": str(row["created_at"] or ""),
-        "stream": row["stream"],
+        "channel": row["channel"],
         "thread": row["thread"] or "",
         "who": ("me" if row["from_me"]
                 else (row["person"] or row["handle"] or "?")),
@@ -332,7 +332,7 @@ def pending(conn: sqlite3.Connection, kind: str, ref: str,
         from . import trace as trace_mod  # noqa: PLC0415
         skip = trace_mod.UNTHREADED_STREAMS
         strong_links = [p for p in strong_links
-                        if p.get("stream") not in skip and not p.get("family")]
+                        if p.get("channel") not in skip and not p.get("family")]
     covered = reviewed_ids(conn, kind, ref)
     strong_items, strong_total = _pending_rows(conn, strong_links, covered,
                                               limit=limit)
@@ -390,29 +390,29 @@ def unlinked_backlog(conn: sqlite3.Connection, *, limit: int = 5,
     covered = represented or set()
     associated = set()
     for row in conn.execute(
-            """SELECT DISTINCT a.stream AS stream, coalesce(a.thread, '') AS thread,
+            """SELECT DISTINCT a.channel AS channel, coalesce(a.thread, '') AS thread,
                       e.ref AS ref
                  FROM evidence e
                  JOIN archive a ON a.id = e.archive_id
                 WHERE a.thread IS NOT NULL AND e.kind = 'event'"""):
         if row["ref"] in covered:
-            associated.add((row["stream"], row["thread"] or ""))
+            associated.add((row["channel"], row["thread"] or ""))
     from . import archive as archive_mod  # noqa: PLC0415
     internal = set(archive_mod.INTERNAL_STREAMS)
     rows = conn.execute(
-        """SELECT a.stream, a.thread, count(*) AS n, max(a.ts) AS newest
+        """SELECT a.channel, a.thread, count(*) AS n, max(a.ts) AS newest
              FROM spool s JOIN archive a ON a.id = s.archive_id
             WHERE s.processed_at IS NULL
-            GROUP BY a.stream, a.thread ORDER BY newest DESC""").fetchall()
+            GROUP BY a.channel, a.thread ORDER BY newest DESC""").fetchall()
     out = []
     for row in rows:
-        key = (row["stream"], row["thread"] or "")
+        key = (row["channel"], row["thread"] or "")
         if key in associated or not key[1] or key[0] in internal:
             continue
         from . import threads  # noqa: PLC0415
         if threads.is_muted(conn, key[0], key[1]):
             continue
-        out.append({"stream": key[0], "thread": key[1], "waiting": row["n"],
+        out.append({"channel": key[0], "thread": key[1], "waiting": row["n"],
                     "newest": str(row["newest"] or "")[:16]})
         if len(out) >= limit:
             break
@@ -446,12 +446,12 @@ def format_read(page: dict, weak: list[dict], *, label: str) -> str:
         lines.append("(nothing new since the last review)")
     for item in page["items"]:
         lines.append(f"[{item['id']}] {item['ts'][:16]} (collected {item['arrived'][:16]})"
-                     f"  {item['stream']}/{item['thread']} · {item['who']}:")
+                     f"  {item['channel']}/{item['thread']} · {item['who']}:")
         lines.append(f"  {item['text']}")
     if page["items"]:
         lines.append(f"(next cursor: {page['next_cursor']}; reading changes nothing — "
                      f"cite [ids] in a correction to acknowledge them)")
     for weak_thread in weak:
-        lines.append(f"(possibly related: {weak_thread['stream']}/"
+        lines.append(f"(possibly related: {weak_thread['channel']}/"
                      f"{weak_thread['thread']} — {weak_thread['why']})")
     return "\n".join(lines)

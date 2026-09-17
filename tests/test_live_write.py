@@ -363,7 +363,7 @@ class TestACompletedToolCallLeavesARecordTheNightlyPassCanRead(Base):
 
     def _turn(self, text: str) -> int:
         return archive.append(
-            self.conn, stream="agent", external_id=f"turn:{db.slugify(text, 24)}",
+            self.conn, channel="agent", external_id=f"turn:{db.slugify(text, 24)}",
             ts=db.now(), text=text, thread="hermes:s1", person="me", from_me=True,
             addressed_to="machine", gated=True, gate_reason="directive")
 
@@ -569,7 +569,7 @@ class TestReplayingAnOperationCannotUndoALaterOne(Base):
 
     def _turn(self, text: str) -> int:
         return archive.append(
-            self.conn, stream="agent", external_id=f"turn:{db.slugify(text, 24)}",
+            self.conn, channel="agent", external_id=f"turn:{db.slugify(text, 24)}",
             ts=db.now(), text=text, thread="hermes:s1", person="me", from_me=True,
             addressed_to="machine", gated=True, gate_reason="directive")
 

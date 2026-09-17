@@ -242,7 +242,7 @@ def _included_group(conn: sqlite3.Connection, thread: str) -> bool:
         return False
     return conn.execute(
         """SELECT 1 FROM archive
-            WHERE stream = 'groupme' AND thread = ? AND gated = 1 LIMIT 1""",
+            WHERE channel = 'groupme' AND thread = ? AND gated = 1 LIMIT 1""",
         (thread,),
     ).fetchone() is not None
 
@@ -263,7 +263,7 @@ def _profiles_are_current(conn: sqlite3.Connection, group: dict, thread: str) ->
         """SELECT 1 FROM archive a
            LEFT JOIN groupme_profiles p
              ON p.user_id = substr(a.handle, length('groupme:') + 1)
-           WHERE a.stream = 'groupme' AND a.thread = ? AND a.gated = 1
+           WHERE a.channel = 'groupme' AND a.thread = ? AND a.gated = 1
              AND a.from_me = 0 AND a.ts > ? AND a.handle LIKE 'groupme:%'
              AND p.user_id IS NULL
            LIMIT 1""",
@@ -285,7 +285,7 @@ def _backfill_naming_queue(conn: sqlite3.Connection) -> int:
         """SELECT tm.handle, max(tm.seen_name) AS seen_name
              FROM thread_members tm
              LEFT JOIN handles h ON h.handle = tm.handle
-            WHERE tm.stream = 'groupme' AND h.handle IS NULL
+            WHERE tm.channel = 'groupme' AND h.handle IS NULL
             GROUP BY tm.handle"""
     ).fetchall()
     for row in rows:
@@ -338,7 +338,7 @@ def _cache_group_profiles(conn: sqlite3.Connection, summary: dict, detail: dict,
         # Update derived person column on archived records without altering immutable message fields.
         conn.execute(
             """UPDATE archive SET person = ?
-                WHERE stream = 'groupme' AND handle = ? AND from_me = 0
+                WHERE channel = 'groupme' AND handle = ? AND from_me = 0
                   AND coalesce(person, '') != ?""",
             (canonical, handle, canonical),
         )
@@ -630,7 +630,7 @@ def _deliver(conn, report, message: dict, *, thread: str, my_id: str, tier: set[
         or identity.spelling_in_use(conn, seen_name)
     base.deliver(
         conn, report,
-        stream="groupme",
+        channel="groupme",
         external_id=str(message.get("id")),
         ts=to_iso(message.get("created_at")),
         text=text,

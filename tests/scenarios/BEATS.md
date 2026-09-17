@@ -19,7 +19,7 @@ benchmark parameter (`--format`).
 ## Record schema
 
 ```json
-{"day": 1, "time": "19:42", "stream": "groupme", "thread": "poker-crew",
+{"day": 1, "time": "19:42", "channel": "groupme", "thread": "poker-crew",
  "sender": "Jordan Lee", "text": "...", "beat": "poker.established"}
 ```
 
@@ -562,7 +562,7 @@ story, and it is where the reported defects were.
   assistant had already applied, and it can never close, because to-dos close
   conversationally, and the user is never the one who reports it done.
 - **Must:** the line still reach the model. Recall is not in question here; the agent
-  stream is the highest-signal stream there is.
+  channel is the highest-signal channel there is.
 - **The gate is not the lever, and this beat is built to prove it.** `COMMIT_RE` is a
   *first-person* detector — "i need to", "remind me", "let's" — so a bare imperative
   handed to an assistant never fired `own-commitment` in the first place. Archive 20080
@@ -576,10 +576,10 @@ story, and it is where the reported defects were.
   and `sh02` (beat 20) are also them addressing their assistant in the imperative, and both
   *must* still open a to-do — because the doer is them. "Remind me to venmo Cameron" is
   their obligation stated to a machine; "file the claim" is the machine's. A fix that
-  reads as "agent stream, imperative, no to-do" takes beats 12 and 20 down with it.
+  reads as "agent channel, imperative, no to-do" takes beats 12 and 20 down with it.
 - Nothing in the text separates the two. **The addressee does**, and until `#57` the
   archive had no column for it: `from_me` is a fact about authorship, and on every other
-  stream there is a person on the other end, so the two travelled together. `me: cancel
+  channel there is a person on the other end, so the two travelled together. `me: cancel
   the booking` and `me → assistant: cancel the booking` are the same words and opposite
   obligations.
 

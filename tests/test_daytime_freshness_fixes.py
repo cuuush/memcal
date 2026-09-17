@@ -32,22 +32,22 @@ class _Base(unittest.TestCase):
     def tearDown(self):
         self.conn.close()
 
-    def collect(self, stream, eid, text, thread, handle="friend@example.com",
+    def collect(self, channel, eid, text, thread, handle="friend@example.com",
                 ts=None, **kw):
         from memcal.sources import base
         from memcal.sources.base import IngestReport
-        base.deliver(self.conn, IngestReport(stream=stream), stream=stream,
+        base.deliver(self.conn, IngestReport(channel=channel), channel=channel,
                      external_id=eid, ts=ts or db.now(), text=text, thread=thread,
                      handle=handle, **kw)
         self.conn.commit()
         row = self.conn.execute(
-            "SELECT id FROM archive WHERE stream = ? AND external_id = ?",
-            (stream, eid)).fetchone()
+            "SELECT id FROM archive WHERE channel = ? AND external_id = ?",
+            (channel, eid)).fetchone()
         return row["id"] if row else None
 
     def turn_at(self, ts, text="user turn"):
         turn = archive.append(
-            self.conn, stream="agent", external_id=f"turn:{ts}:{text}",
+            self.conn, channel="agent", external_id=f"turn:{ts}:{text}",
             ts=ts, text=text, thread="conversation", person="me", from_me=True,
             addressed_to="machine", gated=True, gate_reason="question")
         self.conn.commit()
@@ -306,7 +306,7 @@ class TestInvalidCitationsAreRefused(_Base):
         # borrow the current instant's authority.
         event = self._settled_poker()
         bad = archive.append(
-            self.conn, stream="chat", external_id="bad", ts="not-a-timestamp",
+            self.conn, channel="chat", external_id="bad", ts="not-a-timestamp",
             text="1 Pine", thread="poker group", person="friend",
             from_me=False, addressed_to="me")
         self.conn.commit()
@@ -318,7 +318,7 @@ class TestInvalidCitationsAreRefused(_Base):
     def test_an_empty_source_timestamp_is_refused_too(self):
         event = self._settled_poker()
         empty = archive.append(
-            self.conn, stream="chat", external_id="empty", ts="",
+            self.conn, channel="chat", external_id="empty", ts="",
             text="1 Pine", thread="poker group", person="friend",
             from_me=False, addressed_to="me")
         self.conn.commit()
@@ -342,7 +342,7 @@ class TestBacklogDisclosesUnrepresentedThreads(_Base):
         return event
 
     def _backlog_threads(self):
-        return {(i["stream"], i["thread"]) for i in activity.unlinked_backlog(
+        return {(i["channel"], i["thread"]) for i in activity.unlinked_backlog(
             self.conn, represented=brief.represented_keys(self.conn, self.cfg))}
 
     def test_a_new_invitation_in_a_past_events_thread_is_not_hidden(self):
@@ -503,7 +503,7 @@ class TestFreshnessCorrectness81(_Base):
                 "calendar_name": "Home", "calendar_uid": "cal-1", "writable": True}
         rev1 = ical._revision(ical._identity(item), item)
         self.conn.execute(
-            "INSERT INTO archive(stream, external_id, ts, thread, text, created_at)"
+            "INSERT INTO archive(channel, external_id, ts, thread, text, created_at)"
             " VALUES('ical', ?, '2026-09-01T10:00:00', 'cal-1', 'Dentist', ?)",
             (rev1, db.now()))
         self.conn.commit()
@@ -517,7 +517,7 @@ class TestFreshnessCorrectness81(_Base):
         moved = dict(item, start="2026-09-20T15:00:00")
         rev2 = ical._revision(ical._identity(moved), moved)
         self.conn.execute(
-            "INSERT INTO archive(stream, external_id, ts, thread, text, created_at)"
+            "INSERT INTO archive(channel, external_id, ts, thread, text, created_at)"
             " VALUES('ical', ?, '2026-09-01T12:00:00', 'cal-1', 'Dentist moved', ?)",
             (rev2, db.now()))
         self.conn.commit()

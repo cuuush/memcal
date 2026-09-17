@@ -110,7 +110,7 @@ SIGNAL = [
     # -- A WhatsApp one-to-one, which the corpus had none of. Every `wa` thread was a
     #    group, and the builder raised on anything else, so `is_group`'s DM branch and
     #    the address-book partner name it reads were unreachable from here (#35). Rae
-    #    is also in `doggo park`, so the same person arrives both ways on one stream.
+    #    is also in `doggo park`, so the same person arrives both ways on one channel.
     dict(id="wadm01", day=2, time="08:40", src="wa", thread="Rae", who="Rae", beat=None,
          text="comet was an absolute menace at the run this morning btw"),
     dict(id="wadm02", day=2, time="08:44", src="wa", thread="Rae", who="me", beat=None,
@@ -187,10 +187,10 @@ SIGNAL = [
 
     # -- 11. Same Thursday dinner, from two more streams on day 2.
     dict(id="dn30", day=2, time="15:20", src="bb", thread="Alex Rivera", who="Alex Rivera",
-         beat="dinner.third-stream",
+         beat="dinner.third-channel",
          say="DM: confirms the user booked the table for thursday at 8:30, asks them to confirm headcount"),
     dict(id="dn31", day=2, time="15:26", src="bb", thread="Alex Rivera", who="me",
-         beat="dinner.third-stream", say="says four of them"),
+         beat="dinner.third-channel", say="says four of them"),
 
     # -- 4. Climbing: mentioned day 1, confirmed day 2.
     dict(id="cl01", day=1, time="20:10", src="bb", thread="Riley Morgan", who="me",
@@ -287,7 +287,7 @@ SIGNAL = [
          text="go ahead and file the vet insurance claim for Comet, the receipts are "
               "all in my email. just handle it and tell me when it's done"),
 
-    # -- 20/21. The Bowery show. The whole beat the agent stream was missing: an
+    # -- 20/21. The Bowery show. The whole beat the agent channel was missing: an
     #    invitation arrives, the user settles it with their assistant (ACTIONS ac02 + ac03 —
     #    a row and a to-do, both typed, both model-free), the user answers the friend a
     #    minute later, and the next day the same plan comes back at them from that
@@ -825,7 +825,7 @@ EMAIL = [
     dict(id="em02", day=2, time="14:55", kind="person",
          addr="alex.rivera@example.com", name="Alex Rivera",
          subject="Thursday - table booked",
-         beat="dinner.third-stream",
+         beat="dinner.third-channel",
          say="short personal email confirming the thursday 8:30 booking for four. "
              "the same dinner as the whatsapp thread"),
 

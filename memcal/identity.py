@@ -67,7 +67,7 @@ JUDGEMENT = 100
 def authority(source: str | None) -> int:
     """Evidence rank for a link written by `source`.
 
-    Sources are `{stream}:{evidence}`, so the suffix decides; a bare string is
+    Sources are `{channel}:{evidence}`, so the suffix decides; a bare string is
     tried whole first.
     """
     key = (source or "").strip().lower()
@@ -119,8 +119,8 @@ def link_by_name(conn: sqlite3.Connection, handle: str, seen_name: str | None,
     person = spelling_in_use(conn, seen_name)
     if not person:
         return None
-    stream = (source or "").split(":", 1)[0] or "cli"
-    if link(conn, handle, person, source=f"{stream}:contact-match"):
+    channel = (source or "").split(":", 1)[0] or "cli"
+    if link(conn, handle, person, source=f"{channel}:contact-match"):
         return person
     return resolve(conn, handle)      # something better already answers for this id
 
@@ -266,10 +266,10 @@ def _spoken_in(conn: sqlite3.Connection) -> dict[str, set[tuple[str, str]]]:
     """Every conversation each person has actually spoken in, read from the archive."""
     seen: dict[str, set[tuple[str, str]]] = {}
     for row in conn.execute(
-            "SELECT DISTINCT person, stream, thread FROM archive"
+            "SELECT DISTINCT person, channel, thread FROM archive"
             "  WHERE person IS NOT NULL AND person <> '' AND from_me = 0"
             "    AND thread IS NOT NULL"):
-        seen.setdefault(row["person"], set()).add((row["stream"], row["thread"]))
+        seen.setdefault(row["person"], set()).add((row["channel"], row["thread"]))
     return seen
 
 
@@ -339,19 +339,19 @@ def non_person_label(conn: sqlite3.Connection, handle: str) -> str | None:
     return (row["label"] or None) if row else None
 
 
-def note_unresolved(conn: sqlite3.Connection, handle: str, stream: str,
+def note_unresolved(conn: sqlite3.Connection, handle: str, channel: str,
                     seen_name: str | None = None, sample: str | None = None) -> None:
     h = normalize(handle)
     if not h or not is_person(h, seen_name) or settled_non_person(conn, h):
         return
     stamp = db.now()
     conn.execute(
-        """INSERT INTO unresolved(handle, stream, seen_name, sample, count, first_seen, last_seen)
+        """INSERT INTO unresolved(handle, channel, seen_name, sample, count, first_seen, last_seen)
            VALUES(?,?,?,?,1,?,?)
            ON CONFLICT(handle) DO UPDATE SET count = count + 1, last_seen = excluded.last_seen,
              seen_name = coalesce(excluded.seen_name, seen_name),
              sample = coalesce(sample, excluded.sample)""",
-        (h, stream, seen_name, (sample or "")[:200], stamp, stamp),
+        (h, channel, seen_name, (sample or "")[:200], stamp, stamp),
     )
 
 

@@ -605,7 +605,7 @@ def _clean(value):
     return value
 
 
-#: An identifier that is not a name: a phone number, a `stream:id` token, an address.
+#: An identifier that is not a name: a phone number, a `channel:id` token, an address.
 #: Anything matching is unusable in text a person reads.
 _NOT_A_NAME = re.compile(r"^\+?\d[\d\s().-]*$|^[a-z]+:[\w.-]+$|@|^\d+$", re.IGNORECASE)
 
