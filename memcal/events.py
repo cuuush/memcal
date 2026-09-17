@@ -29,6 +29,26 @@ CLEARABLE = ("location", "note", "time", "until", "join_url", "rsvp_url", "serie
 
 # Write provenance. Nightly may overwrite today's cheaper writes; a cheap pass may not
 # walk back over what the frontier pass or the user themselves already settled today.
+
+@dataclass
+class UpsertReport:
+    """Result of `upsert`, unpackable as ``(event, verb)`` for callers.
+
+    `applied` / `stale` / `advanced` expose the per-field precedence decisions so
+    the live write path can report them without reconstructing them.
+    """
+
+    event: "Event"
+    verb: str
+    applied: tuple[str, ...] = ()
+    stale: tuple[str, ...] = ()
+    advanced: tuple[str, ...] = ()
+
+    def __iter__(self):
+        yield self.event
+        yield self.verb
+
+
 PRECEDENCE = {"cli": 4, "live": 4, "ical": 4, "sweep": 3, "dream:nightly": 3,
               "dream:ondemand": 2, "dream:realtime": 1}
 
@@ -623,7 +643,7 @@ def upsert(
     clear: tuple[str, ...] = (),
     replace_participants: bool = False,
     commit: bool = True,
-) -> tuple[Event, str]:
+) -> UpsertReport:
     """Insert or update one event, preserving history and write precedence."""
     fields = {k: v for k, v in fields.items() if k in MUTABLE or k == "key"}
     if "title" not in fields and "key" not in fields:
@@ -710,7 +730,7 @@ def upsert(
                              written_by)
         if commit:
             conn.commit()
-        return get(conn, key), "inserted"  # type: ignore[return-value]
+        return UpsertReport(get(conn, key), "inserted")  # type: ignore[return-value]
 
     # Precedence guards settled rows from cheaper passes; newer evidence still applies.
     # The test is on evidence time, not the calendar day.
@@ -785,9 +805,11 @@ def upsert(
         return born, not bool(row["evidence_ts"])
 
     stale: list[str] = []
+    advanced: list[str] = []
+    advance_rows: list[tuple[str, str, str, str]] = []  # name, old, new, evidence_ts
     if guarded and not dated and last_write[:10] != db.today().isoformat():
         # Writers without evidence timestamps may only revise rows written today.
-        return existing, "unchanged"
+        return UpsertReport(existing, "unchanged")
 
     changes: list[tuple[str, str, str]] = []
     updates: dict[str, object] = {}
@@ -829,6 +851,16 @@ def upsert(
                     continue
                 updates[name] = db.jdump(merged)
                 changes.append((name, db.jdump(existing.participants), db.jdump(merged)))
+            else:
+                here = evidence_for(name)
+                floor, day = _floor(name, existing.participants)
+                if dated and here and floor:
+                    newer = (here[:10] > floor[:10]) if day else (here > floor)
+                    if newer and not _stale(here, floor, day):
+                        advanced.append(name)
+                        advance_rows.append(
+                            (name, db.jdump(existing.participants),
+                             db.jdump(merged), str(here)))
             continue
         if name == "hosts":
             replacement = list(dict.fromkeys(str(item).strip() for item in (new or [])
@@ -841,9 +873,31 @@ def upsert(
                     continue
                 updates[name] = db.jdump(replacement)
                 changes.append((name, db.jdump(existing.hosts), db.jdump(replacement)))
+            else:
+                here = evidence_for(name)
+                floor, day = _floor(name, existing.hosts)
+                if dated and here and floor:
+                    newer = (here[:10] > floor[:10]) if day else (here > floor)
+                    if newer and not _stale(here, floor, day):
+                        advanced.append(name)
+                        advance_rows.append(
+                            (name, db.jdump(existing.hosts),
+                             db.jdump(replacement), str(here)))
             continue
         old = getattr(existing, name)
-        if new in (None, "") or new == old:
+        if new in (None, ""):
+            continue
+        if new == old:
+            # Same-value reaffirmation: a genuinely newer supporting statement may
+            # advance this field's evidence without pretending the value changed.
+            # An equal timestamp is a reread of the same statement — no advance.
+            here = evidence_for(name)
+            floor, day = _floor(name, old)
+            if dated and here and floor:
+                newer = (here[:10] > floor[:10]) if day else (here > floor)
+                if newer and not _stale(here, floor, day):
+                    advanced.append(name)
+                    advance_rows.append((name, str(old), str(new), str(here)))
             continue
         if name == "status" and STATUSES.index(new) < STATUSES.index(old) and old == "confirmed":
             continue  # don't walk a confirmed row backwards to 'mentioned'
@@ -871,28 +925,47 @@ def upsert(
         updates[name] = new
         changes.append((name, str(old), str(new)))
 
-    if not updates:
-        return existing, "unchanged"
+    if not updates and not advance_rows:
+        return UpsertReport(existing, "unchanged",
+                            stale=tuple(stale), advanced=tuple(advanced))
 
     # The row keeps the highest authority that ever wrote it, not the last one.
     # Per-field provenance lives in `event_history`.
-    authority = (written_by if precedence(written_by) >= precedence(existing.written_by)
-                 else existing.written_by)
-    sets = ", ".join(f"{k} = ?" for k in updates)
-    conn.execute(
-        f"UPDATE events SET {sets}, written_by = ?, updated_at = ? WHERE id = ?",
-        (*updates.values(), authority, db.now(), existing.id),
-    )
+    stamp = db.now()
+    if updates:
+        authority = (written_by if precedence(written_by) >= precedence(existing.written_by)
+                     else existing.written_by)
+        sets = ", ".join(f"{k} = ?" for k in updates)
+        conn.execute(
+            f"UPDATE events SET {sets}, written_by = ?, updated_at = ? WHERE id = ?",
+            (*updates.values(), authority, stamp, existing.id),
+        )
+    elif advance_rows:
+        # Evidence-only advance still bumps updated_at so operation identity tracks it.
+        conn.execute(
+            "UPDATE events SET updated_at = ? WHERE id = ?", (stamp, existing.id))
     for field_name, old, new in changes:
         conn.execute(
             "INSERT INTO event_history(event_id, field, old_value, new_value,"
             " changed_at, evidence_ts, written_by) VALUES(?,?,?,?,?,?,?)",
-            (existing.id, field_name, old, new, db.now(),
+            (existing.id, field_name, old, new, stamp,
              (evidence_for(field_name) or default_ts or None), written_by),
+        )
+    for field_name, old, new, ev in advance_rows:
+        conn.execute(
+            "INSERT INTO event_history(event_id, field, old_value, new_value,"
+            " changed_at, evidence_ts, written_by) VALUES(?,?,?,?,?,?,?)",
+            (existing.id, field_name, old, new, stamp, ev, written_by),
         )
     if commit:
         conn.commit()
-    return get_by_id(conn, existing.id), "updated"  # type: ignore[return-value]
+    verb = "updated" if (updates or advance_rows) else "unchanged"
+    return UpsertReport(
+        get_by_id(conn, existing.id), verb,  # type: ignore[return-value]
+        applied=tuple(name for name, _, _ in changes),
+        stale=tuple(stale),
+        advanced=tuple(advanced),
+    )
 
 
 def window(conn: sqlite3.Connection, days_back: int, days_forward: int, ref: date | None = None) -> list[Event]:

@@ -102,6 +102,11 @@ ADDED_COLUMNS = (
     # Terminal collection outcome per source attempt. Legacy rows predate the outcome
     # contract and stay 'unknown' so they never read as a successful check.
     ("collection_sources", "status", "TEXT NOT NULL DEFAULT 'unknown'"),
+    # Field-specific live-write attribution and structured outcome. Legacy rows
+    # stay empty JSON so readers never invent attribution that was never stored.
+    ("actions", "field_sources", "TEXT NOT NULL DEFAULT '{}'"),
+    ("actions", "context_source_ids", "TEXT NOT NULL DEFAULT '[]'"),
+    ("actions", "outcome", "TEXT NOT NULL DEFAULT '{}'"),
 )
 
 

@@ -587,7 +587,12 @@ CREATE TABLE IF NOT EXISTS actions (
     -- Why `source_ids` is empty, when it is.
     source_note TEXT,
     based_on    TEXT,                   -- the target's `updated_at` before this write
-    at          TEXT NOT NULL
+    at          TEXT NOT NULL,
+    -- Field-specific attribution and structured per-field outcome for live writes.
+    -- Empty on legacy rows and non-attributed callers; readers must not invent values.
+    field_sources TEXT NOT NULL DEFAULT '{}',
+    context_source_ids TEXT NOT NULL DEFAULT '[]',
+    outcome     TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS actions_ref_idx ON actions(kind, ref);
 CREATE INDEX IF NOT EXISTS actions_at_idx  ON actions(at);
