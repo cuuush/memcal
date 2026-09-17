@@ -187,7 +187,7 @@ TOOLS = [
             "New messages behind one plan since its last review — the correction, "
             "not a keyword search. Use when the brief flags new activity on a row "
             "before giving current details for it. Reading changes nothing; cite "
-            "the [ids] in a memcal_update, or acknowledge them with memcal_reviewed "
+            "the [ids] in a memcal_update (prefer field_sources when fields differ), or acknowledge them with memcal_reviewed "
             "when the stored row still stands. Takes a brief handle like E46."),
         "inputSchema": {
             "type": "object",
@@ -228,6 +228,21 @@ TOOLS = [
                              "description": "the link you attend through, for anything "
                                             "online. Not the same as where it is"},
                 "series": {"type": "string", "description": "the recurring thing this is one of, as a slug ('tutoring'). Sets it where repetition alone could not prove it — a new instance then starts with what the series already knows"},
+                "field_sources": {
+                    "type": "object",
+                    "description": "map of field name → archive line ids supporting that field "
+                                   "(newest timestamp wins per field). Prefer this over flat "
+                                   "source_ids when fields have different supporting messages.",
+                    "additionalProperties": {"type": "array", "items": {"type": "integer"}},
+                },
+                "context_source_ids": {
+                    "type": "array", "items": {"type": "integer"},
+                    "description": "background archive ids used to interpret the request; "
+                                   "no field authority. Only valid with field_sources.",
+                },
+                "source_ids": {"type": "array", "items": {"type": "integer"},
+                               "description": "archive [ids] supporting this creation (flat). "
+                                              "Do not combine with field_sources."},
             },
             "required": ["title", "when"], "additionalProperties": False,
         },
@@ -265,8 +280,21 @@ TOOLS = [
                                             "online. Not the same as where it is"},
                 "series": {"type": "string", "description": "the recurring thing this is one of, as a slug ('tutoring'). Sets it where repetition alone could not prove it — a new instance then starts with what the series already knows"},
                 "note": {"type": "string"},
+                "field_sources": {
+                    "type": "object",
+                    "description": "map of field name → archive line ids supporting that field "
+                                   "(newest timestamp wins per field). Prefer this over flat "
+                                   "source_ids when fields have different supporting messages.",
+                    "additionalProperties": {"type": "array", "items": {"type": "integer"}},
+                },
+                "context_source_ids": {
+                    "type": "array", "items": {"type": "integer"},
+                    "description": "background archive ids used to interpret the request; "
+                                   "no field authority. Only valid with field_sources.",
+                },
                 "source_ids": {"type": "array", "items": {"type": "integer"},
-                               "description": "archive [ids] from memcal_activity this change is based on"},
+                               "description": "archive [ids] from memcal_activity this change is based on "
+                                              "(flat oldest-line rule). Do not combine with field_sources."},
             },
             "required": ["which"], "additionalProperties": False,
         },
@@ -789,17 +817,32 @@ class Server:
             raise ValueError(f"unknown tool {name}")
         conn, cfg = self.conn, self.cfg
         if name == "memcal_add":
-            event, verb = live.add_event(
-                conn, cfg, origin=self.origin(),
+            origin = self.origin()
+            if args.get("source_ids"):
+                origin = self._cited(args)
+            outcome = live.add_event(
+                conn, cfg, origin=origin,
                 title=args.get("title", ""), when=args.get("when", ""),
                 time=args.get("time"), location=args.get("location"),
                 participants=args.get("participants") or [], status=args.get("status"),
                 kind=args.get("kind"), subject=args.get("subject"), until=args.get("until"),
-                join_url=args.get("join_url"), series=args.get("series"))
+                join_url=args.get("join_url"), series=args.get("series"),
+                field_sources=args.get("field_sources"),
+                context_source_ids=args.get("context_source_ids"))
+            event, verb = outcome.event, outcome.verb
+            if outcome.fields:
+                detail = "\n".join(outcome.summary_lines())
+                return f"{verb}: {event.one_line()}\n{detail}"
             return f"{verb}: {event.one_line()}"
         if name == "memcal_update":
-            event, changed = live.update_event(
-                conn, cfg, args.get("which", ""), origin=self._cited(args),
+            origin = (self._cited(args) if args.get("source_ids")
+                      and not args.get("field_sources") else self.origin())
+            if args.get("field_sources") and args.get("source_ids"):
+                raise live.LiveError(
+                    "pass field_sources or source_ids, not both — a flat citation set "
+                    "cannot be combined with per-field attribution")
+            outcome = live.update_event(
+                conn, cfg, args.get("which", ""), origin=origin,
                 status=args.get("status"),
                 when=args.get("when"), until=args.get("until"), time=args.get("time"),
                 location=args.get("location"), title=args.get("title"),
@@ -807,9 +850,20 @@ class Server:
                 note=args.get("note"), join_url=args.get("join_url"),
                 series=args.get("series"),
                 add_participants=args.get("add_participants") or [],
-                remove_participants=args.get("remove_participants") or [])
-            return (event.one_line() + "\nchanged: "
-                    + ("; ".join(changed) if changed else "nothing — it already said that"))
+                remove_participants=args.get("remove_participants") or [],
+                field_sources=args.get("field_sources"),
+                context_source_ids=args.get("context_source_ids"))
+            event = outcome.event
+            if outcome.fields and (outcome.rejected or args.get("field_sources")):
+                detail = "\n".join(outcome.summary_lines())
+                return f"{event.one_line()}\n{detail}"
+            changed = outcome.changed_lines
+            if changed:
+                return event.one_line() + "\nchanged: " + "; ".join(changed)
+            if outcome.rejected:
+                detail = "\n".join(outcome.summary_lines())
+                return f"{event.one_line()}\n{detail}"
+            return event.one_line() + "\nchanged: nothing — it already said that"
         if name == "memcal_schedule":
             rule, log = live.set_schedule(
                 conn, cfg, args.get("which", ""), origin=self.origin(),
