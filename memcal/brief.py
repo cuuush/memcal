@@ -99,6 +99,16 @@ ACTIVITY_HINT_FORMAT = (
     "before giving current details."
 )
 
+#: Same flag for a plan that was never reviewed: the signal (a linked thread
+#: has traffic) is still worth surfacing, but the copy must not claim a review
+#: that never happened. The count is capped (HINT_COUNT_CAP) so a large
+#: never-reviewed thread cannot dominate the brief.
+ACTIVITY_HINT_UNREVIEWED_FORMAT = (
+    "  ↳ New activity: {where} — {count} message(s){extra} on a linked thread "
+    "not yet reviewed. It may bear on this plan; open with "
+    "memcal_activity(handle={handle}) before giving current details."
+)
+
 #: Phone-ish / long opaque ids must never appear in a brief hint label.
 _PHONE_LIKE = re.compile(r"^\+?[\d\s\-().]{7,}$")
 _LONG_HEX = re.compile(r"^[0-9a-fA-F\-_]{24,}$")
@@ -173,28 +183,34 @@ def _format_hint_count(total: int) -> str:
 
 
 def _activity_hint(conn: sqlite3.Connection, event) -> str | None:
-    """One compact warning when a plan's sources moved since its last review.
+    """One compact warning when a plan's linked sources have new traffic.
 
     Says the plan *may* have changed and names how to read the messages. It
     never invents a replacement date, address, or status. Calendar (UNTHREADED
     ical) self-feed churn is not a hint — only conversational strong links.
+    A never-reviewed plan still hints (with honest, capped copy); dropping it
+    entirely hid legitimate new activity on the great majority of plans.
     """
     found = activity.pending(
         conn, "event", event.key, limit=3, strong_only=True,
         conversational_only=True)
-    # Require a review mark so a never-reviewed association cannot dump the
-    # whole thread size into the brief (2351-style).
-    if not found["reviewed"] and not found["mark"]:
-        return None
     if not found["strong_total"]:
         return None
     first = found["strong"][0]
     label = _hint_label(conn, first["stream"], first.get("thread") or "")
     where = f"{first['stream']}/{label}" if label else first["stream"]
-    extra = (f" (+{found['strong_total'] - len(found['strong'])} more)"
-             if found["strong_total"] > len(found["strong"]) else "")
+    # "+N more" would re-print the raw total the cap is meant to hide, so it is
+    # only shown while the count itself is uncapped ("99+" already means "more").
+    hidden = found["strong_total"] - len(found["strong"])
+    extra = (f" (+{hidden} more)"
+             if hidden > 0 and found["strong_total"] <= HINT_COUNT_CAP else "")
     handle = source_tag("event", event.id).strip("〔〕")
-    return ACTIVITY_HINT_FORMAT.format(
+    # "since reviewed" only when a review actually happened; otherwise flag the
+    # traffic honestly. The count is capped either way so a huge never-reviewed
+    # thread cannot dominate the brief (2351-style).
+    template = (ACTIVITY_HINT_FORMAT if (found["reviewed"] or found["mark"])
+                else ACTIVITY_HINT_UNREVIEWED_FORMAT)
+    return template.format(
         where=where, count=_format_hint_count(found["strong_total"]),
         extra=extra, handle=handle)
 
