@@ -12,6 +12,19 @@ memcal dream             # run the pass
 
 ## The stages
 
+The pass is six stages, `bundle → propose → merge → apply → sweep → render`. Three
+are pure code; three call a model, each with its own model knob so you can run a
+strong model where judgment matters and a cheap one elsewhere.
+
+| # | Stage | Actor | Reads | Model knob |
+|---|-------|-------|-------|------------|
+| 1 | Bundle | code | gated traffic since the watermark | — |
+| 2 | Propose | model | one bundle group + current state | `MEMCAL_PROPOSE_MODEL` |
+| 3 | Merge | code + model on conflict | **proposals + their source lines** | `MEMCAL_MATCH_MODEL` |
+| 4 | Apply | code | merged diffs + stored rows | — |
+| 5 | Sweep | model | **resulting state + diff log** (no source) | `MEMCAL_SWEEP_MODEL` |
+| 6 | Render | code | the typed stores | — |
+
 **1. Bundle (code).** Everything gated since the last watermark is grouped **by
 entity or thread, across all streams** — Jordan's text, the group-chat line where
 Jordan spoke, and Jordan's email land in one bundle. A typical day is 5–15
@@ -28,20 +41,44 @@ a **typed, keyed diff**: event inserts and updates, to-do opens and closes, wiki
 slot fills, standing edits, questions to ask. Never free-form memories — only
 diffs against keys, which is what makes deduplication automatic.
 
-**3. Merge (code, model only on conflict).** Keyed diffs merge deterministically.
-Two bundles proposing the same row collide on the key and merge. Two bundles
-touching one wiki page apply per-slot. Only genuinely ambiguous near-horizon cases
-get a model call.
+Within a call, propose can be split into **ordered field passes** —
+calendar, then to-dos, then wiki pages, then questions — over one cached
+conversation, so each pass sees what the ones before it wrote (a question can name
+a plan the way the calendar just named it). This is off by default
+(`MEMCAL_PROPOSE_STAGES` empty = one pass) and mainly earns its keep on a cold
+start, which also fans propose into `MEMCAL_COLD_START_WAVES` waves so a
+hundred-plus bundles against an empty store don't all read the same empty snapshot.
+
+**3. Merge (code, model only on conflict).** Reconciles the proposals from *all*
+bundles against each other and against stored rows, **before anything is written,
+with the original source lines in hand.** Most of it is deterministic: keyed diffs
+collide on their key and merge, two bundles touching one wiki page apply per-slot,
+and a `cluster()` step groups near-duplicate events by near-day / shared-guest /
+wording heuristics with no model call at all — on a nightly run that is often zero
+model calls. A model is asked **only for a genuinely conflicted cluster** ("are
+these two mentions the same event?"), one small call per cluster over just that
+group's evidence. Because merge can read source, it is the stage allowed to
+**fuse rows and authorize status corrections** (a booking that was cancelled →
+`declined`). It fails safe: a timeout or an "unresolved" answer keeps the rows
+**separate**, never merged on a guess.
 
 **4. Apply (code).** Version-checked writes update the typed stores. Every row
 records which pass wrote it, and write operations carry the originating message
 plus the row version they acted on — so re-reading the sentence that moved an
 event does not create a second one. See [Evidence & provenance](evidence.md).
 
-**5. Sweep (one cheap model call).** Reads the *resulting* state plus the day's
-diffs — around 2k tokens, not the day's traffic. Duplicates? Contradictions?
-Obvious junk? Healing lives here, and it is cheap precisely because it reads
-output rather than input. Skippable with `--no-sweep`.
+**5. Sweep (one cheap model call).** A post-write **janitor**, not a second merge.
+It reads the *resulting* state plus the day's diff log — around 2k tokens, **not**
+the day's traffic and **not** the source lines — and looks for damage the earlier
+stages left: a duplicate to drop, obvious junk (banter, newsletter events, facts
+about software), a contradiction to raise as a question. Because it has no source
+evidence it **cannot correct** anything — status changes and merges are left to
+Merge and Apply, which can compare source. That evidence-free, output-only view is
+exactly why it is cheap. Skippable with `--no-sweep`.
+
+**Merge vs. sweep, in one line:** merge runs *before* the write, *with* source, and
+*fixes* things (fuse, correct status); sweep runs *after* the write, on a summary
+*without* source, and only *drops or flags* what slipped through.
 
 **6. Render (code).** Writes `brief.md`, trimmed to the token cap. See
 [Brief](brief.md).
