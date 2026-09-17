@@ -60,10 +60,10 @@ Add to `claude_desktop_config.json` (macOS:
 
 Restart the client after editing. Smoke: call `memcal_brief`.
 
-## Linux demo path (Slack + MCP)
+## Linux demo path (email + MCP)
 
-Prefer Slack over macOS-only sources. GroupMe is a fine token-only alternate if
-Slack is blocked.
+Prefer **email** over macOS-only sources. Slack or GroupMe are fine token-based
+alternates if email ingest isn’t set up yet.
 
 1. `./install.sh` (do **not** pass `--nightly` on Linux) then `memcal doctor`
 2. `memcal setup` · `pip install -e '.[slack]'` · `memcal login slack`
