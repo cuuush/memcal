@@ -857,6 +857,17 @@ class TestCalendarIdentityReexec(unittest.TestCase):
             self.assertEqual("ok", schedule.plist_identity_health(self.cfg)[0])
             self.assertEqual(["x"], schedule.launch_through(self.cfg, ["x"]))
 
+    def test_off_macos_install_prints_cron_and_writes_nothing(self):
+        with mock.patch.object(schedule, "_is_macos", return_value=False):
+            out = schedule.install(self.cfg, hour=4, minute=15)
+        self.assertTrue(any("launchd-only" in line for line in out), out)
+        # cron minute hour → "15 4 * * *"
+        self.assertTrue(any("15 4 * * *" in line for line in out), out)
+        self.assertTrue(any("memcal schedule run" in line for line in out), out)
+        self.assertTrue(any("memcal ingest --due" in line for line in out), out)
+        self.assertFalse(schedule.script_path(self.cfg).exists())
+        self.assertFalse(schedule.stamp_path(self.cfg).exists())
+
 
 class TestConsentRequestsNeverHangSilently(unittest.TestCase):
     """`ical setup` once blocked for two silent minutes on a dialog macOS never
