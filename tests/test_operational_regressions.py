@@ -737,7 +737,8 @@ class TestAnIndexOfNamesCannotBeUsedToDecideAnything(Base):
                     current_resume="documents/casey-morgan-resume.pdf")
         text = brief.render(self.conn, self.cfg)
         self.assertIn("current resume", text)
-        self.assertIn("memcal_open_page", text)
+        self.assertIn("memcal_open", text)
+        self.assertNotIn("memcal_open_page", text)
 
     def test_a_page_with_nothing_on_it_is_still_named(self):
         # An empty page has nothing to advertise, and dropping its name would lose the
@@ -1504,6 +1505,22 @@ class TestNamedLaunchdScript(unittest.TestCase):
             self.assertEqual([str(schedule.script_path(self.cfg))],
                              plist["ProgramArguments"])
 
+    def test_off_macos_install_refuses_launchd_and_prints_cron(self):
+        """Linux hosts must not get LaunchAgents or launchctl; print cron instead."""
+        # Class setUp forces macOS; override for this case.
+        script = schedule.script_path(self.cfg)
+        fake_plist = self.home / "Library" / "LaunchAgents" / "com.memcal.nightly.plist"
+        with mock.patch.object(schedule, "_is_macos", return_value=False), \
+                mock.patch.object(schedule, "plist_path", return_value=fake_plist):
+            out = schedule.install(self.cfg, hour=3, minute=0)
+        joined = "\n".join(out)
+        self.assertTrue(any("launchd-only" in line for line in out), out)
+        self.assertIn("memcal schedule run", joined)
+        self.assertIn("memcal ingest --due", joined)
+        self.assertIn("0 3 * * *", joined)
+        self.assertFalse(script.exists(), "must not write the launchd script on Linux")
+        self.assertFalse(fake_plist.exists(), "must not write a LaunchAgent plist on Linux")
+
 
 class TestTheCliCouldNotOpenWhatItPrinted(Base):
     """Report 20. `memcal` printed fourteen 〔E#〕 handles and had no verb for them.
@@ -1548,11 +1565,12 @@ class TestTheCliCouldNotOpenWhatItPrinted(Base):
         self.assertIn("Tutoring", out.getvalue())
 
     def test_open_says_what_a_handle_looks_like_when_given_a_dud(self):
+        """Unknown non-handles try the wiki path; misses list known pages."""
         args = argparse.Namespace(home=str(self.cfg.home), ref="banana")
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertEqual(1, cli.cmd_open(args))
-        self.assertIn("E258", out.getvalue())
+        self.assertIn("no page for banana", out.getvalue())
 
     def test_the_legend_names_a_verb_the_reader_can_actually_type(self):
         cli_text = brief.render(self.conn, self.cfg, surface="cli")
@@ -1569,10 +1587,7 @@ class TestTheCliCouldNotOpenWhatItPrinted(Base):
         alongside the code it guards proves nothing.
         """
         self.assertEqual(
-            "[〔E#〕〔T#〕〔Q#〕 handles open with memcal_open — full detail: the "
-            "address, the links, the messages it came from, and what has changed. "
-            "Pages open with memcal_open_page; the names in parentheses after a page "
-            "are the facts it holds]\n\n",
+            "[〔E#〕〔T#〕〔Q#〕 handles and pages open with memcal_open]\n\n",
             brief.legend("agent"))
         self.assertEqual(brief.legend("agent"), brief.legend("nonsense-surface"))
 
@@ -3345,7 +3360,8 @@ class TestANightTheMachineWasAsleepIsNotSimplySkipped(unittest.TestCase):
     def test_installing_the_job_is_not_itself_a_missed_night(self):
         """`RunAtLoad` fires as soon as `install` bootstraps it. Without the stamp,
         installing the schedule would spend a full pass on the spot."""
-        with mock.patch.object(schedule, "_launchctl", return_value=(0, "")), \
+        with mock.patch.object(schedule, "_is_macos", return_value=True), \
+             mock.patch.object(schedule, "_launchctl", return_value=(0, "")), \
              mock.patch.object(schedule, "build_app_bundle", return_value=[]):
             schedule.install(self.cfg)
         self.assertTrue(schedule.stamp_path(self.cfg).exists())
@@ -3687,7 +3703,8 @@ class TestCollectIntervalDrivesTheWakeInterval(unittest.TestCase):
 
     def test_install_writes_the_effective_interval(self):
         self.cfg.collect_interval_minutes = 1
-        with mock.patch.object(schedule, "_launchctl", return_value=(0, "")), \
+        with mock.patch.object(schedule, "_is_macos", return_value=True), \
+                mock.patch.object(schedule, "_launchctl", return_value=(0, "")), \
                 mock.patch.object(schedule, "build_app_bundle", return_value=[]):
             schedule.install(self.cfg)
         with self.plist.open("rb") as fh:

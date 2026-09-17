@@ -71,7 +71,8 @@ def _load_memcal():
 OPEN_PAGE = {
     "name": "memcal_open_page",
     "description": (
-        "Read remembered facts about a person or topic. Accept me, page names, "
+        "Deprecated: prefer memcal_open, which also opens wiki pages. Read "
+        "remembered facts about a person or topic. Accept me, page names, "
         "recorded aliases. Return facts first, then evidence/supplementary detail.\n"
         "Facts already in the brief answer directly; the brief's `Pages:` line "
         "names, in parentheses, the facts each page holds — 'what is Jordan into', "
@@ -175,7 +176,7 @@ SEARCH_ARCHIVE = {
 OPEN = {
     "name": "memcal_open",
     "description": (
-        "Open one line of the memcal brief and get everything memcal knows about it. "
+        "Open a brief handle or wiki page (me, page names, recorded aliases). "
         "The brief is an index — it names what is happening and who is there, and holds "
         "the rest here.\n"
         "Reach for this whenever the answer needs a detail the line does not carry: the "
@@ -188,7 +189,7 @@ OPEN = {
     "parameters": {
         "type": "object",
         "properties": {
-            "ref": {"type": "string", "description": "brief handle, e.g. E258"}
+            "ref": {"type": "string", "description": "brief handle (E258), page name, alias, or me"}
         },
         "required": ["ref"],
     },
@@ -281,6 +282,21 @@ ADD_EVENT = {
             "join_url": {"type": "string",
                          "description": "the link you attend through, for anything online. \"Online\" is a location; a Zoom link is this"},
             "series": {"type": "string", "description": "the recurring thing this is one of, as a slug ('tutoring'). Sets it where repetition alone could not prove it — a new instance then starts with what the series already knows"},
+            "field_sources": {
+                "type": "object",
+                "description": "map of field name → archive line ids supporting that field "
+                               "(newest timestamp wins per field). Prefer over flat "
+                               "source_ids when fields have different supporting messages.",
+                "additionalProperties": {"type": "array", "items": {"type": "integer"}},
+            },
+            "context_source_ids": {
+                "type": "array", "items": {"type": "integer"},
+                "description": "background archive ids; no field authority. "
+                               "Only valid with field_sources.",
+            },
+            "source_ids": {"type": "array", "items": {"type": "integer"},
+                           "description": "archive line ids supporting this creation (flat). "
+                                          "Do not combine with field_sources."},
         },
         "required": ["title", "when"],
     },
@@ -323,12 +339,26 @@ UPDATE_EVENT = {
                         "description": "whose thing this is; only to correct a row "
                                        "filed under the wrong person"},
             "add_participants": {"type": "array", "items": {"type": "string"}},
+            "remove_participants": {"type": "array", "items": {"type": "string"}},
             "note": {"type": "string", "description": "a detail with nowhere else to go"},
             "join_url": {"type": "string",
                          "description": "the link you attend through, for anything online. \"Online\" is a location; a Zoom link is this"},
             "series": {"type": "string", "description": "the recurring thing this is one of, as a slug ('tutoring'). Sets it where repetition alone could not prove it — a new instance then starts with what the series already knows"},
+            "field_sources": {
+                "type": "object",
+                "description": "map of field name → archive line ids supporting that field "
+                               "(newest timestamp wins per field). Prefer over flat "
+                               "source_ids when fields have different supporting messages.",
+                "additionalProperties": {"type": "array", "items": {"type": "integer"}},
+            },
+            "context_source_ids": {
+                "type": "array", "items": {"type": "integer"},
+                "description": "background archive ids; no field authority. "
+                               "Only valid with field_sources.",
+            },
             "source_ids": {"type": "array", "items": {"type": "integer"},
-                           "description": "archive line ids from memcal_activity this change is based on"},
+                           "description": "archive line ids from memcal_activity (flat oldest-line). "
+                                          "Do not combine with field_sources."},
         },
         "required": ["which"],
     },
@@ -340,8 +370,9 @@ ACTIVITY = {
         "New messages behind one plan since its last review — the correction, not a "
         "keyword search. Use when the brief flags new activity on a row before giving "
         "current details for it. Reading changes nothing; cite the line ids in a "
-        "memcal_update, or acknowledge them with memcal_reviewed when the stored row "
-        "still stands. Brief lines carry a handle such as E46; give it that."),
+        "memcal_update (prefer field_sources when fields have different supports), "
+        "or acknowledge them with memcal_reviewed when the stored row still stands. "
+        "Brief lines carry a handle such as E46; give it that."),
     "parameters": {
         "type": "object",
         "properties": {
@@ -611,34 +642,67 @@ def _sourced(rows) -> list[dict]:
 
 
 def _w_add(live, conn, cfg, args, origin):
-    event, verb = live.add_event(
+    from memcal import actions as actions_mod
+    if args.get("source_ids") and not args.get("field_sources"):
+        cited = _cited_ids(args)
+        if cited:
+            origin = actions_mod.Origin.of(
+                origin.surface, origin.archive_ids, cited=cited,
+                session=origin.session, note=origin.note, op_id=origin.op_id)
+    outcome = live.add_event(
         conn, cfg, origin=origin, title=args.get("title", ""), when=args.get("when", ""),
         time=args.get("time"), location=args.get("location"),
         participants=args.get("participants") or [], status=args.get("status"),
         kind=args.get("kind"), subject=args.get("subject"), until=args.get("until"),
-        join_url=args.get("join_url"), series=args.get("series"))
-    return {verb: event.one_line()}, [("event", event.key, verb)]
+        join_url=args.get("join_url"), series=args.get("series"),
+        field_sources=args.get("field_sources"),
+        context_source_ids=args.get("context_source_ids"))
+    event, verb = outcome.event, outcome.verb
+    body = {verb: event.one_line()}
+    if outcome.fields:
+        body["fields"] = [item.as_dict() for item in outcome.fields]
+    return body, [("event", event.key, verb)]
 
 
 def _w_update(live, conn, cfg, args, origin):
     from memcal import actions as actions_mod
-    cited = _cited_ids(args)
+    if args.get("field_sources") and args.get("source_ids"):
+        raise live.LiveError(
+            "pass field_sources or source_ids, not both — a flat citation set "
+            "cannot be combined with per-field attribution")
+    cited = _cited_ids(args) if args.get("source_ids") and not args.get("field_sources") else []
     if cited:
         origin = actions_mod.Origin.of(
             origin.surface, origin.archive_ids, cited=cited,
             session=origin.session, note=origin.note, op_id=origin.op_id)
-    event, changed = live.update_event(
-        conn, cfg, args.get("which", ""), origin=origin, status=args.get("status"), when=args.get("when"),
+    outcome = live.update_event(
+        conn, cfg, args.get("which", ""), origin=origin, status=args.get("status"),
+        when=args.get("when"),
         until=args.get("until"), time=args.get("time"), location=args.get("location"),
         title=args.get("title"), kind=args.get("kind"), subject=args.get("subject"),
         note=args.get("note"), join_url=args.get("join_url"),
         series=args.get("series"),
-        add_participants=args.get("add_participants") or [])
-    # Saying what did *not* change is the part that stops the retry loop: an agent told
-    # only "written" re-sent the same correction three times, harder each time.
-    return ({"row": event.one_line(),
-             "changed": changed or "nothing — it already said that"},
-            [("event", event.key, "updated")] if changed else [])
+        add_participants=args.get("add_participants") or [],
+        remove_participants=args.get("remove_participants") or [],
+        field_sources=args.get("field_sources"),
+        context_source_ids=args.get("context_source_ids"))
+    event = outcome.event
+    changed = outcome.changed_lines
+    body = {"row": event.one_line()}
+    if outcome.fields and (outcome.rejected or args.get("field_sources")):
+        body["fields"] = [item.as_dict() for item in outcome.fields]
+        body["summary"] = outcome.summary_lines()
+        if changed:
+            body["changed"] = changed
+        elif outcome.rejected:
+            body["changed"] = "rejected — see fields"
+        else:
+            # Mapped request with only unchanged fields — never the flat no-op idiom.
+            body["changed"] = "unchanged — see fields"
+    else:
+        body["changed"] = changed or "nothing — it already said that"
+    return (body, [("event", event.key, "updated")]
+            if (changed or outcome.rejected) else [])
 
 
 def _w_schedule(live, conn, cfg, args, origin):
@@ -831,7 +895,7 @@ class MemcalMemoryProvider(MemoryProvider):
             "the Calendar.app event into the snapshot.\n\n"
             "Facts already in the brief answer directly — including your facts in "
             "'About you'. When the brief names a page but not the value, open it "
-            "with memcal_open_page (accepts me, page names, recorded aliases); when "
+            "with memcal_open (accepts me, page names, recorded aliases); when "
             "the page is unknown, find it with memcal_search_wiki; only then search "
             "source messages with memcal_search_archive (when the wiki does not "
             "answer, or to inspect evidence behind a claim).\n\n"
@@ -1109,9 +1173,13 @@ class MemcalMemoryProvider(MemoryProvider):
         from memcal import archive, db, events, wiki
 
         if tool_name == "memcal_open_page":
-            # Same contract as the MCP surface: self resolves first, facts lead
-            # in the profile, miss offers actionable candidates.
-            raw = str(args.get("slug", "") or "")
+            return self._dispatch(conn, "memcal_open", {"ref": args.get("slug", "")})
+
+        if tool_name == "memcal_open":
+            from memcal import detail
+            raw = str(args.get("ref", "") or "")
+            if detail.parse_handle(raw):
+                return detail.open_handle(conn, self._cfg, raw)
             try:
                 self_target = wiki.resolve_self_page(
                     conn, self._cfg.wiki_dir, raw)
@@ -1119,8 +1187,8 @@ class MemcalMemoryProvider(MemoryProvider):
                 return json.dumps({
                     "error": f"ambiguous self page for {raw!r}",
                     "candidates": exc.candidates,
-                    "hint": ("open one explicitly, e.g. memcal_open_page with "
-                             f"slug='{exc.candidates[0]}'"),
+                    "hint": ("open one explicitly, e.g. memcal_open with "
+                             f"ref='{exc.candidates[0]}'"),
                 })
             slug = (self_target if self_target is not None
                     else wiki.canonical(self._cfg.wiki_dir, raw))
@@ -1162,17 +1230,10 @@ class MemcalMemoryProvider(MemoryProvider):
                     "message": (f"No matching wiki fact for {query!r}. This means "
                                 f"no stored fact matched — not that the user never "
                                 f"told us. Try memcal_search_archive for original "
-                                f"statements, or memcal_open_page if you know the page."),
+                                f"statements, or memcal_open if you know the page."),
                 })
             return json.dumps({"query": query, "results": hits,
                                "truncated": len(hits) == limit})
-
-        if tool_name == "memcal_open":
-            # Both surfaces or neither. `memcal_source` and `memcal_open_source` are
-            # the same tool under two names because one of them was added here and not
-            # there; the cross-surface contract test exists to catch that drift.
-            from memcal import detail
-            return detail.open_handle(conn, self._cfg, args.get("ref", ""))
 
         if tool_name == "memcal_open_source":
             from memcal import trace

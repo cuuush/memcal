@@ -317,15 +317,24 @@ def _pending_rows(conn: sqlite3.Connection, pairs: list[dict],
 
 
 def pending(conn: sqlite3.Connection, kind: str, ref: str,
-            *, limit: int = 50, strong_only: bool = False) -> dict:
+            *, limit: int = 50, strong_only: bool = False,
+            conversational_only: bool = False) -> dict:
     """Associated observations minus exactly the covered ones.
 
     `strong_only` skips the weak association scan and its arrivals query for
     callers that read only the strong side (e.g. the brief's activity hint).
+    `conversational_only` drops UNTHREADED streams (ical family revisions) so a
+    calendar row's own feed churn is not treated as a plan hint.
     """
     links = associations(conn, kind, ref, strong_only=strong_only)
+    strong_links = links["strong"]
+    if conversational_only:
+        from . import trace as trace_mod  # noqa: PLC0415
+        skip = trace_mod.UNTHREADED_STREAMS
+        strong_links = [p for p in strong_links
+                        if p.get("stream") not in skip and not p.get("family")]
     covered = reviewed_ids(conn, kind, ref)
-    strong_items, strong_total = _pending_rows(conn, links["strong"], covered,
+    strong_items, strong_total = _pending_rows(conn, strong_links, covered,
                                               limit=limit)
     if strong_only:
         weak_items, weak_total = [], 0
@@ -346,7 +355,8 @@ def read(conn: sqlite3.Connection, kind: str, ref: str, *,
     selective review never resurfaces what it acknowledged. Reading never
     marks anything reviewed.
     """
-    links = associations(conn, kind, ref)
+    # Readers only consume strong associations; skip the weak-candidate scan.
+    links = associations(conn, kind, ref, strong_only=True)
     covered = reviewed_ids(conn, kind, ref)
     start = int(cursor or 0)
     items, total = _pending_rows(conn, links["strong"], covered,

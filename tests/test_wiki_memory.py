@@ -20,6 +20,8 @@ the direct-note write path and the ingested/dream apply path.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import sys
 import tempfile
@@ -124,7 +126,7 @@ class TestTheUsersOwnFactsRideTheBrief(Base):
         # The whole-value line no longer fits, so it collapses to the pointer — the
         # facts stay one tool call away rather than being sliced.
         self.assertIn(brief.ABOUT_YOU_TRIMMED, text)
-        self.assertIn("memcal_open_page me", text)
+        self.assertIn("memcal_open me", text)
 
     def test_an_address_is_never_bisected_at_any_cap(self):
         for i in range(5):
@@ -532,6 +534,102 @@ class TestTheSelfAddressLifecycle(Base):
         self.assertEqual(self.pages(), ["casey-morgan"])
         self.assertEqual(self.slots("casey-morgan"),
                          {"dog": "Comet", "home": "14 Example Lane", "phone": "555-0100"})
+
+
+class TestUnifiedOpenRouting(Base):
+    def setUp(self):
+        super().setUp()
+        from memcal import mcp_server
+        db.set_today("2026-08-10")
+        self.server = mcp_server.Server.__new__(mcp_server.Server)
+        self.server.cfg, self.server.conn = self.cfg, self.conn
+
+    def cli(self, command, target, *extra):
+        from memcal import cli
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            status = cli.main(["--home", self.dir, command, target, *extra])
+        return status, out.getvalue()
+
+    def assert_routes(self, target, expected, status=0):
+        results = [self.cli(command, target) for command in ("open", "page")]
+        self.assertEqual(results[0], results[1])
+        self.assertEqual(results[0][0], status)
+        self.assertIn(expected, results[0][1])
+        opened = self.server.call("memcal_open", {"ref": target})
+        self.assertEqual(opened, self.server.call("memcal_open_page", {"slug": target}))
+        self.assertIn(expected, opened)
+
+    def test_handles_keep_their_detail_route_including_legacy_and_brackets(self):
+        from memcal import events, todos
+        event, _ = events.upsert(self.conn, {"title": "Routing dinner", "date": "2026-08-10"})
+        todo, _ = todos.open_todo(self.conn, "Routing task")
+        todos.ask(self.conn, "Routing question?")
+        question = self.conn.execute("SELECT id FROM questions").fetchone()
+        for target, expected in ((f"E{event.id}", "Routing dinner"),
+                                 (f" [ e {event.id} ] ", "Routing dinner"),
+                                 (f"〔T{todo.id}〕", "Routing task"),
+                                 (f"Q{question['id']}", "Routing question?"),
+                                 ("S999999", "no row")):
+            with self.subTest(target=target):
+                self.assert_routes(target, expected, 1 if target == "S999999" else 0)
+
+    def test_self_names_aliases_and_other_pages_read_without_writes(self):
+        identity.set_me(self.conn, "Casey Morgan")
+        wiki.set_slot(self.cfg.wiki_dir, "casey-morgan", "dog", "Comet",
+                      source="test", conn=self.conn)
+        wiki.add_alias(self.cfg.wiki_dir, "casey-morgan", "CJ")
+        wiki.set_slot(self.cfg.wiki_dir, "quinn-brooks", "likes", "Pokemon",
+                      source="test", conn=self.conn)
+        wiki.add_alias(self.cfg.wiki_dir, "quinn-brooks", "Q")
+        before = {slug: wiki.read(self.cfg.wiki_dir, slug).render() for slug in self.pages()}
+        for target in ("me", "Casey Morgan", "CJ"):
+            with self.subTest(target=target):
+                self.assert_routes(target, "Comet")
+        for target in ("quinn-brooks", "Quinn Brooks", "Q"):
+            with self.subTest(target=target):
+                self.assert_routes(target, "Pokemon")
+        self.assertEqual(before, {slug: wiki.read(self.cfg.wiki_dir, slug).render()
+                                  for slug in self.pages()})
+
+    def test_missing_handles_do_not_fall_back_to_pages(self):
+        wiki.set_slot(self.cfg.wiki_dir, "e999999", "likes", "Pokemon",
+                      source="test", conn=self.conn)
+        self.assert_routes("E999999", "no row", 1)
+
+    def test_missing_pages_and_self_reads_create_nothing(self):
+        for target in ("nobody", "me"):
+            with self.subTest(target=target):
+                self.assertEqual(self.cli("open", target)[0], 1)
+                opened = self.server.call("memcal_open", {"ref": target})
+                self.assertIn("No self page yet" if target == "me" else "No page", opened)
+                self.assertEqual(opened, self.server.call("memcal_open_page", {"slug": target}))
+        self.assertEqual(self.pages(), [])
+
+    def test_ambiguous_self_keeps_candidates_and_errors(self):
+        identity.set_me(self.conn, "Casey Morgan")
+        for slug in ("me", "casey-morgan"):
+            wiki.set_slot(self.cfg.wiki_dir, slug, "dog", "Comet",
+                          source="test", conn=self.conn)
+        self.assert_routes("me", "Ambiguous self page", 1)
+        self.assertIn("casey-morgan", self.cli("open", "me")[1])
+        opened = self.server.call("memcal_open", {"ref": "me"})
+        self.assertIn("memcal_open with ref=", opened)
+        self.assertNotIn("memcal_open_page", opened)
+        self.assertEqual(self.pages(), ["casey-morgan", "me"])
+
+    def test_page_slot_write_form_is_preserved(self):
+        status, _ = self.cli("page", "me", "home", "14 Example Lane")
+        self.assertEqual(status, 0)
+        self.assertEqual(self.slots("me"), {"home": "14 Example Lane"})
+        self.assert_routes("me", "14 Example Lane")
+
+    def test_search_hints_use_unified_open(self):
+        wiki.set_slot(self.cfg.wiki_dir, "quinn-brooks", "likes", "Pokemon",
+                      source="test", conn=self.conn)
+        found = self.server.call("memcal_search_wiki", {"query": "Pokemon"})
+        self.assertIn("memcal_open ref='quinn-brooks'", found)
+        self.assertNotIn("memcal_open_page", found)
 
 
 if __name__ == "__main__":

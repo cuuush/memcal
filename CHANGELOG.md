@@ -1,6 +1,22 @@
 ## [Unreleased]
 
+### Fixed
+
+- Brief activity hints ignore calendar (iCal) self-feed churn: UNTHREADED family
+  revisions no longer raise a "New activity" line on an ical-backed event. Chat /
+  email / other conversational strong links still hint. Hint ≠ apply — flag text
+  only (`ACTIVITY_HINT_FORMAT` is frozen for Integrations to mirror).
+- Activity hint labels no longer leak raw phone or opaque ids; they prefer
+  `threads.label` / whois display names when richer, else `threads.title()`, else
+  "unknown number" / a short title. Displayed pending counts cap at `99+`, and a
+  hint requires a review mark so never-reviewed threads cannot dump whole-history
+  sizes into the brief.
+- The `[UNREVIEWED: stream/thread …]` brief footer is gone (it dumped PII). Unlinked
+  backlog, when present, is a single non-identifying `[coverage incomplete …]`
+  notice. See `docs/notes/freshness-gap-81.md`.
+
 ### Added
+
 
 - Grok is a fifth model backend: `MEMCAL_LLM_PROVIDER=grok` runs xAI's Grok Build
   CLI in headless mode against your existing Grok login (native model `grok-4.5`,
@@ -27,6 +43,38 @@
   `message.text` is NULL) are decoded with the `pytypedstream` library instead of a
   hand-rolled byte scraper — a real deserializer in place of a reverse-engineered
   regex. `pytypedstream` is now a runtime dependency; `install.sh` installs it.
+- Live event add/update accept optional `field_sources` (field → archive line ids) and
+  `context_source_ids` (background only). Each field uses the newest supporting
+  timestamp; flat `source_ids` keep the oldest-line rule. Writes return structured
+  per-field outcomes (`applied` / `unchanged` / `rejected`, with `evidence_advanced`
+  when a newer same-value cite advances evidence). MCP and the in-repo Hermes adapter
+  pass the new arguments through.
+
+### Changed
+
+- `memcal open` / `memcal_open` open both brief handles and wiki pages (`me`, page
+  names, recorded aliases). `memcal page` and `memcal_open_page` remain as read
+  aliases; page slot-write stays on `memcal page`. Search/open hints point at the
+  unified verb.
+- The agent brief legend is one quiet line — handles and pages open with
+  `memcal_open` — dropping the long "full detail" essay. About-you / trim /
+  ambiguity pointers say `memcal_open me` (CLI legend keeps `memcal open`).
+- `activity.read` requests strong-only associations so pagination does not scan weak
+  candidates.
+- Mixed/invalid citation refusals name the affected fields and ask for `field_sources`;
+  they never advise stripping citations or restating retrieved text as an uncited
+  correction.
+- Hermes `memcal_update` accepts `remove_participants` (parity with MCP) and surfaces
+  mapped write outcomes without the flat “already said that” idiom; `docs/api/correct.md`
+  documents `field_sources` / `context_source_ids`.
+- MCP `serverInfo.version` and package `__version__` now report `0.8.0` (matching
+  `pyproject.toml`).
+- `docs/clients/mcp.md` includes copy-paste Cursor and Claude Desktop MCP configs
+  plus a Linux Slack → MCP demo path.
+- Integrations index lists Hermes as 21 tools and MCP as 22.
+- On Linux (and other non-macOS hosts), `memcal schedule install` refuses to write
+  LaunchAgents and prints ready-to-paste cron lines for `memcal schedule run` /
+  `memcal ingest --due` instead.
 
 ## [0.8.0] - 2026-09-16
 
