@@ -12,6 +12,6 @@ turn, relevant pages when a known entity is mentioned, source and conversation
 lookup, deterministic typed writes, and archival of user turns — never assistant
 replies, tool output, or injected snapshots as if they were user facts.
 
-**Linux tip:** Slack (or GroupMe) + stdio MCP is the supported demo path. Skip
-iMessage / WhatsApp / Calendar and do not rely on `memcal schedule install`
-until the Linux cron escape hatch ships — use manual ingest or user cron.
+**Linux tip:** Email + stdio MCP is the best demo path (Slack or GroupMe
+also work). Skip iMessage / WhatsApp / Calendar. On Linux, prefer user cron —
+`memcal schedule install` refuses launchd there and prints a cron snippet.
