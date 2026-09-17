@@ -125,7 +125,7 @@ TOOLS = [
             "Find original statements when the wiki does not answer the question, or "
             "inspect evidence behind a claim. Search every raw message, email, and "
             "note ever ingested. The filters are what make digging quick: `person` "
-            "for one side of a conversation, `stream` for a channel, `since`/`until` "
+            "for one side of a conversation, `channel` for a channel, `since`/`until` "
             "for a window. `query` may be empty when the filters are the search. "
             "Every result carries a `line_id` for memcal_conversation."),
         "inputSchema": {
@@ -133,7 +133,7 @@ TOOLS = [
             "properties": {
                 "query": {"type": "string"},
                 "person": {"type": "string"},
-                "stream": {"type": "string"},
+                "channel": {"type": "string"},
                 "since": {"type": "string", "description": "yyyy-mm-dd"},
                 "until": {"type": "string", "description": "yyyy-mm-dd"},
                 "limit": {"type": "integer", "description": "default 20"},
@@ -168,12 +168,12 @@ TOOLS = [
             "Read the conversation around a message, in order, as it was said. Follows "
             "memcal_source when the cited lines are not enough — 'what were they talking "
             "about', 'who else was in on it'. Give a `line_id` from any memcal result, "
-            "or a stream and thread."),
+            "or a channel and thread."),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "line_id": {"type": "integer"},
-                "stream": {"type": "string"},
+                "channel": {"type": "string"},
                 "thread": {"type": "string"},
                 "before": {"type": "integer", "description": "default 12"},
                 "after": {"type": "integer", "description": "default 12"},
@@ -720,7 +720,7 @@ class Server:
         if name == "memcal_search_archive":
             rows = archive.search_filtered(
                 self.conn, args.get("query", ""), limit=int(args.get("limit") or 20),
-                person=args.get("person", ""), stream=args.get("stream", ""),
+                person=args.get("person", ""), channel=args.get("channel", ""),
                 since=args.get("since", ""), until=args.get("until", ""))
             if not rows:
                 return "(nothing found)"
@@ -728,24 +728,24 @@ class Server:
             for row in rows:
                 who = "me" if row["from_me"] else (row["person"] or row["handle"] or "?")
                 own = ("  <- " + presentation.SELF_WRITTEN_NOTE
-                       if presentation.self_written(row["stream"]) else "")
-                out.append(f"[{row['id']}] {str(row['ts'])[:16]}  {row['stream']}/{who}: "
+                       if presentation.self_written(row["channel"]) else "")
+                out.append(f"[{row['id']}] {str(row['ts'])[:16]}  {row['channel']}/{who}: "
                            f"{row['text'][:300]}{own}")
             return ("(the number in brackets is a line_id — pass it to "
                     "memcal_conversation to read around it)\n" + "\n".join(out))
 
         if name == "memcal_conversation":
-            stream, thread = args.get("stream", ""), args.get("thread", "")
+            channel, thread = args.get("channel", ""), args.get("thread", "")
             around = ""
             if args.get("line_id"):
                 anchor = trace.line(self.conn, int(args["line_id"]))
                 if not anchor:
                     return f"no line {args['line_id']}"
-                stream, thread, around = anchor["stream"], anchor["thread"], anchor["ts"]
-            if not (stream and thread):
-                return "give a line_id, or a stream and thread"
+                channel, thread, around = anchor["channel"], anchor["thread"], anchor["ts"]
+            if not (channel and thread):
+                return "give a line_id, or a channel and thread"
             lines = trace.conversation(
-                self.conn, stream=stream, thread=thread, around=around,
+                self.conn, channel=channel, thread=thread, around=around,
                 before=int(args.get("before") or 12), after=int(args.get("after") or 12))
             if not lines:
                 return "(nothing in that conversation)"
@@ -780,8 +780,8 @@ class Server:
                 if row.get("source_heading"):
                     out.append(f"--- {row['source_heading']} ---")
                 own = ("\n(" + presentation.SELF_WRITTEN_NOTE + ")"
-                       if presentation.self_written(row["stream"]) else "")
-                out.append(f"{mark} [{row['id']}] {row['stream']} · {row['ts'][:16]} · "
+                       if presentation.self_written(row["channel"]) else "")
+                out.append(f"{mark} [{row['id']}] {row['channel']} · {row['ts'][:16]} · "
                            f"{row['who']}{own}\n{row['text']}")
             return ("(* = a line this row was built from; others are nearby context. "
                     "[n] is a line_id for memcal_conversation)\n\n" + "\n\n".join(out))

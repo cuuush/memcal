@@ -59,12 +59,12 @@ class TestTheWebServerStaysOnLoopback(unittest.TestCase):
 
 class TestTheWebServerBoundsRequestBodies(unittest.TestCase):
     def test_oversized_body_is_rejected_without_being_read(self):
-        stream = mock.Mock()
+        channel = mock.Mock()
         with self.assertRaises(web.RequestBodyError) as caught:
             web._read_json_body(
-                {"Content-Length": str(web.MAX_REQUEST_BYTES + 1)}, stream)
+                {"Content-Length": str(web.MAX_REQUEST_BYTES + 1)}, channel)
         self.assertEqual(caught.exception.status, 413)
-        stream.read.assert_not_called()
+        channel.read.assert_not_called()
 
     def test_malformed_lengths_and_json_are_client_errors(self):
         cases = [
@@ -73,10 +73,10 @@ class TestTheWebServerBoundsRequestBodies(unittest.TestCase):
             ({"Content-Length": "1", "Content-Type": "application/json"},
              io.BytesIO(b"{"), "json"),
         ]
-        for headers, stream, message in cases:
+        for headers, channel, message in cases:
             with self.subTest(headers=headers):
                 with self.assertRaises(web.RequestBodyError) as caught:
-                    web._read_json_body(headers, stream)
+                    web._read_json_body(headers, channel)
                 self.assertEqual(caught.exception.status, 400)
                 self.assertIn(message, str(caught.exception).lower())
 

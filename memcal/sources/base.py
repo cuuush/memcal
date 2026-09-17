@@ -1,6 +1,6 @@
 """Shared ingestion pipeline.
 
-Every stream executes three sequential stages: archiving raw items, evaluating the
+Every channel executes three sequential stages: archiving raw items, evaluating the
 gate filter, and spooling passing items. Individual connectors define fetch
 mechanisms and handle semantics.
 """
@@ -21,7 +21,7 @@ from .. import archive, db, gate, identity, threads
 
 @dataclass
 class IngestReport:
-    stream: str = ""
+    channel: str = ""
     read: int = 0
     archived: int = 0
     passed: int = 0
@@ -42,9 +42,9 @@ class IngestReport:
     collection_id: int | None = None
 
     @classmethod
-    def opened(cls, stream: str, cfg=None) -> "IngestReport":
+    def opened(cls, channel: str, cfg=None) -> "IngestReport":
         """Create an IngestReport initialized with the configured spool horizon."""
-        return cls(stream=stream,
+        return cls(channel=channel,
                    horizon_days=getattr(cfg, "spool_horizon_days", cls.horizon_days))
 
     @property
@@ -62,8 +62,8 @@ class IngestReport:
 
     def summary(self) -> str:
         if self.error:
-            return f"{self.stream}: {self.error}"
-        line = (f"{self.stream}: read {self.read}, archived {self.archived}, "
+            return f"{self.channel}: {self.error}"
+        line = (f"{self.channel}: read {self.read}, archived {self.archived}, "
                 f"queued {self.passed}")
         # Distinguish items outside the spool horizon from gate rejections.
         if self.too_old:
@@ -160,7 +160,7 @@ def deliver(
     conn: sqlite3.Connection,
     report: IngestReport,
     *,
-    stream: str,
+    channel: str,
     external_id: str,
     ts: str,
     text: str,
@@ -194,15 +194,15 @@ def deliver(
     if person is None and handle:
         person = identity.resolve(conn, handle)
     if handle and not person and not from_me:
-        person = (identity.link_by_name(conn, handle, seen_name, source=stream)
+        person = (identity.link_by_name(conn, handle, seen_name, source=channel)
                   # Fall back to seen_name when no contact matches; see `identity.adopt_seen_name`.
                   or identity.adopt_seen_name(conn, handle, seen_name,
-                                              source=f"{stream}:roster"))
+                                              source=f"{channel}:roster"))
         if not person and not _is_bulk_address(conn, handle):
-            identity.note_unresolved(conn, handle, stream, seen_name, text)
+            identity.note_unresolved(conn, handle, channel, seen_name, text)
             report.unknown_handles.add(handle)
     if thread and handle and not from_me:
-        threads.record_members(conn, stream, thread, [(handle, seen_name)])
+        threads.record_members(conn, channel, thread, [(handle, seen_name)])
 
     # For outgoing messages, the counterpart is the recipient; otherwise use the author.
     other = counterpart or (None if from_me else person)
@@ -212,19 +212,19 @@ def deliver(
         # Only a resolved counterpart may identify a person; raw platform ids are opaque.
         other = identity.resolve(conn, counterpart)
     if not other and thread:
-        other = thread_person(conn, stream, thread)
+        other = thread_person(conn, channel, thread)
 
     if verdict is None:
         verdict = gate.gate_message(text, person=person, from_me=from_me, top_tier=top_tier,
-                                    stream=stream, is_group=is_group,
+                                    channel=channel, is_group=is_group,
                                     addressed_to=addressed_to)
         # Reactions can inherit a recent thread signal.
         if (not verdict and gate.is_reaction(text) and thread
-                and _recent_thread_signal(conn, stream, thread, ts)):
+                and _recent_thread_signal(conn, channel, thread, ts)):
             verdict = gate.Verdict(True, "reaction-context")
 
     archive_id = archive.append(
-        conn, stream=stream, external_id=str(external_id), ts=ts, text=text, thread=thread,
+        conn, channel=channel, external_id=str(external_id), ts=ts, text=text, thread=thread,
         handle=handle, person=person, from_me=from_me, meta=meta or {},
         addressed_to=addressed_to,
         gated=bool(verdict), gate_reason=verdict.reason,
@@ -234,22 +234,22 @@ def deliver(
         return None
     report.archived += 1
     # Multiple speakers indicate a group thread; regroup pending spool items accordingly.
-    if thread and not is_group and len(thread_speakers(conn, stream, thread)) > 1:
+    if thread and not is_group and len(thread_speakers(conn, channel, thread)) > 1:
         is_group = True
-        regroup_thread(conn, stream, thread)
+        regroup_thread(conn, channel, thread)
     # Muting suppresses spooling for model processing while preserving archive storage and search indexing.
-    if verdict and threads.is_muted(conn, stream, thread):
+    if verdict and threads.is_muted(conn, channel, thread):
         report.muted += 1
         return archive_id
     if verdict:
         if archive.within_horizon(ts, report.horizon_days):
-            entity = gate.entity_for(person=other, thread=thread, stream=stream,
+            entity = gate.entity_for(person=other, thread=thread, channel=channel,
                                      is_group=is_group)
             archive.spool_add(conn, archive_id, entity,
                               priority=getattr(verdict, "priority", "normal"))
             # Include recent reactions without changing their archived gate result.
             if thread and not gate.is_reaction(text):
-                _rescue_recent_reactions(conn, stream, thread, ts, entity,
+                _rescue_recent_reactions(conn, channel, thread, ts, entity,
                                          report.horizon_days)
             report.passed += 1
         else:
@@ -257,27 +257,27 @@ def deliver(
     return archive_id
 
 
-def _recent_thread_signal(conn: sqlite3.Connection, stream: str, thread: str,
+def _recent_thread_signal(conn: sqlite3.Connection, channel: str, thread: str,
                           ts: str, minutes: int = 45) -> bool:
     cutoff = (db.parse_ts(ts) - timedelta(minutes=minutes)).isoformat()
     return conn.execute(
         """SELECT 1 FROM archive
-            WHERE stream = ? AND thread = ? AND ts BETWEEN ? AND ?
+            WHERE channel = ? AND thread = ? AND ts BETWEEN ? AND ?
               AND gated = 1 AND gate_reason NOT IN ('reaction-context')
-            LIMIT 1""", (stream, thread, cutoff, ts)
+            LIMIT 1""", (channel, thread, cutoff, ts)
     ).fetchone() is not None
 
 
-def _rescue_recent_reactions(conn: sqlite3.Connection, stream: str, thread: str,
+def _rescue_recent_reactions(conn: sqlite3.Connection, channel: str, thread: str,
                              ts: str, entity: str, horizon_days: int,
                              minutes: int = 45) -> int:
     cutoff = (db.parse_ts(ts) - timedelta(minutes=minutes)).isoformat()
     # Gate reasons are broader than the reaction predicate, so filter text below.
     rows = conn.execute(
         """SELECT a.* FROM archive a LEFT JOIN spool s ON s.archive_id = a.id
-            WHERE a.stream = ? AND a.thread = ? AND a.ts BETWEEN ? AND ?
+            WHERE a.channel = ? AND a.thread = ? AND a.ts BETWEEN ? AND ?
               AND a.gated = 0 AND s.id IS NULL AND length(trim(a.text)) BETWEEN 1 AND 12
-            ORDER BY a.ts""", (stream, thread, cutoff, ts)
+            ORDER BY a.ts""", (channel, thread, cutoff, ts)
     ).fetchall()
     rescued = 0
     for row in rows:
@@ -300,32 +300,32 @@ def _is_bulk_address(conn: sqlite3.Connection, handle: str) -> bool:
     return identity.sender_decision(conn, handle) in ("archive", "ignore")
 
 
-def thread_speakers(conn: sqlite3.Connection, stream: str, thread: str) -> list[str]:
+def thread_speakers(conn: sqlite3.Connection, channel: str, thread: str) -> list[str]:
     """Return distinct participants who have authored messages in the thread besides the account owner.
 
     Speaker counts provide evidence for group classification when source metadata is ambiguous.
     """
     return [row["person"] for row in conn.execute(
-        "SELECT DISTINCT person FROM archive WHERE stream = ? AND thread = ?"
+        "SELECT DISTINCT person FROM archive WHERE channel = ? AND thread = ?"
         " AND from_me = 0 AND person IS NOT NULL AND person != 'me' LIMIT 3",
-        (stream, thread),
+        (channel, thread),
     )]
 
 
-def thread_person(conn: sqlite3.Connection, stream: str, thread: str) -> str | None:
+def thread_person(conn: sqlite3.Connection, channel: str, thread: str) -> str | None:
     """Return the unique participant in a direct conversation, or None for group/unresolved threads."""
-    speakers = thread_speakers(conn, stream, thread)
+    speakers = thread_speakers(conn, channel, thread)
     return speakers[0] if len(speakers) == 1 else None
 
 
-def regroup_thread(conn: sqlite3.Connection, stream: str, thread: str) -> int:
+def regroup_thread(conn: sqlite3.Connection, channel: str, thread: str) -> int:
     """Update unprocessed spool rows for a thread to use the group entity key once identified as a group."""
-    entity = gate.bundle_entity(None, thread, stream)
+    entity = gate.bundle_entity(None, thread, channel)
     cur = conn.execute(
         """UPDATE spool SET entity = ?
            WHERE processed_at IS NULL AND entity != ? AND archive_id IN
-             (SELECT id FROM archive WHERE stream = ? AND thread = ?)""",
-        (entity, entity, stream, thread),
+             (SELECT id FROM archive WHERE channel = ? AND thread = ?)""",
+        (entity, entity, channel, thread),
     )
     return cur.rowcount
 

@@ -27,32 +27,32 @@ PROBES = [
         ORDER BY date
     """),
     ("ticket-shaped traffic (must NOT merge: an order confirmation is not an invitation)", """
-        SELECT id, ts, stream, handle, substr(replace(text, char(10), ' '), 1, 90) t
+        SELECT id, ts, channel, handle, substr(replace(text, char(10), ' '), 1, 90) t
         FROM archive
         WHERE lower(text) LIKE '%axs%' OR lower(text) LIKE '%your tickets%'
            OR lower(text) LIKE '%order confirmation%'
         ORDER BY ts DESC LIMIT 12
     """),
     ("poker traffic", """
-        SELECT id, ts, stream, handle, person,
+        SELECT id, ts, channel, handle, person,
                substr(replace(text, char(10), ' '), 1, 90) t
         FROM archive WHERE lower(text) LIKE '%poker%' ORDER BY ts
     """),
     ("beer traffic", """
-        SELECT id, ts, stream, handle, person,
+        SELECT id, ts, channel, handle, person,
                substr(replace(text, char(10), ' '), 1, 90) t
         FROM archive WHERE lower(text) LIKE '%beer%' OR lower(text) LIKE '%harborview%'
         ORDER BY ts
     """),
     ("riders alliance traffic (the nine mentions)", """
-        SELECT id, ts, stream, handle, person,
+        SELECT id, ts, channel, handle, person,
                substr(replace(text, char(10), ' '), 1, 90) t
         FROM archive WHERE lower(text) LIKE '%riders alliance%'
            OR lower(text) LIKE '%nitehawk%' OR lower(text) LIKE '%mccollum%'
         ORDER BY ts
     """),
     ("nadia / venmo (M21: the receipt that should close the to-do)", """
-        SELECT id, ts, stream, handle,
+        SELECT id, ts, channel, handle,
                substr(replace(text, char(10), ' '), 1, 100) t
         FROM archive WHERE lower(text) LIKE '%nadia%' ORDER BY ts
     """),
@@ -61,8 +61,8 @@ PROBES = [
         WHERE key LIKE 'ical-%' ORDER BY date LIMIT 12
     """),
     ("streams and volume", """
-        SELECT stream, count(*) n, min(ts) oldest, max(ts) newest
-        FROM archive GROUP BY stream ORDER BY n DESC
+        SELECT channel, count(*) n, min(ts) oldest, max(ts) newest
+        FROM archive GROUP BY channel ORDER BY n DESC
     """),
 ]
 

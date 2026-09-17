@@ -134,8 +134,8 @@ def _looks_like_raw_id(text: str) -> bool:
     return False
 
 
-def _hint_label(conn: sqlite3.Connection, stream: str, thread: str) -> str:
-    """Safe human label for an freshness hint.
+def _hint_label(conn: sqlite3.Connection, channel: str, thread: str) -> str:
+    """Safe human label for a freshness hint.
 
     Prefer ``threads.label`` / whois display names when richer; else a human
     thread name; else ``threads.title()``. Never print raw phone / email /
@@ -145,10 +145,10 @@ def _hint_label(conn: sqlite3.Connection, stream: str, thread: str) -> str:
     stored = ""
     if thread:
         row = conn.execute(
-            "SELECT label FROM threads WHERE stream = ? AND thread = ?",
-            (stream, thread)).fetchone()
+            "SELECT label FROM threads WHERE channel = ? AND thread = ?",
+            (channel, thread)).fetchone()
         stored = ((row["label"] if row else None) or "").strip()
-    titled = (threads.title(conn, stream, thread) or "").strip() if thread else ""
+    titled = (threads.title(conn, channel, thread) or "").strip() if thread else ""
     thread_name = (thread or "").strip()
     safe_stored = stored if stored and not _looks_like_raw_id(stored) else ""
     safe_titled = titled if titled and not _looks_like_raw_id(titled) else ""
@@ -163,7 +163,7 @@ def _hint_label(conn: sqlite3.Connection, stream: str, thread: str) -> str:
     pick = pick or safe_thread
     if pick:
         return pick
-    raw = thread_name or (stream or "").strip()
+    raw = thread_name or (channel or "").strip()
     if not raw:
         return "unknown"
     digits = re.sub(r"\D", "", raw)
@@ -199,8 +199,8 @@ def _freshness_hint(conn: sqlite3.Connection, event) -> str | None:
     if not found["strong_total"]:
         return None
     first = found["strong"][0]
-    label = _hint_label(conn, first["stream"], first.get("thread") or "")
-    where = f"{first['stream']}/{label}" if label else first["stream"]
+    label = _hint_label(conn, first["channel"], first.get("thread") or "")
+    where = f"{first['channel']}/{label}" if label else first["channel"]
     # "+N more" would re-print the raw total the cap is meant to hide, so it is
     # only shown while the count itself is uncapped ("99+" already means "more").
     hidden = found["strong_total"] - len(found["strong"])
@@ -237,17 +237,17 @@ def _collection_line(conn: sqlite3.Connection, cfg: Config) -> str | None:
         "SELECT 1 FROM collections WHERE finished_at IS NOT NULL LIMIT 1"
     ).fetchone() is not None
     bad = []
-    for stream in known:
-        attempt = archive.last_source_attempt(conn, stream)
+    for channel in known:
+        attempt = archive.last_source_attempt(conn, channel)
         if attempt is None:
             if in_use:
-                bad.append(f"{stream} (not yet checked)")
+                bad.append(f"{channel} (not yet checked)")
             continue
         status = attempt.get("status") or ""
         if status in ("failed", "unavailable"):
-            bad.append(f"{stream} ({str(attempt.get('error') or 'unavailable')[:60]})")
+            bad.append(f"{channel} ({str(attempt.get('error') or 'unavailable')[:60]})")
         elif status == "incomplete":
-            bad.append(f"{stream} (incomplete — more waiting)")
+            bad.append(f"{channel} (incomplete — more waiting)")
     if not bad:
         return None
     shown = ", ".join(bad[:3]) + (f" +{len(bad) - 3} more" if len(bad) > 3 else "")
@@ -289,8 +289,8 @@ def represented_keys(conn: sqlite3.Connection, cfg: Config,
     return {ev.key for ev in _rendered_events(conn, window, later_shown)}
 
 
-#: Non-PII stand-in when unlinked backlog exists. Never names stream/thread
-#: (the old `[UNREVIEWED: stream/thread …]` form leaked phones and handles).
+#: Non-PII stand-in when unlinked backlog exists. Never names channel/thread
+#: (the old `[UNREVIEWED: channel/thread …]` form leaked phones and handles).
 _BACKLOG_NOTICE = (
     "[coverage incomplete — unreviewed traffic not linked to any plan]"
 )
@@ -302,7 +302,7 @@ def _backlog_lines(conn: sqlite3.Connection, cfg: Config,
     """Unreviewed traffic no rendered plan is associated with — one non-PII line.
 
     Coverage is judged against the events this brief actually surfaces. The
-    old per-thread `[UNREVIEWED: stream/thread …]` footer dumped identifiers;
+    old per-thread `[UNREVIEWED: channel/thread …]` footer dumped identifiers;
     MVP emits at most a single non-identifying notice (or nothing).
     """
     if represented is None:
@@ -523,8 +523,8 @@ def _origin_label(names: dict[tuple, str], origin: str) -> str:
     if kind == "person":
         name = rest.strip()
     elif kind == "thread":
-        stream, _, thread = rest.partition(":")
-        name = names.get((stream, thread), "").strip()
+        channel, _, thread = rest.partition(":")
+        name = names.get((channel, thread), "").strip()
     else:
         return ""                      # ical:, partiful:, agent: — self-sourced rows
     return "" if not name or threads.is_opaque(name) else name
@@ -766,7 +766,7 @@ def _is_protected(line: str) -> bool:
 
 
 #: Lines that disclose a coverage hole (uncollected, stale, or unreviewed input).
-#: `[UNREVIEWED: stream/thread…]` was removed — it leaked PII; backlog uses
+#: `[UNREVIEWED: channel/thread…]` was removed — it leaked PII; backlog uses
 #: `_BACKLOG_NOTICE` / `_COVERAGE_TRIMMED` instead.
 _COVERAGE_PREFIXES = ("[COLLECTION:", "[STALE:", "[coverage incomplete")
 #: The claim that everything in a range is accounted for.

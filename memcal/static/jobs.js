@@ -46,10 +46,10 @@ export function watchJob(job, button, logEl, done, clearLog = false) {
 
   /* Stream, so a bar moves when the pipeline moves rather than on the next tick of a
      timer. The poller stays as the fallback: EventSource may be unavailable, and the
-     stream can be cut by anything between here and the server. */
-  let stream = null;
-  try { stream = new EventSource("/api/job/stream?id=" + encodeURIComponent(job)); }
-  catch (e) { stream = null; }
+     channel can be cut by anything between here and the server. */
+  let channel = null;
+  try { channel = new EventSource("/api/job/channel?id=" + encodeURIComponent(job)); }
+  catch (e) { channel = null; }
 
   const poll = async () => {
     if (finished) return;
@@ -59,15 +59,15 @@ export function watchJob(job, button, logEl, done, clearLog = false) {
     await finish(s);
   };
 
-  if (!stream) { poll(); return; }
-  stream.onmessage = ev => {
+  if (!channel) { poll(); return; }
+  channel.onmessage = ev => {
     const s = JSON.parse(ev.data);
     draw(s);
-    if (s.done) { stream.close(); finish(s); }
+    if (s.done) { channel.close(); finish(s); }
   };
-  stream.onerror = () => {
-    // A closed stream after the job finished is the normal ending, not a failure.
-    stream.close();
+  channel.onerror = () => {
+    // A closed channel after the job finished is the normal ending, not a failure.
+    channel.close();
     if (!finished) poll();
   };
 }

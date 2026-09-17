@@ -261,10 +261,10 @@ SETTINGS: tuple[Setting, ...] = (
             "dream", kind="int", minimum=0, maximum=100),
     Setting("MEMCAL_BUNDLE_FORMAT", "bundle_format", "Bundle wire format",
             "How a bundle is laid out in the prompt. The quiet variant drops the "
-            "stream tag from every line of a single-stream bundle.",
+            "channel tag from every line of a single-channel bundle.",
             "dream", kind="choice",
             choices=(("v1", "v1 · a tag on every line"),
-                     ("v2-quiet-stream", "v2 · quiet stream tags"))),
+                     ("v2-quiet-stream", "v2 · quiet channel tags"))),
 
     # --------------------------------------------------------------------- merge --
     Setting("MEMCAL_SAME_EVENT_TOKENS", "same_event_tokens", "Title words that match",

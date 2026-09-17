@@ -70,7 +70,7 @@ class Base(unittest.TestCase):
         line is genuinely older evidence.
         """
         eid = eid or f"ln-{ts}-{slot}-{value}".replace(" ", "-")
-        archive.append(self.conn, stream="imessage", external_id=eid, ts=ts,
+        archive.append(self.conn, channel="imessage", external_id=eid, ts=ts,
                        text=text, thread="self", person="me", from_me=True)
         self.conn.commit()
         bundle = Bundle(entity=entity, title="me", items=list(self.conn.execute(

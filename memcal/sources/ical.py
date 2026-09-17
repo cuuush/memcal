@@ -214,15 +214,15 @@ def _tick(line: str) -> tuple[str, int, int] | None:
         return None
 
 
-def _pump(stream, progress, tail: list[str]) -> None:
+def _pump(channel, progress, tail: list[str]) -> None:
     """Read the JXA's stderr as it arrives: ticks drive the bar, the rest is the error.
 
     Runs on its own thread because the main one is waiting on the process. Anything that
     is not a tick is kept — a Calendar failure explains itself on stderr and that message
     is the whole of what `fetch` has to show the user.
     """
-    with stream:
-        for line in stream:
+    with channel:
+        for line in channel:
             mark = _tick(line)
             if mark is None:
                 said = line.strip()
@@ -817,7 +817,7 @@ def ingest_snapshot(
         archive_id = base.deliver(
             conn,
             report,
-            stream="ical",
+            channel="ical",
             external_id=_revision(identity, item),
             ts=stamp,
             text=text,
@@ -990,7 +990,7 @@ def reconcile_deleted(
                 f"— no longer on their calendar")
         archive_id = archive.append(
             conn,
-            stream="ical",
+            channel="ical",
             external_id=f"{row['identity']}:deleted:{today}",
             ts=db.now(),
             thread=row["calendar_uid"],

@@ -207,9 +207,9 @@ def is_automated(address: str) -> bool:
 # this content test (an explicit `calendar-structured` verdict at the call
 # site), so it sits outside this set and is unchanged here.
 #
-# One entry per stream name a source actually archives under: the iMessage
-# bridge (BlueBubbles) writes stream="imessage", so there is no "bluebubbles"
-# stream to list.
+# One entry per channel name a source actually archives under: the iMessage
+# bridge (BlueBubbles) writes channel="imessage", so there is no "bluebubbles"
+# channel to list.
 PASS_ALL_STREAMS = frozenset((
     "imessage",
     "whatsapp",
@@ -260,11 +260,11 @@ def gate_message(
     person: str | None = None,
     from_me: bool = False,
     top_tier: set[str] | None = None,
-    stream: str | None = None,
+    channel: str | None = None,
     is_group: bool = False,
     addressed_to: str = "person",
 ) -> Verdict:
-    """Gate one message. Full-stream and known-contact passes apply before any regex."""
+    """Gate one message. Full-channel and known-contact passes apply before any regex."""
     body = (text or "").strip()
     if not body:
         return Verdict(False, "empty")
@@ -272,11 +272,11 @@ def gate_message(
     if is_task_scam(body):
         return Verdict(False, "task-scam")
 
-    if stream in PASS_ALL_STREAMS:
+    if channel in PASS_ALL_STREAMS:
         # Chat passes in full (issue #31), including a bare reaction on its own.
         # A lone thumbs-up an hour later with no convo around it is still
         # someone saying something.
-        return Verdict(True, f"all-of:{stream}")
+        return Verdict(True, f"all-of:{channel}")
     if person and person != "me" and not is_group:
         return Verdict(True, KNOWN_CONTACT)
 
@@ -377,7 +377,7 @@ def gate_email(
     return Verdict(True, "unknown-sender")
 
 
-def bundle_entity(person: str | None, thread: str | None, stream: str) -> str:
+def bundle_entity(person: str | None, thread: str | None, channel: str) -> str:
     """Bundle key: group by entity or thread, across all streams.
 
     Splitting by source would separate the things that must be joined, so a person
@@ -386,15 +386,15 @@ def bundle_entity(person: str | None, thread: str | None, stream: str) -> str:
     if person:
         return f"person:{person}"
     if thread:
-        return f"thread:{stream}:{thread}"
-    return f"stream:{stream}"
+        return f"thread:{channel}:{thread}"
+    return f"channel:{channel}"
 
 
-def entity_for(*, person: str | None, thread: str | None, stream: str,
+def entity_for(*, person: str | None, thread: str | None, channel: str,
                is_group: bool) -> str:
     """The bundle key for one spooled item. The only place that choice is made.
 
     A person beats a thread, except in a group chat where the thread is the subject.
     """
     subject = None if is_group else person
-    return bundle_entity(subject, thread if (is_group or not subject) else None, stream)
+    return bundle_entity(subject, thread if (is_group or not subject) else None, channel)

@@ -23,10 +23,10 @@ from tools import audit_questions, benchmark_temporal
 
 class TestBenchmarkStructure(unittest.TestCase):
     def test_model_progress_names_real_stage_and_completed_fraction(self):
-        stream = io.StringIO()
+        channel = io.StringIO()
         status = benchmark_temporal.BenchmarkStatus(
             True, "core · provider codex · model gpt-5.6-luna",
-            every=60, stream=stream)
+            every=60, channel=channel)
         status.start()
         status.progress(1, "stage", {
             "stage": "propose", "state": "running", "note": "reading 12 bundles"})
@@ -35,7 +35,7 @@ class TestBenchmarkStructure(unittest.TestCase):
         status.progress(1, "propose_request", {
             "index": 1, "bundles": 6, "ok": True, "done": 6, "total": 12})
         status.close()
-        text = stream.getvalue()
+        text = channel.getvalue()
         self.assertIn("provider codex · model gpt-5.6-luna", text)
         self.assertIn("propose running · reading 12 bundles", text)
         self.assertIn("2 request(s) · 12 bundle(s)", text)
@@ -49,13 +49,13 @@ class TestBenchmarkStructure(unittest.TestCase):
                 self.calls += 1
                 return self.calls > 1
 
-        stream = io.StringIO()
+        channel = io.StringIO()
         status = benchmark_temporal.BenchmarkStatus(
-            True, "day 1/4 · propose dispatch", every=15, stream=stream)
+            True, "day 1/4 · propose dispatch", every=15, channel=channel)
         status._stop = OneBeat()
         status.last_event = benchmark_temporal.time.monotonic() - 20
         status._heartbeat()
-        text = stream.getvalue()
+        text = channel.getvalue()
         self.assertIn("still running · day 1/4 · propose dispatch", text)
         self.assertIn("since the last model event", text)
 
@@ -310,12 +310,12 @@ class TestAGreenCheckOnAnEmptyStoreProvesNothing(unittest.TestCase):
 #: than believed: silence the whole feature and the counterweight fails.
 NEGATIVE_PROBE_CHECKS = {
     "contract.truncated-json-not-partial": ("contract.fenced-empty",),
-    "brief.no-unregistered-stream": ("brief.registered-stream-still-warns",),
+    "brief.no-unregistered-channel": ("brief.registered-channel-still-warns",),
     "transaction.no-calendar-ledger": ("transaction.closes-matching-todo",),
     # Two counterweights: one says the transaction was processed at all, the other says
     # `brief.render` in this suite returns something to search.
     "transaction.resolved-disappears": ("transaction.closes-matching-todo",
-                                        "brief.registered-stream-still-warns"),
+                                        "brief.registered-channel-still-warns"),
     "collect.a-clean-pass-stays-clean": ("collect.a-failed-source-fails-the-pass",),
     "identity.a-first-name-guess-is-never-applied":
         ("identity.a-platform-name-is-taken-verbatim",),
@@ -332,7 +332,7 @@ NEGATIVE_PROBE_CHECKS = {
     "schedule.an-ended-series-stops-projecting":
         ("schedule.a-projection-follows-its-rule",),
     "hermes.only-user-crosses-boundary": ("hermes.turn-sync-deduplicates",),
-    "brief.a-quiet-snapshot-is-not-stale": ("brief.stale-stream-named",),
+    "brief.a-quiet-snapshot-is-not-stale": ("brief.stale-channel-named",),
 }
 
 #: The six suites `benchmark_temporal.probe_run` dispatches. Named rather than derived
@@ -421,11 +421,11 @@ class TestEveryNegativeProbeCheckHasACounterweight(unittest.TestCase):
     def test_a_counterweight_that_goes_red_is_reported(self):
         """The proof it can fail, without breaking a real suite to get it."""
         broken = {name: dict(row) for name, row in self.rows.items()}
-        broken["brief.stale-stream-named"]["ok"] = False
+        broken["brief.stale-channel-named"]["ok"] = False
         self.assertEqual(
             self._counterweights_that_failed(broken),
             ["brief.a-quiet-snapshot-is-not-stale: counterweight "
-             "brief.stale-stream-named is red"])
+             "brief.stale-channel-named is red"])
 
     def test_the_scan_has_something_to_scan(self):
         """`result(` renamed, or a suite dropped, and every assertion above is empty."""
@@ -765,7 +765,7 @@ class TestWhatsAppDirectMessageFixture(unittest.TestCase):
             self.addCleanup(conn.close)
             whatsapp.ingest(conn, cfg, db_path=str(self.store))
             rows = conn.execute(
-                "SELECT thread, is_group FROM threads WHERE stream = 'whatsapp'"
+                "SELECT thread, is_group FROM threads WHERE channel = 'whatsapp'"
             ).fetchall()
         shape = {row["thread"]: bool(row["is_group"]) for row in rows}
         self.assertIn("Rae", shape, f"the DM did not arrive: {sorted(shape)}")

@@ -106,9 +106,9 @@ class PolledCase(unittest.TestCase):
     def watermark(self, source, chat_id):
         return base.watermark(self.conn, f"{source.name}.{chat_id}", "")
 
-    def archived_ids(self, stream="faketalk"):
+    def archived_ids(self, channel="faketalk"):
         return [r["external_id"] for r in self.conn.execute(
-            "SELECT external_id FROM archive WHERE stream = ? ORDER BY id", (stream,))]
+            "SELECT external_id FROM archive WHERE channel = ? ORDER BY id", (channel,))]
 
 
 class TestTheWatermarkAdvancesSafely(PolledCase):
@@ -239,7 +239,7 @@ class TestWhatTheRestOfMemcalSees(PolledCase):
         source = FakeChat([chat("a", group=True)], {"a": [{"id": "1"}]})
         self.run_source(source)
         row = self.conn.execute(
-            "SELECT thread, is_group FROM threads WHERE stream = 'faketalk'").fetchone()
+            "SELECT thread, is_group FROM threads WHERE channel = 'faketalk'").fetchone()
         self.assertEqual(row["thread"], "Chat a")
         self.assertEqual(row["is_group"], 1)
 
@@ -249,13 +249,13 @@ class TestWhatTheRestOfMemcalSees(PolledCase):
         base.set_watermark(self.conn, "faketalk.a", "9")
         self.run_source(source)
         self.assertIsNotNone(self.conn.execute(
-            "SELECT 1 FROM threads WHERE stream = 'faketalk'").fetchone())
+            "SELECT 1 FROM threads WHERE channel = 'faketalk'").fetchone())
 
     def test_my_own_message_is_stored_as_mine(self):
         source = FakeChat([chat("a")], {"a": [{"id": "1", "author": "me-1"}]})
         self.run_source(source)
         row = self.conn.execute(
-            "SELECT from_me, person, handle FROM archive WHERE stream='faketalk'"
+            "SELECT from_me, person, handle FROM archive WHERE channel='faketalk'"
         ).fetchone()
         self.assertEqual(row["from_me"], 1)
         self.assertEqual(row["person"], "me")
@@ -265,7 +265,7 @@ class TestWhatTheRestOfMemcalSees(PolledCase):
         source = FakeChat([chat("a")], {"a": [{"id": "1", "author": "u9"}]})
         self.run_source(source)
         row = self.conn.execute(
-            "SELECT from_me, handle FROM archive WHERE stream='faketalk'").fetchone()
+            "SELECT from_me, handle FROM archive WHERE channel='faketalk'").fetchone()
         self.assertEqual(row["from_me"], 0)
         self.assertEqual(row["handle"], "faketalk:u9")
 
@@ -280,7 +280,7 @@ class TestWhatTheRestOfMemcalSees(PolledCase):
         self.assertEqual(self.watermark(source, "a"), "1")
 
 
-# ------------------------------------------------------------------- stream --
+# ------------------------------------------------------------------- channel --
 
 class FakeQueue(StreamSource):
     name = "fakequeue"
@@ -326,7 +326,7 @@ class TestTheDrainShape(PolledCase):
         source = FakeQueue([{"id": "1", "chat": "a"}, {"id": "2", "chat": "a"}])
         source.run(self.conn, self.cfg, limit=100)
         rows = self.conn.execute(
-            "SELECT thread FROM threads WHERE stream = 'fakequeue'").fetchall()
+            "SELECT thread FROM threads WHERE channel = 'fakequeue'").fetchall()
         self.assertEqual([r["thread"] for r in rows], ["Chat a"])
 
     def test_the_single_cursor_advances_to_the_last_item(self):

@@ -497,7 +497,7 @@ class TestHermesProvider(unittest.TestCase):
         provider.sync_turn("hey", "hi")
         from memcal import config, db
         conn = db.open_db(config.load(self.tmp.name).db_path)
-        archived = conn.execute("SELECT count(*) AS n FROM archive WHERE stream='agent'").fetchone()["n"]
+        archived = conn.execute("SELECT count(*) AS n FROM archive WHERE channel='agent'").fetchone()["n"]
         spooled = conn.execute("SELECT count(*) AS n FROM spool").fetchone()["n"]
         conn.close()
         self.assertGreaterEqual(archived, 2, "everything is archived")

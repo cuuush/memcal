@@ -7,7 +7,7 @@ import { openWhy } from "./memory.js";
 let bTimer;
 $("#bq").oninput = e => { clearTimeout(bTimer); bTimer = setTimeout(() => {
   bfilter.q = e.target.value.trim(); rebundle(); }, 180); };
-for (const [id, key] of [["#bstream", "stream"], ["#bkind", "kind"], ["#bflag", "flag"]]) {
+for (const [id, key] of [["#bstream", "channel"], ["#bkind", "kind"], ["#bflag", "flag"]]) {
   $(id).onchange = e => { bfilter[key] = e.target.value; rebundle(); };
 }
 /* --------------------------------------------------------------- dream -- */
@@ -234,7 +234,7 @@ function renderRequests(p) {
 /* A hundred and six conversations is a list you scroll past, not one you read. The
    search covers what was *said* as well as who said it — finding the bundle a plan is
    hiding in means searching for "gala", not for the person who mentioned it. */
-const bfilter = {q: "", stream: "", kind: "", flag: ""};
+const bfilter = {q: "", channel: "", kind: "", flag: ""};
 
 /* How well a bundle answers the search, not merely whether it does. Typing "harper"
    means the conversation *with* Harper, not the forty chats where somebody mentioned
@@ -253,7 +253,7 @@ function bundleScore(b, q) {
 }
 
 function bundleMatches(b) {
-  if (bfilter.stream && !b.streams.includes(bfilter.stream)) return false;
+  if (bfilter.channel && !b.streams.includes(bfilter.channel)) return false;
   if (bfilter.kind === "person" && b.kind !== "person") return false;
   if (bfilter.kind === "group" && !b.group) return false;
   if (bfilter.kind === "thread" && (b.kind !== "thread" || b.group)) return false;
@@ -269,13 +269,13 @@ function renderBundles(p) {
   const streams = [...new Set(p.bundles.flatMap(b => b.streams))].sort();
   const sel = $("#bstream");
   if (sel.options.length !== streams.length + 1) {
-    sel.innerHTML = '<option value="">every stream</option>';
+    sel.innerHTML = '<option value="">every channel</option>';
     for (const s of streams) {
       const o = el("option", null, s);
       o.value = s;
       sel.append(o);
     }
-    sel.value = bfilter.stream;
+    sel.value = bfilter.channel;
   }
   if (!p.bundles.length) {
     box.innerHTML = '<div class="empty">nothing waiting — collect first, or it is all already read</div>';
@@ -392,7 +392,7 @@ function bundleCard(b) {
       ? `${b.conversations.length} conversations in this bundle:` : "from:"));
     for (const c of b.conversations) {
       const chip = el("span", "convo" + (c.group ? " grp" : ""));
-      chip.textContent = `${c.group ? "group" : "1:1"} · ${c.stream}/${c.thread || "—"} · ${c.n}`;
+      chip.textContent = `${c.group ? "group" : "1:1"} · ${c.channel}/${c.thread || "—"} · ${c.n}`;
       n.append(chip);
     }
     d.append(n);

@@ -34,10 +34,10 @@ class Row(dict):
 _NEXT_ID = [1000]
 
 
-def line(text, ts, *, person=None, handle="", stream="imessage", reason=None):
+def line(text, ts, *, person=None, handle="", channel="imessage", reason=None):
     _NEXT_ID[0] += 1
     return Row(id=_NEXT_ID[0], text=text, ts=ts, person=person, handle=handle,
-               stream=stream, gate_reason=reason)
+               channel=channel, gate_reason=reason)
 
 
 class Bundle:
@@ -120,7 +120,7 @@ class TestWordsThatIdentifyNothing(unittest.TestCase):
 class TestTheUserIsNotOneVoice(unittest.TestCase):
     """Every message the user sent has an empty handle.
 
-    Falling through to `stream:` for those collapses their half of every conversation in
+    Falling through to `channel:` for those collapses their half of every conversation in
     the store into a single speaker. `ambient_tokens` then sees `beer` and `garden` said
     by "one voice" over two months and suppresses exactly the words that link — which is
     what happened the first time this was run over the real corpus.
@@ -272,7 +272,7 @@ class TestTheRealCasesFromTheStore(unittest.TestCase):
         email = Bundle("thread:email:hannah@ridersalliance.org", [
             line("Join us Thursday, July 30 at Nitehawk Cinema in Prospect Park",
                  "2026-07-13T13:58:07-04:00", handle="hannah@ridersalliance.org",
-                 stream="email")])
+                 channel="email")])
         text = Bundle("thread:imessage:+15165550111", [
             line("We're hosting a movie night next Thursday, July 30 at Nitehawk",
                  "2026-07-23T13:08:20-04:00", handle="+15165550111")])

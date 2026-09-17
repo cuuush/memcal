@@ -104,7 +104,7 @@ def main() -> int:
             unreadable=snapshot.unreadable)
         after = conn.execute("SELECT count(*) n FROM events").fetchone()["n"]
         archived = conn.execute(
-            "SELECT count(*) n FROM archive WHERE stream='ical'").fetchone()["n"]
+            "SELECT count(*) n FROM archive WHERE channel='ical'").fetchone()["n"]
         print(f"  events {before} -> {after}; ical archive rows {archived}")
         for note in report.notes:
             print("  note: " + note)

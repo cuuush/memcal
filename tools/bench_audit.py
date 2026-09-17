@@ -66,7 +66,7 @@ def _evidence(conn: sqlite3.Connection, kind: str) -> dict[str, list[sqlite3.Row
     """ref → the archive rows it cites."""
     out: dict[str, list[sqlite3.Row]] = defaultdict(list)
     rows = conn.execute("""
-        SELECT v.ref, a.id, a.ts, a.text, a.person, a.handle, a.stream
+        SELECT v.ref, a.id, a.ts, a.text, a.person, a.handle, a.channel
         FROM evidence v JOIN archive a ON a.id = v.archive_id
         WHERE v.kind = ?
     """, (kind,)).fetchall()
@@ -178,11 +178,11 @@ def audit_missed(conn, limit: int) -> tuple[str, int, list[str]]:
     # Match plan-like text directly. The gate passes some streams wholesale,
     # so `gate_reason` alone misses them.
     rows = conn.execute("""
-        SELECT a.id, a.ts, a.person, a.handle, a.stream, a.text, a.gate_reason
+        SELECT a.id, a.ts, a.person, a.handle, a.channel, a.text, a.gate_reason
         FROM archive a
         JOIN spool s ON s.archive_id = a.id
         WHERE a.id NOT IN (SELECT archive_id FROM evidence)
-          AND a.stream <> 'agent'
+          AND a.channel <> 'agent'
         ORDER BY a.ts DESC
     """).fetchall()
     for row in rows:
@@ -197,7 +197,7 @@ def audit_missed(conn, limit: int) -> tuple[str, int, list[str]]:
             pass
         if not any(dates.resolve(p, said_on) for p in dates.claims(text)):
             continue
-        who = row["person"] or row["handle"] or row["stream"]
+        who = row["person"] or row["handle"] or row["channel"]
         findings.append(f"{row['id']} · {str(row['ts'])[:10]} · {who} · "
                         + " ".join(text.split())[:110])
     return "plan-shaped dated lines that no row cites", len(findings), findings[:limit]
@@ -285,7 +285,7 @@ def audit_details(conn, limit: int) -> tuple[str, int, list[str]]:
                                    for f in ("title", "note", "location", "time")))
         dropped: list[str] = []
         for line in lines:
-            is_email = str(line["stream"] or "") == "email"
+            is_email = str(line["channel"] or "") == "email"
             for sentence in _SENTENCE_RE.findall(str(line["text"])[:4000]):
                 strong = _STRONG_RE.search(sentence)
                 if not strong and not (is_email and _WEAK_RE.search(sentence)):

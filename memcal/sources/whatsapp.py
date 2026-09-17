@@ -90,7 +90,7 @@ def legacy_store_matches(conn: sqlite3.Connection, src: sqlite3.Connection) -> b
     """Compare archived legacy IDs with this store when upgrading from older builds."""
     archived = conn.execute(
         "SELECT external_id, ts, text FROM archive"
-        " WHERE stream = 'whatsapp' AND external_id GLOB 'wa:[0-9]*'"
+        " WHERE channel = 'whatsapp' AND external_id GLOB 'wa:[0-9]*'"
         " AND external_id NOT LIKE 'wa:%:%' ORDER BY id DESC LIMIT 12"
     ).fetchall()
     if not archived:
@@ -260,7 +260,7 @@ def adopt_push_names(conn: sqlite3.Connection, src: sqlite3.Connection) -> int:
         if not handle or identity.resolve(conn, handle):
             continue
         seen = conn.execute(
-            "SELECT 1 FROM archive WHERE stream = 'whatsapp' AND handle = ? LIMIT 1",
+            "SELECT 1 FROM archive WHERE channel = 'whatsapp' AND handle = ? LIMIT 1",
             (handle,)).fetchone()
         if not seen:
             continue
@@ -271,7 +271,7 @@ def adopt_push_names(conn: sqlite3.Connection, src: sqlite3.Connection) -> int:
             continue
         conn.execute(
             "UPDATE archive SET person = ?"
-            "  WHERE stream = 'whatsapp' AND handle = ? AND from_me = 0"
+            "  WHERE channel = 'whatsapp' AND handle = ? AND from_me = 0"
             "    AND coalesce(person, '') != ?", (person, handle, person))
         named += 1
     if named:
@@ -351,7 +351,7 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 2000,
 
         base.deliver(
             conn, report,
-            stream="whatsapp",
+            channel="whatsapp",
             external_id=f"{external_prefix}:{row['rowid']}",
             ts=to_iso(row["date"]),
             text=text,

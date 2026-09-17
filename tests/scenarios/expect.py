@@ -586,12 +586,12 @@ def gate_corpus_stats(ctx) -> dict:
         truth.append(("email", record["addr"], record["subject"], bool(record.get("beat"))))
 
     signal = queued_signal = noise = queued_noise = matched = 0
-    for stream, thread, text, is_signal in truth:
+    for channel, thread, text, is_signal in truth:
         row = ctx.conn.execute(
             """SELECT a.id, s.id AS spool_id FROM archive a
                  LEFT JOIN spool s ON s.archive_id = a.id
-                WHERE a.stream = ? AND a.thread = ? AND a.text = ?
-                ORDER BY a.id LIMIT 1""", (stream, thread, text)
+                WHERE a.channel = ? AND a.thread = ? AND a.text = ?
+                ORDER BY a.id LIMIT 1""", (channel, thread, text)
         ).fetchone()
         if not row:
             continue
@@ -971,7 +971,7 @@ CHECKS: list[Check] = [
           lambda c: (bool(c.todos(r"ez.?pass")), f"todos: {[t.text for t in c.todos('.')]}")),
     # -- 56. The user handed the claim to the assistant. The assistant filed it; the user owes
     #    nothing afterwards. `d1.ezpass` and `show.d1-todo` are the decoys and they are
-    #    in this same bundle: same grammar, same stream, and the doer is them.
+    #    in this same bundle: same grammar, same channel, and the doer is them.
     Check("d1.delegated-no-todo", "56 work handed off", 1,
           lambda c: (lambda seen, made: (
               seen and not made,

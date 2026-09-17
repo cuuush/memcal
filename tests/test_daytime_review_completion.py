@@ -19,7 +19,7 @@ class TestDreamCreationEvidenceOrder(LifecycleBase):
         self.assertEqual(event["location"], "5 Oak")
 
         def collect(eid, ts, text):
-            base.deliver(self.conn, base.IngestReport(stream="chat"), stream="chat",
+            base.deliver(self.conn, base.IngestReport(channel="chat"), channel="chat",
                          external_id=eid, ts=ts, text=text, thread="poker group",
                          handle="friend@example.com")
             self.conn.commit()

@@ -74,7 +74,7 @@ class Base(unittest.TestCase):
     def mail(self, address: str, subject: str, *, gated: bool, reason: str,
              offset: int = 0, spool: bool = None, processed: bool = False) -> int:
         aid = archive.append(
-            self.conn, stream="email", external_id=f"{address}:{subject}:{offset}",
+            self.conn, channel="email", external_id=f"{address}:{subject}:{offset}",
             ts=self.ts(offset), text=subject, thread=address, handle=address,
             gated=gated, gate_reason=reason, meta={"subject": subject},
         )
@@ -123,7 +123,7 @@ class TestQueueState(Base):
     def test_live_writes_are_not_reported_as_missed(self):
         """The live path never queues anything. Reading that as a backlog would be a
         bug report about the one thing working as designed."""
-        archive.append(self.conn, stream="agent", external_id="live-1", ts=self.ts(),
+        archive.append(self.conn, channel="agent", external_id="live-1", ts=self.ts(),
                        text="dinner tuesday with alex", gated=True, gate_reason="live")
         self.conn.commit()
         self.assertEqual(web.items(self.conn)["items"][0]["state"], "live")
@@ -131,7 +131,7 @@ class TestQueueState(Base):
     def test_structured_calendar_writes_are_not_reported_as_skipped(self):
         archive.append(
             self.conn,
-            stream="ical",
+            channel="ical",
             external_id="calendar-1",
             ts=self.ts(),
             text="Dinner — calendar: Partiful (subscribed)",
@@ -143,14 +143,14 @@ class TestQueueState(Base):
         self.assertEqual(item["state"], "structured")
         self.assertEqual(web.items(self.conn, verdict="structured")["total"], 1)
         self.assertEqual(web.items(self.conn, verdict="skipped")["total"], 0)
-        stream = {row["stream"]: row for row in web.overview(
+        channel = {row["channel"]: row for row in web.overview(
             self.conn, self.cfg)["streams"]}["ical"]
-        self.assertEqual(stream["structured"], 1)
+        self.assertEqual(channel["structured"], 1)
 
     def test_legacy_calendar_snapshot_marker_is_not_a_gate_item(self):
         archive.append(
             self.conn,
-            stream="ical",
+            channel="ical",
             external_id="snapshot:2026-07-30",
             ts=self.ts(),
             text="Calendar snapshot completed: 119 event(s)",
@@ -169,7 +169,7 @@ class TestCounterparts(Base):
             (0, "Harper", "u free tomorrow?"),
             (1, None, "yeah after 6"),
         ]):
-            archive.append(self.conn, stream="imessage", external_id=f"m{i}",
+            archive.append(self.conn, channel="imessage", external_id=f"m{i}",
                            ts=self.ts(), text=text, thread="+15551234567",
                            person=person, from_me=bool(from_me), gated=True,
                            gate_reason="temporal")
@@ -180,7 +180,7 @@ class TestCounterparts(Base):
 
     def test_a_group_is_named_as_one(self):
         for i, (from_me, person) in enumerate([(0, "Ann"), (0, "Bo"), (1, None)]):
-            archive.append(self.conn, stream="groupme", external_id=f"g{i}",
+            archive.append(self.conn, channel="groupme", external_id=f"g{i}",
                            ts=self.ts(), text=f"line {i}", thread="chat-9",
                            person=person, from_me=bool(from_me), gated=True,
                            gate_reason="temporal")
@@ -216,9 +216,9 @@ class TestFilters(Base):
 class TestRollup(Base):
     """Opening a rolled-up conversation has to show that conversation's lines."""
 
-    def chat(self, thread: str, texts: list[str], *, stream: str = "imessage") -> None:
+    def chat(self, thread: str, texts: list[str], *, channel: str = "imessage") -> None:
         for i, text in enumerate(texts):
-            archive.append(self.conn, stream=stream, external_id=f"{thread}:{i}",
+            archive.append(self.conn, channel=channel, external_id=f"{thread}:{i}",
                            ts=self.ts(), text=text, thread=thread,
                            handle=None if i % 2 else "+15550001111",
                            person="Quinn" if i % 2 else None, from_me=bool(i % 2),
@@ -234,7 +234,7 @@ class TestRollup(Base):
 
         key = web.groups(self.conn)["groups"][0]["key"]
         self.assertEqual(key, "9858b62c161544bca4342589e0344bbe")
-        opened = web.items(self.conn, group=key, stream="imessage")
+        opened = web.items(self.conn, group=key, channel="imessage")
         self.assertEqual(opened["total"], 2)
         self.assertEqual({i["preview"] for i in opened["items"]},
                          {"are we still on", "yes 7pm"})
@@ -244,29 +244,29 @@ class TestRollup(Base):
         every line I wrote — the count on the row and the lines under it disagreed."""
         self.chat("+16465550113", ["u free tomorrow?", "yeah after 6"])
         row = web.groups(self.conn)["groups"][0]
-        opened = web.items(self.conn, group=row["key"], stream="imessage")
+        opened = web.items(self.conn, group=row["key"], channel="imessage")
         self.assertEqual(opened["total"], row["n"])
         self.assertEqual(len([i for i in opened["items"] if i["from_me"]]), 1)
 
     def test_a_key_is_matched_whole_and_not_as_a_substring(self):
         self.chat("+1646757065", ["short number"])
         self.chat("+16465550113", ["longer number"])
-        opened = web.items(self.conn, group="+1646757065", stream="imessage")
+        opened = web.items(self.conn, group="+1646757065", channel="imessage")
         self.assertEqual([i["preview"] for i in opened["items"]], ["short number"])
 
     def test_email_rolls_up_and_opens_by_address(self):
         self.mail("nytdirect@nytimes.com", "morning briefing", gated=False, reason="bulk-headers")
         self.mail("nytdirect@nytimes.com", "evening briefing", gated=False, reason="bulk-headers")
-        row = web.groups(self.conn, stream="email")["groups"][0]
+        row = web.groups(self.conn, channel="email")["groups"][0]
         self.assertEqual(row["key"], "nytdirect@nytimes.com")
-        self.assertEqual(web.items(self.conn, group=row["key"], stream="email")["total"], 2)
+        self.assertEqual(web.items(self.conn, group=row["key"], channel="email")["total"], 2)
 
     def test_an_open_group_still_honours_the_search_box(self):
         """The rollup counts are computed with the search applied, so the lines under a
         row have to be too, or the row says 1 and lists 2."""
-        self.chat("chat-9", ["poker friday", "no thanks"], stream="groupme")
+        self.chat("chat-9", ["poker friday", "no thanks"], channel="groupme")
         row = web.groups(self.conn, q="poker")["groups"][0]
-        opened = web.items(self.conn, group=row["key"], stream="groupme", q="poker")
+        opened = web.items(self.conn, group=row["key"], channel="groupme", q="poker")
         self.assertEqual(opened["total"], row["n"])
         self.assertEqual([i["preview"] for i in opened["items"]], ["poker friday"])
 
@@ -395,12 +395,12 @@ class TestBlocking(Base):
         self.assertTrue(identity.sender_blocked(self.conn, "aws@amazon.com"))
 
     def test_blocking_a_chat_mutes_it(self):
-        archive.append(self.conn, stream="groupme", external_id="g1", ts=self.ts(),
+        archive.append(self.conn, channel="groupme", external_id="g1", ts=self.ts(),
                        text="zoom call about the api in 3 days", thread="Dev Chat",
                        gated=True, gate_reason="temporal")
         self.conn.commit()
         out = web.block(self.conn, self.cfg,
-                        {"stream": "groupme", "thread": "Dev Chat", "by": "agent"})
+                        {"channel": "groupme", "thread": "Dev Chat", "by": "agent"})
         self.assertEqual(out["blocked"], "groupme/Dev Chat")
         self.assertTrue(threads.is_muted(self.conn, "groupme", "Dev Chat"))
 
@@ -510,8 +510,8 @@ class TestOverview(Base):
         self.mail("a@x.com", "one", gated=True, reason="unknown-sender")
         self.mail("b@x.com", "two", gated=False, reason="bulk-headers")
         out = web.overview(self.conn, self.cfg)
-        stream = {s["stream"]: s for s in out["streams"]}["email"]
-        self.assertEqual((stream["n"], stream["gated"]), (2, 1))
+        channel = {s["channel"]: s for s in out["streams"]}["email"]
+        self.assertEqual((channel["n"], channel["gated"]), (2, 1))
         self.assertEqual(out["pending"], 1)
         # The handler serialises whatever these return; a stray Row or date would 500.
         for payload in (out, web.memory(self.conn, self.cfg),
@@ -572,7 +572,7 @@ class TestDreamPreview(Base):
     def spool_line(self, person: str, text: str, *, mine: bool, offset: int = 0,
                    gated: bool = True) -> int:
         aid = archive.append(
-            self.conn, stream="imessage", external_id=f"{person}:{text}:{offset}",
+            self.conn, channel="imessage", external_id=f"{person}:{text}:{offset}",
             ts=self.ts(offset), text=text, thread=f"thread-{person}", handle=person,
             person=person, from_me=mine, gated=gated, gate_reason="test",
         )
@@ -722,9 +722,9 @@ class TestBundleIsReadable(Base):
     """The card has to say which conversations it is made of, and which are groups."""
 
     def line(self, *, thread: str, person: str, text: str, group: bool,
-             stream: str = "groupme", offset: int = 0) -> None:
+             channel: str = "groupme", offset: int = 0) -> None:
         aid = archive.append(
-            self.conn, stream=stream, external_id=f"{thread}:{text}:{offset}",
+            self.conn, channel=channel, external_id=f"{thread}:{text}:{offset}",
             ts=self.ts(offset), text=text, thread=thread, handle=f"h:{person}",
             person=person, from_me=False, meta={"group": group},
             gated=True, gate_reason="test",
@@ -746,7 +746,7 @@ class TestBundleIsReadable(Base):
                   group=False)
         self.line(thread="Alumni Chat", person="parker", text="yo ravers", group=True)
         self.line(thread="+15551234567", person="parker", text="you on palworld?",
-                  group=False, stream="imessage")
+                  group=False, channel="imessage")
         card = web.dream_preview(self.conn, self.cfg)["bundles"][0]
         self.assertEqual(len(card["conversations"]), 3)
         self.assertEqual(sum(c["n"] for c in card["conversations"]), 3)
@@ -1208,26 +1208,26 @@ class TestLatestDreamChangesAreMarkedOnTheBrief(Base):
 
     def test_why_opens_original_evidence_before_any_model_call(self):
         archive.append(
-            self.conn, stream="groupme", external_id="aspca-before",
+            self.conn, channel="groupme", external_id="aspca-before",
             ts=self.ts().replace("12:00", "11:58"),
             text="Is this the same clinic we discussed?", thread="Doggo Park 142",
             person="Rae", gated=False)
         for index in range(5):
             archive.append(
-                self.conn, stream="groupme", external_id=f"unrelated-{index}",
+                self.conn, channel="groupme", external_id=f"unrelated-{index}",
                 ts=self.ts(), text="unrelated interleaved traffic",
                 thread=f"elsewhere-{index}", person="Someone", gated=False)
         archive_id = archive.append(
-            self.conn, stream="groupme", external_id="aspca-source", ts=self.ts(),
+            self.conn, channel="groupme", external_id="aspca-source", ts=self.ts(),
             text="The ASPCA mobile clinic will be at the Doggo Park run Wednesday 10–3",
             thread="Doggo Park 142", person="Rae", gated=True)
         for index in range(5, 10):
             archive.append(
-                self.conn, stream="groupme", external_id=f"unrelated-{index}",
+                self.conn, channel="groupme", external_id=f"unrelated-{index}",
                 ts=self.ts(), text="more unrelated interleaved traffic",
                 thread=f"elsewhere-{index}", person="Someone", gated=False)
         archive.append(
-            self.conn, stream="groupme", external_id="aspca-after",
+            self.conn, channel="groupme", external_id="aspca-after",
             ts=self.ts().replace("12:00", "12:02"),
             text="Yep, it is at our run.", thread="Doggo Park 142",
             person="Rae", gated=False)
@@ -1335,7 +1335,7 @@ class TestLatestDreamChangesAreMarkedOnTheBrief(Base):
 
 
 class TestASourceThatWentQuietIsStillOnTheOverview(Base):
-    """The stream table is built from `WHERE ts >= since`, so a source silent for longer
+    """The channel table is built from `WHERE ts >= since`, so a source silent for longer
     than the window fell out of the query and rendered as *not listed* — the one
     rendering that cannot be told apart from "no such source". Same shape as the
     sixteen-months-behind incident: the display that would tell you is computed from the
@@ -1343,14 +1343,14 @@ class TestASourceThatWentQuietIsStillOnTheOverview(Base):
 
     def test_a_stream_silent_longer_than_the_window_is_named_as_stale(self):
         archive.append(
-            self.conn, stream="whatsapp", external_id="old-1",
+            self.conn, channel="whatsapp", external_id="old-1",
             ts=(db.now_dt() - timedelta(days=40)).isoformat(timespec="seconds"),
             text="see you sunday", thread="dinner thu", person="Alex Rivera",
             from_me=False, gated=True, gate_reason="temporal")
         self.conn.commit()
-        streams = {row["stream"]: row for row in
+        streams = {row["channel"]: row for row in
                    web.overview(self.conn, self.cfg)["streams"]}
-        self.assertIn("whatsapp", streams, "a dead stream must not simply disappear")
+        self.assertIn("whatsapp", streams, "a dead channel must not simply disappear")
         self.assertEqual(streams["whatsapp"]["n"], 0)
         self.assertTrue(streams["whatsapp"]["stale"])
 
@@ -1359,7 +1359,7 @@ class TestASourceThatWentQuietIsStillOnTheOverview(Base):
         purpose and is not silence; calling it stale would teach the reader to skim the
         column that matters."""
         archive.append(
-            self.conn, stream="ical", external_id="snapshot:2026-08-20", ts=db.now(),
+            self.conn, channel="ical", external_id="snapshot:2026-08-20", ts=db.now(),
             text="Calendar snapshot completed: 119 event(s)", gated=False,
             gate_reason="calendar-structured")
         self.conn.commit()
@@ -1367,7 +1367,7 @@ class TestASourceThatWentQuietIsStillOnTheOverview(Base):
 
 
 class TestOneLabelForTheUsersOwnEarlierTurns(Base):
-    """The `agent` stream is the user's own turns, archived so a session can be read
+    """The `agent` channel is the user's own turns, archived so a session can be read
     back. Quoted as a citation it is the model corroborating a row with the summary the
     row came from. Hermes labelled them; the MCP tools and the row-detail panel — which
     is what the CLI and the browser read — did not, and 163 evidence rows point at
@@ -1375,7 +1375,7 @@ class TestOneLabelForTheUsersOwnEarlierTurns(Base):
 
     def _agent_line(self):
         aid = archive.append(
-            self.conn, stream="agent", external_id="hermes-1", ts=db.now(),
+            self.conn, channel="agent", external_id="hermes-1", ts=db.now(),
             text="poker is at Jordan's on Friday", thread="hermes:session-a",
             person=None, from_me=True, gated=True, gate_reason="agent")
         event, _ = events.upsert(self.conn, {"title": "Poker at Jordan's",

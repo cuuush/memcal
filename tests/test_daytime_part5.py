@@ -132,8 +132,8 @@ class _HermesBase(unittest.TestCase):
 
     def collect(self, conn, eid, text, thread="poker group",
                 handle="friend@example.com"):
-        report = self.mbase.IngestReport(stream="chat")
-        self.mbase.deliver(conn, report, stream="chat", external_id=eid,
+        report = self.mbase.IngestReport(channel="chat")
+        self.mbase.deliver(conn, report, channel="chat", external_id=eid,
                            ts=self.mdb.now(), text=text, thread=thread,
                            handle=handle)
         conn.commit()
@@ -192,7 +192,7 @@ class TestOldSessionsGetToday(_HermesBase):
         conn = self.conn()
         try:
             rows = conn.execute(
-                "SELECT text FROM archive WHERE stream = 'agent'").fetchall()
+                "SELECT text FROM archive WHERE channel = 'agent'").fetchall()
             texts = [r["text"] for r in rows]
         finally:
             conn.close()
@@ -355,7 +355,7 @@ class TestAQuestionAcknowledgesNothing(_HermesBase):
         conn = self.conn()
         try:
             return conn.execute(
-                "SELECT id FROM archive WHERE stream = 'agent'"
+                "SELECT id FROM archive WHERE channel = 'agent'"
                 " ORDER BY id DESC LIMIT 1").fetchone()["id"]
         finally:
             conn.close()
@@ -409,8 +409,8 @@ class TestAuthorshipBoundaries(unittest.TestCase):
         from memcal.sources import base
         from memcal.sources.base import IngestReport
         # Saturday's plan, established from Saturday's message.
-        sat = IngestReport(stream="chat")
-        base.deliver(self.conn, sat, stream="chat", external_id="sat1",
+        sat = IngestReport(channel="chat")
+        base.deliver(self.conn, sat, channel="chat", external_id="sat1",
                      ts="2026-09-05T19:00:00", text="poker saturday 8pm?",
                      thread="poker group", handle="friend@example.com")
         self.conn.commit()
@@ -422,8 +422,8 @@ class TestAuthorshipBoundaries(unittest.TestCase):
         live.update_event(self.conn, self.cfg, event.key, status="confirmed",
                           origin=live.Origin.of("test", cited=[sat_id]))
         # Sunday's correction lands in the same thread the next morning.
-        sun = IngestReport(stream="chat")
-        base.deliver(self.conn, sun, stream="chat", external_id="sun1",
+        sun = IngestReport(channel="chat")
+        base.deliver(self.conn, sun, channel="chat", external_id="sun1",
                      ts="2026-09-12T11:00:00", text="moved to Sunday?",
                      thread="poker group", handle="friend@example.com")
         self.conn.commit()
@@ -443,8 +443,8 @@ class TestAuthorshipBoundaries(unittest.TestCase):
         before = self.conn.execute(
             "SELECT count(*) n FROM evidence WHERE kind='event' AND ref=?",
             (event.key,)).fetchone()["n"]
-        dup = IngestReport(stream="chat")
-        base.deliver(self.conn, dup, stream="chat", external_id="sun1",
+        dup = IngestReport(channel="chat")
+        base.deliver(self.conn, dup, channel="chat", external_id="sun1",
                      ts="2026-09-12T11:00:00", text="moved to Sunday?",
                      thread="poker group", handle="friend@example.com")
         self.conn.commit()
@@ -471,7 +471,7 @@ class TestAuthorshipBoundaries(unittest.TestCase):
                                   harness="openclaw", session_id="s1",
                                   message_id="q2")
         rows = self.conn.execute(
-            "SELECT text, addressed_to FROM archive WHERE stream='agent'"
+            "SELECT text, addressed_to FROM archive WHERE channel='agent'"
             " ORDER BY id").fetchall()
         self.assertEqual([r["text"] for r in rows],
                          ["Is poker still Saturday?", "You told me Saturday"])
@@ -483,8 +483,8 @@ class TestAuthorshipBoundaries(unittest.TestCase):
         from memcal import db, live, mcp_server
         from memcal.sources import base
         from memcal.sources.base import IngestReport
-        rep = IngestReport(stream="chat")
-        base.deliver(self.conn, rep, stream="chat", external_id="m1",
+        rep = IngestReport(channel="chat")
+        base.deliver(self.conn, rep, channel="chat", external_id="m1",
                      ts=db.now(), text="poker saturday?", thread="poker group",
                      handle="friend@example.com")
         self.conn.commit()
@@ -495,8 +495,8 @@ class TestAuthorshipBoundaries(unittest.TestCase):
                                   origin=live.Origin.of("test"))
         live.update_event(self.conn, self.cfg, event.key, note="plan",
                           origin=live.Origin.of("test", cited=[m1]))
-        m2 = IngestReport(stream="chat")
-        base.deliver(self.conn, m2, stream="chat", external_id="m2",
+        m2 = IngestReport(channel="chat")
+        base.deliver(self.conn, m2, channel="chat", external_id="m2",
                      ts=db.now(), text="moved to Sunday?", thread="poker group",
                      handle="friend@example.com")
         self.conn.commit()
@@ -523,8 +523,8 @@ class TestAuthorshipBoundaries(unittest.TestCase):
         from memcal import activity, db, harness, live, mcp_server
         from memcal.sources import base
         from memcal.sources.base import IngestReport
-        rep = IngestReport(stream="chat")
-        base.deliver(self.conn, rep, stream="chat", external_id="m1",
+        rep = IngestReport(channel="chat")
+        base.deliver(self.conn, rep, channel="chat", external_id="m1",
                      ts=db.now(), text="poker saturday?", thread="poker group",
                      handle="friend@example.com")
         self.conn.commit()
@@ -536,8 +536,8 @@ class TestAuthorshipBoundaries(unittest.TestCase):
         live.update_event(self.conn, self.cfg, event.key, note="plan",
                           origin=live.Origin.of("test", cited=[m1]))
         for eid, text in (("m2", "moved to Sunday?"), ("m3", "at 5 Oak?")):
-            page = IngestReport(stream="chat")
-            base.deliver(self.conn, page, stream="chat", external_id=eid,
+            page = IngestReport(channel="chat")
+            base.deliver(self.conn, page, channel="chat", external_id=eid,
                          ts=db.now(), text=text, thread="poker group",
                          handle="friend@example.com")
         self.conn.commit()

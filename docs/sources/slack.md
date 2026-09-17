@@ -157,7 +157,7 @@ How to read it:
 
 - `read` — items pulled from Slack this run (including passed-over notices).
 - `archived` — rows appended to the local archive (deduplicated on
-  `(stream, external_id)`; a replay is safe but wasteful).
+  `(channel, external_id)`; a replay is safe but wasteful).
 - `queued` — lines that passed the gate and were spooled for the model pass.
   Suffixes appear when relevant: `N passed but older than 30d` (outside the spool
   horizon), `N skipped as muted`, `unresolved handles N`, and `[more waiting]`
@@ -282,7 +282,7 @@ definition does nothing to already-issued tokens until you click Reinstall and c
 the new User OAuth Token.
 
 **Will a re-run duplicate everything?**
-No. Archive rows deduplicate on `(stream, external_id)` = `(slack,
+No. Archive rows deduplicate on `(channel, external_id)` = `(slack,
 <channel>:<ts>)`, and per-conversation watermarks resume forward — but the
 listing carries no newest-message id, so every listed conversation still costs
 one history call to confirm nothing is new.

@@ -110,8 +110,31 @@ ADDED_COLUMNS = (
 )
 
 
+#: Columns renamed in place on existing stores. `schema.sql` only creates new
+#: tables, so a rename needs an explicit ALTER; SQLite carries the new name into
+#: the table's own UNIQUE/PRIMARY KEY definitions and any indexes automatically.
+RENAMED_COLUMNS = (
+    ("archive", "stream", "channel"),
+    ("unresolved", "stream", "channel"),
+    ("threads", "stream", "channel"),
+    ("thread_members", "stream", "channel"),
+    ("thread_member_names", "stream", "channel"),
+    ("collection_sources", "stream", "channel"),
+)
+
+
+def _rename_columns(conn: sqlite3.Connection) -> None:
+    """Apply RENAMED_COLUMNS to a pre-existing store. Idempotent: a table that
+    already has the new name (or was just created fresh with it) is skipped."""
+    for table, old, new in RENAMED_COLUMNS:
+        have = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if old in have and new not in have:
+            conn.execute(f"ALTER TABLE {table} RENAME COLUMN {old} TO {new}")
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+    _rename_columns(conn)
     added = []
     for table, column, decl in ADDED_COLUMNS:
         have = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}

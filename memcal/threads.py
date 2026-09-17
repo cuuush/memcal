@@ -20,7 +20,7 @@ DECISIONS = ("read", "mute")
 
 # ------------------------------------------------------------------ recording --
 
-def record(conn: sqlite3.Connection, stream: str, thread: str | None, *,
+def record(conn: sqlite3.Connection, channel: str, thread: str | None, *,
            label: str | None = None, participants: list[str] | None = None,
            is_group: bool | None = None, platform_muted: bool | None = None,
            platform_note: str | None = None) -> None:
@@ -39,10 +39,10 @@ def record(conn: sqlite3.Connection, stream: str, thread: str | None, *,
     label = " ".join((label or "").split()) or None
     roster = db.jdump(sorted({p for p in (participants or []) if p})) if participants else None
     conn.execute(
-        """INSERT INTO threads(stream, thread, label, participants, is_group,
+        """INSERT INTO threads(channel, thread, label, participants, is_group,
                                platform_muted, platform_note, updated_at)
            VALUES(?,?,?,coalesce(?,'[]'),?,coalesce(?,0),?,?)
-           ON CONFLICT(stream, thread) DO UPDATE SET
+           ON CONFLICT(channel, thread) DO UPDATE SET
              label        = coalesce(excluded.label, threads.label),
              participants = CASE WHEN ? IS NULL THEN threads.participants
                                  ELSE excluded.participants END,
@@ -51,15 +51,15 @@ def record(conn: sqlite3.Connection, stream: str, thread: str | None, *,
                                    ELSE excluded.platform_muted END,
              platform_note  = coalesce(excluded.platform_note, threads.platform_note),
              updated_at   = excluded.updated_at""",
-        (stream, thread, label, roster, int(bool(is_group)),
+        (channel, thread, label, roster, int(bool(is_group)),
          None if platform_muted is None else int(bool(platform_muted)), platform_note,
          db.now(), roster, None if platform_muted is None else 1),
     )
     if participants:
-        record_members(conn, stream, thread, [(handle, None) for handle in participants])
+        record_members(conn, channel, thread, [(handle, None) for handle in participants])
 
 
-def record_members(conn: sqlite3.Connection, stream: str, thread: str | None,
+def record_members(conn: sqlite3.Connection, channel: str, thread: str | None,
                    members: list[tuple[str, str | None]], *,
                    review_unknown: bool = False) -> int:
     """Record stable handles and every display name observed for a conversation.
@@ -84,22 +84,22 @@ def record_members(conn: sqlite3.Connection, stream: str, thread: str | None,
             continue
         conn.execute(
             """INSERT INTO thread_members(
-                   stream, thread, handle, seen_name, first_seen, last_seen)
+                   channel, thread, handle, seen_name, first_seen, last_seen)
                VALUES(?,?,?,?,?,?)
-               ON CONFLICT(stream, thread, handle) DO UPDATE SET
+               ON CONFLICT(channel, thread, handle) DO UPDATE SET
                  seen_name = coalesce(excluded.seen_name, thread_members.seen_name),
                  last_seen = excluded.last_seen""",
-            (stream, thread, handle, name, stamp, stamp),
+            (channel, thread, handle, name, stamp, stamp),
         )
         if name:
             conn.execute(
                 """INSERT INTO thread_member_names(
-                       stream, thread, handle, name, first_seen, last_seen, seen_count)
+                       channel, thread, handle, name, first_seen, last_seen, seen_count)
                    VALUES(?,?,?,?,?,?,1)
-                   ON CONFLICT(stream, thread, handle, name) DO UPDATE SET
+                   ON CONFLICT(channel, thread, handle, name) DO UPDATE SET
                      last_seen = excluded.last_seen,
                      seen_count = thread_member_names.seen_count + 1""",
-                (stream, thread, handle, name, stamp, stamp),
+                (channel, thread, handle, name, stamp, stamp),
             )
         recorded += 1
         person = identity.resolve(conn, handle)
@@ -112,9 +112,9 @@ def record_members(conn: sqlite3.Connection, stream: str, thread: str | None,
             # against somebody already in Contacts is still safe, and the adoption path
             # runs off `unresolved.seen_name`, which keeps the first name seen per handle
             # rather than the last group scanned.
-            person = identity.link_by_name(conn, handle, name, source=f"{stream}:roster")
+            person = identity.link_by_name(conn, handle, name, source=f"{channel}:roster")
         if not person and review_unknown:
-            identity.note_unresolved(conn, handle, stream, name)
+            identity.note_unresolved(conn, handle, channel, name)
     return recorded
 
 
@@ -131,22 +131,22 @@ def entity_people(conn: sqlite3.Connection, entity: str) -> list[str]:
         return [] if identity.is_me(conn, rest) else [rest]
     if kind != "thread":
         return []
-    stream, _, thread = rest.partition(":")
+    channel, _, thread = rest.partition(":")
     names: set[str] = set()
     for row in conn.execute(
-        """SELECT handle FROM thread_members WHERE stream = ? AND thread = ?
+        """SELECT handle FROM thread_members WHERE channel = ? AND thread = ?
            UNION
            SELECT handle FROM archive
-            WHERE stream = ? AND thread = ? AND from_me = 0 AND handle IS NOT NULL""",
-        (stream, thread, stream, thread),
+            WHERE channel = ? AND thread = ? AND from_me = 0 AND handle IS NOT NULL""",
+        (channel, thread, channel, thread),
     ):
         person = identity.resolve(conn, row["handle"])
         if person and not identity.is_me(conn, person):
             names.add(person)
     for row in conn.execute(
         """SELECT DISTINCT person FROM archive
-            WHERE stream = ? AND thread = ? AND from_me = 0 AND person IS NOT NULL""",
-        (stream, thread),
+            WHERE channel = ? AND thread = ? AND from_me = 0 AND person IS NOT NULL""",
+        (channel, thread),
     ):
         if not identity.is_me(conn, row["person"]):
             names.add(row["person"])
@@ -172,12 +172,12 @@ def refresh_members(conn: sqlite3.Connection) -> int:
     """
     memberships: dict[tuple[str, str, str], dict] = {}
 
-    def observe(stream: str, thread: str, raw_handle: str, name: str | None,
+    def observe(channel: str, thread: str, raw_handle: str, name: str | None,
                 first: str, last: str) -> None:
         handle = identity.normalize(raw_handle)
-        if not stream or not thread or not handle:
+        if not channel or not thread or not handle:
             return
-        key = (stream, thread, handle)
+        key = (channel, thread, handle)
         item = memberships.setdefault(
             key, {"first": first, "last": last, "latest_name": None, "names": {}})
         item["first"] = min(item["first"], first)
@@ -192,13 +192,13 @@ def refresh_members(conn: sqlite3.Connection) -> int:
             seen[2] += 1
 
     for row in conn.execute(
-            "SELECT stream, thread, participants, updated_at FROM threads"):
+            "SELECT channel, thread, participants, updated_at FROM threads"):
         for handle in db.jload(row["participants"], []):
-            observe(row["stream"], row["thread"], handle, None,
+            observe(row["channel"], row["thread"], handle, None,
                     row["updated_at"], row["updated_at"])
 
     for row in conn.execute(
-        """SELECT stream, thread, handle, meta, ts FROM archive
+        """SELECT channel, thread, handle, meta, ts FROM archive
             WHERE thread IS NOT NULL AND thread != ''
               AND handle IS NOT NULL AND handle != '' ORDER BY ts"""
     ):
@@ -208,31 +208,31 @@ def refresh_members(conn: sqlite3.Connection) -> int:
             meta = {}
         raw_name = meta.get("seen_name") if isinstance(meta, dict) else None
         name = " ".join(str(raw_name or "").split()) or None
-        observe(row["stream"], row["thread"], row["handle"], name,
+        observe(row["channel"], row["thread"], row["handle"], name,
                 str(row["ts"]), str(row["ts"]))
 
-    for (stream, thread, handle), item in memberships.items():
+    for (channel, thread, handle), item in memberships.items():
         conn.execute(
             """INSERT INTO thread_members(
-                   stream, thread, handle, seen_name, first_seen, last_seen)
+                   channel, thread, handle, seen_name, first_seen, last_seen)
                VALUES(?,?,?,?,?,?)
-               ON CONFLICT(stream, thread, handle) DO UPDATE SET
+               ON CONFLICT(channel, thread, handle) DO UPDATE SET
                  seen_name = coalesce(excluded.seen_name, thread_members.seen_name),
                  first_seen = min(thread_members.first_seen, excluded.first_seen),
                  last_seen = max(thread_members.last_seen, excluded.last_seen)""",
-            (stream, thread, handle, item["latest_name"],
+            (channel, thread, handle, item["latest_name"],
              item["first"], item["last"]),
         )
         for name, (first, last, count) in item["names"].items():
             conn.execute(
                 """INSERT INTO thread_member_names(
-                       stream, thread, handle, name, first_seen, last_seen, seen_count)
+                       channel, thread, handle, name, first_seen, last_seen, seen_count)
                    VALUES(?,?,?,?,?,?,?)
-                   ON CONFLICT(stream, thread, handle, name) DO UPDATE SET
+                   ON CONFLICT(channel, thread, handle, name) DO UPDATE SET
                      first_seen = min(thread_member_names.first_seen, excluded.first_seen),
                      last_seen = max(thread_member_names.last_seen, excluded.last_seen),
                      seen_count = max(thread_member_names.seen_count, excluded.seen_count)""",
-                (stream, thread, handle, name, first, last, count),
+                (channel, thread, handle, name, first, last, count),
             )
     return len(memberships)
 
@@ -246,7 +246,7 @@ def refresh(conn: sqlite3.Connection) -> int:
     """
     refresh_members(conn)
     rows = conn.execute(
-        """SELECT stream, thread,
+        """SELECT channel, thread,
                   sum(from_me) AS mine,
                   sum(1 - from_me) AS theirs,
                   min(ts) AS first_ts, max(ts) AS last_ts
@@ -258,21 +258,21 @@ def refresh(conn: sqlite3.Connection) -> int:
     stamp = db.now()
 
     for row in rows:
-        who = speakers.get((row["stream"], row["thread"]), [])
+        who = speakers.get((row["channel"], row["thread"]), [])
         named = [w for w in who if w["person"]]
         mutuals = sum(1 for w in who if (w["person"] or w["handle"]) in mutual_keys)
         conn.execute(
-            """INSERT INTO threads(stream, thread, members, is_group, mine, theirs,
+            """INSERT INTO threads(channel, thread, members, is_group, mine, theirs,
                                    known, mutuals, first_ts, last_ts, updated_at)
                VALUES(?,?,?,?,?,?,?,?,?,?,?)
-               ON CONFLICT(stream, thread) DO UPDATE SET
+               ON CONFLICT(channel, thread) DO UPDATE SET
                  members  = max(threads.members, excluded.members),
                  is_group = max(threads.is_group, excluded.is_group),
                  mine = excluded.mine, theirs = excluded.theirs,
                  known = excluded.known, mutuals = excluded.mutuals,
                  first_ts = excluded.first_ts, last_ts = excluded.last_ts,
                  updated_at = excluded.updated_at""",
-            (row["stream"], row["thread"], len(who) + 1, int(len(who) > 1),
+            (row["channel"], row["thread"], len(who) + 1, int(len(who) > 1),
              row["mine"] or 0, row["theirs"] or 0, len(named), mutuals,
              row["first_ts"], row["last_ts"], stamp),
         )
@@ -284,12 +284,12 @@ def _speakers(conn: sqlite3.Connection) -> dict[tuple, list[dict]]:
     """Everyone who has spoken into each thread besides the user, busiest first."""
     out: dict[tuple, list[dict]] = {}
     for row in conn.execute(
-        """SELECT stream, thread, person, handle, count(*) AS n FROM archive
+        """SELECT channel, thread, person, handle, count(*) AS n FROM archive
             WHERE from_me = 0 AND thread IS NOT NULL AND thread != ''
               AND (person IS NULL OR person != 'me')
             GROUP BY 1, 2, 3, 4 ORDER BY n DESC"""
     ):
-        seat = out.setdefault((row["stream"], row["thread"]), [])
+        seat = out.setdefault((row["channel"], row["thread"]), [])
         key = row["person"] or row["handle"]
         if not key or any((s["person"] or s["handle"]) == key for s in seat):
             continue
@@ -301,9 +301,9 @@ def _mutual_keys(conn: sqlite3.Connection) -> set[str]:
     """Everyone the user has ever been in a conversation *with*, across all streams."""
     return {row["k"] for row in conn.execute(
         """SELECT DISTINCT coalesce(a.person, a.handle) AS k FROM archive a
-             JOIN (SELECT stream, thread FROM archive
+             JOIN (SELECT channel, thread FROM archive
                     WHERE from_me = 1 AND thread IS NOT NULL GROUP BY 1, 2) m
-               ON m.stream = a.stream AND m.thread = a.thread
+               ON m.channel = a.channel AND m.thread = a.thread
             WHERE a.from_me = 0 AND coalesce(a.person, a.handle) IS NOT NULL
               AND coalesce(a.person, a.handle) != 'me'""") if row["k"]}
 
@@ -325,10 +325,10 @@ MAX_NAMED = 3
 
 
 def titles(conn: sqlite3.Connection) -> dict[tuple, str]:
-    """A readable name for every thread, in one pass. `{(stream, thread): name}`."""
+    """A readable name for every thread, in one pass. `{(channel, thread): name}`."""
     speakers = _speakers(conn)
-    rows = {(r["stream"], r["thread"]): r
-            for r in conn.execute("SELECT stream, thread, label, is_group, mine FROM threads")}
+    rows = {(r["channel"], r["thread"]): r
+            for r in conn.execute("SELECT channel, thread, label, is_group, mine FROM threads")}
     out = {}
     for key in set(speakers) | set(rows):
         row = rows.get(key)
@@ -355,8 +355,8 @@ def titles(conn: sqlite3.Connection) -> dict[tuple, str]:
     return out
 
 
-def title(conn: sqlite3.Connection, stream: str, thread: str) -> str:
-    return titles(conn).get((stream, thread), thread or stream)
+def title(conn: sqlite3.Connection, channel: str, thread: str) -> str:
+    return titles(conn).get((channel, thread), thread or channel)
 
 
 # ------------------------------------------------------------------ merging --
@@ -379,11 +379,11 @@ def _one_sided(conn: sqlite3.Connection) -> set[tuple]:
     """Email threads with one speaker the user never answered.
 
     Email alone: there `threads.label` is a per-message subject, so a sender that mails
-    a new subject each time splits into one conversation per notice. Every other stream
+    a new subject each time splits into one conversation per notice. Every other channel
     labels the conversation, not the message.
     """
-    replied = {(r["stream"], r["thread"]) for r in conn.execute(
-        "SELECT DISTINCT stream, thread FROM archive WHERE from_me = 1"
+    replied = {(r["channel"], r["thread"]) for r in conn.execute(
+        "SELECT DISTINCT channel, thread FROM archive WHERE from_me = 1"
         "  AND thread IS NOT NULL AND thread != ''")}
     speakers = _speakers(conn)
     return {key for key, seat in speakers.items()
@@ -391,7 +391,7 @@ def _one_sided(conn: sqlite3.Connection) -> set[tuple]:
 
 
 def aliases(conn: sqlite3.Connection) -> dict[tuple, str]:
-    """`{(stream, thread): canonical thread}` for conversations that are really one.
+    """`{(channel, thread): canonical thread}` for conversations that are really one.
 
     Merges on the name where there is a real one, and on the roster where the name is
     just an id — the same split happens to unnamed group chats, where both halves are
@@ -403,15 +403,15 @@ def aliases(conn: sqlite3.Connection) -> dict[tuple, str]:
     """
     speakers = _speakers(conn)
     one_sided = _one_sided(conn)
-    labels = {(r["stream"], r["thread"]): (r["label"] or "") for r in conn.execute(
-        "SELECT stream, thread, label FROM threads")}
-    counts = {(r["stream"], r["thread"]): r["n"] for r in conn.execute(
-        """SELECT stream, thread, count(*) AS n FROM archive
+    labels = {(r["channel"], r["thread"]): (r["label"] or "") for r in conn.execute(
+        "SELECT channel, thread, label FROM threads")}
+    counts = {(r["channel"], r["thread"]): r["n"] for r in conn.execute(
+        """SELECT channel, thread, count(*) AS n FROM archive
             WHERE thread IS NOT NULL AND thread != '' GROUP BY 1, 2""")}
 
     buckets: dict[tuple, list[tuple]] = {}
     for key in counts:
-        stream, thread = key
+        channel, thread = key
         label = labels.get(key) or thread
         roster = frozenset(s["person"] or s["handle"] for s in speakers.get(key, []))
         if _opaque(label) or key in one_sided:
@@ -419,9 +419,9 @@ def aliases(conn: sqlite3.Connection) -> dict[tuple, str]:
             # and an empty roster matches nothing rather than everything.
             if not roster:
                 continue
-            bucket = (stream, "roster", roster)
+            bucket = (channel, "roster", roster)
         else:
-            bucket = (stream, "label", " ".join(label.split()).casefold())
+            bucket = (channel, "label", " ".join(label.split()).casefold())
         buckets.setdefault(bucket, []).append(key)
 
     out: dict[tuple, str] = {}
@@ -450,13 +450,13 @@ def _compatible(a: frozenset, b: frozenset) -> bool:
 
 
 def fold_entity(entity: str, alias: dict[tuple, str]) -> str:
-    """Rewrite a `thread:<stream>:<thread>` bundle key onto its canonical thread."""
+    """Rewrite a `thread:<channel>:<thread>` bundle key onto its canonical thread."""
     kind, _, rest = (entity or "").partition(":")
     if kind != "thread":
         return entity
-    stream, _, thread = rest.partition(":")
-    canonical = alias.get((stream, thread))
-    return f"thread:{stream}:{canonical}" if canonical else entity
+    channel, _, thread = rest.partition(":")
+    canonical = alias.get((channel, thread))
+    return f"thread:{channel}:{canonical}" if canonical else entity
 
 
 def _opaque(label: str) -> bool:
@@ -485,20 +485,20 @@ is_opaque = _opaque
 # ------------------------------------------------------------------ decisions --
 
 def muted(conn: sqlite3.Connection) -> set[tuple]:
-    return {(r["stream"], r["thread"]) for r in conn.execute(
-        "SELECT stream, thread FROM threads WHERE decision = 'mute'")}
+    return {(r["channel"], r["thread"]) for r in conn.execute(
+        "SELECT channel, thread FROM threads WHERE decision = 'mute'")}
 
 
-def is_muted(conn: sqlite3.Connection, stream: str, thread: str | None) -> bool:
+def is_muted(conn: sqlite3.Connection, channel: str, thread: str | None) -> bool:
     if not thread:
         return False
     row = conn.execute(
-        "SELECT decision FROM threads WHERE stream = ? AND thread = ?", (stream, thread)
+        "SELECT decision FROM threads WHERE channel = ? AND thread = ?", (channel, thread)
     ).fetchone()
     return bool(row and row["decision"] == "mute")
 
 
-def decide(conn: sqlite3.Connection, stream: str, thread: str, decision: str,
+def decide(conn: sqlite3.Connection, channel: str, thread: str, decision: str,
            *, reason: str = "you", by: str = "you") -> dict:
     """Mute a chat or confirm it is worth reading. Muting also clears what is queued.
 
@@ -515,23 +515,23 @@ def decide(conn: sqlite3.Connection, stream: str, thread: str, decision: str,
     if by not in ("you", "agent", "auto"):
         return {"error": f"unknown decider: {by}"}
     conn.execute(
-        """INSERT INTO threads(stream, thread, decision, reason, updated_at, decided_by)
+        """INSERT INTO threads(channel, thread, decision, reason, updated_at, decided_by)
            VALUES(?,?,?,?,?,?)
-           ON CONFLICT(stream, thread) DO UPDATE SET decision = excluded.decision,
+           ON CONFLICT(channel, thread) DO UPDATE SET decision = excluded.decision,
              reason = excluded.reason, updated_at = excluded.updated_at,
              decided_by = excluded.decided_by""",
-        (stream, thread, decision, reason, db.now(), by),
+        (channel, thread, decision, reason, db.now(), by),
     )
     retired = 0
     if decision == "mute":
         retired = conn.execute(
             """UPDATE spool SET processed_at = ?
                 WHERE processed_at IS NULL AND archive_id IN
-                  (SELECT id FROM archive WHERE stream = ? AND thread = ?)""",
-            (db.now(), stream, thread),
+                  (SELECT id FROM archive WHERE channel = ? AND thread = ?)""",
+            (db.now(), channel, thread),
         ).rowcount
     conn.commit()
-    return {"stream": stream, "thread": thread, "decision": decision, "retired": retired}
+    return {"channel": channel, "thread": thread, "decision": decision, "retired": retired}
 
 
 # -------------------------------------------------------------------- reading --
@@ -542,19 +542,19 @@ def decide(conn: sqlite3.Connection, stream: str, thread: str, decision: str,
 PLATFORM_MUTE_POLICIES = ("show", "ask", "mute")
 
 
-def rows(conn: sqlite3.Connection, *, stream: str = "", q: str = "",
+def rows(conn: sqlite3.Connection, *, channel: str = "", q: str = "",
          limit: int = 300, policy: str = "show") -> list[dict]:
     """Every conversation, busiest first, with its name and its numbers attached."""
     where, args = ["(t.theirs + t.mine) > 0"], []
-    if stream:
-        where.append("t.stream = ?")
-        args.append(stream)
+    if channel:
+        where.append("t.channel = ?")
+        args.append(channel)
     if q:
         where.append("(lower(t.thread) LIKE ? OR lower(coalesce(t.label,'')) LIKE ?)")
         args += [f"%{q.lower()}%"] * 2
     found = conn.execute(
         f"""SELECT t.*, (SELECT count(*) FROM spool s JOIN archive a ON a.id = s.archive_id
-                          WHERE s.processed_at IS NULL AND a.stream = t.stream
+                          WHERE s.processed_at IS NULL AND a.channel = t.channel
                             AND a.thread = t.thread) AS queued
               FROM threads t WHERE {' AND '.join(where)}
              ORDER BY (t.mine + t.theirs) DESC LIMIT ?""", args + [limit]).fetchall()
@@ -563,27 +563,27 @@ def rows(conn: sqlite3.Connection, *, stream: str = "", q: str = "",
     cards = [_card(row, names, roster, policy) for row in found]
     # Two conversations with one name is the failure that looks like one conversation
     # with missing messages. Say which ones, and let the roster tell them apart. Scoped
-    # per stream: the same friend on iMessage and on WhatsApp is one person, not a clash.
+    # per channel: the same friend on iMessage and on WhatsApp is one person, not a clash.
     seen: dict[tuple, int] = {}
     for card in cards:
-        key = (card["stream"], card["title"])
+        key = (card["channel"], card["title"])
         seen[key] = seen.get(key, 0) + 1
     for card in cards:
-        card["collision"] = seen.get((card["stream"], card["title"]), 0) > 1
+        card["collision"] = seen.get((card["channel"], card["title"]), 0) > 1
     return cards
 
 
 def _card(row: sqlite3.Row, names: dict[tuple, str],
           roster: dict[tuple, list[dict]] | None = None, policy: str = "show") -> dict:
     total = (row["mine"] or 0) + (row["theirs"] or 0)
-    who = (roster or {}).get((row["stream"], row["thread"]), [])
+    who = (roster or {}).get((row["channel"], row["thread"]), [])
     return {
         # The roster is what tells two same-named chats apart, so it travels with the card.
         "speakers": [w["person"] or w["handle"] for w in who[:6]],
         "more_speakers": max(0, len(who) - 6),
-        "stream": row["stream"],
+        "channel": row["channel"],
         "thread": row["thread"],
-        "title": names.get((row["stream"], row["thread"]), row["thread"]),
+        "title": names.get((row["channel"], row["thread"]), row["thread"]),
         "label": row["label"] or "",
         # Shown next to the title because two chats can share a name and this is the
         # only thing that tells them apart at a glance.
@@ -634,9 +634,9 @@ def apply_platform_mutes(conn: sqlite3.Connection, policy: str = "show") -> int:
     if policy != "mute":
         return 0
     doomed = conn.execute(
-        """SELECT stream, thread FROM threads
+        """SELECT channel, thread FROM threads
             WHERE platform_muted = 1 AND decision IS NULL""").fetchall()
     for row in doomed:
-        decide(conn, row["stream"], row["thread"], "mute",
+        decide(conn, row["channel"], row["thread"], "mute",
                reason="muted on the platform", by="auto")
     return len(doomed)

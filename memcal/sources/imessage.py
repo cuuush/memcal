@@ -49,7 +49,7 @@ LIMIT ?
 class IngestReport(base.IngestReport):
     """`base.IngestReport` plus the chat.db read position."""
 
-    stream: str = "imessage"
+    channel: str = "imessage"
     last_rowid: int = 0
     floor: str | None = None
 
@@ -73,7 +73,7 @@ def resume_floor(conn: sqlite3.Connection) -> str | None:
     """Return the timestamp of the newest archived iMessage, regardless of which transport delivered it."""
 
     row = conn.execute(
-        "SELECT max(ts) FROM archive WHERE stream = 'imessage'").fetchone()
+        "SELECT max(ts) FROM archive WHERE channel = 'imessage'").fetchone()
     return (row[0] if row else None) or None
 
 
@@ -133,7 +133,7 @@ def repair_decoded_text(conn: sqlite3.Connection, src: sqlite3.Connection) -> in
     if db.get_meta(conn, DECODER_KEY, "") == DECODER_GENERATION:
         return 0
     rows = conn.execute(
-        "SELECT id, external_id, text FROM archive WHERE stream = 'imessage'").fetchall()
+        "SELECT id, external_id, text FROM archive WHERE channel = 'imessage'").fetchall()
     fixed = 0
     for row in rows:
         try:
@@ -165,7 +165,7 @@ def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None 
     """Read new lines out of chat.db.
 
     Incrementally by default: the read is floored at the newest line the stream already
-    has, so this resumes where the *stream* is rather than where this reader last was.
+    has, so this resumes where the *channel* is rather than where this reader last was.
     `backfill=True` drops that floor to walk history forward from `imessage.rowid`, which
     is the only way to fill a gap older than the floor — it keeps its own watermark so a
     backfill in progress never drags the live position backwards.
@@ -220,11 +220,11 @@ def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None 
             threads.record_members(conn, "imessage", thread, [(handle, None)])
         ts = apple_time(row["date"])
         verdict = gate.gate_message(text, person=person, from_me=from_me, top_tier=tier,
-                                    stream="imessage", is_group=is_group)
+                                    channel="imessage", is_group=is_group)
         # In a group chat, a line only matters if the user is in the conversation at all.
         archive_id = archive.append(
             conn,
-            stream="imessage",
+            channel="imessage",
             external_id=row["guid"] or f"rowid:{row['rowid']}",
             ts=ts,
             text=text,
@@ -246,7 +246,7 @@ def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None 
             report.too_old += 1
         elif verdict:
             # Enforce the spool horizon here as well as at the gate.
-            entity = gate.entity_for(person=person, thread=thread, stream="imessage",
+            entity = gate.entity_for(person=person, thread=thread, channel="imessage",
                                      is_group=is_group)
             archive.spool_add(conn, archive_id, entity)
             report.passed += 1

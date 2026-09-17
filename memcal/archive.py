@@ -15,7 +15,7 @@ from . import db
 def append(
     conn: sqlite3.Connection,
     *,
-    stream: str,
+    channel: str,
     external_id: str,
     ts: str,
     text: str,
@@ -35,13 +35,13 @@ def append(
     never enter the spool, so it preserves which pass filtered them.
     """
     cur = conn.execute(
-        """INSERT INTO archive(stream, external_id, ts, thread, handle, person, from_me,
+        """INSERT INTO archive(channel, external_id, ts, thread, handle, person, from_me,
                                addressed_to, text, meta, gated, gate_reason, created_at,
                                collection_id)
            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-           ON CONFLICT(stream, external_id) DO NOTHING""",
+           ON CONFLICT(channel, external_id) DO NOTHING""",
         (
-            stream, str(external_id), ts, thread, handle, person, int(bool(from_me)),
+            channel, str(external_id), ts, thread, handle, person, int(bool(from_me)),
             addressed_to or "person",
             text, db.jdump(meta or {}), int(bool(gated)), gate_reason, db.now(),
             collection_id,
@@ -68,9 +68,9 @@ def search(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[sqlite
 
 
 def search_filtered(conn: sqlite3.Connection, query: str, *, limit: int = 20,
-                    person: str = "", stream: str = "", thread: str = "",
+                    person: str = "", channel: str = "", thread: str = "",
                     since: str = "", until: str = "") -> list[sqlite3.Row]:
-    """Full-text search filtered by person, stream, thread, or date range.
+    """Full-text search filtered by person, channel, thread, or date range.
 
     An empty `query` with filters returns all matching items in that scope.
     """
@@ -80,9 +80,9 @@ def search_filtered(conn: sqlite3.Connection, query: str, *, limit: int = 20,
         where.append("(lower(coalesce(a.person,'')) LIKE ? OR lower(coalesce(a.handle,'')) LIKE ?"
                      " OR lower(coalesce(a.thread,'')) LIKE ?)")
         args += [f"%{person.lower()}%"] * 3
-    if stream:
-        where.append("a.stream = ?")
-        args.append(stream)
+    if channel:
+        where.append("a.channel = ?")
+        args.append(channel)
     if thread:
         where.append("a.thread = ?")
         args.append(thread)
@@ -109,26 +109,26 @@ def search_filtered(conn: sqlite3.Connection, query: str, *, limit: int = 20,
         [*args, limit]).fetchall()
 
 
-def recent(conn: sqlite3.Connection, limit: int = 20, stream: str | None = None) -> list[sqlite3.Row]:
-    if stream:
+def recent(conn: sqlite3.Connection, limit: int = 20, channel: str | None = None) -> list[sqlite3.Row]:
+    if channel:
         return conn.execute(
-            "SELECT * FROM archive WHERE stream = ? ORDER BY ts DESC LIMIT ?", (stream, limit)
+            "SELECT * FROM archive WHERE channel = ? ORDER BY ts DESC LIMIT ?", (channel, limit)
         ).fetchall()
     return conn.execute("SELECT * FROM archive ORDER BY ts DESC LIMIT ?", (limit,)).fetchall()
 
 
 def counts_by_stream(conn: sqlite3.Connection, since: str | None = None) -> list[sqlite3.Row]:
-    sql = ("SELECT stream, count(*) AS n, sum(gated) AS gated, sum(length(text)) AS chars"
+    sql = ("SELECT channel, count(*) AS n, sum(gated) AS gated, sum(length(text)) AS chars"
            " FROM archive")
     args: list[object] = []
     if since:
         sql += " WHERE ts >= ?"
         args.append(since)
-    sql += " GROUP BY stream ORDER BY n DESC"
+    sql += " GROUP BY channel ORDER BY n DESC"
     return conn.execute(sql, args).fetchall()
 
 
-# Threshold in days for inactive-stream reporting.
+# Threshold in days for inactive-channel reporting.
 STALE_AFTER_DAYS = 2
 
 # Internally generated streams excluded from stale-source reporting.
@@ -136,48 +136,48 @@ INTERNAL_STREAMS = frozenset({"agent", "cli"})
 
 
 def freshness(conn: sqlite3.Connection, cfg=None) -> list[dict]:
-    """Newest successful observation per stream.
+    """Newest successful observation per channel.
 
     Evaluates health according to `Source.health`:
     - A snapshot source is healthy on successful execution regardless of row changes;
-      `source.<stream>.last_success` is used as the timestamp.
-    - A stream source is healthy only when new rows arrive in `archive`.
+      `source.<channel>.last_success` is used as the timestamp.
+    - A channel source is healthy only when new rows arrive in `archive`.
 
-    A stream with no archived rows still returns an entry derived from `last_success`
+    A channel with no archived rows still returns an entry derived from `last_success`
     to surface empty executions.
     """
     snapshots = snapshot_streams(cfg)
     rows = [dict(row) for row in conn.execute(
-        "SELECT stream, max(ts) AS newest, count(*) AS n FROM archive"
-        " GROUP BY stream ORDER BY newest DESC"
+        "SELECT channel, max(ts) AS newest, count(*) AS n FROM archive"
+        " GROUP BY channel ORDER BY newest DESC"
     ).fetchall()]
-    by_stream = {row["stream"]: row for row in rows}
+    by_stream = {row["channel"]: row for row in rows}
     for row in conn.execute(
         "SELECT key, value FROM meta WHERE key LIKE 'source.%.last_success'"
     ):
-        stream = row["key"][len("source."):-len(".last_success")]
+        channel = row["key"][len("source."):-len(".last_success")]
         stamp = row["value"]
-        if not stream or not stamp:
+        if not channel or not stamp:
             continue
-        if stream not in by_stream:
-            item = {"stream": stream, "newest": stamp, "n": 0}
+        if channel not in by_stream:
+            item = {"channel": channel, "newest": stamp, "n": 0}
             rows.append(item)
-            by_stream[stream] = item
-        elif stream in snapshots:
-            by_stream[stream]["newest"] = max(str(by_stream[stream]["newest"] or ""),
+            by_stream[channel] = item
+        elif channel in snapshots:
+            by_stream[channel]["newest"] = max(str(by_stream[channel]["newest"] or ""),
                                               str(stamp))
     return sorted(rows, key=lambda row: str(row["newest"] or ""), reverse=True)
 
 
 def snapshot_streams(cfg=None) -> set[str]:
-    """Return stream names where health is determined by read success rather than new rows."""
+    """Return channel names where health is determined by read success rather than new rows."""
     from . import sources
     return {source.name for source in sources.all_sources(cfg)
-            if getattr(source, "health", "stream") == "snapshot"}
+            if getattr(source, "health", "channel") == "snapshot"}
 
 
 def registered_streams(cfg=None) -> set[str]:
-    """Return registered stream names currently available in the source registry.
+    """Return registered channel names currently available in the source registry.
 
     Scans plugin sources when `cfg` is provided.
     """
@@ -187,17 +187,17 @@ def registered_streams(cfg=None) -> set[str]:
 
 def stale_streams(conn: sqlite3.Connection, days: int = STALE_AFTER_DAYS,
                   cfg=None) -> list[tuple[str, str]]:
-    """Return active streams whose newest item is older than `days`, as (stream, age phrase).
+    """Return active streams whose newest item is older than `days`, as (channel, age phrase).
 
     Only active registered streams are checked. Removed sources persist historical metadata
     in `meta` and `archive` but are excluded from active staleness reporting.
     """
     cutoff = (db.today() - timedelta(days=days)).isoformat()
     known = registered_streams(cfg)
-    return [(row["stream"], db.age_phrase(row["newest"]))
+    return [(row["channel"], db.age_phrase(row["newest"]))
             for row in freshness(conn, cfg)
-            if row["stream"] not in INTERNAL_STREAMS
-            and row["stream"] in known
+            if row["channel"] not in INTERNAL_STREAMS
+            and row["channel"] in known
             and row["newest"] and row["newest"][:10] < cutoff]
 
 
@@ -246,7 +246,7 @@ def spool_rekey_groups(conn: sqlite3.Connection) -> int:
     """Reassign pending group messages previously keyed under individual speakers."""
     from . import gate                      # gate imports identity, not archive
     rows = conn.execute(
-        """SELECT s.id, s.entity, a.stream, a.thread, a.person, a.meta
+        """SELECT s.id, s.entity, a.channel, a.thread, a.person, a.meta
              FROM spool s JOIN archive a ON a.id = s.archive_id
             WHERE s.processed_at IS NULL AND s.entity LIKE 'person:%'"""
     ).fetchall()
@@ -255,7 +255,7 @@ def spool_rekey_groups(conn: sqlite3.Connection) -> int:
         if not (db.jload(row["meta"], {}) or {}).get("group"):
             continue
         want = gate.entity_for(person=row["person"], thread=row["thread"],
-                               stream=row["stream"], is_group=True)
+                               channel=row["channel"], is_group=True)
         if want != row["entity"]:
             conn.execute("UPDATE spool SET entity = ? WHERE id = ?", (want, row["id"]))
             fixed += 1
@@ -387,39 +387,39 @@ def record_source(conn: sqlite3.Connection, collection_id: int, report,
         return
     outcome = _outcome_for(report, status)
     conn.execute(
-        """INSERT INTO collection_sources(collection_id, stream, read, archived, passed,
+        """INSERT INTO collection_sources(collection_id, channel, read, archived, passed,
                                           muted, too_old, error, note, finished_at,
                                           status)
            VALUES(?,?,?,?,?,?,?,?,?,?,?)
-           ON CONFLICT(collection_id, stream) DO UPDATE SET
+           ON CONFLICT(collection_id, channel) DO UPDATE SET
                read=excluded.read, archived=excluded.archived, passed=excluded.passed,
                muted=excluded.muted, too_old=excluded.too_old, error=excluded.error,
                note=excluded.note, finished_at=excluded.finished_at,
                status=excluded.status""",
-        (collection_id, report.stream, report.read, report.archived, report.passed,
+        (collection_id, report.channel, report.read, report.archived, report.passed,
          report.muted, report.too_old, report.error or None,
          "; ".join(report.notes)[:400] or None, db.now(), outcome),
     )
     conn.commit()
 
 
-def record_unavailable(conn: sqlite3.Connection, collection_id: int, stream: str,
+def record_unavailable(conn: sqlite3.Connection, collection_id: int, channel: str,
                        reason: str) -> None:
     """Record a preflight skip without starting login. Same durable contract as a
     fetch outcome, so due selection and reporting see it as an attempt."""
     if not collection_id:
         return
     conn.execute(
-        """INSERT INTO collection_sources(collection_id, stream, read, archived, passed,
+        """INSERT INTO collection_sources(collection_id, channel, read, archived, passed,
                                           muted, too_old, error, note, finished_at,
                                           status)
            VALUES(?,?,?,?,?,?,?,?,?,?,?)
-           ON CONFLICT(collection_id, stream) DO UPDATE SET
+           ON CONFLICT(collection_id, channel) DO UPDATE SET
                read=excluded.read, archived=excluded.archived, passed=excluded.passed,
                muted=excluded.muted, too_old=excluded.too_old, error=excluded.error,
                note=excluded.note, finished_at=excluded.finished_at,
                status=excluded.status""",
-        (collection_id, stream, 0, 0, 0, 0, 0, (reason or "unavailable")[:400],
+        (collection_id, channel, 0, 0, 0, 0, 0, (reason or "unavailable")[:400],
          f"preflight: {(reason or 'unavailable')[:300]}", db.now(), "unavailable"),
     )
     conn.commit()
@@ -430,20 +430,20 @@ def record_unavailable(conn: sqlite3.Connection, collection_id: int, stream: str
 TRUSTWORTHY_OUTCOMES = frozenset({"complete", "incomplete", "failed", "unavailable"})
 
 
-def last_source_attempt(conn: sqlite3.Connection, stream: str) -> dict | None:
+def last_source_attempt(conn: sqlite3.Connection, channel: str) -> dict | None:
     """Most recent attempt for one source, by write order. None when never checked."""
     row = conn.execute(
-        "SELECT * FROM collection_sources WHERE stream = ?"
-        " ORDER BY collection_id DESC LIMIT 1", (stream,)).fetchone()
+        "SELECT * FROM collection_sources WHERE channel = ?"
+        " ORDER BY collection_id DESC LIMIT 1", (channel,)).fetchone()
     return dict(row) if row else None
 
 
-def last_complete_check(conn: sqlite3.Connection, stream: str) -> dict | None:
+def last_complete_check(conn: sqlite3.Connection, channel: str) -> dict | None:
     """Most recent complete check for one source. A later failure never erases this;
     an interrupted attempt writes no row and so never appears here."""
     row = conn.execute(
-        "SELECT * FROM collection_sources WHERE stream = ? AND status = 'complete'"
-        " ORDER BY collection_id DESC LIMIT 1", (stream,)).fetchone()
+        "SELECT * FROM collection_sources WHERE channel = ? AND status = 'complete'"
+        " ORDER BY collection_id DESC LIMIT 1", (channel,)).fetchone()
     return dict(row) if row else None
 
 
@@ -455,7 +455,7 @@ def _due_interval_minutes(cfg=None) -> int:
     return max(1, value)
 
 
-def source_due(conn: sqlite3.Connection, stream: str, cfg=None, *,
+def source_due(conn: sqlite3.Connection, channel: str, cfg=None, *,
                now=None) -> tuple[bool, str]:
     """Is this source due for another check? Pure DB state plus `db` time: no
     network, no sleep, no source import.
@@ -464,7 +464,7 @@ def source_due(conn: sqlite3.Connection, stream: str, cfg=None, *,
     and CLI messages, never parsed back into a decision.
     """
     interval = _due_interval_minutes(cfg)
-    attempt = last_source_attempt(conn, stream)
+    attempt = last_source_attempt(conn, channel)
     if not attempt:
         return True, "never checked"
     status = (attempt.get("status") or "unknown")
@@ -493,11 +493,11 @@ def select_due(conn: sqlite3.Connection, cfg, candidates: list) -> list:
 
 
 def failed_sources(conn: sqlite3.Connection, collection_id: int) -> list[str]:
-    """Return error strings formatted as 'stream: message' for failed sources in a pass."""
-    return [f"{row['stream']}: {row['error']}" for row in conn.execute(
-        "SELECT stream, error FROM collection_sources"
+    """Return error strings formatted as 'channel: message' for failed sources in a pass."""
+    return [f"{row['channel']}: {row['error']}" for row in conn.execute(
+        "SELECT channel, error FROM collection_sources"
         "  WHERE collection_id = ? AND error IS NOT NULL AND error != ''"
-        "  ORDER BY stream", (collection_id,))]
+        "  ORDER BY channel", (collection_id,))]
 
 
 def close_collection(conn: sqlite3.Connection, collection_id: int,
@@ -535,6 +535,6 @@ def collections(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
         row.update(waiting=counts["waiting"] or 0, skipped=counts["skipped"] or 0,
                    read_already=counts["read_already"] or 0)
         row["sources"] = [dict(r) for r in conn.execute(
-            "SELECT * FROM collection_sources WHERE collection_id = ? ORDER BY stream",
+            "SELECT * FROM collection_sources WHERE collection_id = ? ORDER BY channel",
             (row["id"],))]
     return rows

@@ -154,7 +154,7 @@ SEARCH_ARCHIVE = {
         "something older than the wiki knows, or to go and check a claim the user "
         "is questioning.\n"
         "The filters are what make digging quick: `person` for one side of a "
-        "conversation ('what did Quinn say about it'), `stream` for a channel "
+        "conversation ('what did Quinn say about it'), `channel` for a channel "
         "('was it in an email'), and `since`/`until` for a window ('that week'). "
         "`query` may be left empty when the filters are the search — person plus a date "
         "range returns everything they said in it. Every result carries a `line_id` you "
@@ -164,7 +164,7 @@ SEARCH_ARCHIVE = {
         "properties": {
             "query": {"type": "string", "description": "words to look for; may be empty"},
             "person": {"type": "string", "description": "who said it, or who it is with"},
-            "stream": {"type": "string",
+            "channel": {"type": "string",
                        "description": "imessage | groupme | whatsapp | email | ical | agent"},
             "since": {"type": "string", "description": "yyyy-mm-dd"},
             "until": {"type": "string", "description": "yyyy-mm-dd"},
@@ -227,14 +227,14 @@ CONVERSATION = {
         "said.\n"
         "Give it the id of a line (every line from memcal_open_source, "
         "memcal_conversation and memcal_search_archive carries one) and it returns the "
-        "messages around that moment. Or give a stream and thread for the tail of a "
+        "messages around that moment. Or give a channel and thread for the tail of a "
         "conversation."),
     "parameters": {
         "type": "object",
         "properties": {
             "line_id": {"type": "integer",
                         "description": "id of a line to centre on, from any memcal result"},
-            "stream": {"type": "string",
+            "channel": {"type": "string",
                        "description": "imessage | groupme | whatsapp | email | ical | agent"},
             "thread": {"type": "string", "description": "the conversation id or name"},
             "before": {"type": "integer", "description": "lines before; default 12"},
@@ -1039,7 +1039,7 @@ class MemcalMemoryProvider(MemoryProvider):
                 # User-to-machine imperatives are delegated work, not own commitments.
                 verdict = gate.gate_message(text, from_me=True, addressed_to="machine")
                 archive_id = archive.append(
-                    conn, stream="agent", external_id=external_id,
+                    conn, channel="agent", external_id=external_id,
                     ts=stamp, text=text.strip()[:4000], thread=f"hermes:{session_id}",
                     person="me", from_me=True, addressed_to="machine",
                     meta={"session": session_id, "origin": "hermes-user"},
@@ -1241,20 +1241,20 @@ class MemcalMemoryProvider(MemoryProvider):
 
         if tool_name == "memcal_conversation":
             from memcal import trace
-            stream = args.get("stream", "")
+            channel = args.get("channel", "")
             thread = args.get("thread", "")
             around = ""
             if args.get("line_id"):
                 anchor = trace.line(conn, int(args["line_id"]))
                 if not anchor:
                     return json.dumps({"error": f"no line {args['line_id']}"})
-                stream, thread, around = anchor["stream"], anchor["thread"], anchor["ts"]
-            if not (stream and thread):
-                return json.dumps({"error": "give a line_id, or a stream and thread"})
+                channel, thread, around = anchor["channel"], anchor["thread"], anchor["ts"]
+            if not (channel and thread):
+                return json.dumps({"error": "give a line_id, or a channel and thread"})
             lines = trace.conversation(
-                conn, stream=stream, thread=thread, around=around,
+                conn, channel=channel, thread=thread, around=around,
                 before=int(args.get("before") or 12), after=int(args.get("after") or 12))
-            return json.dumps({"stream": stream, "thread": thread,
+            return json.dumps({"channel": channel, "thread": thread,
                                "conversation": lines})
 
         if tool_name == "memcal_list_days":
@@ -1282,17 +1282,17 @@ class MemcalMemoryProvider(MemoryProvider):
             from memcal import presentation                        # noqa: PLC0415
             rows = archive.search_filtered(
                 conn, args.get("query", ""), limit=int(args.get("limit") or 20),
-                person=args.get("person", ""), stream=args.get("stream", ""),
+                person=args.get("person", ""), channel=args.get("channel", ""),
                 since=args.get("since", ""), until=args.get("until", ""))
-            # Label agent-stream notes so later searches do not mistake the
+            # Label agent-channel notes so later searches do not mistake the
             # assistant's paraphrase for an independent message.
             return json.dumps({"results": [
                 {"line_id": r["id"], "when": str(r["ts"])[:16],
                  "who": "me" if r["from_me"] else (r["person"] or r["handle"] or "?"),
-                 "stream": r["stream"], "thread": r["thread"] or "",
+                 "channel": r["channel"], "thread": r["thread"] or "",
                  "text": (r["text"] or "")[:400],
                  **({"note": presentation.SELF_WRITTEN_NOTE}
-                    if presentation.self_written(r["stream"]) else {})}
+                    if presentation.self_written(r["channel"]) else {})}
                 for r in rows]})
 
         if tool_name == "memcal_activity":
@@ -1457,7 +1457,7 @@ def deliver_due_reminders(conn, session_id: str, payload, *,
     """Append one reminder turn to the chat session and mark the poke delivered.
 
     `payload` is the parsed `due_reminders --format json` document (or its
-    `reminders` list directly). Appends exactly one `agent`-stream archive
+    `reminders` list directly). Appends exactly one `agent`-channel archive
     row in `hermes:<session>` with the reminder/wake authorship — never as
     the user's words — and, when `transcript` is given, one assistant message
     to that list (the in-test stand-in for the Hermes session transcript;
@@ -1486,7 +1486,7 @@ def deliver_due_reminders(conn, session_id: str, payload, *,
     keys = list(turn["metadata"].get("keys") or [])
     slug = hashlib.sha1(",".join(sorted(keys)).encode("utf-8")).hexdigest()[:12]
     archive_id = archive.append(
-        conn, stream="agent",
+        conn, channel="agent",
         external_id=f"hermes:{sid}:reminder:{slug}:{time.time_ns()}",
         ts=db.now(), text=turn["content"], thread=f"hermes:{sid}",
         person=REMINDER_PERSON, from_me=False, addressed_to="person",

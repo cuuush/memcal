@@ -1049,10 +1049,10 @@ def amendable_groups(conn: sqlite3.Connection, *, people: list[str],
     for candidate in graph_entities:
         if not candidate.startswith("thread:"):
             continue
-        _kind, stream, thread = candidate.split(":", 2)
+        _kind, channel, thread = candidate.split(":", 2)
         shape = conn.execute(
-            "SELECT is_group FROM threads WHERE stream = ? AND thread = ?",
-            (stream, thread),
+            "SELECT is_group FROM threads WHERE channel = ? AND thread = ?",
+            (channel, thread),
         ).fetchone()
         group_entity = group_entity or bool(shape and shape["is_group"])
 
@@ -1263,8 +1263,8 @@ def written_from(conn: sqlite3.Connection, key: str,
     if kind == "person":
         where, args = "a.person = ?", [rest]
     elif kind == "thread":
-        stream, _, thread = rest.partition(":")
-        where, args = "a.stream = ? AND a.thread = ?", [stream, thread]
+        channel, _, thread = rest.partition(":")
+        where, args = "a.channel = ? AND a.thread = ?", [channel, thread]
     else:
         return []
     # Remind the model what was decided, not the whole conversation;

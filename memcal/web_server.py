@@ -35,7 +35,7 @@ class RequestBodyError(ValueError):
         self.status = status
 
 
-def _read_json_body(headers, stream) -> dict:
+def _read_json_body(headers, channel) -> dict:
     raw_length = headers.get("Content-Length") or "0"
     try:
         length = int(raw_length)
@@ -50,7 +50,7 @@ def _read_json_body(headers, stream) -> dict:
             != "application/json":
         raise RequestBodyError("request body must be application/json", status=415)
     try:
-        payload = json.loads(stream.read(length) or b"{}")
+        payload = json.loads(channel.read(length) or b"{}")
     except (TypeError, ValueError, UnicodeDecodeError) as exc:
         raise RequestBodyError("bad json") from exc
     if not isinstance(payload, dict):
@@ -191,7 +191,7 @@ class Handler(BaseHTTPRequestHandler):
         if not job:
             return self._send({"job": None})
         self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Content-Type", "text/event-channel")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "close")
         self.end_headers()
@@ -217,7 +217,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(PAGE.read_bytes(), ctype="text/html; charset=utf-8")
         if url.path.startswith("/static/"):
             return self._send_static(url.path.removeprefix("/static/"))
-        if url.path == "/api/job/stream":
+        if url.path == "/api/job/channel":
             return self._stream_job(query)
         if not url.path.startswith("/api/"):
             return self._send({"error": "not found"}, 404)
@@ -235,7 +235,7 @@ class Handler(BaseHTTPRequestHandler):
             return web_memory.overview(conn, self.cfg, days=int(query.get("days", 14)))
         if path == "/api/items":
             return web_queue.items(conn,
-                         stream=query.get("stream", ""),
+                         channel=query.get("channel", ""),
                          verdict=query.get("verdict", ""),
                          reason=query.get("reason", ""),
                          q=query.get("q", ""),
@@ -249,7 +249,7 @@ class Handler(BaseHTTPRequestHandler):
             return web_queue.item_detail(conn, int(query["id"]))
         if path == "/api/groups":
             return web_queue.groups(conn,
-                          stream=query.get("stream", ""),
+                          channel=query.get("channel", ""),
                           verdict=query.get("verdict", ""),
                           reason=query.get("reason", ""),
                           q=query.get("q", ""),
@@ -258,7 +258,7 @@ class Handler(BaseHTTPRequestHandler):
                           priority=query.get("priority", ""),
                           limit=min(int(query.get("limit", 200)), 1000))
         if path == "/api/chats":
-            return web_queue.conversations(conn, self.cfg, stream=query.get("stream", ""),
+            return web_queue.conversations(conn, self.cfg, channel=query.get("channel", ""),
                                  q=query.get("q", ""))
         if path == "/api/senders":
             return {"senders": web_queue.senders(conn, q=query.get("q", ""),
@@ -303,7 +303,7 @@ class Handler(BaseHTTPRequestHandler):
             # this come from" with a fragment. `trace.conversation` already existed for
             # the agent's tool; the page had no route to it.
             return {"lines": trace.conversation(
-                conn, stream=query.get("stream", ""), thread=query.get("thread", ""),
+                conn, channel=query.get("channel", ""), thread=query.get("thread", ""),
                 around=query.get("around", ""))}
         if path == "/api/settings":
             # `provider` previews the model suggestions for a provider the form has
@@ -359,7 +359,7 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/api/queue":
                 out = web_queue.queue_item(conn, self.cfg, int(payload["id"]), payload["action"])
             elif url.path == "/api/chat":
-                out = threads.decide(conn, payload["stream"], payload["thread"],
+                out = threads.decide(conn, payload["channel"], payload["thread"],
                                      payload["decision"],
                                      reason=payload.get("reason") or "you",
                                      by=payload.get("by", "you"))

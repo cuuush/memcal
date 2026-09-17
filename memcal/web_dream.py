@@ -91,7 +91,7 @@ def _bundle_card(cfg: Config, b, conn: sqlite3.Connection | None = None) -> dict
         "who": ("me" if r["from_me"] else (r["person"] or r["handle"] or "unknown")),
         "mine": bool(r["from_me"]),
         "at": str(r["ts"])[:16].replace("T", " "),
-        "stream": r["stream"],
+        "channel": r["channel"],
         "thread": r["thread"] or "",
         # A GroupMe line from a thirty-person chat and a GroupMe DM look identical in a
         # log. They are not the same evidence, and reading a group as a DM is how "yo
@@ -106,13 +106,13 @@ def _bundle_card(cfg: Config, b, conn: sqlite3.Connection | None = None) -> dict
     } for r in b.items]
     mine = sum(1 for i in items if i["mine"])
     # Which conversations this bundle is actually made of. A person bundle joins every
-    # stream they appear on — that is the point of it — but with 21 lines from four
+    # channel they appear on — that is the point of it — but with 21 lines from four
     # places under one name, "parker shaw · 3 lines" told them nothing about where they
     # came from, and one of them turned out to be a group chat.
     convos: dict[tuple, dict] = {}
     for i in items:
-        key = (i["stream"], i["thread"], i["group"])
-        seat = convos.setdefault(key, {"stream": i["stream"], "thread": i["thread"],
+        key = (i["channel"], i["thread"], i["group"])
+        seat = convos.setdefault(key, {"channel": i["channel"], "thread": i["thread"],
                                        "group": i["group"], "n": 0})
         seat["n"] += 1
     return {
@@ -126,7 +126,7 @@ def _bundle_card(cfg: Config, b, conn: sqlite3.Connection | None = None) -> dict
         "merged": b.merged,
         "kind": b.entity.split(":", 1)[0],
         "people": b.people,
-        "streams": sorted({i["stream"] for i in items}),
+        "streams": sorted({i["channel"] for i in items}),
         "conversations": sorted(convos.values(), key=lambda c: -c["n"]),
         "group": all(i["group"] for i in items) if items else False,
         "items": items,

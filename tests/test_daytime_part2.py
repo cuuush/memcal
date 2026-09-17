@@ -84,7 +84,7 @@ class TestBusyCollectionIsExplicit(unittest.TestCase):
         self.home = str(Path(self.tmp.name) / "store")
 
     def _args(self, **kw):
-        args = argparse.Namespace(home=self.home, stream="all", stale=False,
+        args = argparse.Namespace(home=self.home, channel="all", stale=False,
                                   due=False, limit=50, rounds=3)
         for key, value in kw.items():
             setattr(args, key, value)
@@ -136,7 +136,7 @@ class TestDaytimeCadenceAndOneNightlyDream(unittest.TestCase):
         self.addCleanup(db.set_today, None)
 
     def _args(self, **kw):
-        args = argparse.Namespace(home=self.home, stream="all", stale=False,
+        args = argparse.Namespace(home=self.home, channel="all", stale=False,
                                   due=False, limit=50, rounds=3)
         for key, value in kw.items():
             setattr(args, key, value)
@@ -281,11 +281,11 @@ class TestDownSourcesDoNotSuppressHealthyOnes(unittest.TestCase):
                 return True, "ready"
 
             def fetch(self, conn, cfg, report, limit):
-                base.deliver(conn, report, stream="up", external_id="u1",
+                base.deliver(conn, report, channel="up", external_id="u1",
                              ts=db.now(), text="up note about dinner?",
                              thread="t", handle="friend@example.com")
 
-        args = argparse.Namespace(home=self.home, stream="all", stale=False,
+        args = argparse.Namespace(home=self.home, channel="all", stale=False,
                                   due=True, limit=50, rounds=3)
         with mock.patch.object(sources_pkg, "all_sources",
                                return_value=[Down(), Up()]), \
@@ -298,7 +298,7 @@ class TestDownSourcesDoNotSuppressHealthyOnes(unittest.TestCase):
         self.assertIn("down", err.getvalue())
         conn = db.open_db(Config(home=Path(self.home)).db_path)
         try:
-            rows = {r["stream"]: dict(r) for r in conn.execute(
+            rows = {r["channel"]: dict(r) for r in conn.execute(
                 "SELECT * FROM collection_sources ORDER BY collection_id DESC LIMIT 2")}
         finally:
             conn.close()

@@ -265,7 +265,7 @@ class Partiful:
             external_id = f"{row['identity']}:declined:{today}"
             archive_id = archive.append(
                 conn,
-                stream="ical",
+                channel="ical",
                 external_id=external_id,
                 ts=db.now(),
                 thread=row["calendar_uid"],

@@ -100,7 +100,7 @@ def archive_user_turn(cfg: Config, text: str, *, harness: str, session_id: str,
     try:
         verdict = gate.gate_message(text, from_me=True, addressed_to="machine")
         archive_id = archive.append(
-            conn, stream="agent", external_id=external_id, ts=stamp,
+            conn, channel="agent", external_id=external_id, ts=stamp,
             text=text[:4000], thread=f"{harness}:{session_id}", person=sender,
             from_me=True, addressed_to="machine",
             meta={"session": session_id, "origin": f"{harness}-user"},
@@ -128,7 +128,7 @@ def recent_turn(conn, *, harness: str, session_id: str,
         return []
     floor = (db.now_dt() - timedelta(minutes=max(1, within_minutes))).isoformat()
     rows = conn.execute(
-        """SELECT id FROM archive WHERE stream = 'agent' AND thread = ? AND ts >= ?
+        """SELECT id FROM archive WHERE channel = 'agent' AND thread = ? AND ts >= ?
             ORDER BY ts DESC, id DESC LIMIT 1""",
         (f"{harness}:{session_id}", floor)).fetchall()
     return [int(row["id"]) for row in rows]

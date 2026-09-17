@@ -24,10 +24,10 @@ memcal search "dinner next week"   # full-text archive search
 | `memcal_open_page` | Wiki page facts, encounters, citations |
 | `memcal_list_days` | Day or stretch (`saturday`, `tomorrow`, `weekend`, date) |
 | `memcal_list_month` | Whole-month memory view |
-| `memcal_search_archive` | Raw messages, email, notes (`person`, `stream`, `since`/`until`) |
+| `memcal_search_archive` | Raw messages, email, notes (`person`, `channel`, `since`/`until`) |
 | `memcal_source` | Full invitation body plus backing |
 | `memcal_conversation` | Ordered conversation around a message (`before`/`after`) |
 
-`memcal_conversation` takes a `line_id` from search results or a stream/thread
+`memcal_conversation` takes a `line_id` from search results or a channel/thread
 pair, so a flagged thread is one call away — the assistant never invents a
 keyword search for known activity. See [Daytime freshness](../architecture/freshness.md).

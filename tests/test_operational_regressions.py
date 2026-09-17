@@ -73,7 +73,7 @@ class TestReleaseVersionAgreement(unittest.TestCase):
 class TestStandingRetirementStopsNewWrites(Base):
     def _sourced_standing(self):
         archive_id = archive.append(
-            self.conn, stream="agent", external_id="standing-retirement", ts=db.now(),
+            self.conn, channel="agent", external_id="standing-retirement", ts=db.now(),
             text="Use curl before browsers", thread="conversation", person="me",
             from_me=True,
         )
@@ -369,7 +369,7 @@ class TestAReactionIsRescuedByWhatItIsNotByWhatItWasCalled(Base):
     def _reaction(self, text: str, ts: str) -> int:
         verdict = gate.gate_message(text)
         return archive.append(
-            self.conn, stream="groupme", external_id=f"r-{text}-{ts}", ts=ts,
+            self.conn, channel="groupme", external_id=f"r-{text}-{ts}", ts=ts,
             text=text, thread="Lootbox", person="Quinn Brooks",
             gated=bool(verdict), gate_reason=verdict.reason)
 
@@ -809,7 +809,7 @@ class TestAPageReadWasBareMarkdownWrappedInSmallTalk(Base):
         ids = []
         for n, text in enumerate(said):
             ids.append(archive.append(
-                self.conn, stream="imessage", external_id=f"{slug}-{slot}-{n}",
+                self.conn, channel="imessage", external_id=f"{slug}-{slot}-{n}",
                 ts=(stamp + timedelta(minutes=n)).isoformat(), text=text,
                 thread="+15550000000", person="Colin", from_me=False))
         wiki.set_slot(self.cfg.wiki_dir, slug, slot, value, conn=self.conn)
@@ -877,7 +877,7 @@ class TestOnePageToolAnsweredTwoDifferentWays(Base):
     def test_the_mcp_page_read_carries_the_encounters_and_the_evidence(self):
         stamp = db.now_dt()
         line = archive.append(
-            self.conn, stream="imessage", external_id="quinn-1", ts=stamp.isoformat(),
+            self.conn, channel="imessage", external_id="quinn-1", ts=stamp.isoformat(),
             text="My favorite theater is Alamo Drafthouse", thread="+15550000000",
             person="Quinn Brooks", from_me=False)
         wiki.set_slot(self.cfg.wiki_dir, "quinn-brooks", "favorite theater",
@@ -901,7 +901,7 @@ class TestOnePageToolAnsweredTwoDifferentWays(Base):
         stamp = db.now_dt()
         for n, text in enumerate(["Yooooo how's it going", "went back to school for cs"]):
             line = archive.append(
-                self.conn, stream="imessage", external_id=f"colin-{n}",
+                self.conn, channel="imessage", external_id=f"colin-{n}",
                 ts=(stamp + timedelta(minutes=n)).isoformat(), text=text,
                 thread="+15550000000", person="Colin", from_me=False)
             archive.spool_add(self.conn, line, "person:Colin")
@@ -950,9 +950,9 @@ class TestAPassThatReportedSuccessWithASourceDown(Base):
     def test_a_failed_source_shows_up_on_the_pass_it_failed(self):
         collection = archive.open_collection(self.conn, mode="test")
         archive.record_source(self.conn, collection, base.IngestReport(
-            stream="email", error="cannot reach Proton Bridge at 127.0.0.1:1143"))
+            channel="email", error="cannot reach Proton Bridge at 127.0.0.1:1143"))
         archive.record_source(self.conn, collection,
-                              base.IngestReport(stream="imessage", read=4))
+                              base.IngestReport(channel="imessage", read=4))
         archive.close_collection(self.conn, collection)
         row = self.conn.execute("SELECT error FROM collections WHERE id = ?",
                                 (collection,)).fetchone()
@@ -962,7 +962,7 @@ class TestAPassThatReportedSuccessWithASourceDown(Base):
     def test_a_clean_pass_has_no_error_to_learn_to_ignore(self):
         collection = archive.open_collection(self.conn, mode="test")
         archive.record_source(self.conn, collection,
-                              base.IngestReport(stream="imessage", read=4))
+                              base.IngestReport(channel="imessage", read=4))
         archive.close_collection(self.conn, collection)
         row = self.conn.execute("SELECT error FROM collections WHERE id = ?",
                                 (collection,)).fetchone()
@@ -972,7 +972,7 @@ class TestAPassThatReportedSuccessWithASourceDown(Base):
         """A caller that caught an exception around the whole loop knows more than we do."""
         collection = archive.open_collection(self.conn, mode="test")
         archive.record_source(self.conn, collection,
-                              base.IngestReport(stream="email", error="bridge down"))
+                              base.IngestReport(channel="email", error="bridge down"))
         archive.close_collection(self.conn, collection, error="the disk filled up")
         row = self.conn.execute("SELECT error FROM collections WHERE id = ?",
                                 (collection,)).fetchone()
@@ -992,13 +992,13 @@ class TestAPassThatReportedSuccessWithASourceDown(Base):
                 return False, "bridge down"
 
         def catch_up(source, conn, cfg, **kw):
-            report = base.IngestReport(stream=source.name)
+            report = base.IngestReport(channel=source.name)
             if source.name == "email":
                 report.error = "cannot reach Proton Bridge"
             archive.record_source(conn, kw.get("collection_id"), report)
             return report
 
-        args = argparse.Namespace(home=str(self.cfg.home), stream="all", stale=False,
+        args = argparse.Namespace(home=str(self.cfg.home), channel="all", stale=False,
                                   limit=10, rounds=1)
         with mock.patch.object(cli.sources, "all_sources", return_value=[Broken()]), \
              mock.patch.object(cli.sources, "catch_up", side_effect=catch_up), \
@@ -1020,11 +1020,11 @@ class TestAPassThatReportedSuccessWithASourceDown(Base):
             def check(self, cfg):
                 return self._ok, ""
 
-        archive.append(self.conn, stream="email", external_id="e1",
+        archive.append(self.conn, channel="email", external_id="e1",
                        ts=(db.now_dt() - timedelta(days=9)).isoformat(), text="hi")
-        archive.append(self.conn, stream="whatsapp", external_id="w1",
+        archive.append(self.conn, channel="whatsapp", external_id="w1",
                        ts=(db.now_dt() - timedelta(days=9)).isoformat(), text="hi")
-        archive.append(self.conn, stream="imessage", external_id="i1",
+        archive.append(self.conn, channel="imessage", external_id="i1",
                        ts=db.now_dt().isoformat(), text="hi")
         candidates = [Source("email", True), Source("whatsapp", False),
                       Source("imessage", True)]
@@ -1140,7 +1140,7 @@ class TestANumeralIsNotAName(Base):
         and "whose 472 messages are these" is unanswerable in a way that "whose 472
         messages in the family chat" is not."""
         for n in range(3):
-            archive.append(self.conn, stream="whatsapp", external_id=f"w{n}",
+            archive.append(self.conn, channel="whatsapp", external_id=f"w{n}",
                            ts=db.now(), text="hi", thread="Family",
                            handle="whatsapp:lid:100000000000200")
         self.conn.commit()
@@ -1209,7 +1209,7 @@ class TestDoctorListedFactsAndVerdictsInTheSameColumn(Base):
     def test_a_stale_but_reachable_source_is_the_one_that_cost_nine_days(self):
         """Reachable *now*, behind because the only scheduled attempt is at an hour its
         dependency is not up. That distinction is the whole fix, so it is graded."""
-        archive.append(self.conn, stream="email", external_id="e1",
+        archive.append(self.conn, channel="email", external_id="e1",
                        ts=(db.now_dt() - timedelta(days=9)).isoformat(), text="hi")
 
         class Reachable:
@@ -1231,7 +1231,7 @@ class TestDoctorListedFactsAndVerdictsInTheSameColumn(Base):
         recorded three cheerful counts and no error at all."""
         collection = archive.open_collection(self.conn, mode="test")
         archive.record_source(self.conn, collection, base.IngestReport(
-            stream="email", error="cannot reach Proton Bridge at 127.0.0.1:1143"))
+            channel="email", error="cannot reach Proton Bridge at 127.0.0.1:1143"))
         archive.close_collection(self.conn, collection)
         last = self._findings()["Sources/last collection"]
         self.assertEqual(cli.FAIL, last.status)
@@ -1240,7 +1240,7 @@ class TestDoctorListedFactsAndVerdictsInTheSameColumn(Base):
     def test_a_clean_collection_is_not_a_problem(self):
         collection = archive.open_collection(self.conn, mode="test")
         archive.record_source(self.conn, collection,
-                              base.IngestReport(stream="imessage", read=3))
+                              base.IngestReport(channel="imessage", read=3))
         archive.close_collection(self.conn, collection)
         self.assertEqual(cli.OK, self._findings()["Sources/last collection"].status)
 
@@ -1736,7 +1736,7 @@ class TestALinkedIdIsNotAPhoneNumber(Base):
     def test_the_minted_numbers_already_in_the_store_are_rewritten(self):
         """Repair known-bad inferred names already in the store."""
         for n in range(3):
-            archive.append(self.conn, stream="whatsapp", external_id=f"w{n}",
+            archive.append(self.conn, channel="whatsapp", external_id=f"w{n}",
                            ts=db.now(), text="hi", thread="Family",
                            handle="+100000000000200")
         identity.note_unresolved(self.conn, "+100000000000200", "whatsapp")
@@ -1759,7 +1759,7 @@ class TestALinkedIdIsNotAPhoneNumber(Base):
     def test_the_repair_reads_the_store_rather_than_counting_digits(self):
         """The tempting test is length — a LID runs 14–16 digits and E.164 runs 11–12.
         It is also how you rename somebody's real Ivorian number."""
-        archive.append(self.conn, stream="whatsapp", external_id="w1", ts=db.now(),
+        archive.append(self.conn, channel="whatsapp", external_id="w1", ts=db.now(),
                        text="hi", thread="Family", handle="+2250700000000")
         self.conn.commit()
         src = _wa_store(members=[("100000000000200@lid", None)])
@@ -1769,7 +1769,7 @@ class TestALinkedIdIsNotAPhoneNumber(Base):
             "SELECT handle FROM archive WHERE external_id = 'w1'").fetchone()["handle"])
 
     def test_repairing_twice_changes_nothing(self):
-        archive.append(self.conn, stream="whatsapp", external_id="w1", ts=db.now(),
+        archive.append(self.conn, channel="whatsapp", external_id="w1", ts=db.now(),
                        text="hi", thread="Family", handle="+100000000000200")
         self.conn.commit()
         src = _wa_store(messages=["100000000000200@lid"])
@@ -1781,7 +1781,7 @@ class TestALinkedIdIsNotAPhoneNumber(Base):
         """Honest is not the same as resolved. Everyone who has gone quiet would stay
         nameless forever, and their history is what we wanted them named for."""
         for n in range(2):
-            archive.append(self.conn, stream="whatsapp", external_id=f"w{n}",
+            archive.append(self.conn, channel="whatsapp", external_id=f"w{n}",
                            ts=db.now(), text="hi", thread="Family",
                            handle="whatsapp:lid:256658722824221")
         self.conn.commit()
@@ -1800,7 +1800,7 @@ class TestALinkedIdIsNotAPhoneNumber(Base):
     def test_a_contact_still_beats_the_push_name(self):
         """The user saved them under a name; WhatsApp's is what they chose today."""
         identity.link(self.conn, "+19175550001", "Deborah Smith", source="contacts")
-        archive.append(self.conn, stream="whatsapp", external_id="w1", ts=db.now(),
+        archive.append(self.conn, channel="whatsapp", external_id="w1", ts=db.now(),
                        text="hi", thread="Family", handle="whatsapp:lid:5")
         self.conn.commit()
         src = _wa_store()
@@ -1819,7 +1819,7 @@ class TestALinkedIdIsNotAPhoneNumber(Base):
         self.assertIsNone(identity.resolve(self.conn, "whatsapp:lid:99"))
 
     def test_naming_twice_changes_nothing(self):
-        archive.append(self.conn, stream="whatsapp", external_id="w1", ts=db.now(),
+        archive.append(self.conn, channel="whatsapp", external_id="w1", ts=db.now(),
                        text="hi", thread="Family", handle="whatsapp:lid:5")
         self.conn.commit()
         src = _wa_store()
@@ -1845,7 +1845,7 @@ class TestALinkedIdIsNotAPhoneNumber(Base):
         self.assertFalse(identity.is_person("whatsapp:bot:867051314767696", "Meta AI"))
 
     def test_a_bot_namespace_is_repaired_like_a_lid(self):
-        archive.append(self.conn, stream="whatsapp", external_id="w1", ts=db.now(),
+        archive.append(self.conn, channel="whatsapp", external_id="w1", ts=db.now(),
                        text="hi", thread="Family", handle="+867051314767696")
         self.conn.commit()
         src = _wa_store(members=[("867051314767696@bot", None)])
@@ -1858,7 +1858,7 @@ class TestALinkedIdIsNotAPhoneNumber(Base):
 class TestARosterScanOverwroteAJudgement(Base):
     """`handles.source` recorded who wrote a link, not what it rested on.
 
-    `link_by_name` stamped its Contacts-derived match with the bare stream name,
+    `link_by_name` stamped its Contacts-derived match with the bare channel name,
     "groupme". GroupMe's profile sync then saw a source starting with "groupme", read
     it as its own earlier work, and overwrote it — every sync, for every person. 462
     rows in the live store were written by the scan and 3 survived from the ingest
@@ -1956,7 +1956,7 @@ class TestTwoCasingsOfOneNameAreTwoPeople(Base):
         self.conn.execute(
             "INSERT INTO handles(handle, person, source, updated_at) VALUES(?,?,?,?)",
             ("groupme:20141029", "Devin Reyes", "groupme:profile", db.now()))
-        archive.append(self.conn, stream="groupme", external_id="g1", ts=db.now(),
+        archive.append(self.conn, channel="groupme", external_id="g1", ts=db.now(),
                        text="hi", thread="Crew", handle="groupme:20141029",
                        person="Devin Reyes")
         self.conn.commit()
@@ -2202,7 +2202,7 @@ class TestTheRepairOnlyFoundTheCorruptionItPredicted(Base):
         return src
 
     def _archived(self, guid, text):
-        rid = archive.append(self.conn, stream="imessage", external_id=guid, ts=db.now(),
+        rid = archive.append(self.conn, channel="imessage", external_id=guid, ts=db.now(),
                              text=text, thread="Fam", handle="+19175550001", gated=True)
         self.conn.commit()
         return rid
@@ -2295,7 +2295,7 @@ class TestABareReplacementCharacterWasArchivedAsSomethingSaid(Base):
         return src
 
     def _archived(self, guid, text):
-        rid = archive.append(self.conn, stream="imessage", external_id=guid, ts=db.now(),
+        rid = archive.append(self.conn, channel="imessage", external_id=guid, ts=db.now(),
                              text=text, thread="Fam", handle="+19175550001", gated=True)
         self.conn.commit()
         return rid
@@ -2382,7 +2382,7 @@ class TestABareReplacementCharacterWasArchivedAsSomethingSaid(Base):
 class TestTheThirdConnectorHadItsOwnIdeaOfEmpty(Base):
     """`groupme.message_text` still stripped U+FFFC alone after #38 corrected iMessage
     and BlueBubbles, so a body that was nothing but a replacement character stayed a
-    message on the one stream nobody had looked at — 11 of the live store's 23 rows
+    message on the one channel nobody had looked at — 11 of the live store's 23 rows
     carrying U+FFFD were GroupMe's, and 7 of them empty under the shared rule.
 
     A bare `�` is short and carries no alphanumerics, which is `gate.is_reaction`
@@ -2408,12 +2408,12 @@ class TestTheThirdConnectorHadItsOwnIdeaOfEmpty(Base):
         from the source blob and can only ever be about iMessage; GroupMe keeps no blob
         to go back to. This predicate needs none — it reads the stored text."""
         rid = archive.append(
-            self.conn, stream="groupme", external_id="gm-1", ts=db.now(),
+            self.conn, channel="groupme", external_id="gm-1", ts=db.now(),
             text="\ufffd", thread="poker crew", person="Jordan", from_me=False,
             gated=True, gate_reason="reaction")
         archive.spool_add(self.conn, rid, "thread:groupme:poker crew")
         kept = archive.append(
-            self.conn, stream="groupme", external_id="gm-2", ts=db.now(),
+            self.conn, channel="groupme", external_id="gm-2", ts=db.now(),
             text="see you at 8", thread="poker crew", person="Jordan", from_me=False,
             gated=True, gate_reason="temporal")
         self.conn.commit()
@@ -2458,7 +2458,7 @@ class TestTheThirdConnectorHadItsOwnIdeaOfEmpty(Base):
 class TestTheIndexAndTheRowDisagreedAboutWhoSaidIt(Base):
 
     def _row(self, person=None, text="dinner on thursday"):
-        rid = archive.append(self.conn, stream="whatsapp", external_id=f"w{text}{person}",
+        rid = archive.append(self.conn, channel="whatsapp", external_id=f"w{text}{person}",
                              ts=db.now(), text=text, thread="Family",
                              handle="whatsapp:lid:5", person=person)
         self.conn.commit()
@@ -2594,18 +2594,18 @@ class TestASuiteThatIsGreenOnlyInOneTimeZone(unittest.TestCase):
 
 class TestOneNameOnTwoPlatformsIsTwoPeopleForever(Base):
 
-    def _said(self, person, thread, stream="groupme", n=1):
+    def _said(self, person, thread, channel="groupme", n=1):
         for i in range(n):
-            archive.append(self.conn, stream=stream,
-                           external_id=f"{stream}{person}{thread}{i}", ts=db.now(),
-                           text="hi", thread=thread, handle=f"{stream}:{person}",
+            archive.append(self.conn, channel=channel,
+                           external_id=f"{channel}{person}{thread}{i}", ts=db.now(),
+                           text="hi", thread=thread, handle=f"{channel}:{person}",
                            person=person)
-        identity.link(self.conn, f"{stream}:{person}", person, source="cli")
+        identity.link(self.conn, f"{channel}:{person}", person, source="cli")
         self.conn.commit()
 
     def test_a_unique_stem_across_two_streams_is_worth_asking_about(self):
-        self._said("Rohan", "DMs", stream="imessage")
-        self._said("Rohan Kapoor", "The Crew", stream="groupme")
+        self._said("Rohan", "DMs", channel="imessage")
+        self._said("Rohan Kapoor", "The Crew", channel="groupme")
         self.assertEqual([("Rohan", "Rohan Kapoor")],
                          identity.merge_candidates(self.conn))
 
@@ -2621,14 +2621,14 @@ class TestOneNameOnTwoPlatformsIsTwoPeopleForever(Base):
         only speakers and one match is left standing, which makes `Joe` look
         unambiguous — the exact wrong merge `adopt_seen_name` documents."""
         self._said("Joe", "The Crew")
-        self._said("joe coleman", "DMs", stream="imessage")
+        self._said("joe coleman", "DMs", channel="imessage")
         # A silent namesake, of which the live store has five more.
         identity.link(self.conn, "groupme:9", "Joe Navarro", source="cli")
         self.conn.commit()
         self.assertEqual([], identity.merge_candidates(self.conn))
 
     def test_a_name_that_has_never_spoken_costs_nothing_to_leave_alone(self):
-        self._said("Nik", "DMs", stream="imessage")
+        self._said("Nik", "DMs", channel="imessage")
         identity.link(self.conn, "groupme:8", "Nik Pavincic", source="cli")
         self.conn.commit()
         self.assertEqual([], identity.merge_candidates(self.conn))
@@ -2641,8 +2641,8 @@ class TestOneNameOnTwoPlatformsIsTwoPeopleForever(Base):
 
     def test_it_shows_rather_than_merging(self):
         """Nothing here writes a link. The user does, with `memcal who`."""
-        self._said("Rohan", "DMs", stream="imessage")
-        self._said("Rohan Kapoor", "The Crew", stream="groupme")
+        self._said("Rohan", "DMs", channel="imessage")
+        self._said("Rohan Kapoor", "The Crew", channel="groupme")
         lines = identity.candidate_lines(self.conn)
         self.assertEqual(1, len(lines))
         self.assertIn("Rohan", lines[0])
@@ -2661,8 +2661,8 @@ class TestOneNameOnTwoPlatformsIsTwoPeopleForever(Base):
         re-proposing something already refused. "Becomes a question" does
         not have to mean *asked*.
         """
-        self._said("Rohan", "DMs", stream="imessage")
-        self._said("Rohan Kapoor", "The Crew", stream="groupme")
+        self._said("Rohan", "DMs", channel="imessage")
+        self._said("Rohan Kapoor", "The Crew", channel="groupme")
         identity.candidate_lines(self.conn)
         self.assertEqual(0, self.conn.execute(
             "SELECT count(*) AS n FROM questions").fetchone()["n"])
@@ -2676,8 +2676,8 @@ class TestOneNameOnTwoPlatformsIsTwoPeopleForever(Base):
 
     def test_it_never_asks_whether_he_is_himself(self):
         identity.set_me(self.conn, "Casey Morgan")
-        self._said("Casey Morgan", "DMs", stream="imessage")
-        self._said("Casey Morgan Jr", "The Crew", stream="groupme")
+        self._said("Casey Morgan", "DMs", channel="imessage")
+        self._said("Casey Morgan Jr", "The Crew", channel="groupme")
         self.assertEqual([], identity.merge_candidates(self.conn))
 
 class TestTheNightlyPassPutItBackEveryNight(Base):
@@ -3172,7 +3172,7 @@ class TestOneColumnHeldThreeTimeFormats(Base):
                  self.d(-1), db.now()))
         self.conn.commit()
 
-        report = base.IngestReport(stream="ical")
+        report = base.IngestReport(channel="ical")
         # A snapshot that read *something* — an identity this store does not hold. An
         # empty one is a failed read and is judged nowhere, which would make every
         # assertion below pass without the window bounds being right at all.
@@ -3891,7 +3891,7 @@ class TestIMessageBackendSelection(Base):
         self.cfg.imessage_backend = "chatdb"
         report = self._report()
         with mock.patch.object(imessage, "ingest", return_value=base.IngestReport(
-                stream="imessage", read=3)) as local, \
+                channel="imessage", read=3)) as local, \
              mock.patch("memcal.sources.bluebubbles.ingest") as bb:
             self.src.fetch(self.conn, self.cfg, report, 1000)
         bb.assert_not_called()
@@ -3901,10 +3901,10 @@ class TestIMessageBackendSelection(Base):
     def test_bluebubbles_backend_falls_back_to_chatdb_by_default(self):
         report = self._report()
         with mock.patch("memcal.sources.bluebubbles.ingest",
-                        return_value=base.IngestReport(stream="imessage",
+                        return_value=base.IngestReport(channel="imessage",
                                                        error="server down")), \
              mock.patch.object(imessage, "ingest", return_value=base.IngestReport(
-                 stream="imessage", read=5)) as local:
+                 channel="imessage", read=5)) as local:
             self.src.fetch(self.conn, self.cfg, report, 1000)
         local.assert_called_once()
         self.assertEqual(5, report.read)
@@ -3914,7 +3914,7 @@ class TestIMessageBackendSelection(Base):
         self.cfg.imessage_fallback = False
         report = self._report()
         with mock.patch("memcal.sources.bluebubbles.ingest",
-                        return_value=base.IngestReport(stream="imessage",
+                        return_value=base.IngestReport(channel="imessage",
                                                        error="server down")), \
              mock.patch.object(imessage, "ingest") as local:
             with self.assertRaises(spec.SourceError) as caught:

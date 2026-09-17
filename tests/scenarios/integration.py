@@ -230,7 +230,7 @@ DAY2 = {
         "status": "confirmed", "subject": "me",
         "participants": ["Alex Rivera", "Riley Morgan"],
     }]),
-    # 11. The same dinner from a second stream. Merge has to collapse this.
+    # 11. The same dinner from a second channel. Merge has to collapse this.
     "person:Alex Rivera": _diff(events=[{
         "title": "Ramen dinner", "date": THU, "time": "20:30", "kind": "commitment",
         "status": "confirmed", "subject": "me", "participants": ["Alex Rivera"],

@@ -18,43 +18,43 @@ from .dream import retry as dream_retry
 def overview(conn: sqlite3.Connection, cfg: Config, days: int = 14) -> dict:
     since = (db.today() - timedelta(days=days)).isoformat()
     behind = dict(archive.stale_streams(conn, cfg=cfg))
-    fresh = {r["stream"]: r for r in archive.freshness(conn, cfg)}
+    fresh = {r["channel"]: r for r in archive.freshness(conn, cfg)}
     streams = []
     rows = conn.execute(
-        """SELECT stream, count(*) AS n, sum(gated) AS gated,
+        """SELECT channel, count(*) AS n, sum(gated) AS gated,
                   sum(gate_reason = 'calendar-structured') AS structured,
                   sum(length(text)) AS chars
              FROM archive
-            WHERE ts >= ? AND NOT (stream = 'ical' AND external_id LIKE 'snapshot:%')
-            GROUP BY stream ORDER BY n DESC""",
+            WHERE ts >= ? AND NOT (channel = 'ical' AND external_id LIKE 'snapshot:%')
+            GROUP BY channel ORDER BY n DESC""",
         (since,),
     ).fetchall()
     for row in rows:
-        seen = fresh.get(row["stream"])
+        seen = fresh.get(row["channel"])
         streams.append({
-            "stream": row["stream"],
+            "channel": row["channel"],
             "n": row["n"],
             "gated": row["gated"] or 0,
             "structured": row["structured"] or 0,
             "tokens": (row["chars"] or 0) // 4,
             "last_seen": db.age_phrase(seen["newest"]) if seen else "?",
-            "stale": behind.get(row["stream"]),
+            "stale": behind.get(row["channel"]),
         })
 
     # Add known streams that had no traffic inside the display window.
-    listed = {row["stream"] for row in rows}
-    for stream, seen in sorted(fresh.items()):
+    listed = {row["channel"] for row in rows}
+    for channel, seen in sorted(fresh.items()):
         newest = str(seen.get("newest") or "")
-        if stream in listed or (newest and newest >= since):
+        if channel in listed or (newest and newest >= since):
             continue
         streams.append({
-            "stream": stream,
+            "channel": channel,
             "n": 0,
             "gated": 0,
             "structured": 0,
             "tokens": 0,
             "last_seen": db.age_phrase(newest) if newest else "never",
-            "stale": behind.get(stream) or (
+            "stale": behind.get(channel) or (
                 f"nothing since {db.age_phrase(newest)}" if newest
                 else "never produced a line"),
         })

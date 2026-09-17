@@ -42,11 +42,11 @@ class BenchmarkStatus:
     """Flushed model progress plus a heartbeat while one CLI call is outstanding."""
 
     def __init__(self, enabled: bool, label: str, *,
-                 every: float = STATUS_HEARTBEAT_SECONDS, stream=None):
+                 every: float = STATUS_HEARTBEAT_SECONDS, channel=None):
         self.enabled = enabled
         self.label = label
         self.every = every
-        self.stream = stream or sys.stderr
+        self.channel = channel or sys.stderr
         self.started = time.monotonic()
         self.last_event = self.started
         self.current = label
@@ -78,7 +78,7 @@ class BenchmarkStatus:
             self.last_event = now
             current = self.current
         print(f"[bench {_elapsed(now - self.started)}] {current}",
-              file=self.stream, flush=True)
+              file=self.channel, flush=True)
 
     def progress(self, day: int, event: str, data: dict) -> None:
         """Translate dream's structured progress events into stable terminal text."""
@@ -110,7 +110,7 @@ class BenchmarkStatus:
             print(
                 f"[bench {_elapsed(now - self.started)}] still running · {current} · "
                 f"{int(quiet)}s since the last model event",
-                file=self.stream, flush=True)
+                file=self.channel, flush=True)
 
 
 def canonical_layer(layer: str) -> str:

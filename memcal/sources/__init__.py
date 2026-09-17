@@ -161,9 +161,9 @@ def catch_up(source: Source, conn, cfg, *, limit: int = 1000,
     try:
         total = run_once()
     except Exception as exc:  # a custom `run` that raises instead of reporting
-        total = IngestReport(stream=getattr(source, "name", ""))
+        total = IngestReport(channel=getattr(source, "name", ""))
         total.error = f"{type(exc).__name__}: {exc}"
-        total.notes.append(f"collecting {total.stream} failed before it started: {exc}")
+        total.notes.append(f"collecting {total.channel} failed before it started: {exc}")
         used, stalled = 0, False
     else:
         used, stalled = 1, False
@@ -173,7 +173,7 @@ def catch_up(source: Source, conn, cfg, *, limit: int = 1000,
                 this_round = run_once()
             except Exception as exc:
                 total.error = total.error or f"{type(exc).__name__}: {exc}"
-                total.notes.append(f"collecting {total.stream} failed mid-pass: {exc}")
+                total.notes.append(f"collecting {total.channel} failed mid-pass: {exc}")
                 break
             total.absorb(this_round)
             used += 1

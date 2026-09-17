@@ -30,17 +30,17 @@ class _Base(unittest.TestCase):
     def tearDown(self):
         self.conn.close()
 
-    def collect(self, stream, eid, text, thread, handle="friend@example.com",
+    def collect(self, channel, eid, text, thread, handle="friend@example.com",
                 ts=None, **kw):
         from memcal.sources.base import IngestReport
-        report = IngestReport(stream=stream)
-        base.deliver(self.conn, report, stream=stream, external_id=eid,
+        report = IngestReport(channel=channel)
+        base.deliver(self.conn, report, channel=channel, external_id=eid,
                      ts=ts or db.now(), text=text, thread=thread,
                      handle=handle, **kw)
         self.conn.commit()
         row = self.conn.execute(
-            "SELECT id FROM archive WHERE stream = ? AND external_id = ?",
-            (stream, eid)).fetchone()
+            "SELECT id FROM archive WHERE channel = ? AND external_id = ?",
+            (channel, eid)).fetchone()
         return row["id"] if row else None
 
     def poker(self, when="2026-09-12"):
@@ -145,7 +145,7 @@ class TestBacklogAndCoverage(_Base):
         # Muted chatter never leaks through the backlog surface.
         threads.record(self.conn, "chat", "rooftop crew", is_group=True)
         self.conn.execute("UPDATE threads SET decision='mute'"
-                          " WHERE stream='chat' AND thread='rooftop crew'")
+                          " WHERE channel='chat' AND thread='rooftop crew'")
         self.conn.commit()
         self.assertNotIn("coverage incomplete — unreviewed traffic not linked",
                          brief.render(self.conn, self.cfg))
@@ -404,7 +404,7 @@ class TestIncompleteCoverage(_Base):
             in_all = True
 
             def fetch(self, conn, cfg, report, limit):
-                base.deliver(conn, report, stream="chat", external_id="g1",
+                base.deliver(conn, report, channel="chat", external_id="g1",
                              ts=db.now(), text="half the story?",
                              thread="t", handle="friend@example.com")
                 report.more = True

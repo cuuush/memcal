@@ -23,9 +23,9 @@ SELF_WRITTEN_NOTE = ("written by you earlier this session — not independent ev
                      "do not cite it as confirmation")
 
 
-def self_written(stream: str | None) -> bool:
+def self_written(channel: str | None) -> bool:
     """Is this line the user's own earlier turn rather than something somebody sent?"""
-    return str(stream or "") == SELF_WRITTEN_STREAM
+    return str(channel or "") == SELF_WRITTEN_STREAM
 
 
 def change_label(change: str | None) -> str:

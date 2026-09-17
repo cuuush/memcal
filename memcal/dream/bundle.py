@@ -81,8 +81,8 @@ class Bundle:
 
         The `waiting` count keeps a truncated bundle from reading as complete.
         """
-        convos = {(r["stream"], r["thread"]) for r in self.items}
-        streams = sorted({r["stream"] for r in self.items})
+        convos = {(r["channel"], r["thread"]) for r in self.items}
+        streams = sorted({r["channel"] for r in self.items})
         if len(convos) == 1 and streams == ["email"]:
             # Email identity is often unresolved on first load, so its bundle is keyed
             # by thread rather than person. That says nothing about group membership:
@@ -131,7 +131,7 @@ def _render_v1(bundle: "Bundle", head: str | None = None) -> str:
             head += f"   ({bundle.title})"
     lines = ([head] if head else []) + [bundle._shape()]
 
-    single = len({(r["stream"], r["thread"]) for r in bundle.items}) == 1
+    single = len({(r["channel"], r["thread"]) for r in bundle.items}) == 1
     day = None
     previous = None
     for index, row in enumerate(bundle.items, start=1):
@@ -150,11 +150,11 @@ def _render_v1(bundle: "Bundle", head: str | None = None) -> str:
         # Distinguish a user statement from an instruction addressed to the agent.
         if who == "me" and _addressed_to(row) == "machine":
             who = "me → assistant"
-        # The stream stays on every line — the instructions lean on it to identify the
-        # agent stream. The thread only earns its place when the bundle holds more
+        # The channel stays on every line — the instructions lean on it to identify the
+        # agent channel. The thread only earns its place when the bundle holds more
         # than one, which is exactly when it says something.
-        where = row["stream"] if single else (
-            f"{row['stream']}/{bundle.convo_titles.get((row['stream'], row['thread']), row['thread'] or '?')}")
+        where = row["channel"] if single else (
+            f"{row['channel']}/{bundle.convo_titles.get((row['channel'], row['thread']), row['thread'] or '?')}")
         body = str(row["text"] or "").strip()
         first, *rest = body.split("\n")
         # Line tags are compact citations resolved to archive ids by `Bundle.cite`.
@@ -192,7 +192,7 @@ def importance(conn: sqlite3.Connection, bundle: "Bundle") -> float:
     planning = sum(1 for r in bundle.items
                    if (r["gate_reason"] or "") in _PLANNING_REASONS)
     # Capped low on purpose: this is corroborating evidence, never the deciding vote,
-    # because its availability depends on which stream the line arrived by.
+    # because its availability depends on which channel the line arrived by.
     score += min(20.0, planning * 2.0)
     subject_only = sum(1 for r in bundle.items if r["gate_reason"] == "subject-event")
     score += min(8.0, subject_only * 0.5)
@@ -210,13 +210,13 @@ def cold_start_order(conn: sqlite3.Connection, bundles: list["Bundle"]) -> list[
 
 
 def _render_v2_quiet_stream(bundle: "Bundle", head: str | None = None) -> str:
-    """v1 with the per-line stream tag dropped where the header already states it.
+    """v1 with the per-line channel tag dropped where the header already states it.
 
-    The `agent` stream tag is always kept, since it determines attribution.
+    The `agent` channel tag is always kept, since it determines attribution.
     """
     text = _render_v1(bundle, head)
-    streams = {r["stream"] for r in bundle.items}
-    if len({(r["stream"], r["thread"]) for r in bundle.items}) != 1:
+    streams = {r["channel"] for r in bundle.items}
+    if len({(r["channel"], r["thread"]) for r in bundle.items}) != 1:
         return text            # multi-conversation: the tag is disambiguating, keep it
     if streams == {"agent"} or "agent" in streams:
         return text
@@ -263,8 +263,8 @@ def build(conn: sqlite3.Connection, limit: int = SPOOL_LIMIT,
         bundle.items.sort(key=lambda r: str(r["ts"]))
         add_thread_context(conn, bundle)
         bundle.convo_titles = {
-            (r["stream"], r["thread"]): names.get((r["stream"], r["thread"]),
-                                                  r["thread"] or r["stream"])
+            (r["channel"], r["thread"]): names.get((r["channel"], r["thread"]),
+                                                  r["thread"] or r["channel"])
             for r in bundle.items}
     return bundles
 
@@ -275,8 +275,8 @@ def _title_for(bundle: Bundle, names: dict[tuple, str]) -> str:
     if kind == "person":
         return rest
     if kind == "thread":
-        stream, _, thread = rest.partition(":")
-        return names.get((stream, thread), thread)
+        channel, _, thread = rest.partition(":")
+        return names.get((channel, thread), thread)
     return rest
 
 
@@ -288,7 +288,7 @@ def add_thread_context(conn: sqlite3.Connection, bundle: Bundle) -> None:
     gate governs what we *look* at and this restores what it takes to read it.
     """
     seen = {row["id"] for row in bundle.items}
-    anchors = [(row["stream"], row["thread"], db.parse_ts(row["ts"]))
+    anchors = [(row["channel"], row["thread"], db.parse_ts(row["ts"]))
                for row in bundle.items if row["thread"]]
     if not anchors:
         bundle.items.sort(key=lambda r: str(r["ts"]))
@@ -296,18 +296,18 @@ def add_thread_context(conn: sqlite3.Connection, bundle: Bundle) -> None:
 
     extra: list[sqlite3.Row] = []
     window = timedelta(minutes=CONTEXT_MINUTES)
-    for stream, thread in {(s, t) for s, t, _ in anchors}:
-        times = [ts for s, t, ts in anchors if (s, t) == (stream, thread)]
+    for channel, thread in {(s, t) for s, t, _ in anchors}:
+        times = [ts for s, t, ts in anchors if (s, t) == (channel, thread)]
         # Bound the scan by date prefix: format-agnostic, unlike SQLite date math on
         # timestamps that may or may not carry a T and an offset.
         lo = (min(times) - window).date().isoformat()
         hi = (max(times) + window).date().isoformat()
         rows = conn.execute(
             """SELECT a.* FROM archive a
-               WHERE a.stream = ? AND a.thread = ? AND substr(a.ts, 1, 10) BETWEEN ? AND ?
+               WHERE a.channel = ? AND a.thread = ? AND substr(a.ts, 1, 10) BETWEEN ? AND ?
                  AND a.id NOT IN (SELECT archive_id FROM spool)
                ORDER BY a.ts""",
-            (stream, thread, lo, hi),
+            (channel, thread, lo, hi),
         ).fetchall()
         for neighbour in rows:
             if neighbour["id"] in seen or len(extra) >= MAX_CONTEXT_PER_BUNDLE:
@@ -319,15 +319,15 @@ def add_thread_context(conn: sqlite3.Connection, bundle: Bundle) -> None:
                 bundle.context_ids.add(int(neighbour["id"]))
 
         here = [row for row in bundle.items
-                if row["stream"] == stream and row["thread"] == thread]
+                if row["channel"] == channel and row["thread"] == thread]
         earliest = min(here, key=lambda row: (str(row["ts"]), int(row["id"])))
         if _NEEDS_REFERENT.search(str(earliest["text"] or "")):
             prior = conn.execute(
                 """SELECT * FROM archive
-                     WHERE stream = ? AND thread = ?
+                     WHERE channel = ? AND thread = ?
                        AND (ts < ? OR (ts = ? AND id < ?))
                      ORDER BY ts DESC, id DESC LIMIT 1""",
-                (stream, thread, earliest["ts"], earliest["ts"], earliest["id"]),
+                (channel, thread, earliest["ts"], earliest["ts"], earliest["id"]),
             ).fetchone()
             if prior is not None and prior["id"] not in seen:
                 gap = db.parse_ts(str(earliest["ts"])) - db.parse_ts(str(prior["ts"]))

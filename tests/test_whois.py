@@ -14,11 +14,11 @@ from _support import Base
 from memcal import db, identity, whois
 
 
-def _archive(conn, *, handle, person, stream="whatsapp", thread="t", text="hi"):
+def _archive(conn, *, handle, person, channel="whatsapp", thread="t", text="hi"):
     conn.execute(
-        "INSERT INTO archive(stream, external_id, ts, text, handle, person, thread,"
+        "INSERT INTO archive(channel, external_id, ts, text, handle, person, thread,"
         " from_me, created_at) VALUES(?,?,?,?,?,?,?,0,?)",
-        (stream, f"{stream}-{handle}-{thread}-{text}", db.now(), text, handle, person,
+        (channel, f"{channel}-{handle}-{thread}-{text}", db.now(), text, handle, person,
          thread, db.now()))
     conn.commit()
 
@@ -34,7 +34,7 @@ class TestAMergeIsAnAssumptionNotAJudgement(Base):
         identity.link(self.conn, "+19175550003", "Cameron Ortiz", source="contacts")
         _archive(self.conn, handle="whatsapp:lid:88003", person="Cam Ortiz")
         _archive(self.conn, handle="+19175550003", person="Cameron Ortiz",
-                 stream="imessage")
+                 channel="imessage")
 
     def test_the_merge_takes_effect_immediately(self):
         number = whois.assume(self.conn, "Cameron Ortiz", "Cam Ortiz",
@@ -188,7 +188,7 @@ class TestTheBoardPutInFrontOfTheModel(Base):
         _archive(self.conn, handle="whatsapp:lid:88003", person="Cam Ortiz",
                  thread="Family")
         _archive(self.conn, handle="+19175550003", person="Cameron Ortiz",
-                 stream="imessage", thread="Family")
+                 channel="imessage", thread="Family")
         identity.note_unresolved(self.conn, "whatsapp:lid:99", "whatsapp",
                                  sample="running late")
         self.conn.commit()

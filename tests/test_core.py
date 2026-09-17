@@ -127,7 +127,7 @@ class TestMatching(Base):
         drop, _ = events.upsert(
             self.conn, {"title": "Come over", "date": self.d(1)}, match=False)
         archive_id = archive.append(
-            self.conn, stream="imessage", external_id="quentin-plan", ts=db.now(),
+            self.conn, channel="imessage", external_id="quentin-plan", ts=db.now(),
             text="I think you're coming over Wednesday", gated=True,
         )
         trace.stamp(self.conn, kind="event", ref=drop.key, verb="inserted",
@@ -230,10 +230,10 @@ class TestGate(Base):
 
     def test_texts_are_read_in_full(self):
         # The user does not get that many, and the skipped half is where the replies live.
-        self.assertEqual(gate.gate_message("k", stream="imessage").reason, "all-of:imessage")
-        self.assertTrue(gate.gate_message("i love you", stream="imessage"))
+        self.assertEqual(gate.gate_message("k", channel="imessage").reason, "all-of:imessage")
+        self.assertTrue(gate.gate_message("i love you", channel="imessage"))
         # Email is the other story: volume, and mostly junk.
-        self.assertFalse(gate.gate_message("i love you", stream="email"))
+        self.assertFalse(gate.gate_message("i love you", channel="email"))
 
     def test_email_sender_table_is_a_lookup_after_one_decision(self):
         # The lookup is still one decision and still free. What it now decides is
@@ -584,7 +584,7 @@ class TestWikiGrowth(Base):
 
     def _traffic(self, person: str, count: int) -> None:
         for i in range(count):
-            archive.append(self.conn, stream="imessage", external_id=f"{person}{i}",
+            archive.append(self.conn, channel="imessage", external_id=f"{person}{i}",
                            ts=db.now(), text=f"note {i}", thread="t", person=person, gated=True)
         self.conn.commit()
 
@@ -649,11 +649,11 @@ class TestWikiGrowth(Base):
 
 
 class TestArchiveAndBundling(Base):
-    def _add(self, text, person=None, thread="t", stream="imessage", ext=None):
-        aid = archive.append(self.conn, stream=stream, external_id=ext or text, ts=db.now(),
+    def _add(self, text, person=None, thread="t", channel="imessage", ext=None):
+        aid = archive.append(self.conn, channel=channel, external_id=ext or text, ts=db.now(),
                              text=text, thread=thread, person=person, gated=True)
         if aid:
-            archive.spool_add(self.conn, aid, gate.bundle_entity(person, thread, stream))
+            archive.spool_add(self.conn, aid, gate.bundle_entity(person, thread, channel))
         self.conn.commit()
         return aid
 
@@ -670,8 +670,8 @@ class TestArchiveAndBundling(Base):
         # Case 12: the same person on three platforms about one thing -> one bundle.
         self._add("dinner tuesday?", person="Jordan", thread="sms", ext="a")
         self._add("we still on for tuesday", person="Jordan", thread="gamers",
-                  stream="groupme", ext="b")
-        self._add("tuesday works", person="Jordan", thread="mail", stream="email", ext="c")
+                  channel="groupme", ext="b")
+        self._add("tuesday works", person="Jordan", thread="mail", channel="email", ext="c")
         self._add("unrelated", person="Alex", thread="sms", ext="d")
         bundles = bundle_stage.build(self.conn)
         by_entity = {b.entity: b for b in bundles}
@@ -690,7 +690,7 @@ class TestStaleTraffic(Base):
 
     def _bundle_dated(self, days_ago: int) -> bundle_stage.Bundle:
         ts = (db.today() - timedelta(days=days_ago)).isoformat() + "T12:00:00"
-        aid = archive.append(self.conn, stream="email", external_id=f"old{days_ago}", ts=ts,
+        aid = archive.append(self.conn, channel="email", external_id=f"old{days_ago}", ts=ts,
                              text="poker night this Saturday at the chapter house, 21 Waverly Pl",
                              thread="frat-listserv", person="Listserv", gated=True)
         archive.spool_add(self.conn, aid, "person:Listserv")
@@ -788,7 +788,7 @@ class TestPacking(Base):
     def _bundle(self, entity: str, items: int = 1) -> bundle_stage.Bundle:
         rows = []
         for i in range(items):
-            aid = archive.append(self.conn, stream="imessage", external_id=f"{entity}:{i}",
+            aid = archive.append(self.conn, channel="imessage", external_id=f"{entity}:{i}",
                                  ts=db.now(), text=f"message {i} about dinner tomorrow",
                                  thread=entity, person=entity.split(":")[-1], gated=True)
             rows.append(self.conn.execute("SELECT * FROM archive WHERE id = ?", (aid,)).fetchone())
@@ -900,7 +900,7 @@ class TestPacking(Base):
 
 
 class TestSourcePlugins(Base):
-    """A third party must be able to add a stream without touching memcal."""
+    """A third party must be able to add a channel without touching memcal."""
 
     def _write_plugin(self, filename: str, body: str) -> None:
         # `__TS__` is "an hour ago", filled in as the file is written. A literal
@@ -929,7 +929,7 @@ class TestSourcePlugins(Base):
                 description = "test plugin"
 
                 def fetch(self, conn, cfg, report, limit):
-                    deliver(conn, report, stream=self.name, external_id="d1",
+                    deliver(conn, report, channel=self.name, external_id="d1",
                             ts="__TS__", text="poker friday at 8",
                             thread="demo", person="Jordan")
         ''')
@@ -942,7 +942,7 @@ class TestSourcePlugins(Base):
         self.assertEqual(report.passed, 1)
         rows = archive.search(self.conn, "poker")
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["stream"], "demo")
+        self.assertEqual(rows[0]["channel"], "demo")
 
     def test_a_plugin_that_raises_is_contained(self):
         self._write_plugin("bad_source.py", '''
@@ -973,7 +973,7 @@ class TestSourcePlugins(Base):
 
                 def fetch(self, conn, cfg, report, limit):
                     for i, text in enumerate(["hey", "lol", "dinner tomorrow at 7"]):
-                        deliver(conn, report, stream=self.name, external_id=f"n{i}",
+                        deliver(conn, report, channel=self.name, external_id=f"n{i}",
                                 ts="__TS__", text=text, thread="noise")
         ''')
         report = sources.get("noise", self.cfg).run(self.conn, self.cfg)
@@ -1114,7 +1114,7 @@ class TestICalendar(Base):
                          "ical:subscribed:Arts listings")
         origins = {
             db.jload(row["meta"], {})["calendar_origin"]
-            for row in archive.recent(self.conn, stream="ical")
+            for row in archive.recent(self.conn, channel="ical")
         }
         self.assertEqual(origins, {"created", "subscribed"})
 
@@ -1383,13 +1383,13 @@ class TestBundleJoining(Base):
     """§6.1: splitting by source separates the things that must be joined."""
 
     def test_my_reply_lands_in_the_same_bundle_as_their_message(self):
-        report = sources.IngestReport(stream="email")
+        report = sources.IngestReport(channel="email")
         identity.link(self.conn, "harper@example.com", "Harper")
-        sources.deliver(self.conn, report, stream="email", external_id="in1",
+        sources.deliver(self.conn, report, channel="email", external_id="in1",
                         ts=db.now(), text="dinner thursday?", thread="harper@example.com",
                         handle="harper@example.com", from_me=False,
                         counterpart="harper@example.com")
-        sources.deliver(self.conn, report, stream="email", external_id="out1",
+        sources.deliver(self.conn, report, channel="email", external_id="out1",
                         ts=db.now(), text="yes! thursday at 7 works", thread="harper@example.com",
                         handle=None, from_me=True, counterpart="harper@example.com")
         self.conn.commit()
@@ -1405,7 +1405,7 @@ class TestDiffQuality(Base):
     """
 
     def _bundle(self, entity="person:Quinn"):
-        aid = archive.append(self.conn, stream="imessage", external_id=f"q{entity}",
+        aid = archive.append(self.conn, channel="imessage", external_id=f"q{entity}",
                              ts=db.now(), text="lunging with comet", thread="t",
                              person="Quinn", gated=True)
         row = self.conn.execute("SELECT * FROM archive WHERE id = ?", (aid,)).fetchone()
@@ -2148,9 +2148,9 @@ class TestFreshness(Base):
     the model — the messages were simply not there.
     """
 
-    def _add(self, stream: str, days_ago: int, text: str = "hi") -> None:
+    def _add(self, channel: str, days_ago: int, text: str = "hi") -> None:
         ts = (db.now_dt() - timedelta(days=days_ago)).isoformat()
-        archive.append(self.conn, stream=stream, external_id=f"{stream}:{days_ago}",
+        archive.append(self.conn, channel=channel, external_id=f"{channel}:{days_ago}",
                        ts=ts, text=text)
 
     def test_a_stream_that_stopped_is_reported_stale(self):
@@ -2167,7 +2167,7 @@ class TestFreshness(Base):
 
     def test_snapshot_source_can_report_health_without_a_fake_archive_item(self):
         db.set_meta(self.conn, "source.ical.last_success", db.now())
-        fresh = {row["stream"]: row for row in archive.freshness(self.conn)}
+        fresh = {row["channel"]: row for row in archive.freshness(self.conn)}
         self.assertEqual(fresh["ical"]["n"], 0)
         self.assertEqual(archive.stale_streams(self.conn), [])
 
@@ -2191,7 +2191,7 @@ class TestADeletedSourceStopsReportingItselfStale(Base):
         self.assertNotIn("findmy", brief.render(self.conn, self.cfg))
 
     def test_a_registered_stream_is_still_reported(self):
-        archive.append(self.conn, stream="imessage", external_id="im:21",
+        archive.append(self.conn, channel="imessage", external_id="im:21",
                        ts=(db.now_dt() - timedelta(days=21)).isoformat(),
                        text="hi")
         self.assertIn("imessage", dict(archive.stale_streams(self.conn, cfg=self.cfg)))
@@ -2200,35 +2200,35 @@ class TestADeletedSourceStopsReportingItselfStale(Base):
     def test_freshness_still_remembers_it(self):
         """History is past tense; the stale line is a present-tense claim about health.
 
-        A stream that archived a thousand items and then went away really did do that,
+        A channel that archived a thousand items and then went away really did do that,
         and `doctor` saying so is honest — the same reason its `collection_sources` rows
         stay. What it may not do is assert that something is currently wrong.
         """
         db.set_meta(self.conn, "source.findmy.last_success",
                     (db.now_dt() - timedelta(days=9)).isoformat())
-        self.assertIn("findmy", {row["stream"] for row in archive.freshness(self.conn)})
+        self.assertIn("findmy", {row["channel"] for row in archive.freshness(self.conn)})
 
 
 class TestIngestTruncation(Base):
     """A source that stopped at its page budget must say so, not report success."""
 
     def test_report_summary_announces_more(self):
-        report = sources.base.IngestReport(stream="imessage", read=999, archived=999)
+        report = sources.base.IngestReport(channel="imessage", read=999, archived=999)
         self.assertNotIn("more waiting", report.summary())
         report.more = True
         self.assertIn("more waiting", report.summary())
 
     def test_absorb_carries_more_across_a_wrapping_source(self):
         # `imessage` wraps `bluebubbles`; the truncation flag has to survive the hop.
-        outer = sources.base.IngestReport(stream="imessage")
-        inner = sources.base.IngestReport(stream="bluebubbles", read=5, more=True)
+        outer = sources.base.IngestReport(channel="imessage")
+        inner = sources.base.IngestReport(channel="bluebubbles", read=5, more=True)
         outer.absorb(inner)
         self.assertTrue(outer.more)
         self.assertEqual(outer.read, 5)
 
     def test_absorb_keeps_the_first_error(self):
-        outer = sources.base.IngestReport(stream="imessage", error="boom")
-        outer.absorb(sources.base.IngestReport(stream="bluebubbles", error="later"))
+        outer = sources.base.IngestReport(channel="imessage", error="boom")
+        outer.absorb(sources.base.IngestReport(channel="bluebubbles", error="later"))
         self.assertEqual(outer.error, "boom")
 
 
@@ -2319,7 +2319,7 @@ class TestCatchUp(Base):
 
         def run(self, conn, cfg, *, limit=1000):
             self.calls += 1
-            report = sources.IngestReport(stream=self.name)
+            report = sources.IngestReport(channel=self.name)
             if self.left > 0:
                 self.left -= 1
                 report.read = report.archived = 10
@@ -2360,7 +2360,7 @@ class TestCatchUp(Base):
 
             def run(self, conn, cfg, *, limit=1000):
                 self.calls += 1
-                return sources.IngestReport(stream="broken", error="server down", more=True)
+                return sources.IngestReport(channel="broken", error="server down", more=True)
 
         broken = Broken()
         sources.catch_up(broken, self.conn, self.cfg, limit=10)
@@ -2388,8 +2388,8 @@ class TestSpoolHorizon(Base):
 
     def _spool(self, days_ago: int, text: str = "poker saturday at 8?") -> int:
         ts = (db.today() - timedelta(days=days_ago)).isoformat() + "T12:00:00"
-        report = sources.IngestReport(stream="email")
-        return sources.deliver(self.conn, report, stream="email",
+        report = sources.IngestReport(channel="email")
+        return sources.deliver(self.conn, report, channel="email",
                                external_id=f"e{days_ago}", ts=ts, text=text,
                                thread="t", handle="a@b.com")
 
@@ -2663,7 +2663,7 @@ class TestAmbiguityIsAboutFirstNames(Base):
 
     def test_the_user_is_never_listed_as_another_person(self):
         # Streams stamp the user's own messages `person = "me"`.
-        archive.append(self.conn, stream="groupme", external_id="g1",
+        archive.append(self.conn, channel="groupme", external_id="g1",
                        ts=db.now(), text="poker friday?", person="me", from_me=1)
         listed, _ambiguous = propose_stage.known_people(self.conn, self.cfg)
         self.assertNotIn("me", listed)
@@ -2676,7 +2676,7 @@ class TestARowPointsAtTheLinesItCameFrom(Base):
     def _bundle(self, texts):
         rows = []
         for i, text in enumerate(texts):
-            aid = archive.append(self.conn, stream="imessage", external_id=f"cite:{i}",
+            aid = archive.append(self.conn, channel="imessage", external_id=f"cite:{i}",
                                  ts=db.now(), text=text, thread="+15550001111",
                                  person="Quinn Brooks", gated=True)
             rows.append(self.conn.execute(
@@ -2759,7 +2759,7 @@ class TestARowPointsAtTheLinesItCameFrom(Base):
         """
         rows = []
         for i, day in enumerate((60, 30, 1)):        # a bundle spanning two months
-            aid = archive.append(self.conn, stream="imessage", external_id=f"h:{i}",
+            aid = archive.append(self.conn, channel="imessage", external_id=f"h:{i}",
                                  ts=f"{self.d(-day)}T12:00:00-04:00", text=f"line {i}",
                                  thread="+15550002222", person="Quinn Brooks", gated=True)
             rows.append(self.conn.execute(
@@ -2815,7 +2815,7 @@ class TestAnAgentCanReachTheMessageBehindARow(Base):
 
     def test_the_tool_returns_the_untruncated_message(self):
         long_body = "Doors open at 6pm. " + ("filler " * 200) + "The film is Off the Rails."
-        aid = archive.append(self.conn, stream="email", external_id="src:1", ts=db.now(),
+        aid = archive.append(self.conn, channel="email", external_id="src:1", ts=db.now(),
                              text=long_body, thread="hannah@example.org",
                              handle="hannah@example.org", gated=True)
         self.conn.commit()
@@ -2933,7 +2933,7 @@ class TestOpenQuestionsFraming(Base):
         trace.stamp(self.conn, kind="question", ref=key, verb="asked",
                     entity="person:Quinn Brooks", stage="propose")
         archive_id = archive.append(
-            self.conn, stream="imessage", external_id="beer-garden-reply",
+            self.conn, channel="imessage", external_id="beer-garden-reply",
             ts=db.now(), text="Maybe the beer garden after I get back",
             thread="quinn", person="Quinn Brooks", gated=True)
         row = self.conn.execute("SELECT * FROM archive WHERE id = ?", (archive_id,)).fetchone()
@@ -2950,7 +2950,7 @@ class TestQuestionCoverageRepair(Base):
 
     def _bundle(self):
         archive_id = archive.append(
-            self.conn, stream="imessage", external_id="coverage-line", ts=db.now(),
+            self.conn, channel="imessage", external_id="coverage-line", ts=db.now(),
             text="I am away through August", thread="quinn", person="Quinn Brooks",
             gated=True)
         row = self.conn.execute("SELECT * FROM archive WHERE id = ?", (archive_id,)).fetchone()
@@ -3050,10 +3050,10 @@ class TestQuestionActionsMeetInMerge(Base):
     def test_conflicting_actions_are_decided_from_evidence(self):
         from memcal import llm
         first_id = archive.append(
-            self.conn, stream="imessage", external_id="beach-delay", ts=db.now(),
+            self.conn, channel="imessage", external_id="beach-delay", ts=db.now(),
             text="I cannot go during August", person="Quinn", gated=True)
         second_id = archive.append(
-            self.conn, stream="imessage", external_id="beach-date", ts=db.now(),
+            self.conn, channel="imessage", external_id="beach-date", ts=db.now(),
             text="September 7 works", person="Quinn", gated=True)
         proposals = [self._proposal("person:Quinn", "amend", evidence_id=first_id),
                      self._proposal("thread:imessage:beach", "resolve",
@@ -3079,10 +3079,10 @@ class TestQuestionActionsMeetInMerge(Base):
     def test_an_unresolved_conflict_defers_every_involved_bundle(self):
         from memcal import llm
         first_id = archive.append(
-            self.conn, stream="imessage", external_id="beach-a", ts=db.now(),
+            self.conn, channel="imessage", external_id="beach-a", ts=db.now(),
             text="Maybe later", person="Quinn", gated=True)
         second_id = archive.append(
-            self.conn, stream="groupme", external_id="beach-b", ts=db.now(),
+            self.conn, channel="groupme", external_id="beach-b", ts=db.now(),
             text="No idea", person="Quinn", gated=True)
         proposals = [self._proposal("person:Quinn", "amend", evidence_id=first_id),
                      self._proposal("thread:groupme:beach", "drop", evidence_id=second_id)]
@@ -3163,7 +3163,7 @@ class TestWikiPagesEarnTheirPlace(Base):
         # This is what produced a page for a Pokémon Center SMS shortcode.
         identity.link(self.conn, "26349", "Pokémon Center")
         for i in range(12):
-            archive.append(self.conn, stream="imessage", external_id=f"p{i}",
+            archive.append(self.conn, channel="imessage", external_id=f"p{i}",
                            ts=db.now(), text="your order ships tomorrow",
                            person="Pokémon Center", gated=1)
         self.assertEqual(wiki.autocreate(self.conn, self.cfg.wiki_dir), [])
@@ -3313,22 +3313,22 @@ class TestPromptUnderWriting(Base):
 
     def test_the_agent_stream_is_never_skipped(self):
         # "this is actually Casey messaging the agent (Hermes), not a memcal entry —
-        # I should skip it entirely." That stream is the live path's whole point.
+        # I should skip it entirely." That channel is the live path's whole point.
         self.assertIn("agent STREAM IS THEM INSTRUCTING A MACHINE", self.prefix)
         self.assertIn("Never skip an agent line", self.prefix)
 
     def test_the_prompt_separates_what_he_states_from_what_he_delegates(self):
-        # #57. The old wording called the agent stream "the one place a fact arrives
+        # #57. The old wording called the agent channel "the one place a fact arrives
         # already confirmed", which is true of what the user states there and false of what
         # the user tells it to do — and four of six open to-dos were work the user had handed off.
         self.assertIn("work handed off, not work the user owes", self.prefix)
         self.assertIn("only when the doer is them", self.prefix)
 
     def test_an_agent_line_reaches_the_model_labelled(self):
-        # The stream is on every line and the prompt leans on it to recognise this one.
+        # The channel is on every line and the prompt leans on it to recognise this one.
         # The thread is not: in a single-conversation bundle it is the same string on
         # every line, and it used to be a phone number repeated forty-five times.
-        archive.append(self.conn, stream="agent", external_id="a1", ts=db.now(),
+        archive.append(self.conn, channel="agent", external_id="a1", ts=db.now(),
                        text="Quinn is the DM for Frozen Far", thread="conversation",
                        person="me", from_me=1, gated=1)
         row = self.conn.execute("SELECT * FROM archive WHERE external_id='a1'").fetchone()
@@ -3342,7 +3342,7 @@ class TestPromptUnderWriting(Base):
         # the window's own edge reads as a three-week silence.
         rows = []
         for i in range(3):
-            archive.append(self.conn, stream="imessage", external_id=f"w{i}",
+            archive.append(self.conn, channel="imessage", external_id=f"w{i}",
                            ts=(db.now_dt() - timedelta(hours=i)).isoformat(
                                timespec="seconds"),
                            text=f"line {i}", thread="+15551110000", person="Rowan Vale",
@@ -3358,7 +3358,7 @@ class TestPromptUnderWriting(Base):
     def test_a_real_silence_is_marked_and_an_overnight_gap_is_not(self):
         def line(days_ago, text):
             key = f"s{days_ago}"
-            archive.append(self.conn, stream="imessage", external_id=key,
+            archive.append(self.conn, channel="imessage", external_id=key,
                            ts=(db.now_dt() - timedelta(days=days_ago)).isoformat(
                                timespec="seconds"),
                            text=text, thread="+15551110000", person="Katie", gated=1)
@@ -3422,7 +3422,7 @@ class TestWhatsApp(Base):
         path = self._store([(1, "dinner tomorrow?", self._seconds(), 0,
                              self.GROUP_JID, 0, 1, 1)])
         whatsapp.ingest(self.conn, self.cfg, db_path=path)
-        row = self.conn.execute("SELECT * FROM archive WHERE stream='whatsapp'").fetchone()
+        row = self.conn.execute("SELECT * FROM archive WHERE channel='whatsapp'").fetchone()
         self.assertEqual(row["person"], "Mum")
         self.assertEqual(row["thread"], "Family")
 
@@ -3457,7 +3457,7 @@ class TestWhatsApp(Base):
         replay = whatsapp.ingest(self.conn, self.cfg, db_path=second_path)
 
         rows = self.conn.execute(
-            "SELECT external_id, text FROM archive WHERE stream = 'whatsapp' ORDER BY id"
+            "SELECT external_id, text FROM archive WHERE channel = 'whatsapp' ORDER BY id"
         ).fetchall()
         self.assertEqual([row["text"] for row in rows],
                          ["old account message", "new account message"])
@@ -3479,7 +3479,7 @@ class TestWhatsApp(Base):
         report = whatsapp.ingest(self.conn, self.cfg, db_path=second_path)
 
         rows = self.conn.execute(
-            "SELECT text FROM archive WHERE stream = 'whatsapp' ORDER BY id"
+            "SELECT text FROM archive WHERE channel = 'whatsapp' ORDER BY id"
         ).fetchall()
         self.assertEqual([row["text"] for row in rows],
                          ["old account message", "new account message"])
@@ -3514,8 +3514,8 @@ class TestWhatsApp(Base):
 class TestCrossPlatformIdentity(Base):
     """Spec §10 case 12: one person on three platforms, about one thing, is one row.
 
-    This is the claim §6.1 makes for bundling by entity rather than by stream. Adding
-    a stream is the moment it can quietly stop being true — a new source that invents
+    This is the claim §6.1 makes for bundling by entity rather than by channel. Adding
+    a channel is the moment it can quietly stop being true — a new source that invents
     its own handle format splits a person in half and nothing complains.
     """
 
@@ -3524,9 +3524,9 @@ class TestCrossPlatformIdentity(Base):
         for handle in ("+17575550115", "groupme:4471"):
             identity.link(self.conn, handle, "Quinn Brooks")
 
-    def _deliver(self, stream, handle, text, **kw):
-        report = sources.IngestReport.opened(stream, self.cfg)
-        sources.deliver(self.conn, report, stream=stream, external_id=f"{stream}-1",
+    def _deliver(self, channel, handle, text, **kw):
+        report = sources.IngestReport.opened(channel, self.cfg)
+        sources.deliver(self.conn, report, channel=channel, external_id=f"{channel}-1",
                         ts=db.now(), text=text, thread=kw.pop("thread", "t"),
                         handle=handle, counterpart=handle, **kw)
 
@@ -3559,7 +3559,7 @@ class TestContactsRefresh(Base):
     """Spec §5.2: "Refresh daily." It was imported once at init and never again.
 
     Everyone added to the address book afterwards stayed an opaque handle forever, on
-    every stream at once — a number nobody has named cannot resolve anywhere.
+    every channel at once — a number nobody has named cannot resolve anywhere.
     """
 
     def setUp(self):
@@ -3708,7 +3708,7 @@ class TestThreadIdentity(Base):
 
     def _msg(self, ext, text, *, person=None, from_me=False, thread=None, is_group=False):
         report = sources.IngestReport.opened("imessage", self.cfg)
-        sources.deliver(self.conn, report, stream="imessage", external_id=ext,
+        sources.deliver(self.conn, report, channel="imessage", external_id=ext,
                         ts=db.now(), text=text, thread=thread or self.GUID,
                         handle=None if from_me else "+16095550112", person=person,
                         from_me=from_me, is_group=is_group,
@@ -3733,7 +3733,7 @@ class TestThreadIdentity(Base):
         identity.link(self.conn, "+17575550115", "Quinn Brooks")
         self._msg("m1", "lunch at 2:30 tomorrow?", person="Avery Morgan")
         report = sources.IngestReport.opened("imessage", self.cfg)
-        sources.deliver(self.conn, report, stream="imessage", external_id="m2",
+        sources.deliver(self.conn, report, channel="imessage", external_id="m2",
                         ts=db.now(), text="I'm free tomorrow too", thread=self.GUID,
                         handle="+17575550115", person="Quinn Brooks")
         self._msg("m3", "cool, meet at 2:30 then", from_me=True)
@@ -3750,7 +3750,7 @@ class TestThreadIdentity(Base):
         for ext, handle, person in (("g1", "+16095550112", "Avery Morgan"),
                                     ("g2", "+17575550115", "Quinn Brooks")):
             report = sources.IngestReport.opened("imessage", self.cfg)
-            sources.deliver(self.conn, report, stream="imessage", external_id=ext,
+            sources.deliver(self.conn, report, channel="imessage", external_id=ext,
                             ts=db.now(), text="see you at 8 tomorrow", thread="Crystal Harbor",
                             handle=handle, person=person, is_group=True)
         self.assertIsNone(sources.base.thread_person(self.conn, "imessage", "Crystal Harbor"))
@@ -3777,8 +3777,8 @@ class TestEntityIsAPerson(Base):
     """
 
     def _entity_for(self, **kw):
-        report = sources.IngestReport.opened(kw.pop("stream", "imessage"), self.cfg)
-        sources.deliver(self.conn, report, stream=kw.pop("_stream", "imessage"),
+        report = sources.IngestReport.opened(kw.pop("channel", "imessage"), self.cfg)
+        sources.deliver(self.conn, report, channel=kw.pop("_stream", "imessage"),
                         external_id="x1", ts=db.now(), text="poker friday at 8", **kw)
         row = self.conn.execute("SELECT entity FROM spool").fetchone()
         return row["entity"] if row else None
@@ -3807,7 +3807,7 @@ class TestEntityIsAPerson(Base):
         self.assertTrue(entity.startswith("thread:"), entity)
         identity.link(self.conn, "+15550001111", "Terry North")
         report = sources.IngestReport.opened("imessage", self.cfg)
-        sources.deliver(self.conn, report, stream="imessage", external_id="x2",
+        sources.deliver(self.conn, report, channel="imessage", external_id="x2",
                         ts=db.now(), text="see you tomorrow at 6", thread="+15550001111",
                         handle="+15550001111", counterpart="+15550001111")
         entities = {r["entity"] for r in self.conn.execute("SELECT entity FROM spool")}
@@ -4137,22 +4137,22 @@ class TestGroupsStayGroups(Base):
         # Four call sites used to decide this independently; two kept the person.
         self.assertEqual(
             gate.entity_for(person="parker shaw", thread="Alumni Chat",
-                            stream="groupme", is_group=True),
+                            channel="groupme", is_group=True),
             "thread:groupme:Alumni Chat")
         self.assertEqual(
             gate.entity_for(person="parker shaw", thread="Parker Shaw",
-                            stream="groupme", is_group=False),
+                            channel="groupme", is_group=False),
             "person:parker shaw")
 
     def test_an_unnamed_dm_keys_on_its_thread(self):
         self.assertEqual(
-            gate.entity_for(person=None, thread="+15551234567", stream="imessage",
+            gate.entity_for(person=None, thread="+15551234567", channel="imessage",
                             is_group=False),
             "thread:imessage:+15551234567")
 
     def test_pending_group_lines_get_re_filed(self):
         aid = archive.append(
-            self.conn, stream="groupme", external_id="g1", ts=db.now(),
+            self.conn, channel="groupme", external_id="g1", ts=db.now(),
             text="yo ravers, midnight tyrannosaurus next saturday", thread="Alumni Chat",
             handle="groupme:1", person="parker shaw", from_me=False,
             meta={"group": True}, gated=True, gate_reason="temporal")
@@ -4168,7 +4168,7 @@ class TestGroupsStayGroups(Base):
 
     def test_a_processed_row_is_left_where_it_is(self):
         aid = archive.append(
-            self.conn, stream="groupme", external_id="g2", ts=db.now(), text="old news",
+            self.conn, channel="groupme", external_id="g2", ts=db.now(), text="old news",
             thread="Alumni Chat", handle="groupme:1", person="parker shaw",
             from_me=False, meta={"group": True}, gated=True, gate_reason="temporal")
         archive.spool_add(self.conn, aid, "person:parker shaw")
@@ -4187,7 +4187,7 @@ class TestUnresolvedIsForPeople(Base):
         identity.set_sender(self.conn, "kohls@s.kohls.com", "archive", "bulk-headers")
         report = sources.base.IngestReport.opened("email")
         sources.base.deliver(
-            self.conn, report, stream="email", external_id="k1", ts=db.now(),
+            self.conn, report, channel="email", external_id="k1", ts=db.now(),
             text="It's HERE save an extra 15%", handle="kohls@s.kohls.com",
             verdict=gate.Verdict(False, "test"))
         self.assertEqual(identity.unresolved(self.conn), [])
@@ -4196,7 +4196,7 @@ class TestUnresolvedIsForPeople(Base):
     def test_an_obvious_machine_never_joins_it_even_unseen(self):
         report = sources.base.IngestReport.opened("email")
         sources.base.deliver(
-            self.conn, report, stream="email", external_id="n1", ts=db.now(),
+            self.conn, report, channel="email", external_id="n1", ts=db.now(),
             text="your statement is ready", handle="no.reply.alerts@chase.com",
             verdict=gate.Verdict(False, "test"))
         self.assertEqual(identity.unresolved(self.conn), [])
@@ -4210,7 +4210,7 @@ class TestUnresolvedIsForPeople(Base):
     def test_a_person_still_joins_it(self):
         report = sources.base.IngestReport.opened("imessage")
         sources.base.deliver(
-            self.conn, report, stream="imessage", external_id="p1", ts=db.now(),
+            self.conn, report, channel="imessage", external_id="p1", ts=db.now(),
             text="hey its alex from the climbing gym", handle="+15559876543",
             verdict=gate.Verdict(True, "test"))
         self.assertEqual([r["handle"] for r in identity.unresolved(self.conn)],
@@ -4235,10 +4235,10 @@ class TestUnresolvedIsForPeople(Base):
 class TestConversationsHaveNames(Base):
     """A bundle called `thread:imessage:9858b62c161544bca4342589e0344bbe`."""
 
-    def line(self, thread, text, *, person=None, mine=False, stream="imessage",
+    def line(self, thread, text, *, person=None, mine=False, channel="imessage",
              label=None, offset=0, external=None):
         aid = archive.append(
-            self.conn, stream=stream, external_id=external or f"x{id(text)}{offset}{person}",
+            self.conn, channel=channel, external_id=external or f"x{id(text)}{offset}{person}",
             ts=(db.now_dt() - timedelta(hours=offset)).isoformat(
                 timespec="seconds"),
             text=text, thread=thread,
@@ -4246,9 +4246,9 @@ class TestConversationsHaveNames(Base):
                                       if person else None),
             person="me" if mine else person, from_me=mine,
             meta={"group": True}, gated=True, gate_reason="all-of:imessage")
-        threads.record(self.conn, stream, thread, label=label, is_group=True)
+        threads.record(self.conn, channel, thread, label=label, is_group=True)
         if aid:
-            archive.spool_add(self.conn, aid, f"thread:{stream}:{thread}")
+            archive.spool_add(self.conn, aid, f"thread:{channel}:{thread}")
         self.conn.commit()
         return aid
 
@@ -4306,7 +4306,7 @@ class TestConversationMembership(Base):
         # A later message supplies names for the already-stored stable ids.
         threads.record_members(self.conn, "groupme", "Ravers", members)
         row = self.conn.execute(
-            "SELECT participants FROM threads WHERE stream='groupme' AND thread='Ravers'"
+            "SELECT participants FROM threads WHERE channel='groupme' AND thread='Ravers'"
         ).fetchone()
         self.assertEqual(db.jload(row["participants"], []),
                          ["groupme:123", "groupme:456"])
@@ -4337,11 +4337,11 @@ class TestConversationMembership(Base):
             self.conn, "imessage", "Old Group",
             participants=["+15551234567"], is_group=True)
         archive.append(
-            self.conn, stream="groupme", external_id="old-roster-1", ts=self.d(-10),
+            self.conn, channel="groupme", external_id="old-roster-1", ts=self.d(-10),
             text="solstice soon", thread="Old Ravers", handle="groupme:987",
             meta={"seen_name": "DJ Turnip"}, gated=True)
         archive.append(
-            self.conn, stream="groupme", external_id="old-roster-2", ts=self.d(-2),
+            self.conn, channel="groupme", external_id="old-roster-2", ts=self.d(-2),
             text="got my ticket", thread="Old Ravers", handle="groupme:987",
             meta={"seen_name": "Alex"}, gated=True)
         count = threads.refresh_members(self.conn)
@@ -4362,7 +4362,7 @@ class TestOneConversationOneBundle(Base):
 
     def line(self, thread, text, person, *, offset=0, label=None):
         aid = archive.append(
-            self.conn, stream="imessage", external_id=f"{thread}:{text}",
+            self.conn, channel="imessage", external_id=f"{thread}:{text}",
             ts=(db.now_dt() - timedelta(hours=offset)).isoformat(
                 timespec="seconds"),
             text=text, thread=thread, handle=f"+1555{abs(hash(person)) % 1000000:06d}",
@@ -4415,13 +4415,13 @@ class TestAChatCanBeMuted(Base):
         for i in range(threads.REVIEW_MIN_ITEMS + 2):
             who = speakers[i % len(speakers)]
             archive.append(
-                self.conn, stream="groupme", external_id=f"{thread}:{i}", ts=db.now(),
+                self.conn, channel="groupme", external_id=f"{thread}:{i}", ts=db.now(),
                 text=f"chatter {i}", thread=thread, handle=f"groupme:{who}",
                 person=who, from_me=False, meta={"group": True},
                 gated=True, gate_reason="temporal")
         for i in range(mine):
             archive.append(
-                self.conn, stream="groupme", external_id=f"{thread}:mine{i}", ts=db.now(),
+                self.conn, channel="groupme", external_id=f"{thread}:mine{i}", ts=db.now(),
                 text="i'm in", thread=thread, person="me", from_me=True,
                 meta={"group": True}, gated=True, gate_reason="own-commitment")
         threads.record(self.conn, "groupme", thread, label=thread, is_group=True)
@@ -4441,10 +4441,10 @@ class TestAChatCanBeMuted(Base):
     def test_a_chat_full_of_people_he_knows_elsewhere_is_never_raised(self):
         # The mutual-friend graph: the user says nothing in the ravers chat, but the people in
         # it are people the user talks to. That is their world.
-        archive.append(self.conn, stream="imessage", external_id="dm1", ts=db.now(),
+        archive.append(self.conn, channel="imessage", external_id="dm1", ts=db.now(),
                        text="you around?", thread="+15551110000", handle="groupme:Logan",
                        person="Logan", from_me=False, gated=True, gate_reason="question")
-        archive.append(self.conn, stream="imessage", external_id="dm2", ts=db.now(),
+        archive.append(self.conn, channel="imessage", external_id="dm2", ts=db.now(),
                        text="yeah", thread="+15551110000", person="me", from_me=True,
                        gated=True, gate_reason="all-of:imessage")
         self.busy_chat("Alumni Chat", speakers=("Logan",))
@@ -4478,7 +4478,7 @@ class TestNoConversationIsStarved(Base):
     def loud(self, person, n, *, start=0):
         for i in range(n):
             aid = archive.append(
-                self.conn, stream="imessage", external_id=f"{person}:{i}",
+                self.conn, channel="imessage", external_id=f"{person}:{i}",
                 ts=(db.now_dt() - timedelta(minutes=start + i)).isoformat(
                     timespec="seconds"),
                 text=f"{person} line {i}", thread=f"+1555{abs(hash(person)) % 1000000:06d}",
@@ -4532,11 +4532,11 @@ class TestAnAmendmentFindsWhatItAmends(Base):
 
     def settled_it(self, entity, text, *, person="Quinn Brooks", days_ago=2):
         """A line a past pass was reading when it wrote the row, and the link to it."""
-        stream, thread = "imessage", "+15559990000"
+        channel, thread = "imessage", "+15559990000"
         if entity.startswith("thread:"):
-            _kind, stream, thread = entity.split(":", 2)
+            _kind, channel, thread = entity.split(":", 2)
         archive.append(
-            self.conn, stream=stream, external_id=f"old:{entity}:{text[:20]}",
+            self.conn, channel=channel, external_id=f"old:{entity}:{text[:20]}",
             ts=(db.now_dt() - timedelta(days=days_ago)).isoformat(
                 timespec="seconds"),
             text=text, thread=thread, handle="+15559990000", person=person,
@@ -4546,7 +4546,7 @@ class TestAnAmendmentFindsWhatItAmends(Base):
         self.conn.commit()
 
     def amendment(self, entity, text, person="Quinn Brooks", *, gate_reason="temporal"):
-        archive.append(self.conn, stream="imessage", external_id=f"new:{text[:20]}",
+        archive.append(self.conn, channel="imessage", external_id=f"new:{text[:20]}",
                        ts=db.now(), text=text, thread="+15559990000",
                        handle="+15559990000", person=person, from_me=False,
                        gated=True, gate_reason=gate_reason)
@@ -4782,7 +4782,7 @@ class TestAnAmendmentFindsWhatItAmends(Base):
                 "hello people going to Solstice",
                 "did everyone get their Solstice wristbands")):
             archive.append(
-                self.conn, stream="groupme", external_id=f"old-solstice-{i}",
+                self.conn, channel="groupme", external_id=f"old-solstice-{i}",
                 ts=self.d(-i - 2), text=text, thread="Phi Sig Ravers",
                 handle=f"groupme:{100 + i}", gated=True)
         # Neither today's words nor old archive words are provenance or a people edge.
@@ -4833,20 +4833,20 @@ class TestAPlatformMuteIsEvidenceNotADecision(Base):
         speakers = ("Logan",) if mutuals else ("Stranger",)
         if mutuals:
             # A conversation the user speaks in, so Logan becomes a mutual.
-            archive.append(self.conn, stream="imessage", external_id=f"dm{thread}",
+            archive.append(self.conn, channel="imessage", external_id=f"dm{thread}",
                            ts=db.now(), text="you around?", thread=f"dm{thread}",
                            handle="groupme:Logan", person="Logan", from_me=False, gated=True)
-            archive.append(self.conn, stream="imessage", external_id=f"dmme{thread}",
+            archive.append(self.conn, channel="imessage", external_id=f"dmme{thread}",
                            ts=db.now(), text="yeah", thread=f"dm{thread}", person="me",
                            from_me=True, gated=True)
         for i in range(threads.REVIEW_MIN_ITEMS + 2):
-            archive.append(self.conn, stream="groupme", external_id=f"{thread}:{i}",
+            archive.append(self.conn, channel="groupme", external_id=f"{thread}:{i}",
                            ts=db.now(), text=f"chatter {i}", thread=thread,
                            handle=f"groupme:{speakers[0]}", person=speakers[0],
                            from_me=False, meta={"group": True}, gated=True,
                            gate_reason="temporal")
         for i in range(mine):
-            archive.append(self.conn, stream="groupme", external_id=f"{thread}:m{i}",
+            archive.append(self.conn, channel="groupme", external_id=f"{thread}:m{i}",
                            ts=db.now(), text="i'm in", thread=thread, person="me",
                            from_me=True, meta={"group": True}, gated=True)
         threads.record(self.conn, "groupme", thread, label=thread, is_group=True,
@@ -5180,9 +5180,9 @@ class TestTheWireFormatIsAKnob(Base):
     message.
     """
 
-    def _bundle(self, stream="imessage", n=3):
+    def _bundle(self, channel="imessage", n=3):
         for index in range(n):
-            archive.append(self.conn, stream=stream, external_id=f"x{index}",
+            archive.append(self.conn, channel=channel, external_id=f"x{index}",
                            ts=f"2026-08-03T1{index}:00:00", text=f"line {index}",
                            thread="t1", person="Jordan", from_me=False)
         rows = self.conn.execute("SELECT * FROM archive ORDER BY ts").fetchall()
@@ -5199,7 +5199,7 @@ class TestTheWireFormatIsAKnob(Base):
         quiet = b.render("v2-quiet-stream")
         self.assertNotIn("(imessage)", quiet)
         self.assertIn("Jordan: line 0", quiet)
-        # The shape line still says what stream it was, so nothing is actually lost.
+        # The shape line still says what channel it was, so nothing is actually lost.
         self.assertIn("on imessage", quiet)
 
     def test_it_is_shorter_which_is_the_entire_point(self):
@@ -5218,13 +5218,13 @@ class TestTheWireFormatIsAKnob(Base):
     def test_the_agent_tag_survives_because_the_prompt_leans_on_it(self):
         # "Lines whose source is `agent` are the user talking to their assistant" — that
         # tag is the only thing marking the most reliable source in the system.
-        b = self._bundle(stream="agent")
+        b = self._bundle(channel="agent")
         self.assertIn("(agent)", b.render("v2-quiet-stream"))
 
     def test_a_multi_conversation_bundle_keeps_its_tags(self):
-        archive.append(self.conn, stream="imessage", external_id="a", ts="2026-08-03T10:00:00",
+        archive.append(self.conn, channel="imessage", external_id="a", ts="2026-08-03T10:00:00",
                        text="hi", thread="t1", person="Jordan", from_me=False)
-        archive.append(self.conn, stream="groupme", external_id="b", ts="2026-08-03T11:00:00",
+        archive.append(self.conn, channel="groupme", external_id="b", ts="2026-08-03T11:00:00",
                        text="yo", thread="t2", person="Jordan", from_me=False)
         rows = self.conn.execute("SELECT * FROM archive ORDER BY ts").fetchall()
         b = bundle_stage.Bundle(entity="person:Jordan", items=list(rows), title="Jordan",
@@ -5245,7 +5245,7 @@ class TestARowCannotPredateItsOwnTraffic(Base):
 
     def _bundle(self, *stamps):
         for index, ts in enumerate(stamps):
-            archive.append(self.conn, stream="imessage", external_id=f"h{index}",
+            archive.append(self.conn, channel="imessage", external_id=f"h{index}",
                            ts=ts, text="poker friday", thread="t", person="Jordan")
         rows = self.conn.execute("SELECT * FROM archive ORDER BY ts").fetchall()
         return bundle_stage.Bundle(entity="person:Jordan", items=list(rows))
@@ -5426,7 +5426,7 @@ class TestPrecedenceGuardsAgainstStaleness(Base):
         self.assertEqual(events.get(self.conn, self.event.key).written_by, "live")
 
     def test_the_bundle_supplies_the_evidence_stamp(self):
-        archive.append(self.conn, stream="imessage", external_id="x1",
+        archive.append(self.conn, channel="imessage", external_id="x1",
                        ts=db.today().isoformat() + "T17:35:00",
                        text="movie's off", thread="t", person="Riley")
         rows = list(self.conn.execute("SELECT * FROM archive"))
@@ -5515,7 +5515,7 @@ class TestSlotsRememberWhatTheyUsedToSay(Base):
 class TestABundleHasOneNameInTheRequest(Base):
 
     def _bundle(self, entity="thread:agent:conversation"):
-        archive.append(self.conn, stream="agent", external_id="a1",
+        archive.append(self.conn, channel="agent", external_id="a1",
                        ts=db.today().isoformat() + "T08:05:00",
                        text="remind me to give rowan their ezpass back", thread="conversation",
                        from_me=True, person="me")
@@ -5859,7 +5859,7 @@ class TestARowWithNobodyOnItSaysWhereItCameFrom(Base):
         # person rather than the room.
         for handle, person, text in (("groupme:1", "Tom Klemm", "we on for the 15th?"),
                                      ("groupme:2", "Joe", "yep that's the plan")):
-            archive.append(self.conn, stream="groupme", external_id=f"g-{handle}",
+            archive.append(self.conn, channel="groupme", external_id=f"g-{handle}",
                            ts=db.now(), text=text,
                            thread="Lootbox Addicts Support Group", person=person,
                            handle=handle, meta={"group": True}, gated=True)
@@ -5907,7 +5907,7 @@ class TestAQuestionThatNamesADayIsARow(Base):
     def _bundle(self, texts):
         rows = []
         for text in texts:
-            aid = archive.append(self.conn, stream="whatsapp",
+            aid = archive.append(self.conn, channel="whatsapp",
                                  external_id=f"dp-{text[:12]}-{len(rows)}", ts=db.now(),
                                  text=text, thread="Doggo Park 142", person="A Neighbour",
                                  handle="wa:1", gated=True)
@@ -5967,7 +5967,7 @@ class TestAQuestionAboutSomethingNobodyMentioned(Base):
     def _bundle(self, texts, entity="person:Morgan"):
         rows = []
         for index, text in enumerate(texts):
-            aid = archive.append(self.conn, stream="imessage",
+            aid = archive.append(self.conn, channel="imessage",
                                  external_id=f"t-{entity}-{index}", ts=db.now(), text=text,
                                  thread="+15550001111", person="Morgan", gated=True)
             rows.append(self.conn.execute(
@@ -6637,7 +6637,7 @@ class TestAnOccurrenceOffItsSlotSaysWhichSlotItReplaces(Base):
     def _applied(self, **row):
         """One event diff through the real apply path, and the row it wrote."""
         aid = archive.append(
-            self.conn, stream="imessage", external_id=f"ctx-{row['date']}",
+            self.conn, channel="imessage", external_id=f"ctx-{row['date']}",
             ts=f"{db.today().isoformat()}T09:00:00-04:00",
             text="moving tutoring this week", thread="+19175550013",
             person="Quinn Brooks", from_me=False, gated=True, gate_reason="temporal")
@@ -6684,7 +6684,7 @@ class TestTheAnswerToAGatedLineArrivesWithIt(Base):
 
     def _line(self, ext, text, *, hour, minute, gated):
         aid = archive.append(
-            self.conn, stream="imessage", external_id=ext,
+            self.conn, channel="imessage", external_id=ext,
             ts=f"{db.today().isoformat()}T{hour:02d}:{minute:02d}:00-04:00",
             text=text, thread="+19175550013", person="Quinn Brooks", from_me=False,
             gated=gated, gate_reason="temporal" if gated else None)
@@ -6758,7 +6758,7 @@ class TestACrashedPassLooksExactlyLikeOneStillRunning(Base):
 
     def _spooled(self):
         aid = archive.append(
-            self.conn, stream="imessage", external_id="crash-1", ts=db.now(),
+            self.conn, channel="imessage", external_id="crash-1", ts=db.now(),
             text="poker friday at 8", thread="+19175550001", person="Jordan Lee",
             from_me=False, gated=True, gate_reason="temporal")
         archive.spool_add(self.conn, aid, "person:Jordan Lee")
@@ -6985,7 +6985,7 @@ class TestOneUnreadableCalendarMadeEveryOtherEventLookDeleted(Base):
         or the next caller re-opens the hole by not knowing to check."""
         self._scan([self._item("HOME-1", "Standing thing", self.d(3))])
         self._age()
-        report = base.IngestReport(stream="ical")
+        report = base.IngestReport(channel="ical")
 
         ical.reconcile_deleted(self.conn, seen=set(), seen_uids=set(),
                                scan_start=self.d(-120), scan_end=self.d(365),
@@ -7007,7 +7007,7 @@ class TestOneUnreadableCalendarMadeEveryOtherEventLookDeleted(Base):
         self._scan([here, self._item("WORK-1", "Board review", self.d(5),
                                      calendar="Work")])
         self._age()
-        report = base.IngestReport(stream="ical")
+        report = base.IngestReport(channel="ical")
 
         with mock.patch.object(
             ical, "_calendar_snapshot",
@@ -7272,7 +7272,7 @@ class TestTheUnattendedPathNeverHeardOnRetry(Base):
                         on_done(index, value)
                 return out
 
-        aid = archive.append(self.conn, stream="imessage", external_id="w1", ts=db.now(),
+        aid = archive.append(self.conn, channel="imessage", external_id="w1", ts=db.now(),
                              text="dinner tomorrow at 8?", thread="t", person="Jordan",
                              gated=True)
         archive.spool_add(self.conn, aid, "person:Jordan")
@@ -7297,7 +7297,7 @@ class TestTheCallsThatFailedNeverReachedDisk(Base):
         return int(cur.lastrowid)
 
     def _bundle(self, entity: str) -> bundle_stage.Bundle:
-        aid = archive.append(self.conn, stream="imessage", external_id=f"{entity}:0",
+        aid = archive.append(self.conn, channel="imessage", external_id=f"{entity}:0",
                              ts=db.now(), text="dinner tomorrow at 8?", thread=entity,
                              person=entity.split(":")[-1], gated=True)
         row = self.conn.execute("SELECT * FROM archive WHERE id = ?", (aid,)).fetchone()
@@ -7516,7 +7516,7 @@ class TestARecentReplyLeavesQuestionMeaningToTheModel(Base):
 
     def _line(self, external_id, text, *, from_me, minute):
         aid = archive.append(
-            self.conn, stream="imessage", external_id=external_id,
+            self.conn, channel="imessage", external_id=external_id,
             ts=f"{db.today().isoformat()}T20:{minute:02d}:00-04:00", text=text,
             thread="+19175550013", person="Quinn Brooks", from_me=from_me,
             gated=True, gate_reason="temporal")

@@ -34,16 +34,16 @@ class _Base(unittest.TestCase):
     def tearDown(self):
         self.conn.close()
 
-    def collect(self, stream, eid, text, thread, handle="friend@example.com",
+    def collect(self, channel, eid, text, thread, handle="friend@example.com",
                 ts=None, **kw):
-        report = IngestReport(stream=stream)
-        base.deliver(self.conn, report, stream=stream, external_id=eid,
+        report = IngestReport(channel=channel)
+        base.deliver(self.conn, report, channel=channel, external_id=eid,
                      ts=ts or db.now(), text=text, thread=thread,
                      handle=handle, **kw)
         self.conn.commit()
         row = self.conn.execute(
-            "SELECT id FROM archive WHERE stream = ? AND external_id = ?",
-            (stream, eid)).fetchone()
+            "SELECT id FROM archive WHERE channel = ? AND external_id = ?",
+            (channel, eid)).fetchone()
         return row["id"] if row else None
 
     def poker(self, title="Poker night", **fields):
@@ -227,7 +227,7 @@ class TestMalformedAndConflicts(_Base):
         live.update_event(self.conn, self.cfg, event.key, location="5 Oak",
                           origin=live.Origin.of("test", cited=[settle]))
         bad = archive.append(
-            self.conn, stream="chat", external_id="bad", ts="not-a-timestamp",
+            self.conn, channel="chat", external_id="bad", ts="not-a-timestamp",
             text="1 Pine", thread="poker group", person="friend",
             from_me=False, addressed_to="me")
         self.conn.commit()

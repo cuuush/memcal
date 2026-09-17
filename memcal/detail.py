@@ -319,11 +319,11 @@ def _sources_text(conn: sqlite3.Connection, kind: str, ref: str) -> str:
         if row.get("source_heading"):
             out.append(f"  — {row['source_heading']} —")
         mark = "*" if row.get("evidence") else " "
-        where = names.get((row["stream"], row.get("thread") or ""), "") or row["stream"]
+        where = names.get((row["channel"], row.get("thread") or ""), "") or row["channel"]
         text = " ".join(str(row["text"]).split())
         if len(text) > 240:
             text = text[:240] + "…"
-        own = " (your own earlier turn)" if presentation.self_written(row["stream"]) else ""
+        own = " (your own earlier turn)" if presentation.self_written(row["channel"]) else ""
         out.append(f" {mark} [{row['id']}] {where}{own} · {dates.said_on(row['ts'])} · "
                    f"{row['who']}: {text}")
     if len(rows) > 12:

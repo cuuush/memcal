@@ -125,7 +125,7 @@ def _deliver(conn, cfg, *, external_id: str, ts: str, text: str, thread: str,
              person: str = "Tester", verdict: gate.Verdict | None = None) -> int | None:
     report = base.IngestReport.opened("imessage", cfg)
     return base.deliver(
-        conn, report, stream="imessage", external_id=external_id, ts=ts, text=text,
+        conn, report, channel="imessage", external_id=external_id, ts=ts, text=text,
         thread=thread, person=person, handle="+19175550999", from_me=False,
         verdict=verdict, is_group=True,
     )
@@ -180,7 +180,7 @@ def boundary_checks(home: Path) -> list[dict]:
         # A source that no longer exists must stop reporting itself stale, and a source
         # that does exist must keep doing it. `freshness()` built its list of streams
         # from records a source leaves behind — archive rows and
-        # `source.<stream>.last_success` — and both outlive deletion, so removing a
+        # `source.<channel>.last_success` — and both outlive deletion, so removing a
         # source could never remove its alarm. Find My was deleted on 2026-08-02 and its
         # meta key kept telling the agent "this week may be incomplete" for nine days.
         # The decoy is the half that matters: silencing the whole line would pass a
@@ -191,10 +191,10 @@ def boundary_checks(home: Path) -> list[dict]:
         stale_line = next((line for line in stale_brief.splitlines()
                            if line.startswith("[STALE")), "no stale line")
         checks.append(result(
-            "brief.no-unregistered-stream", "deleted source",
+            "brief.no-unregistered-channel", "deleted source",
             "findmy" not in stale_brief.casefold(), stale_line))
         checks.append(result(
-            "brief.registered-stream-still-warns", "deleted source",
+            "brief.registered-channel-still-warns", "deleted source",
             "whatsapp" in stale_brief.casefold(), stale_line))
 
         start, _ = db.parse_when("tomorrow", ref=date(2026, 12, 31))
@@ -323,7 +323,7 @@ def boundary_checks(home: Path) -> list[dict]:
             conn, "Pay Quinn $10 for their server", written_by="live")
         report = base.IngestReport.opened("venmo", cfg)
         payment_id = base.deliver(
-            conn, report, stream="venmo", external_id="venmo-1",
+            conn, report, channel="venmo", external_id="venmo-1",
             ts="2027-03-13T15:00:00-05:00",
             text="You paid Quinn Brooks $10 for their server.",
             thread="quinn", person="Quinn Brooks",
@@ -530,8 +530,8 @@ def boundary_checks(home: Path) -> list[dict]:
         # disagreed with it, which is the only reading a cron wrapper ever gets.
         broken = archive.open_collection(conn, mode="benchmark")
         archive.record_source(conn, broken, base.IngestReport(
-            stream="email", error="cannot reach Proton Bridge at 127.0.0.1:1143"))
-        archive.record_source(conn, broken, base.IngestReport(stream="imessage", read=8))
+            channel="email", error="cannot reach Proton Bridge at 127.0.0.1:1143"))
+        archive.record_source(conn, broken, base.IngestReport(channel="imessage", read=8))
         archive.close_collection(conn, broken)
         rolled = conn.execute("SELECT error FROM collections WHERE id = ?",
                               (broken,)).fetchone()["error"]
@@ -542,7 +542,7 @@ def boundary_checks(home: Path) -> list[dict]:
         # The decoy. If every pass carries an error the column says nothing, and the
         # next person to read it learns to ignore it — which is where this started.
         clean = archive.open_collection(conn, mode="benchmark")
-        archive.record_source(conn, clean, base.IngestReport(stream="imessage", read=3))
+        archive.record_source(conn, clean, base.IngestReport(channel="imessage", read=3))
         archive.close_collection(conn, clean)
         quiet = conn.execute("SELECT error FROM collections WHERE id = ?",
                              (clean,)).fetchone()["error"]
@@ -1227,7 +1227,7 @@ def hermes_checks(home: Path) -> list[dict]:
         provider.on_turn_start(1, "What am I doing Saturday?")
         conn = db.open_db(cfg.db_path)
         archived = conn.execute(
-            "SELECT text, meta FROM archive WHERE stream = 'agent' ORDER BY id"
+            "SELECT text, meta FROM archive WHERE channel = 'agent' ORDER BY id"
         ).fetchall()
         event = conn.execute(
             "SELECT * FROM events WHERE title = ? ORDER BY id DESC LIMIT 1",
@@ -1315,7 +1315,7 @@ def _fake_chat_db(path: Path, *, rows: list[tuple[int, datetime, str, str]]) -> 
 
 
 def collection_checks(home: Path) -> list[dict]:
-    """Check transport fallback watermarks and stream freshness semantics."""
+    """Check transport fallback watermarks and channel freshness semantics."""
     from memcal.sources import imessage
 
     cfg = Config(home=home)
@@ -1336,9 +1336,9 @@ def collection_checks(home: Path) -> list[dict]:
                   "I'm meeting my friend at pier park at 730!")]
         _fake_chat_db(chat_db, rows=rows)
 
-        # -- The primary already delivered through the 5th, which is what "the stream is
+        # -- The primary already delivered through the 5th, which is what "the channel is
         #    here" means regardless of which transport said it.
-        archive.append(conn, stream="imessage", external_id="via-bluebubbles",
+        archive.append(conn, channel="imessage", external_id="via-bluebubbles",
                        ts="2026-08-05T11:33:50-04:00", text="the last line BlueBubbles got",
                        thread="+19175550004", handle="+19175550004", person="Harper",
                        from_me=False, meta={}, gated=True, gate_reason="top-tier")
@@ -1348,13 +1348,13 @@ def collection_checks(home: Path) -> list[dict]:
 
         imessage.ingest(conn, limit=1000, db_path=chat_db)
         newest = conn.execute(
-            "SELECT max(ts) FROM archive WHERE stream='imessage'").fetchone()[0] or ""
+            "SELECT max(ts) FROM archive WHERE channel='imessage'").fetchone()[0] or ""
         checks.append(result(
             "collection.fallback-resumes-in-time", "a fallback resumes where the primary stopped",
             newest[:10] >= "2026-08-12",
             f"newest imessage row after the fallback ran: {newest!r}"))
         got_dinner = conn.execute(
-            "SELECT count(*) FROM archive WHERE stream='imessage'"
+            "SELECT count(*) FROM archive WHERE channel='imessage'"
             " AND text LIKE '%pier park%'").fetchone()[0]
         checks.append(result(
             "collection.the-reported-line-arrives", "a fallback resumes where the primary stopped",
@@ -1369,7 +1369,7 @@ def collection_checks(home: Path) -> list[dict]:
         cold = db.open_db(cold_cfg.db_path)
         imessage.ingest(cold, limit=50, db_path=chat_db)
         oldest = cold.execute(
-            "SELECT min(ts) FROM archive WHERE stream='imessage'").fetchone()[0] or ""
+            "SELECT min(ts) FROM archive WHERE channel='imessage'").fetchone()[0] or ""
         checks.append(result(
             "collection.a-cold-start-still-starts-cold", "a fallback resumes where the primary stopped",
             oldest[:4] == "2025", f"oldest row on a cold start: {oldest!r}"))
@@ -1382,7 +1382,7 @@ def collection_checks(home: Path) -> list[dict]:
         health_cfg = Config(home=health_home)
         health_cfg.ensure_dirs()
         health = db.open_db(health_cfg.db_path)
-        archive.append(health, stream="imessage", external_id="eight-days-ago",
+        archive.append(health, channel="imessage", external_id="eight-days-ago",
                        ts="2026-08-05T11:33:50-04:00", text="the last line that ever arrived",
                        thread="+19175550004", handle="+19175550004", person="Harper",
                        from_me=False, meta={}, gated=True, gate_reason="top-tier")
@@ -1390,7 +1390,7 @@ def collection_checks(home: Path) -> list[dict]:
         health.commit()
         stale = dict(archive.stale_streams(health, cfg=health_cfg))
         checks.append(result(
-            "brief.stale-stream-named", "a heartbeat is not freshness",
+            "brief.stale-channel-named", "a heartbeat is not freshness",
             "imessage" in stale,
             f"stale_streams says {stale!r}; last_success is today and the newest "
             f"imessage row is eight days old"))
@@ -1398,7 +1398,7 @@ def collection_checks(home: Path) -> list[dict]:
         # -- Decoy: iCal is healthy when nothing changed. A fix that simply deletes the
         #    marker override reports every quiet snapshot source as broken, which is the
         #    requirement the marker was added for in the first place.
-        archive.append(health, stream="ical", external_id="an-old-scan",
+        archive.append(health, channel="ical", external_id="an-old-scan",
                        ts="2026-08-01T09:00:00-04:00", text="a calendar item, unchanged since",
                        thread="calendar", handle=None, person=None, from_me=False,
                        meta={}, gated=False, gate_reason=None)

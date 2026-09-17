@@ -290,7 +290,7 @@ def _collect_inner(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
                 archive.record_unavailable(own, collection_id, source.name, reason)
             finally:
                 own.close()
-            return {"stream": source.name, "skipped": reason,
+            return {"channel": source.name, "skipped": reason,
                     "status": "unavailable", "error": reason}
         job.step(source.name, "running", phase="starting")
         job.say(f"{source.name}: reading…")
@@ -314,7 +314,7 @@ def _collect_inner(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
         else:
             note = f"{report.archived} new, {report.passed} queued"
         job.step(source.name, "failed" if report.error else "done", note)
-        return {"stream": source.name, "read": report.read,
+        return {"channel": source.name, "read": report.read,
                 "archived": report.archived, "passed": report.passed,
                 "muted": report.muted, "error": report.error,
                 "status": status, "more": bool(report.more)}
@@ -333,14 +333,14 @@ def _collect_inner(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
                     own = db.open_db(cfg.db_path)
                     try:
                         from .sources.base import IngestReport as _Report
-                        _failed = _Report(stream=source.name)
+                        _failed = _Report(channel=source.name)
                         _failed.error = message
                         archive.record_source(own, collection_id, _failed)
                     except Exception:
                         pass
                     finally:
                         own.close()
-                    reports.append({"stream": source.name, "error": message,
+                    reports.append({"channel": source.name, "error": message,
                                     "status": "failed"})
 
     archive.close_collection(conn, collection_id)

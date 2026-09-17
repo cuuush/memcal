@@ -18,7 +18,7 @@ hermes memory setup
   rendering fails, `MEMCAL UNAVAILABLE` replaces the snapshot rather than leaving a
   stale one standing.
 - **Archive** — `on_turn_start` / `sync_turn` file the clean user message under
-  the agent stream. Assistant replies, injected snapshots, and tool outputs are
+  the agent channel. Assistant replies, injected snapshots, and tool outputs are
   excluded on these paths.
 - **Tools** — 21 schemas: reads (`memcal_open`, `memcal_open_page`,
   `memcal_search_wiki`, `memcal_open_source`, `memcal_conversation`,

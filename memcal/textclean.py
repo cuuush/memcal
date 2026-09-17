@@ -1,4 +1,4 @@
-"""Reduce raw stream text without removing meaning.
+"""Reduce raw channel text without removing meaning.
 
 This is deterministic regex/slicing only. It removes quoted or boilerplate text before
 model calls; relevance decisions belong to the gate.

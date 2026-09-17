@@ -65,7 +65,7 @@ class WakeBase(Base):
     def spool(self, entity: str, texts: list[str]) -> None:
         for index, text in enumerate(texts):
             aid = archive.append(
-                self.conn, stream="imessage", external_id=f"{entity}:{index}:{text[:12]}",
+                self.conn, channel="imessage", external_id=f"{entity}:{index}:{text[:12]}",
                 ts=db.now(), text=text, thread="t", person=entity.split(":")[-1],
                 from_me=False, gated=True, gate_reason="temporal")
             archive.spool_add(self.conn, aid, entity)
@@ -259,7 +259,7 @@ class TestEvalFixtureRunner(WakeBase):
                         ((db.today() - timedelta(days=1)).isoformat() + "T08:05:00", key))
                     for index, line in enumerate(case["lines"]):
                         aid = archive.append(
-                            conn, stream="imessage",
+                            conn, channel="imessage",
                             external_id=f"eval-{case['name']}-{index}", ts=db.now(),
                             text=line, thread="t", person="Rowan Vale",
                             from_me=False, gated=True, gate_reason="temporal")

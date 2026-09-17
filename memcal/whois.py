@@ -157,13 +157,13 @@ def _threads_for(conn: sqlite3.Connection) -> dict[str, list[str]]:
     """Where each known person speaks, busiest first."""
     out: dict[str, list[str]] = {}
     for row in conn.execute(
-            "SELECT person, stream, thread, count(*) AS n FROM archive"
+            "SELECT person, channel, thread, count(*) AS n FROM archive"
             "  WHERE person IS NOT NULL AND person <> '' AND from_me = 0"
             "    AND thread IS NOT NULL AND thread <> ''"
-            "  GROUP BY person, stream, thread ORDER BY person, n DESC"):
+            "  GROUP BY person, channel, thread ORDER BY person, n DESC"):
         seen = out.setdefault(row["person"], [])
         if len(seen) < MAX_THREADS:
-            seen.append(f"{row['stream']}/{row['thread']}")
+            seen.append(f"{row['channel']}/{row['thread']}")
     return out
 
 
@@ -193,7 +193,7 @@ def queue(conn: sqlite3.Connection) -> list[dict]:
         # Skip threads that echo the handle; one-to-one email threads are named for it.
         seen = [t for t in identity.where_seen(conn, row["handle"], limit=3)
                 if t != row["handle"]]
-        out.append({"handle": row["handle"], "stream": row["stream"],
+        out.append({"handle": row["handle"], "channel": row["channel"],
                     "display_name": (row["seen_name"] or "").strip(),
                     "messages": row["count"], "speaks_in": seen,
                     "sample": (row["sample"] or "")[:160]})

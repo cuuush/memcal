@@ -398,11 +398,11 @@ class TestACollectionIsRecorded(unittest.TestCase):
             name = "email"
 
             def fetch(_self, conn, cfg, report, limit):
-                base.deliver(conn, report, stream="email", external_id="1", ts=db.now(),
+                base.deliver(conn, report, channel="email", external_id="1", ts=db.now(),
                              text="Your weekly newsletter", thread="news@bulk.example",
                              handle="news@bulk.example",
                              meta={"list-id": "<news.bulk.example>"})
-                base.deliver(conn, report, stream="email", external_id="2", ts=db.now(),
+                base.deliver(conn, report, channel="email", external_id="2", ts=db.now(),
                              text="dinner thursday 7pm?", thread="sam@example.com",
                              handle="sam@example.com")
         return Mail()
@@ -732,7 +732,7 @@ class _FakeCalendar:
 class TestASourceThatFilledItsPageSaysSo(unittest.TestCase):
     """`sources.catch_up` loops on `report.more`, so a reader that never sets it is a
     reader `catch_up` can never drag forward — and it is the *fallback* that never set
-    it, the path that runs precisely when a stream is already behind. Collections 11, 12
+    it, the path that runs precisely when a channel is already behind. Collections 11, 12
     and 13 each read exactly 1000 and closed green over 2,990 rows that were only old.
     """
 

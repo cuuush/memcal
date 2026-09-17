@@ -85,7 +85,7 @@ class BreakerBase(unittest.TestCase):
         # every request in these tests is exactly one completion.
         for index, person in enumerate(people):
             aid = archive.append(
-                self.conn, stream="imessage", external_id=f"cb-{person}-{index}",
+                self.conn, channel="imessage", external_id=f"cb-{person}-{index}",
                 ts=db.now(), text=f"dinner tomorrow at 8? asking {person}",
                 thread=f"thread-{person}", person=person, from_me=False,
                 gated=True, gate_reason="subject-event")

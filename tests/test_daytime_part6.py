@@ -48,7 +48,7 @@ class Scripted(Source):
             return
         for eid, text in self.pages.pop(0):
             self.fetched += 1
-            base.deliver(conn, report, stream="chat", external_id=eid,
+            base.deliver(conn, report, channel="chat", external_id=eid,
                          ts=db.now(), text=text, thread=self.thread,
                          handle="friend@example.com")
         report.more = bool(self.pages)
@@ -123,7 +123,7 @@ class _Base(unittest.TestCase):
     def tick(self, source, *, due=True):
         """One production CLI collection with this transport registered."""
         from memcal import sources as sources_pkg
-        args = argparse.Namespace(home=str(self.cfg.home), stream="all",
+        args = argparse.Namespace(home=str(self.cfg.home), channel="all",
                                   stale=False, due=due, limit=100, rounds=5)
         with mock.patch.object(sources_pkg, "all_sources", return_value=[source]), \
                 mock.patch.object(sources_pkg, "get", return_value=source), \
@@ -441,10 +441,10 @@ class TestWeekendCoverage(_Base):
         self.at("2026-09-12T09:00:00")
         stranger = Scripted([[("r1", "rooftop party tonight?")]])
         stranger.name = "chat"
-        # A different thread needs a different transport name on the same stream.
+        # A different thread needs a different transport name on the same channel.
         from memcal.sources import base as base_mod
-        report = base_mod.IngestReport(stream="chat")
-        base_mod.deliver(self.conn, report, stream="chat", external_id="r1",
+        report = base_mod.IngestReport(channel="chat")
+        base_mod.deliver(self.conn, report, channel="chat", external_id="r1",
                          ts=db.now(), text="rooftop party tonight?",
                          thread="rooftop crew", handle="stranger@example.com")
         self.conn.commit()

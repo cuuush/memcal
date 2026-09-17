@@ -199,8 +199,8 @@ CREATE INDEX IF NOT EXISTS question_history_question_idx
 -- Every raw item, appended, full-text indexed. Nothing lives only in a derived store.
 CREATE TABLE IF NOT EXISTS archive (
     id          INTEGER PRIMARY KEY,
-    stream      TEXT NOT NULL,           -- imessage | email | groupme | discord | agent | cli
-    external_id TEXT NOT NULL,           -- stable id within the stream
+    channel      TEXT NOT NULL,           -- imessage | email | groupme | discord | agent | cli
+    external_id TEXT NOT NULL,           -- stable id within the channel
     ts          TEXT NOT NULL,           -- ISO timestamp
     thread      TEXT,                    -- chat/thread identifier
     handle      TEXT,                    -- raw sender handle
@@ -213,7 +213,7 @@ CREATE TABLE IF NOT EXISTS archive (
     gated       INTEGER NOT NULL DEFAULT 0,
     gate_reason TEXT,
     created_at  TEXT NOT NULL,
-    UNIQUE(stream, external_id)
+    UNIQUE(channel, external_id)
 );
 CREATE INDEX IF NOT EXISTS archive_ts_idx     ON archive(ts);
 CREATE INDEX IF NOT EXISTS archive_person_idx ON archive(person);
@@ -298,7 +298,7 @@ CREATE TABLE IF NOT EXISTS handles (
 
 CREATE TABLE IF NOT EXISTS unresolved (
     handle     TEXT PRIMARY KEY,
-    stream     TEXT NOT NULL,
+    channel     TEXT NOT NULL,
     seen_name  TEXT,
     sample     TEXT,
     count      INTEGER NOT NULL DEFAULT 1,
@@ -400,7 +400,7 @@ CREATE INDEX IF NOT EXISTS generations_run_idx ON generations(run_id);
 -- is the only human-written column and the point of the table.
 CREATE TABLE IF NOT EXISTS threads (
     id           INTEGER PRIMARY KEY,
-    stream       TEXT NOT NULL,
+    channel       TEXT NOT NULL,
     thread       TEXT NOT NULL,          -- matches archive.thread
     label        TEXT,                   -- the source's display name, if it has one
     participants TEXT NOT NULL DEFAULT '[]',   -- json array of raw handles
@@ -418,33 +418,33 @@ CREATE TABLE IF NOT EXISTS threads (
     platform_muted INTEGER NOT NULL DEFAULT 0,
     platform_note  TEXT,
     updated_at   TEXT NOT NULL,
-    UNIQUE(stream, thread)
+    UNIQUE(channel, thread)
 );
 CREATE INDEX IF NOT EXISTS threads_decision_idx ON threads(decision);
 
 -- Conversation membership keyed by platform handle; names are per-group observations.
 -- `handles` joins the same person across platforms without rewriting history.
 CREATE TABLE IF NOT EXISTS thread_members (
-    stream       TEXT NOT NULL,
+    channel       TEXT NOT NULL,
     thread       TEXT NOT NULL,
     handle       TEXT NOT NULL,
     seen_name    TEXT,
     first_seen   TEXT NOT NULL,
     last_seen    TEXT NOT NULL,
-    PRIMARY KEY(stream, thread, handle)
+    PRIMARY KEY(channel, thread, handle)
 );
 CREATE INDEX IF NOT EXISTS thread_members_handle_idx ON thread_members(handle);
 
 -- Every per-conversation display name, preserved rather than overwritten.
 CREATE TABLE IF NOT EXISTS thread_member_names (
-    stream       TEXT NOT NULL,
+    channel       TEXT NOT NULL,
     thread       TEXT NOT NULL,
     handle       TEXT NOT NULL,
     name         TEXT NOT NULL,
     first_seen   TEXT NOT NULL,
     last_seen    TEXT NOT NULL,
     seen_count   INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY(stream, thread, handle, name)
+    PRIMARY KEY(channel, thread, handle, name)
 );
 CREATE INDEX IF NOT EXISTS thread_member_names_handle_idx
     ON thread_member_names(handle);
@@ -480,7 +480,7 @@ CREATE TABLE IF NOT EXISTS collections (
 
 CREATE TABLE IF NOT EXISTS collection_sources (
     collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
-    stream        TEXT NOT NULL,
+    channel        TEXT NOT NULL,
     read          INTEGER NOT NULL DEFAULT 0,
     archived      INTEGER NOT NULL DEFAULT 0,
     passed        INTEGER NOT NULL DEFAULT 0,
@@ -493,7 +493,7 @@ CREATE TABLE IF NOT EXISTS collection_sources (
     -- (more work remained), failed (fetch error), unavailable (preflight check
     -- failed, fetch never started), unknown (legacy row without outcome evidence).
     status        TEXT NOT NULL DEFAULT 'unknown',
-    PRIMARY KEY(collection_id, stream)
+    PRIMARY KEY(collection_id, channel)
 );
 
 -- ---------------------------------------------------------------- provenance --

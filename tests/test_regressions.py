@@ -112,7 +112,7 @@ class TestWebEventDetail(Base):
             "title": "Poker", "date": self.d(-7), "participants": ["Robbie"],
         }, match=False)
         source_id = archive.append(
-            self.conn, stream="imessage", external_id="camp-echo-source", ts=db.now(),
+            self.conn, channel="imessage", external_id="camp-echo-source", ts=db.now(),
             text="Camp Echo runs all weekend with Robin", person="Robin West",
             thread="camp", gated=True)
         trace.stamp(
@@ -162,7 +162,7 @@ class TestReportedMemoryFailures(Base):
     def _bundle(self, *, text: str, person: str = "Mom",
                 thread: str = "family", external_id: str = "review-line"):
         archive_id = archive.append(
-            self.conn, stream="groupme", external_id=external_id, ts=db.now(),
+            self.conn, channel="groupme", external_id=external_id, ts=db.now(),
             text=text, thread=thread, person=person, gated=True)
         row = self.conn.execute("SELECT * FROM archive WHERE id = ?", (archive_id,)).fetchone()
         return bundle_stage.Bundle(entity=f"person:{person}", items=[row])
@@ -255,11 +255,11 @@ class TestReportedMemoryFailures(Base):
         report = sources.IngestReport.opened("groupme", self.cfg)
         stamp = db.now_dt()
         first = sources.deliver(
-            self.conn, report, stream="groupme", external_id="eyes",
+            self.conn, report, channel="groupme", external_id="eyes",
             ts=stamp.isoformat(), text="👀", thread="BGC IRL BGN",
             person="Jose", is_group=True)
         sources.deliver(
-            self.conn, report, stream="groupme", external_id="board-games",
+            self.conn, report, channel="groupme", external_id="board-games",
             ts=(stamp + timedelta(minutes=6)).isoformat(),
             text="I can host board game night in early August",
             thread="BGC IRL BGN", person="Jose", is_group=True)
@@ -947,7 +947,7 @@ class TestAChatNameIsNotEvidenceOfAPlan(Base):
     def _bundle(self, label: str, lines: list[str]):
         rows = []
         for index, text in enumerate(lines):
-            aid = archive.append(self.conn, stream="imessage", external_id=f"c{index}",
+            aid = archive.append(self.conn, channel="imessage", external_id=f"c{index}",
                                  ts=db.today().isoformat() + "T10:23:00", text=text,
                                  thread=label, person="me", gated=True)
             archive.spool_add(self.conn, aid, f"thread:imessage:{label}")
@@ -2034,6 +2034,34 @@ class TestAQuestionWithNoEventLinkHadNoDayToDieWith(Base):
         finally:
             upgraded.close()
 
+    def test_a_pre_rename_store_renames_stream_to_channel(self):
+        """The channel column was once `stream`. `schema.sql` only names the new
+        column on fresh tables, so an existing store needs the explicit
+        ALTER ... RENAME COLUMN in `db.RENAMED_COLUMNS`. Simulate the old store by
+        renaming back, then confirm migrate restores it and keeps the data."""
+        tables = [t for t, _old, _new in db.RENAMED_COLUMNS]
+        path = Path(self.tmp.name) / "prerename.db"
+        first = db.open_db(path)
+        first.execute("INSERT INTO archive(channel, external_id, ts, text, created_at)"
+                      " VALUES('imessage','x1','2026-01-01','hi','2026-01-01')")
+        first.commit()
+        for table in tables:
+            first.execute(f"ALTER TABLE {table} RENAME COLUMN channel TO stream")
+        first.commit()
+        first.close()
+
+        upgraded = db.open_db(path)
+        try:
+            for table in tables:
+                cols = {row[1] for row in upgraded.execute(f"PRAGMA table_info({table})")}
+                self.assertIn("channel", cols, table)
+                self.assertNotIn("stream", cols, table)
+            self.assertEqual(upgraded.execute(
+                "SELECT channel FROM archive WHERE external_id='x1'").fetchone()[0],
+                "imessage")
+        finally:
+            upgraded.close()
+
 
 class TestAConfirmedRowReadCouldGo(Base):
     """`plain_state` tested `kind == "opportunity"` before it looked at status, so a
@@ -2921,7 +2949,7 @@ class TestTheWeekdayIsNotTheModelsToWorkOut(Base):
 
     def _todo_with_evidence(self):
         aid = archive.append(
-            self.conn, stream="imessage", external_id="tay-1",
+            self.conn, channel="imessage", external_id="tay-1",
             ts="2026-08-10T14:52:00-04:00",
             text="Would you be able to help me bring my studio equipment back Wednesday?",
             thread="+15550001111", handle="+15550001111", person="Morgan",
@@ -3203,11 +3231,11 @@ class TestSourceTimelineMarksConversationAndDateShifts(Base):
             self.conn, {"title": "Tattoo session", "date": "2026-08-24"})
         ids = [
             archive.append(
-                self.conn, stream="imessage", external_id="tattoo-direct",
+                self.conn, channel="imessage", external_id="tattoo-direct",
                 ts="2026-08-02T10:00:00-04:00", thread="+15551234567",
                 text="Let's do August 24", person="Rae", gated=True),
             archive.append(
-                self.conn, stream="agent", external_id="tattoo-hermes",
+                self.conn, channel="agent", external_id="tattoo-hermes",
                 ts="2026-08-26T20:00:00-04:00", thread="hermes:session-1",
                 text="The tattoo session is confirmed", person="me", from_me=True,
                 gated=True),
@@ -3228,7 +3256,7 @@ class TestACalendarIsNotAConversation(Base):
 
     def _archived(self, title: str, when: str) -> int:
         return archive.append(
-            self.conn, stream="ical", external_id=f"cal:{title}",
+            self.conn, channel="ical", external_id=f"cal:{title}",
             ts=when, thread="Partiful", text=f"{title} — {when[:10]} — calendar: Partiful",
             meta={"calendar": "Partiful"}, gated=False, gate_reason="calendar-structured")
 
@@ -3248,7 +3276,7 @@ class TestACalendarIsNotAConversation(Base):
         event, _ = events.upsert(self.conn, {"title": "Poker", "date": "2026-08-16"},
                                  written_by="dream")
         ids = [archive.append(
-            self.conn, stream="imessage", external_id=f"m{n}",
+            self.conn, channel="imessage", external_id=f"m{n}",
             ts=f"2026-08-05T1{n}:00:00-04:00", thread="poker-crew",
             text=f"line {n}", person="Jordan", gated=True, gate_reason="top-tier")
             for n in range(3)]
@@ -3428,7 +3456,7 @@ class TestMailIsIncludedByDefaultAndRankedNotDropped(Base):
             "bulk-1@shop.example", "Your order",
             extra=["List-Unsubscribe: <mailto:x>"]), mailbox)
         row = self.conn.execute(
-            "SELECT * FROM archive WHERE stream = 'email'").fetchone()
+            "SELECT * FROM archive WHERE channel = 'email'").fetchone()
         self.assertIn("delivery window", row["text"])
         self.assertTrue(row["gated"])
 
@@ -3439,7 +3467,7 @@ class TestMailIsIncludedByDefaultAndRankedNotDropped(Base):
             extra=["List-ID: <campaigns.shop.example>", "Precedence: bulk"]), mailbox)
         row = self.conn.execute(
             """SELECT s.priority FROM spool s JOIN archive a ON a.id = s.archive_id
-                WHERE a.stream = 'email'""").fetchone()
+                WHERE a.channel = 'email'""").fetchone()
         self.assertEqual(row["priority"], "low")
 
     def test_a_person_saying_no_still_keeps_mail_out_entirely(self):
@@ -3463,7 +3491,7 @@ class TestMailIsIncludedByDefaultAndRankedNotDropped(Base):
         mailbox = self.Mailbox({1: "the body they said not to read"})
         self._deliver(1, self._message("bulk-4@shop.example", "Anything"), mailbox)
         row = self.conn.execute(
-            "SELECT text, meta FROM archive WHERE stream = 'email'").fetchone()
+            "SELECT text, meta FROM archive WHERE channel = 'email'").fetchone()
         self.assertNotIn("said not to read", row["text"])
         self.assertTrue(db.jload(row["meta"], {})["body_excluded"])
 
@@ -3479,7 +3507,7 @@ class TestMailIsIncludedByDefaultAndRankedNotDropped(Base):
         self._deliver(1, self._message("fail-1@shop.example", "Your order"),
                       self.Mailbox(fail=True))
         row = self.conn.execute(
-            "SELECT meta FROM archive WHERE stream = 'email'").fetchone()
+            "SELECT meta FROM archive WHERE channel = 'email'").fetchone()
         self.assertIn("bridge closed", db.jload(row["meta"], {})["body_error"])
         self.assertEqual(len(proton.recoverable(self.conn)), 1)
 
@@ -3488,7 +3516,7 @@ class TestMailIsIncludedByDefaultAndRankedNotDropped(Base):
         self._deliver(1, message, self.Mailbox(fail=True))
         self._deliver(1, message, self.Mailbox({1: "Collect it by Friday."}))
         rows = self.conn.execute(
-            "SELECT text FROM archive WHERE stream = 'email'").fetchall()
+            "SELECT text FROM archive WHERE channel = 'email'").fetchall()
         self.assertEqual(len(rows), 1)
 
     def test_a_reply_joins_its_own_conversation_and_a_new_subject_does_not(self):
@@ -3501,7 +3529,7 @@ class TestMailIsIncludedByDefaultAndRankedNotDropped(Base):
         self._deliver(3, self._message("tax-1@adv.example", "Your tax forms",
                                        sender="advisor@adv.example"), mailbox)
         threads_seen = [row["thread"] for row in self.conn.execute(
-            "SELECT thread FROM archive WHERE stream = 'email' ORDER BY id")]
+            "SELECT thread FROM archive WHERE channel = 'email' ORDER BY id")]
         self.assertEqual(threads_seen[0], threads_seen[1])
         self.assertNotEqual(threads_seen[2], threads_seen[0])
 
@@ -3512,7 +3540,7 @@ class TestTheQuietBacklogIsBoundedAndVisible(Base):
     def _queue(self, count: int, priority: str, *, entity: str) -> None:
         for index in range(count):
             archive_id = archive.append(
-                self.conn, stream="email", external_id=f"{priority}-{index}",
+                self.conn, channel="email", external_id=f"{priority}-{index}",
                 ts=f"2026-09-07T10:{index:02d}:00", text=f"{priority} message {index}",
                 thread=entity, from_me=False, gated=True, gate_reason="test")
             archive.spool_add(self.conn, archive_id, f"thread:email:{entity}",
@@ -3545,7 +3573,7 @@ class TestACancellationWithNoTargetIsKeptRatherThanInventedOrDropped(Base):
 
     def _bundle(self, text: str) -> bundle_stage.Bundle:
         archive_id = archive.append(
-            self.conn, stream="imessage", external_id=f"c-{db.slugify(text, 20)}",
+            self.conn, channel="imessage", external_id=f"c-{db.slugify(text, 20)}",
             ts=db.now(), text=text, thread="Riley", person="Riley Morgan",
             from_me=False, gated=True, gate_reason="temporal")
         row = self.conn.execute("SELECT * FROM archive WHERE id = ?",
@@ -3821,7 +3849,7 @@ class TestBackfillProvesIdentityBeforeTouchingTheArchive(Base):
     def _row(self, *, message_id, uid, validity, folder="INBOX",
              ts="2026-09-07T10:00:00"):
         archive_id = archive.append(
-            self.conn, stream="email", external_id=message_id,
+            self.conn, channel="email", external_id=message_id,
             ts=ts, text="Your order", thread=message_id,
             handle="shop@example.com", from_me=False,
             meta={"folder": folder, "uid": uid, "uidvalidity": validity,
@@ -3952,19 +3980,19 @@ class TestNormalisingMessageIdsDoesNotDuplicateArchivedMail(Base):
 
     def test_mail_archived_under_the_bracketed_form_is_not_written_twice(self):
         archive.append(
-            self.conn, stream="email", external_id="<old@example.com>",
+            self.conn, channel="email", external_id="<old@example.com>",
             ts="2026-09-07T10:00:00", text="Your order", thread="shop@example.com",
             handle="shop@example.com", from_me=False,
             meta={"folder": "INBOX", "uid": 1, "subject": "Your order"})
         self.conn.commit()
         self._deliver("old@example.com")
         rows = self.conn.execute(
-            "SELECT external_id FROM archive WHERE stream = 'email'").fetchall()
+            "SELECT external_id FROM archive WHERE channel = 'email'").fetchall()
         self.assertEqual([r["external_id"] for r in rows], ["<old@example.com>"])
 
     def test_a_reply_joins_an_ancestor_archived_under_the_old_spelling(self):
         archive.append(
-            self.conn, stream="email", external_id="<root@example.com>",
+            self.conn, channel="email", external_id="<root@example.com>",
             ts="2026-09-07T10:00:00", text="Appointment", thread="root@example.com",
             handle="shop@example.com", from_me=False, meta={"folder": "INBOX", "uid": 1})
         self.conn.commit()
@@ -3977,7 +4005,7 @@ class TestNormalisingMessageIdsDoesNotDuplicateArchivedMail(Base):
     def test_new_mail_keeps_the_bare_form(self):
         self._deliver("fresh@example.com")
         row = self.conn.execute(
-            "SELECT external_id FROM archive WHERE stream = 'email'").fetchone()
+            "SELECT external_id FROM archive WHERE channel = 'email'").fetchone()
         self.assertEqual(row["external_id"], "fresh@example.com")
 
 
@@ -3994,7 +4022,7 @@ class TestApplyDatesEachFieldFromTheLinesTheReaderCited(Base):
         ids = {}
         for name, ts, text in lines:
             ids[name] = archive.append(
-                self.conn, stream="imessage", external_id=f"ev-{name}", ts=ts,
+                self.conn, channel="imessage", external_id=f"ev-{name}", ts=ts,
                 text=text, thread="Alex", person="Alex Rivera", from_me=False,
                 gated=True, gate_reason="temporal")
         rows = list(self.conn.execute("SELECT * FROM archive ORDER BY ts"))

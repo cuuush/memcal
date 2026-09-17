@@ -47,7 +47,7 @@ stays however long ago it was written.
   Deprecated `replay`/`live` CLI aliases remain accepted for old scripts.
 
 - `bench_reset.py` — build a scratch store that replays a cold start. Excludes the
-  `agent` stream by default, because it is the user correcting the model *after* the
+  `agent` channel by default, because it is the user correcting the model *after* the
   run being replayed, and leaving it in grades the model on a corpus containing the
   answers. That is not hypothetical: it turned a 1/7 replay into a 6/7 one.
 - `bench_outcomes.py` — score a store against known-defect outcomes
@@ -88,7 +88,7 @@ stays however long ago it was written.
   only, never message text, which is what makes a private corpus checkable in a public
   repository. Run it after a run adds calls: the estimate must stay above the real
   count, and the guard test in `tests/test_core.py` is what fails when it drifts.
-- `probe_corpus.py` — what is actually in the archive, by stream and by shape.
+- `probe_corpus.py` — what is actually in the archive, by channel and by shape.
 - `probe_page.py` — what `memcal_open_page` actually returns for one slug, and how many
   tokens of it. Read-only against the live store. "The page read is too bare / too
   noisy" is a claim with a number attached, and this is where the number comes from:

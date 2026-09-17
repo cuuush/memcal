@@ -14,7 +14,7 @@ wrong, and what to type about it.
 - The web UI's **Runs tab** shows every pass: ok, partial, failed, running, or
   priced only — with requests, bundles, and per-run detail. Retry from here or
   with `memcal dream --retry RUN`.
-- `memcal stats` reports per-stream totals over recent days plus recent run history.
+- `memcal stats` reports per-channel totals over recent days plus recent run history.
 - `memcal gatecheck` shows what the gate is passing and rejecting right now.
 - Ingest health per source lives at `/api/collections` in the web API (the Runs
   tab reads `/api/runs`).

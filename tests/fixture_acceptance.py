@@ -1,4 +1,4 @@
-"""Seed a memcal home with acceptance test cases as synthetic stream traffic.
+"""Seed a memcal home with acceptance test cases as synthetic channel traffic.
 
 Provides deterministic synthetic data for end-to-end verification of dream
 and brief operations without external message sources.
@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from memcal import archive, brief, config, db, gate, identity, todos, wiki  # noqa: E402
 
-# (days_ago, stream, thread, person, from_me, text)
+# (days_ago, channel, thread, person, from_me, text)
 TRAFFIC = [
     # 1. Stale email superseded by recent messages.
     (365, "email", "frat-listserv", "College Club Listserv", False,
@@ -111,23 +111,23 @@ def seed(home: Path) -> None:
 
     tier = identity.top_tier(conn)
     spooled = 0
-    for days_ago, stream, thread, person, from_me, text in TRAFFIC:
+    for days_ago, channel, thread, person, from_me, text in TRAFFIC:
         ts = (db.today() - timedelta(days=days_ago)).isoformat() + "T18:00:00"
         verdict = gate.gate_message(text, person=person, from_me=from_me, top_tier=tier)
         archive_id = archive.append(
-            conn, stream=stream, external_id=f"fixture:{stream}:{thread}:{text[:24]}",
+            conn, channel=channel, external_id=f"fixture:{channel}:{thread}:{text[:24]}",
             ts=ts, text=text, thread=thread, person=None if from_me else person,
             from_me=from_me, gated=bool(verdict), gate_reason=verdict.reason,
         )
         if archive_id and verdict:
             archive.spool_add(conn, archive_id, gate.bundle_entity(
-                person if not from_me else _counterpart(thread), thread, stream))
+                person if not from_me else _counterpart(thread), thread, channel))
             spooled += 1
 
     for address, subject, headers in BULK_EMAIL:
         verdict = gate.gate_email(conn, address=address, subject=subject, headers=headers)
         archive_id = archive.append(
-            conn, stream="email", external_id=f"fixture:email:{address}", ts=db.now(),
+            conn, channel="email", external_id=f"fixture:email:{address}", ts=db.now(),
             text=subject, thread=address, handle=address, person=None,
             gated=bool(verdict), gate_reason=verdict.reason,
         )

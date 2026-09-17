@@ -105,7 +105,7 @@ class TestAStatedReplacementOnlyNominatesWhatWasCancelled(Base):
 
 class TestOneSidedEmailSendersFoldIntoOneConversation(Base):
     def deliver(self, thread: str, label: str, text: str, ident: str) -> None:
-        archive.append(self.conn, stream="email", external_id=ident,
+        archive.append(self.conn, channel="email", external_id=ident,
                        ts=f"{self.d(0)}T10:00:00", text=text, thread=thread,
                        handle="costco@waitwhile.com", person="Costco")
         threads.record(self.conn, "email", thread, label=label)
@@ -120,7 +120,7 @@ class TestOneSidedEmailSendersFoldIntoOneConversation(Base):
     def test_a_thread_the_user_answered_keeps_its_subject(self):
         self.deliver("t1", "Lunch?", "lunch?", "e1")
         self.deliver("t2", "Dinner?", "dinner?", "e2")
-        archive.append(self.conn, stream="email", external_id="mine",
+        archive.append(self.conn, channel="email", external_id="mine",
                        ts=f"{self.d(0)}T11:00:00", text="sure", thread="t1",
                        handle="me@example.com", person="me", from_me=True)
         folded = threads.aliases(self.conn)
@@ -129,7 +129,7 @@ class TestOneSidedEmailSendersFoldIntoOneConversation(Base):
 
     def test_other_streams_are_untouched(self):
         for ident, thread in (("i1", "timezone"), ("i2", "late reply")):
-            archive.append(self.conn, stream="imessage", external_id=ident,
+            archive.append(self.conn, channel="imessage", external_id=ident,
                            ts=f"{self.d(0)}T10:00:00", text="hi", thread=thread,
                            handle="+19175550999", person="Tester")
             threads.record(self.conn, "imessage", thread, label=thread)
@@ -338,9 +338,9 @@ class _MergeClient:
 
 
 class TestCancellationAndImmediateRebookingLifecycle(Base):
-    def bundle(self, entity: str, stream: str, external_id: str, ts: str, text: str):
+    def bundle(self, entity: str, channel: str, external_id: str, ts: str, text: str):
         archive_id = archive.append(
-            self.conn, stream=stream, external_id=external_id, ts=ts, text=text,
+            self.conn, channel=channel, external_id=external_id, ts=ts, text=text,
             thread=external_id, handle=entity, person="Booking service")
         row = self.conn.execute("SELECT * FROM archive WHERE id = ?", (archive_id,)).fetchone()
         return Bundle(entity=entity, items=[row]), archive_id

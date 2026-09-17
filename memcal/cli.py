@@ -427,7 +427,7 @@ def cmd_activity(args) -> int:
             print("(no unlinked traffic waiting)")
             return 0
         for item in items:
-            print(f"{item['stream']}/{item['thread']} — {item['waiting']} waiting,"
+            print(f"{item['channel']}/{item['thread']} — {item['waiting']} waiting,"
                   f" newest {item['newest']}")
         return 0
     try:
@@ -736,7 +736,7 @@ def cmd_search(args) -> int:
     rows = archive.search(conn, args.query, limit=args.limit)
     if args.json:
         return emit_json([
-            {"id": r["id"], "stream": r["stream"], "ts": r["ts"],
+            {"id": r["id"], "channel": r["channel"], "ts": r["ts"],
              "thread": r["thread"], "handle": r["handle"], "person": r["person"],
              "from_me": bool(r["from_me"]), "gated": bool(r["gated"]),
              "gate_reason": r["gate_reason"], "text": r["text"]} for r in rows])
@@ -744,7 +744,7 @@ def cmd_search(args) -> int:
         print("(nothing)")
     for row in rows:
         who = "me" if row["from_me"] else (row["person"] or row["handle"] or "?")
-        print(f"{str(row['ts'])[:16]}  {row['stream']:8} {who:14} {row['text'][:120]}")
+        print(f"{str(row['ts'])[:16]}  {row['channel']:8} {who:14} {row['text'][:120]}")
     return 0
 
 
@@ -908,12 +908,12 @@ def cmd_block(args) -> int:
     if args.target and "@" in args.target and "/" not in args.target:
         payload["address"] = args.target
     elif args.target and "/" in args.target:
-        stream, _, thread = args.target.partition("/")
-        payload["stream"], payload["thread"] = stream, thread
+        channel, _, thread = args.target.partition("/")
+        payload["channel"], payload["thread"] = channel, thread
     elif args.event:
         payload["event_id"] = args.event
     else:
-        print("give an address, a stream/thread, or --event <id>")
+        print("give an address, a channel/thread, or --event <id>")
         return 2
     out = web.block(conn, cfg, payload)
     if out.get("error"):
@@ -942,7 +942,7 @@ def cmd_top(args) -> int:
 
 def _behind_and_reachable(conn: sqlite3.Connection, cfg: Config, candidates: list):
     """Sources that are behind *and* answer the phone right now."""
-    behind = {stream for stream, _age in archive.stale_streams(conn, cfg=cfg)}
+    behind = {channel for channel, _age in archive.stale_streams(conn, cfg=cfg)}
     out = []
     for source in candidates:
         if source.name not in behind:
@@ -961,13 +961,13 @@ def cmd_ingest(args) -> int:
     if stale and due:
         print("ingest: --due and --stale cannot be combined", file=sys.stderr)
         return 2
-    if args.stream == "all":
+    if args.channel == "all":
         chosen = [s for s in sources.all_sources(cfg) if s.in_all]
     else:
-        source = sources.get(args.stream, cfg)
+        source = sources.get(args.channel, cfg)
         if not source:
             known = ", ".join(sources.names(cfg))
-            print(f"unknown source {args.stream!r}. Available: {known}")
+            print(f"unknown source {args.channel!r}. Available: {known}")
             return 1
         chosen = [source]
 
@@ -1066,7 +1066,7 @@ def cmd_sources(args) -> int:
             ok, message = source.check(cfg)
             out.append({"name": source.name, "usable": ok, "detail": message,
                         "description": source.description, "in_all": source.in_all,
-                        "health": getattr(source, "health", "stream")})
+                        "health": getattr(source, "health", "channel")})
         return emit_json({"sources": out, "load_errors": list(sources.load_errors()),
                           "plugin_dir": str(cfg.plugin_dir)})
     if not rows:
@@ -1086,10 +1086,10 @@ def cmd_sources(args) -> int:
 def cmd_login(args) -> int:
     """Run a source's one-time interactive sign-in."""
     cfg, _conn = open_ctx(args)
-    source = sources.get(args.stream, cfg)
+    source = sources.get(args.channel, cfg)
     if source is None:
         known = ", ".join(sources.names(cfg))
-        print(f"no such source: {args.stream}\nknown sources: {known}")
+        print(f"no such source: {args.channel}\nknown sources: {known}")
         return 1
     try:
         ok, message = source.setup(cfg)
@@ -1274,7 +1274,7 @@ def cmd_ical(args) -> int:
 def cmd_gatecheck(args) -> int:
     """Read the gate's output before connecting a model to it."""
     _cfg, conn = open_ctx(args)
-    rows = archive.recent(conn, limit=args.limit, stream=args.stream)
+    rows = archive.recent(conn, limit=args.limit, channel=args.channel)
     passed = 0
     for row in rows:
         mark = "PASS" if row["gated"] else "  · "
@@ -1555,7 +1555,7 @@ def cmd_stats(args) -> int:
     for row in archive.counts_by_stream(conn, since):
         gated = row["gated"] or 0
         pct = (100 * gated / row["n"]) if row["n"] else 0
-        print(f"{row['stream']:10} {row['n']:6} items  {gated:5} gated ({pct:4.1f}%)  "
+        print(f"{row['channel']:10} {row['n']:6} items  {gated:5} gated ({pct:4.1f}%)  "
               f"~{(row['chars'] or 0)//4:7} tokens raw")
     pending = len(archive.spool_pending(conn, limit=100000))
     print(f"\nspool pending: {pending}")
@@ -1787,7 +1787,7 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
 
     # -- Sources -------------------------------------------------------------
     behind = dict(archive.stale_streams(conn, cfg=cfg))
-    fresh = {row["stream"]: row for row in archive.freshness(conn, cfg)}
+    fresh = {row["channel"]: row for row in archive.freshness(conn, cfg)}
     for source in sources.all_sources(cfg):
         usable, message = source.check(cfg)
         seen = fresh.get(source.name)
@@ -2355,7 +2355,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("block", help="never spend a model call on this sender or chat again")
     s.add_argument("target", nargs="?",
-                   help="an email address, or stream/thread (e.g. groupme/Dev Chat)")
+                   help="an email address, or channel/thread (e.g. groupme/Dev Chat)")
     s.add_argument("--event", type=int, help="block whatever produced this event id")
     s.add_argument("--reason", default="", help="why, kept on the record")
     s.add_argument("--agent", action="store_true",
@@ -2378,7 +2378,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_top)
 
     s = sub.add_parser("ingest", help="pull a source into the archive")
-    s.add_argument("stream", nargs="?", default="all", help="source name, or 'all'")
+    s.add_argument("channel", nargs="?", default="all", help="source name, or 'all'")
     s.add_argument("--stale", action="store_true",
                    help="only sources that are behind and reachable right now")
     s.add_argument("--due", action="store_true",
@@ -2389,7 +2389,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_ingest)
 
     s = sub.add_parser("login", help="one-time interactive sign-in for a source")
-    s.add_argument("stream", help="which source to sign in to (slack, telegram, signal)")
+    s.add_argument("channel", help="which source to sign in to (slack, telegram, signal)")
     s.set_defaults(func=cmd_login)
 
     s = sub.add_parser("sources", help="list sources and whether each is usable")
@@ -2418,7 +2418,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_reminders)
 
     s = sub.add_parser("gatecheck", help="what the gate is passing and rejecting")
-    s.add_argument("--stream", help="only this source")
+    s.add_argument("--channel", help="only this source")
     s.add_argument("--limit", type=int, default=40,
                    help="how many recent decisions to show")
     s.set_defaults(func=cmd_gatecheck)
