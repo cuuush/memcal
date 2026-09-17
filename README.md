@@ -13,10 +13,12 @@ With Memcal, you can ask an agent, “What’s my weekend looking like?” and i
 
 ![Vague “Maya thing” → confirmed plan + who’s in](docs/assets/demo-chat.png)
 
+Those replies land immediately — Memcal keeps a pre-rendered brief of your week in the agent’s context, so Hermes isn’t stuck waiting on a long tool call just to recall Saturday.
+
 ## Under the hood
 
 - **Write-time recency** — updates move old values to history; read time isn’t a relevance fight ([memcal vs retrieval](https://cuuush.github.io/memcal/architecture/memcal-vs-rag/))
-- **Brief in the prompt** — the week is already in context for implicit questions
+- **Pre-rendered brief** — the week is already in the prompt, so weekend / “is that still on?” questions answer right away without a slow tool round-trip
 - **Typed stores** — events, series, todos, questions, wiki
 - **Multi-stream join** — Slack, Messages, email, calendar, and agent chat resolve to one underlying thing
 - **Nightly dream pass** — observe → gate → propose → merge → brief
