@@ -88,11 +88,12 @@ def authority(source: str | None) -> int:
     return EVIDENCE.get(key.rsplit(":", 1)[-1], JUDGEMENT)
 
 
-def link(conn: sqlite3.Connection, handle: str, person: str, source: str = "cli") -> bool:
+def link(conn: sqlite3.Connection, handle: str, person: str, source: str = "cli",
+         *, commit: bool = True) -> bool:
     """Point a handle at a person. Returns whether the write landed.
 
     Stronger evidence wins; equal evidence may overwrite so a scan can revise
-    its own guess.
+    its own guess. `commit=False` lets a caller fold this into its own transaction.
     """
     h = normalize(handle)
     current = conn.execute("SELECT person, source FROM handles WHERE handle = ?",
@@ -107,7 +108,8 @@ def link(conn: sqlite3.Connection, handle: str, person: str, source: str = "cli"
         )
     # Either way this handle now has a person, so it does not belong in the queue.
     conn.execute("DELETE FROM unresolved WHERE handle = ?", (h,))
-    conn.commit()
+    if commit:
+        conn.commit()
     return allowed
 
 
@@ -138,7 +140,7 @@ def link_by_name(conn: sqlite3.Connection, handle: str, seen_name: str | None,
 
 
 def guess_name(conn: sqlite3.Connection, handle: str, name: str | None, *,
-               channel: str, why: str = "") -> bool:
+               channel: str, why: str = "", commit: bool = True) -> bool:
     """Record dream's best-effort name for an otherwise-nameless handle.
 
     The weakest evidence there is (`dream-guess`): a platform roster/profile name,
@@ -152,7 +154,8 @@ def guess_name(conn: sqlite3.Connection, handle: str, name: str | None, *,
     clean = clean_name(name)
     if not h or not name_shaped(clean) or is_me(conn, clean):
         return False
-    if not link(conn, h, clean, source=f"{(channel or 'cli')}:dream-guess"):
+    if not link(conn, h, clean, source=f"{(channel or 'cli')}:dream-guess",
+                commit=False):
         return False               # better evidence already names this handle
     # Surface the name where readers look: `_speakers` (and so thread titles and the
     # freshness hint) reads `archive.person`, not the handles table. Fill only blanks —
@@ -166,7 +169,8 @@ def guess_name(conn: sqlite3.Connection, handle: str, name: str | None, *,
         "INSERT INTO identity_assumptions(kind, keep, also, why, state, source,"
         " created_at) VALUES('name', ?, ?, ?, 'assumed', ?, ?)",
         (clean, h, why or "", f"{(channel or 'cli')}:dream-guess", db.now()))
-    conn.commit()
+    if commit:
+        conn.commit()
     return True
 
 

@@ -341,6 +341,11 @@ def fold_guessed_names(conn: sqlite3.Connection) -> list[str]:
     for name, target in _fold_map(guessed).items():
         if assume(conn, target, name, why="near-duplicate guessed name",
                   source="dream-guess"):
+            # The fold moved the handles onto `target`; repoint any open name guess for
+            # the old spelling too, so confirming it later cannot silently un-fold them.
+            conn.execute("UPDATE identity_assumptions SET keep = ? WHERE kind = 'name'"
+                         " AND keep = ? AND state = 'assumed'", (target, name))
+            conn.commit()
             log.append(f"folded guess  {name} → {target}")
     return log
 
@@ -428,22 +433,19 @@ def confirm(conn: sqlite3.Connection, assumption_id: int) -> str | None:
         if not row["keep"]:
             return None                  # no candidate to confirm; name it by hand
         identity.link(conn, row["also"], row["keep"], source="cli")
-    elif row["state"] == "unsure":
+    elif row["state"] == "unsure" and row["kind"] == "merge":
         if not row["keep"]:
             return None                  # no candidate to confirm; name it by hand
-        if row["kind"] == "merge":
-            if _refusal(conn, row["keep"], row["also"]):
-                return None
-            moved = [r["handle"] for r in conn.execute(
-                "SELECT handle FROM handles WHERE person = ?", (row["also"],))]
-            conn.execute("UPDATE handles SET person = ? WHERE person = ?",
-                         (row["keep"], row["also"]))
-            conn.execute("UPDATE archive SET person = ? WHERE person = ?",
-                         (row["keep"], row["also"]))
-            conn.execute("UPDATE identity_assumptions SET handles_moved = ? WHERE id = ?",
-                         (db.jdump(sorted(moved)), assumption_id))
-        else:
-            identity.link(conn, row["also"], row["keep"], source="cli")
+        if _refusal(conn, row["keep"], row["also"]):
+            return None
+        moved = [r["handle"] for r in conn.execute(
+            "SELECT handle FROM handles WHERE person = ?", (row["also"],))]
+        conn.execute("UPDATE handles SET person = ? WHERE person = ?",
+                     (row["keep"], row["also"]))
+        conn.execute("UPDATE archive SET person = ? WHERE person = ?",
+                     (row["keep"], row["also"]))
+        conn.execute("UPDATE identity_assumptions SET handles_moved = ? WHERE id = ?",
+                     (db.jdump(sorted(moved)), assumption_id))
     conn.execute("UPDATE identity_assumptions SET state = 'confirmed', decided_at = ?,"
                  " source = 'you' WHERE id = ?", (db.now(), assumption_id))
     conn.commit()
