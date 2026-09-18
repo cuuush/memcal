@@ -298,5 +298,61 @@ class TestADoubtIsRecordedRatherThanGuessed(Base):
         self.assertEqual(identity.resolve(self.conn, "whatsapp:lid:88003"), "Cam Ortiz")
 
 
+class TestADreamGuessIsTheWeakestName(Base):
+    """Dream may invent a name for a nameless sender, but a guess never wins over a
+    real identity, and it can always be taken back."""
+
+    def _assumed_names(self):
+        return [r for r in whois.assumptions(self.conn) if r["kind"] == "name"]
+
+    def test_a_guess_names_an_otherwise_nameless_handle(self):
+        landed = identity.guess_name(self.conn, "+18005551212", "Tire shop scheduling",
+                                     channel="imessage", why="appointment reminder")
+        self.assertTrue(landed)
+        self.assertEqual(identity.resolve(self.conn, "+18005551212"),
+                         "Tire shop scheduling")
+        names = self._assumed_names()
+        self.assertEqual(len(names), 1)
+        self.assertEqual(names[0]["keep"], "Tire shop scheduling")
+        self.assertEqual(names[0]["also"], "+18005551212")
+
+    def test_a_contact_is_never_overwritten_by_a_guess(self):
+        identity.link(self.conn, "+18005551212", "Dad", source="contacts")
+        landed = identity.guess_name(self.conn, "+18005551212", "Tire shop",
+                                     channel="imessage")
+        self.assertFalse(landed)
+        self.assertEqual(identity.resolve(self.conn, "+18005551212"), "Dad")
+        self.assertEqual(self._assumed_names(), [])
+
+    def test_a_later_real_identity_overrides_a_guess(self):
+        identity.guess_name(self.conn, "+18005551212", "Tire shop", channel="imessage")
+        # A platform profile name, or Contacts, outranks dream-guess (rank 5).
+        identity.link(self.conn, "+18005551212", "Costco Tire Center",
+                      source="imessage:profile")
+        self.assertEqual(identity.resolve(self.conn, "+18005551212"),
+                         "Costco Tire Center")
+
+    def test_a_refined_guess_replaces_the_prior_one(self):
+        self.assertTrue(identity.guess_name(self.conn, "+18005551212", "Costco",
+                                            channel="imessage"))
+        self.assertTrue(identity.guess_name(self.conn, "+18005551212", "Costco Tire",
+                                            channel="imessage"))
+        self.assertEqual(identity.resolve(self.conn, "+18005551212"), "Costco Tire")
+        self.assertEqual(len(self._assumed_names()), 1)
+
+    def test_a_confirm_promotes_a_guess_to_a_settled_name(self):
+        identity.guess_name(self.conn, "+18005551212", "Costco Tire", channel="imessage")
+        assumption = self._assumed_names()[0]
+        self.assertEqual(whois.confirm(self.conn, assumption["id"]),
+                         "+18005551212 → Costco Tire")
+        self.assertEqual(identity.resolve(self.conn, "+18005551212"), "Costco Tire")
+        self.assertEqual(self._assumed_names(), [])       # no longer an open guess
+
+    def test_a_garbled_guess_is_refused(self):
+        self.assertFalse(identity.guess_name(self.conn, "+18005551212", "   ",
+                                             channel="imessage"))
+        self.assertIsNone(identity.resolve(self.conn, "+18005551212"))
+
+
 if __name__ == "__main__":
     unittest.main()
