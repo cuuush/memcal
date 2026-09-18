@@ -54,6 +54,7 @@ def resolve(conn: sqlite3.Connection, handle: str) -> str | None:
 #: Evidence rank by source suffix, weakest first. Unlisted sources are judgements
 #: and outrank every scan, so a newly added scan cannot overwrite Contacts.
 EVIDENCE = {
+    "dream-guess": 5,       # dream invented a name for an otherwise-nameless thread
     "roster": 10,           # the platform's per-conversation nickname
     "platform-roster": 10,  # the same thing, reached by the backfill
     "profile": 20,          # the platform's account name; beats a per-chat nickname
@@ -123,6 +124,34 @@ def link_by_name(conn: sqlite3.Connection, handle: str, seen_name: str | None,
     if link(conn, handle, person, source=f"{channel}:contact-match"):
         return person
     return resolve(conn, handle)      # something better already answers for this id
+
+
+def guess_name(conn: sqlite3.Connection, handle: str, name: str | None, *,
+               channel: str, why: str = "") -> bool:
+    """Record dream's best-effort name for an otherwise-nameless handle.
+
+    The weakest evidence there is (`dream-guess`): a platform roster/profile name,
+    a `whois --resolve` conclusion, a Contacts match, or the user's own edit all
+    outrank it, so a real identity always wins over a guess. Returns whether the
+    guess landed. When it does, it is also recorded as a reversible, reviewable
+    `kind='name'` identity assumption, so `memcal who` can confirm or split it and
+    presentation can mark it as a guess until then.
+    """
+    h = normalize(handle)
+    clean = clean_name(name)
+    if not h or not name_shaped(clean) or is_me(conn, clean):
+        return False
+    if not link(conn, h, clean, source=f"{(channel or 'cli')}:dream-guess"):
+        return False               # better evidence already names this handle
+    # One live guess per handle: a refined guess replaces the prior one.
+    conn.execute("DELETE FROM identity_assumptions"
+                 " WHERE kind = 'name' AND also = ? AND state = 'assumed'", (h,))
+    conn.execute(
+        "INSERT INTO identity_assumptions(kind, keep, also, why, state, source,"
+        " created_at) VALUES('name', ?, ?, ?, 'assumed', ?, ?)",
+        (clean, h, why or "", f"{(channel or 'cli')}:dream-guess", db.now()))
+    conn.commit()
+    return True
 
 
 #: A user id that is not a person: platform notices and bots.
