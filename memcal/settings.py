@@ -287,6 +287,12 @@ SETTINGS: tuple[Setting, ...] = (
             "read as something. The guess is the weakest evidence there is: a "
             "contact, a platform name, or `memcal who` always overrides it.",
             "dream", kind="bool"),
+    Setting("MEMCAL_FRESHNESS_GUESS_NUDGE_DAYS", "freshness_guess_nudge_days",
+            "Confirm a guessed name after",
+            "How many distinct days a guess-named sender must keep drawing freshness "
+            "hints before the hint asks you to confirm or rename it. Quiet guesses are "
+            "never asked about — they just age out. 0 never asks.",
+            "dream", kind="int", minimum=0, maximum=90, unit="days"),
 
     # ------------------------------------------------------------------- publish --
     Setting("MEMCAL_PUBLISH_CALENDAR", "publish_calendar", "Publish to calendar",
