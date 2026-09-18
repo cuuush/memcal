@@ -94,6 +94,13 @@ The brief never stamps itself freshly verified. A plan with no new activity
 carries no warning; a source that has fallen behind shows its own `[STALE: …]` or
 `[COLLECTION: …]` line; and the week block states the period it is complete for.
 
+A hint never prints a raw number or opaque handle for its sender. A known sender
+shows by name; an unknown one that a nightly pass has [guessed a name
+for](identity.md#guessed-names) shows that name with a `maybe:` marker, so the hint
+reads as something without claiming certainty. A guess that keeps drawing hints
+across enough distinct days appends a short line asking you to confirm or rename
+it (`MEMCAL_FRESHNESS_GUESS_NUDGE_DAYS`); a quiet one is left to age out.
+
 A bounded activity reader returns original text with sender, source time, arrival
 time, and provenance — paginated, with omissions disclosed — so the assistant
 never has to invent a keyword search for a flagged thread. Freshness metadata
