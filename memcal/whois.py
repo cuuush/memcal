@@ -10,6 +10,7 @@ recorded as doubts, and every link is written at a rank Contacts outranks.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass, field
 
@@ -286,6 +287,62 @@ def assume(conn: sqlite3.Connection, keep: str, also: str, why: str = "",
     conn.execute("UPDATE archive SET person = ? WHERE person = ?", (keep, also))
     conn.commit()
     return int(cur.lastrowid)
+
+
+#: Words that carry no identity in an invented conversation name.
+_NAME_NOISE = frozenset({"the", "a", "an", "of", "and", "for", "to", "at", "in", "on",
+                         "llc", "inc", "co", "corp", "ltd"})
+
+
+def _distinctive(name: str) -> frozenset[str]:
+    """The identity-bearing words of a guessed name, lowercased."""
+    return frozenset(w for w in re.split(r"[^a-z0-9]+", (name or "").lower())
+                     if len(w) >= 3 and w not in _NAME_NOISE)
+
+
+def _fold_map(names: set[str]) -> dict[str, str]:
+    """Map each name to the spelling it folds into: a shorter name whose distinctive
+    words are all contained in a longer one ("Costco" into "Costco Tire Center").
+
+    Conservative on purpose — a false merge is worse than the duplicate it avoids
+    (`dream.merge` note). A name with no distinctive words folds into nothing, and two
+    names that merely share one word but neither contains the other stay separate.
+    """
+    ordered = sorted(names, key=lambda n: (-len(_distinctive(n)), n))
+    chosen: list[tuple[str, frozenset[str]]] = []
+    fold: dict[str, str] = {}
+    for name in ordered:
+        toks = _distinctive(name)
+        target = next((cname for cname, ctoks in chosen if toks and toks <= ctoks), None)
+        if target:
+            fold[name] = target
+        else:
+            chosen.append((name, toks))
+    return fold
+
+
+def fold_guessed_names(conn: sqlite3.Connection) -> list[str]:
+    """Fold guessed names that are near-misses of each other onto one spelling.
+
+    The deterministic other half of naming a sender: one service reached two ways — an
+    SMS and an email — is guessed near the same name in each, and folding them makes the
+    handles resolve to one person, so their conversations bundle together from now on.
+    Only names backed *entirely* by guesses are eligible; anything a stronger source
+    also names is left alone. Reuses the reversible merge machinery (`memcal who
+    --split` undoes a fold).
+    """
+    by_name: dict[str, list[str]] = {}
+    for row in conn.execute(
+            "SELECT person, source FROM handles WHERE person IS NOT NULL AND person != ''"):
+        by_name.setdefault(row["person"], []).append(row["source"] or "")
+    guessed = {name for name, sources in by_name.items()
+               if sources and all(s.endswith(":dream-guess") for s in sources)}
+    log: list[str] = []
+    for name, target in _fold_map(guessed).items():
+        if assume(conn, target, name, why="near-duplicate guessed name",
+                  source="dream-guess"):
+            log.append(f"folded guess  {name} → {target}")
+    return log
 
 
 def _rebuild_merges(conn: sqlite3.Connection) -> None:

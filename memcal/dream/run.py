@@ -518,6 +518,12 @@ def _dream(
     result.diffs += sum(v for k, v in counts.items() if "rejected" not in k)
     emit("apply", "done", f"{result.diffs} write(s)")
 
+    # Guesses are written; fold near-duplicate ones (one sender reached two ways) so
+    # their conversations bundle together next time. Deterministic, no model call.
+    if cfg.dream_naming:
+        from .. import whois                                        # noqa: PLC0415
+        result.resolved.extend(whois.fold_guessed_names(conn))
+
     # Wake conditions are checked against ingested traffic, excluding the
     # traffic that opened the to-do (`before_apply`). Semantic entailment only:
     # the deterministic pass nominates (todo, bundle) candidates and never

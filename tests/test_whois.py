@@ -372,5 +372,49 @@ class TestADreamGuessIsTheWeakestName(Base):
         self.assertIsNone(identity.resolve(self.conn, "+18005551212"))
 
 
+class TestFoldingNearMissGuesses(Base):
+    """One sender reached two ways is guessed near the same name each time; folding the
+    near-misses makes the handles resolve to one person so they bundle together."""
+
+    def test_a_shorter_guess_folds_into_the_longer_one(self):
+        identity.guess_name(self.conn, "+1111", "Costco", channel="imessage")
+        identity.guess_name(self.conn, "+2222", "Costco Tire Center", channel="email")
+        folded = whois.fold_guessed_names(self.conn)
+        self.assertTrue(folded)
+        self.assertEqual(identity.resolve(self.conn, "+1111"), "Costco Tire Center")
+        self.assertEqual(identity.resolve(self.conn, "+2222"), "Costco Tire Center")
+
+    def test_unrelated_guesses_are_left_alone(self):
+        identity.guess_name(self.conn, "+1111", "Costco Tire", channel="imessage")
+        identity.guess_name(self.conn, "+2222", "Dentist office", channel="email")
+        self.assertEqual(whois.fold_guessed_names(self.conn), [])
+        self.assertEqual(identity.resolve(self.conn, "+1111"), "Costco Tire")
+        self.assertEqual(identity.resolve(self.conn, "+2222"), "Dentist office")
+
+    def test_a_guess_never_folds_into_a_real_name(self):
+        identity.link(self.conn, "+2222", "Costco Warehouse", source="contacts")
+        identity.guess_name(self.conn, "+1111", "Costco", channel="imessage")
+        self.assertEqual(whois.fold_guessed_names(self.conn), [])
+        self.assertEqual(identity.resolve(self.conn, "+1111"), "Costco")
+        self.assertEqual(identity.resolve(self.conn, "+2222"), "Costco Warehouse")
+
+    def test_a_fold_is_reversible(self):
+        identity.guess_name(self.conn, "+1111", "Costco", channel="imessage")
+        identity.guess_name(self.conn, "+2222", "Costco Tire Center", channel="email")
+        whois.fold_guessed_names(self.conn)
+        merge = [a for a in whois.assumptions(self.conn) if a["kind"] == "merge"][0]
+        whois.split(self.conn, merge["id"])
+        self.assertEqual(identity.resolve(self.conn, "+1111"), "Costco")
+
+    def test_fold_map_is_conservative(self):
+        self.assertEqual(whois._fold_map({"Costco", "Costco Tire Center"}),
+                         {"Costco": "Costco Tire Center"})
+        self.assertEqual(whois._fold_map({"Tire shop", "Tire shop scheduling"}),
+                         {"Tire shop": "Tire shop scheduling"})
+        self.assertEqual(whois._fold_map({"Costco", "Dentist office"}), {})
+        # No distinctive words: never folds, even into a superset spelling.
+        self.assertEqual(whois._fold_map({"of", "of the"}), {})
+
+
 if __name__ == "__main__":
     unittest.main()
