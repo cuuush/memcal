@@ -384,6 +384,7 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
                 note("wiki", outcome, "wiki:",
                      generation=(row.get("_generation_id")
                                  if isinstance(row, dict) else None))
+        _apply_thread_names(conn, cfg, bundle, diff, counts=counts, log=log)
         for row in diff.get("standing") or []:
             note("standing", _apply_standing(conn, row, written_by=written_by,
                                              commit=False), "standing:",
@@ -692,6 +693,85 @@ def resolve_subject(conn: sqlite3.Connection, proposed: str | None,
         "SELECT DISTINCT subject FROM events WHERE subject IS NOT NULL")}
     known.discard("me")
     return name if name.casefold() in known else "me"
+
+
+def _thread_of_entity(entity: str) -> tuple[str, str]:
+    """`(channel, thread)` for a `thread:` bundle entity, else `("", "")`."""
+    kind, _, rest = str(entity or "").partition(":")
+    if kind != "thread":
+        return "", ""
+    channel, _, thread = rest.partition(":")
+    return channel, thread
+
+
+def _thread_target(bundle, entry: dict) -> tuple[str, str]:
+    """Which conversation a thread-name entry refers to.
+
+    Prefer the channel/thread the model echoed when it names a conversation actually
+    in this bundle; otherwise fall back to the bundle's own thread, which is the
+    common case — one nameless sender, one bundle.
+    """
+    channel = str(entry.get("channel") or "").strip()
+    thread = str(entry.get("thread") or "").strip()
+    present = {(str(row["channel"]), str(row["thread"] or ""))
+              for row in bundle.items if "channel" in row.keys()}
+    if channel and (channel, thread) in present:
+        return channel, thread
+    own_channel, own_thread = _thread_of_entity(bundle.entity)
+    if own_channel:
+        return own_channel, own_thread
+    return "", ""
+
+
+def _sole_unresolved_handle(conn, bundle, channel: str, thread: str) -> str | None:
+    """The one not-yet-named person behind a conversation, or None.
+
+    A guess links a handle to a name, and that only makes sense when the conversation
+    has a single unresolved other party — a DM or an automated 1:1. A group with
+    several unnamed handles is left alone rather than have one guess stand for all.
+    """
+    handles = set()
+    for row in bundle.items:
+        keys = row.keys()
+        if "handle" not in keys or "channel" not in keys:
+            continue
+        if str(row["channel"]) != channel or str(row["thread"] or "") != thread:
+            continue
+        if "from_me" in keys and row["from_me"]:
+            continue
+        handle = (row["handle"] or "").strip()
+        if handle and not identity.resolve(conn, handle):
+            handles.add(identity.normalize(handle))
+    return next(iter(handles)) if len(handles) == 1 else None
+
+
+def _apply_thread_names(conn, cfg: Config, bundle, diff: dict, *,
+                        counts: Counter, log: list) -> None:
+    """Write dream's guessed names for otherwise-nameless conversations.
+
+    Each guess is the weakest evidence there is (`identity.guess_name`), so a real
+    identity always wins, and it is reversible via `memcal who`. Skipped entirely when
+    `dream_naming` is off, and per entry when the conversation is not a lone unresolved
+    sender or already has a name.
+    """
+    if not getattr(cfg, "dream_naming", True):
+        return
+    for entry in diff.get("threads") or []:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()
+        if not name:
+            continue
+        channel, thread = _thread_target(bundle, entry)
+        if not channel:
+            continue
+        handle = _sole_unresolved_handle(conn, bundle, channel, thread)
+        if not handle:
+            continue
+        if identity.guess_name(conn, handle, name, channel=channel,
+                               why=str(entry.get("why") or "")):
+            counts["name:guessed"] += 1
+            log.append(f"named     {handle} → maybe {name}")
 
 
 def _named_only_by_thread(bundle, row) -> bool:

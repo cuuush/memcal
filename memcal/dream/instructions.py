@@ -99,6 +99,16 @@ THE agent STREAM IS THEM INSTRUCTING A MACHINE
 `me → assistant` is an instruction. Facts stated there are reliable; delegated work is
 work handed off, not work the user owes. Create a to-do only when the doer is them.
 Never skip an agent line.
+
+NAMING A NAMELESS SENDER
+When you draw an event or to-do from a conversation whose sender has no name — the
+header names it only by a bare number or an opaque handle — add one `threads` entry that
+gives that conversation a short, human name, taken literally from what the messages say
+("Tire shop scheduling", "Dentist office"). A name is required in the entry; do not guess
+a real person's identity, just label what the conversation plainly is. Return an empty
+`threads` list when every conversation you drew a row from already has a name — that is
+the normal case. This only labels a conversation; it never changes an event, to-do, or
+page.
 """
 
 
