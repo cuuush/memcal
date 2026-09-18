@@ -82,6 +82,8 @@ the output schema is passed inline as the `--json-schema` literal.
 | `MEMCAL_PROMPT_VERSION` | `v2` | `v2` or `v1` |
 | `MEMCAL_PROPOSE_STAGES` | off | Comma list enabling staged extraction |
 | `MEMCAL_BUNDLE_FORMAT` | `v1` | `v1` or `v2-quiet-stream` |
+| `MEMCAL_DREAM_NAMING` | on | Name a nameless sender a row was drawn from ([identity](../architecture/identity.md#guessed-names)) |
+| `MEMCAL_FRESHNESS_GUESS_NUDGE_DAYS` | `3` (0–90) | Distinct active days before a guessed name's [freshness](../architecture/freshness.md) hint asks to confirm it; 0 never asks |
 
 ### Merge
 
