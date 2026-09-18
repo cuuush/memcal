@@ -364,7 +364,14 @@ def confirm(conn: sqlite3.Connection, assumption_id: int) -> str | None:
     if not row:
         return None
     said = f"{row['also']} → {row['keep']}"
-    if row["state"] == "unsure":
+    if row["kind"] == "name":
+        # A name guess is already linked (at dream-guess authority); confirming it
+        # promotes that link to a judgement, so it stops reading as a guess and a
+        # later scan cannot revise it. Applies whether it was assumed or unsure.
+        if not row["keep"]:
+            return None                  # no candidate to confirm; name it by hand
+        identity.link(conn, row["also"], row["keep"], source="cli")
+    elif row["state"] == "unsure":
         if not row["keep"]:
             return None                  # no candidate to confirm; name it by hand
         if row["kind"] == "merge":

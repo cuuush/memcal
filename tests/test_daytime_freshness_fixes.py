@@ -566,6 +566,27 @@ class TestFreshnessCorrectness81(_Base):
         self.assertNotIn("unknown number", text)
         self.assertIn("unknown sender", text)
 
+    def test_a_guessed_sender_shows_as_maybe_not_a_number(self):
+        from memcal import identity
+        phone = "+15557654321"
+        m1 = self.collect("imessage", "m1", "your appointment is confirmed", phone,
+                          handle=phone)
+        threads.record(self.conn, "imessage", phone, label=None, is_group=False)
+        # Dream named this otherwise-nameless sender.
+        identity.guess_name(self.conn, phone, "Tire shop scheduling",
+                            channel="imessage")
+        self.conn.commit()
+        event, _ = live.add_event(self.conn, self.cfg, title="Tire appointment",
+                                  when="2026-09-12", origin=live.Origin.of("test"))
+        live.update_event(self.conn, self.cfg, event.key, note="plan",
+                          origin=live.Origin.of("test", cited=[m1]))
+        self.collect("imessage", "m2", "your appointment was cancelled", phone,
+                     handle=phone)
+        text = brief.render(self.conn, self.cfg)
+        self.assertIn("New activity:", text)
+        self.assertNotIn(phone, text)
+        self.assertIn("maybe: Tire shop scheduling", text)
+
     def test_chat_label_preferred_when_richer_than_raw_thread(self):
         phone = "+15559876543"
         m1 = self.collect("imessage", "m1", "poker saturday?", phone,

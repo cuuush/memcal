@@ -7,7 +7,8 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import activity, archive, db, events, presentation, series, textclean, threads, todos, wiki
+from . import (activity, archive, db, events, identity, presentation, series,
+               textclean, threads, todos, wiki)
 from .config import Config
 
 SOURCE_RE = re.compile(r"〔([ETQS]\d+)〕")
@@ -134,6 +135,21 @@ def _looks_like_raw_id(text: str) -> bool:
     return False
 
 
+def _is_guessed_thread(conn: sqlite3.Connection, channel: str, thread: str) -> bool:
+    """True when a 1:1 conversation's name is an unconfirmed dream guess.
+
+    Only a lone sender: a guess names one handle, so a thread with several speakers is
+    never shown as a guess even if one of them carries one.
+    """
+    if not thread:
+        return False
+    rows = conn.execute(
+        "SELECT DISTINCT handle FROM archive WHERE channel = ?"
+        " AND coalesce(thread, '') = ? AND from_me = 0"
+        " AND handle IS NOT NULL AND handle != ''", (channel, thread)).fetchall()
+    return len(rows) == 1 and identity.is_guessed(conn, rows[0]["handle"])
+
+
 def _hint_label(conn: sqlite3.Connection, channel: str, thread: str) -> str:
     """Safe human label for a freshness hint.
 
@@ -162,7 +178,8 @@ def _hint_label(conn: sqlite3.Connection, channel: str, thread: str) -> str:
         pick = safe_stored or safe_titled
     pick = pick or safe_thread
     if pick:
-        return pick
+        return presentation.as_guess(pick) if _is_guessed_thread(conn, channel, thread) \
+            else pick
     raw = thread_name or (channel or "").strip()
     if not raw:
         return "unknown"
