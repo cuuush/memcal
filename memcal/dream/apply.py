@@ -740,9 +740,12 @@ def _sole_unresolved_handle(conn, bundle, channel: str, thread: str) -> str | No
         if "from_me" in keys and row["from_me"]:
             continue
         handle = (row["handle"] or "").strip()
-        if handle and not identity.resolve(conn, handle):
+        if handle:
             handles.add(identity.normalize(handle))
-    return next(iter(handles)) if len(handles) == 1 else None
+    # Resolve once per distinct handle, not once per line, then require a lone sender
+    # nobody has named yet.
+    unresolved = [h for h in handles if not identity.resolve(conn, h)]
+    return unresolved[0] if len(handles) == 1 and len(unresolved) == 1 else None
 
 
 def _apply_thread_names(conn, cfg: Config, bundle, diff: dict, *,
@@ -768,8 +771,10 @@ def _apply_thread_names(conn, cfg: Config, bundle, diff: dict, *,
         handle = _sole_unresolved_handle(conn, bundle, channel, thread)
         if not handle:
             continue
+        # commit=False: this runs inside apply_diffs' atomic BEGIN/commit unit, so the
+        # naming rides that transaction rather than committing partial state mid-loop.
         if identity.guess_name(conn, handle, name, channel=channel,
-                               why=str(entry.get("why") or "")):
+                               why=str(entry.get("why") or ""), commit=False):
             counts["name:guessed"] += 1
             log.append(f"named     {handle} → maybe {name}")
 
