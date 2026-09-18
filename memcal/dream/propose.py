@@ -588,6 +588,27 @@ QUESTION_REPAIR_SCHEMA = {
 }
 
 
+THREAD_REPAIR_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["diffs"],
+    "properties": {
+        "diffs": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["bundle", "threads"],
+                "properties": {
+                    "bundle": {"type": "string"},
+                    "threads": {"type": "array", "items": THREAD_NAME_DIFF},
+                },
+            },
+        },
+    },
+}
+
+
 def _question_entries(payload: dict, bundle: str) -> list[dict]:
     for entry in payload.get("diffs") or []:
         if isinstance(entry, dict) and str(entry.get("bundle") or "").lower() == bundle:
@@ -726,6 +747,112 @@ def _repair_question_coverage(client: CompletionClient, cfg: Config, prefix: str
         _defer_incomplete_question_bundles(payload, incomplete)
     payload.setdefault("_coverage_errors", []).extend(errors)
     return payload, Turn("question-repair", repair, repair_payload)
+
+
+def _diff_entry(payload: dict, bid: str) -> dict:
+    """The diff entry for a bundle id, created empty if the model returned none."""
+    for entry in payload.get("diffs") or []:
+        if isinstance(entry, dict) and str(entry.get("bundle") or "").lower() == bid:
+            return entry
+    entry = {"bundle": bid, **{field: [] for field in EMPTY_DIFF}}
+    payload.setdefault("diffs", []).append(entry)
+    return entry
+
+
+def _lone_nameless_thread(bundle: Bundle) -> tuple[str, str] | None:
+    """`(channel, thread)` when a bundle is one nameless sender, else None.
+
+    A `thread:` entity is one identity resolution could not put a name to; a single
+    non-me handle in its lines makes it a DM or an automated 1:1 rather than a group;
+    and a label that is not name-shaped means it still reads as a raw id. Those three
+    together are exactly the sender a freshness hint would otherwise print as a number.
+    """
+    from .. import identity                                          # noqa: PLC0415
+    kind, _, rest = str(bundle.entity or "").partition(":")
+    # `title` is the conversation's own display name (a source label, else the raw
+    # thread id). `label` carries the channel prefix, so it is the wrong thing to
+    # name-check — an unnamed number reads as "imessage:+1…", which looks name-shaped.
+    if kind != "thread" or identity.name_shaped(bundle.title):
+        return None
+    channel, _, thread = rest.partition(":")
+    handles = {(row["handle"] or "").strip()
+               for row in bundle.items
+               if "handle" in row.keys() and (row["handle"] or "").strip()
+               and not ("from_me" in row.keys() and row["from_me"])
+               and str(row["channel"]) == channel
+               and str(row["thread"] or "") == thread}
+    return (channel, thread) if len(handles) == 1 else None
+
+
+def _name_gaps(group: list[Bundle], payload: dict) -> dict[str, tuple[Bundle, str, str]]:
+    """Bundles that drew a row from a lone nameless sender and did not name it."""
+    by_id = {bundle_id(b.entity): b for b in group}
+    gaps: dict[str, tuple[Bundle, str, str]] = {}
+    for entry in payload.get("diffs") or []:
+        if not isinstance(entry, dict):
+            continue
+        bid = str(entry.get("bundle") or "").strip().lower()
+        bundle = by_id.get(bid)
+        if bundle is None:
+            continue
+        if not ((entry.get("events") or []) or (entry.get("todos") or [])):
+            continue                          # drew nothing; nothing to name for
+        target = _lone_nameless_thread(bundle)
+        if not target:
+            continue
+        already = any(isinstance(item, dict) and str(item.get("name") or "").strip()
+                      for item in (entry.get("threads") or []))
+        if already:
+            continue
+        gaps[bid] = (bundle, target[0], target[1])
+    return gaps
+
+
+def _repair_thread_names(client: CompletionClient, cfg: Config, prefix: str, body: str,
+                         group: list[Bundle], payload: dict, reply: Reply
+                         ) -> tuple[dict, Turn | None]:
+    """One bounded continuation naming senders a row was drawn from but left nameless.
+
+    The deterministic half of naming: the prompt asks the model to name as it goes, and
+    this refuses to let it forget. A new sender must be identifiable, so where a row was
+    drawn from a lone nameless conversation and no name came back, the model is shown that
+    exact gap and asked to fill it — a name is required.
+    """
+    if prompt_version(cfg) != "v2":
+        return payload, None
+    gaps = _name_gaps(group, payload)
+    if not gaps:
+        return payload, None
+    lines = ["You drew a row from a conversation whose sender has no name, but left it "
+             "nameless. A name is required. For each bundle below return a `threads` "
+             "entry naming that conversation — invent a short, literal name from what its "
+             "messages say. Return only `diffs` with those `threads`; change nothing else."]
+    for bid, (bundle, channel, thread) in gaps.items():
+        lines.append(f"BUNDLE {bid} — conversation {channel}/{thread} ({bundle.label})")
+    ask = "\n".join(lines)
+    said = (reply.text or "").strip() or _json.dumps(payload, ensure_ascii=False)
+    repair = client.complete(
+        model=cfg.propose_model, prefix=prefix, suffix=body,
+        schema=THREAD_REPAIR_SCHEMA, schema_name="memcal_thread_repair",
+        max_tokens=min(4000, 500 + 200 * len(gaps)),
+        reasoning_effort=cfg.reasoning_effort or None,
+        turns=[{"role": "assistant", "content": said},
+               {"role": "user", "content": ask}],
+    )
+    repair_payload = repair.data if isinstance(repair.data, dict) else {}
+    generation_id = (getattr(repair, "generation_id", "") or "").strip()
+    for entry in repair_payload.get("diffs") or []:
+        if not isinstance(entry, dict):
+            continue
+        bid = str(entry.get("bundle") or "").strip().lower()
+        if bid not in gaps:
+            continue
+        names = [n for n in (entry.get("threads") or []) if isinstance(n, dict)]
+        for name in names:
+            if generation_id:
+                name["_generation_id"] = generation_id
+        _diff_entry(payload, bid).setdefault("threads", []).extend(names)
+    return payload, Turn("name-repair", repair, repair_payload)
 
 
 def _says_me(row) -> bool:
@@ -1098,6 +1225,10 @@ def propose_group(client: CompletionClient, cfg: Config, prefix: str,
     turns = [Turn("", reply, payload)]
     if repair:
         turns.append(repair)
+    payload, name_repair = _repair_thread_names(
+        client, cfg, prefix, body, group, payload, reply)
+    if name_repair:
+        turns.append(name_repair)
     return group, payload, turns
 
 
@@ -1162,6 +1293,10 @@ def _propose_staged(client: CompletionClient, cfg: Config, prefix: str, group: l
             client, cfg, prefix, opening, group, merged, done[-1].reply, reviews)
         if repair:
             done.append(repair)
+        merged, name_repair = _repair_thread_names(
+            client, cfg, prefix, opening, group, merged, done[-1].reply)
+        if name_repair:
+            done.append(name_repair)
     return group, merged, done
 
 
