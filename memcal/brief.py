@@ -109,6 +109,12 @@ FRESHNESS_HINT_UNREVIEWED_FORMAT = (
     "memcal_activity(handle={handle}) before giving current details."
 )
 
+#: Appended to a freshness hint when a guessed sender keeps proving relevant. Quiet
+#: guesses are never nudged — they age out — so this only fires once one has drawn hints
+#: across enough distinct days (MEMCAL_FRESHNESS_GUESS_NUDGE_DAYS).
+FRESHNESS_GUESS_NUDGE = (
+    " This name is a guess; `memcal who` to confirm or rename it.")
+
 #: Phone-ish / long opaque ids must never appear in a brief hint label.
 _PHONE_LIKE = re.compile(r"^\+?[\d\s\-().]{7,}$")
 _LONG_HEX = re.compile(r"^[0-9a-fA-F\-_]{24,}$")
@@ -201,7 +207,18 @@ def _format_hint_count(total: int) -> str:
     return str(total)
 
 
-def _freshness_hint(conn: sqlite3.Connection, event) -> str | None:
+def _thread_active_days(conn: sqlite3.Connection, channel: str, thread: str) -> int:
+    """Distinct days this conversation received inbound traffic — its persistence."""
+    if not thread:
+        return 0
+    row = conn.execute(
+        "SELECT count(DISTINCT substr(ts, 1, 10)) AS d FROM archive"
+        " WHERE channel = ? AND coalesce(thread, '') = ? AND from_me = 0",
+        (channel, thread)).fetchone()
+    return int(row["d"] or 0) if row else 0
+
+
+def _freshness_hint(conn: sqlite3.Connection, cfg: Config, event) -> str | None:
     """One compact warning when a plan's linked sources have new traffic.
 
     Says the plan *may* have changed and names how to read the messages. It
@@ -229,9 +246,18 @@ def _freshness_hint(conn: sqlite3.Connection, event) -> str | None:
     # thread cannot dominate the brief (2351-style).
     template = (FRESHNESS_HINT_FORMAT if (found["reviewed"] or found["mark"])
                 else FRESHNESS_HINT_UNREVIEWED_FORMAT)
-    return template.format(
+    hint = template.format(
         where=where, count=_format_hint_count(found["strong_total"]),
         extra=extra, handle=handle)
+    # A guess that keeps drawing hints across enough distinct days has earned a check:
+    # append the confirm nudge. A quiet guess never reaches the threshold and is left
+    # to age out silently.
+    channel, thread = first["channel"], first.get("thread") or ""
+    nudge_days = getattr(cfg, "freshness_guess_nudge_days", 0)
+    if (nudge_days and _is_guessed_thread(conn, channel, thread)
+            and _thread_active_days(conn, channel, thread) >= nudge_days):
+        hint += FRESHNESS_GUESS_NUDGE
+    return hint
 
 
 def _collection_line(conn: sqlite3.Connection, cfg: Config) -> str | None:
@@ -329,7 +355,7 @@ def _backlog_lines(conn: sqlite3.Connection, cfg: Config,
     return []
 
 
-def _block_hints(conn: sqlite3.Connection, ordered) -> dict:
+def _block_hints(conn: sqlite3.Connection, cfg: Config, ordered) -> dict:
     """Precompute one block's hints in emission order, children included.
 
     One `pending` lookup per event up front, so the overflow line below can
@@ -337,7 +363,7 @@ def _block_hints(conn: sqlite3.Connection, ordered) -> dict:
     """
     hints = {}
     for ev in ordered:
-        hint = _freshness_hint(conn, ev)
+        hint = _freshness_hint(conn, cfg, ev)
         if hint:
             hints[ev.id] = hint
     return {"hints": hints,
@@ -394,7 +420,7 @@ def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date, *,
         for ev in mains:
             ordered.append(ev)
             ordered.extend(events.children_of(conn, ev.id))
-        state = _block_hints(conn, ordered)
+        state = _block_hints(conn, cfg, ordered)
         for ev in mains:
             marker = "· " if db.parse_date(ev.date) < ref else ""
             lines.append(f"{source_tag('event', ev.id)} {marker}"
@@ -445,7 +471,7 @@ def _later_block(conn: sqlite3.Connection, cfg: Config, ref: date, *,
     via = attribution(conn)
     asked = todos.questions_by_event(conn)
     lines = ["## Later"]
-    state = _block_hints(conn, shown)
+    state = _block_hints(conn, cfg, shown)
     for ev in shown:
         who = f" ({ev.subject})" if ev.needs_subject() else ""
         invite = [ev.plain_state(), f"invite: {events._short_url(ev.rsvp_url)}"] \

@@ -587,6 +587,32 @@ class TestFreshnessCorrectness81(_Base):
         self.assertNotIn(phone, text)
         self.assertIn("maybe: Tire shop scheduling", text)
 
+    def test_a_persistent_guess_earns_a_confirm_nudge_a_quiet_one_does_not(self):
+        from memcal import identity
+        phone = "+15550001111"
+        m1 = self.collect("imessage", "d1", "appointment confirmed", phone,
+                          handle=phone, ts="2026-09-08T10:00:00-04:00")
+        self.collect("imessage", "d2", "reminder", phone, handle=phone,
+                     ts="2026-09-09T10:00:00-04:00")
+        self.collect("imessage", "d3", "update", phone, handle=phone,
+                     ts="2026-09-10T10:00:00-04:00")
+        threads.record(self.conn, "imessage", phone, label=None, is_group=False)
+        identity.guess_name(self.conn, phone, "Tire shop", channel="imessage")
+        self.conn.commit()
+        event, _ = live.add_event(self.conn, self.cfg, title="Tire appointment",
+                                  when="2026-09-12", origin=live.Origin.of("test"))
+        live.update_event(self.conn, self.cfg, event.key, note="plan",
+                          origin=live.Origin.of("test", cited=[m1]))
+        self.collect("imessage", "d4", "cancelled", phone, handle=phone)
+        # Four distinct active days ≥ threshold: the guess has earned a check.
+        self.cfg.freshness_guess_nudge_days = 3
+        text = brief.render(self.conn, self.cfg)
+        self.assertIn("maybe: Tire shop", text)
+        self.assertIn("memcal who", text)
+        # A higher bar (or 0) leaves the same guess un-nudged — quiet guesses age out.
+        self.cfg.freshness_guess_nudge_days = 0
+        self.assertNotIn("memcal who", brief.render(self.conn, self.cfg))
+
     def test_chat_label_preferred_when_richer_than_raw_thread(self):
         phone = "+15559876543"
         m1 = self.collect("imessage", "m1", "poker saturday?", phone,
