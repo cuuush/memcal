@@ -17,6 +17,18 @@ STAGE_LABELS = {
 }
 
 
+#: A name dream invented for an otherwise-nameless sender is shown as a guess until a
+#: real source confirms it. Marked, never hidden — the reader sees both the guess and
+#: that it is one.
+GUESS_PREFIX = "maybe: "
+
+
+def as_guess(name: str) -> str:
+    """Mark a name as a guess, unless it already carries the marker."""
+    text = (name or "").strip()
+    return text if not text or text.startswith(GUESS_PREFIX) else GUESS_PREFIX + text
+
+
 #: Agent turns are user-authored context, not independent evidence.
 SELF_WRITTEN_STREAM = "agent"
 SELF_WRITTEN_NOTE = ("written by you earlier this session — not independent evidence, "

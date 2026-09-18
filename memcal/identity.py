@@ -48,6 +48,17 @@ def resolve(conn: sqlite3.Connection, handle: str) -> str | None:
     return row["person"] if row else None
 
 
+def is_guessed(conn: sqlite3.Connection, handle: str) -> bool:
+    """Is this handle's name a dream guess still awaiting confirmation?
+
+    A confirmation (`memcal who --confirm`) rewrites the link at cli authority, so the
+    source no longer ends in `dream-guess` and this reads False.
+    """
+    row = conn.execute("SELECT source FROM handles WHERE handle = ?",
+                       (normalize(handle),)).fetchone()
+    return bool(row) and str(row["source"] or "").endswith(":dream-guess")
+
+
 # `handles.source` identifies the evidence behind a link, not its writer. A write
 # lands only when it is at least as strong as the existing link.
 
@@ -143,6 +154,11 @@ def guess_name(conn: sqlite3.Connection, handle: str, name: str | None, *,
         return False
     if not link(conn, h, clean, source=f"{(channel or 'cli')}:dream-guess"):
         return False               # better evidence already names this handle
+    # Surface the name where readers look: `_speakers` (and so thread titles and the
+    # freshness hint) reads `archive.person`, not the handles table. Fill only blanks —
+    # a guess never overwrites a person a stronger source already wrote onto a row.
+    conn.execute("UPDATE archive SET person = ? WHERE handle = ?"
+                 " AND (person IS NULL OR person = '')", (clean, h))
     # One live guess per handle: a refined guess replaces the prior one.
     conn.execute("DELETE FROM identity_assumptions"
                  " WHERE kind = 'name' AND also = ? AND state = 'assumed'", (h,))

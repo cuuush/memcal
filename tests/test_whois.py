@@ -348,6 +348,24 @@ class TestADreamGuessIsTheWeakestName(Base):
         self.assertEqual(identity.resolve(self.conn, "+18005551212"), "Costco Tire")
         self.assertEqual(self._assumed_names(), [])       # no longer an open guess
 
+    def test_is_guessed_tracks_the_guess_and_clears_on_confirm(self):
+        identity.guess_name(self.conn, "+18005551212", "Costco Tire", channel="imessage")
+        self.assertTrue(identity.is_guessed(self.conn, "+18005551212"))
+        whois.confirm(self.conn, self._assumed_names()[0]["id"])
+        self.assertFalse(identity.is_guessed(self.conn, "+18005551212"))
+
+    def test_a_guess_backfills_the_name_onto_existing_lines(self):
+        num = "+18005551212"
+        self.conn.execute(
+            "INSERT INTO archive(channel, external_id, ts, text, handle, thread,"
+            " from_me, created_at) VALUES('imessage','a1',?, 'hi', ?, ?, 0, ?)",
+            (db.now(), num, num, db.now()))
+        self.conn.commit()
+        identity.guess_name(self.conn, num, "Tire shop", channel="imessage")
+        person = self.conn.execute(
+            "SELECT person FROM archive WHERE external_id='a1'").fetchone()["person"]
+        self.assertEqual(person, "Tire shop")
+
     def test_a_garbled_guess_is_refused(self):
         self.assertFalse(identity.guess_name(self.conn, "+18005551212", "   ",
                                              channel="imessage"))
