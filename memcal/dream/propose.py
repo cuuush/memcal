@@ -59,11 +59,27 @@ QUESTION_DIFF = {
     },
 }
 
+# A name invented for a conversation whose sender has none — a bare number or opaque
+# handle. The `threads` array is empty when nothing needs naming; each entry it does
+# carry is required in full (strict json_schema lists every key).
+THREAD_NAME_DIFF = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["channel", "thread", "name", "why"],
+    "properties": {
+        "channel": {"type": "string", "description": "the conversation's channel"},
+        "thread": {"type": "string", "description": "the conversation id as shown"},
+        "name": {"type": "string",
+                 "description": "a short human name for this otherwise-nameless sender"},
+        "why": _STR,
+    },
+}
+
 # One bundle's diff. The batch schema below wraps a list of these.
 BUNDLE_DIFF = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["entity", "events", "todos", "wiki", "questions"],
+    "required": ["entity", "events", "todos", "wiki", "questions", "threads"],
     "properties": {
         "entity": {"type": "string",
                    "description": "echo the BUNDLE header exactly, so diffs route back"},
@@ -128,6 +144,9 @@ BUNDLE_DIFF = {
             },
         },
         "questions": {"type": "array", "items": QUESTION_DIFF},
+        "threads": {"type": "array", "items": THREAD_NAME_DIFF, "description":
+                    "names for otherwise-nameless conversations you drew a row from; "
+                    "an empty list when nothing needs naming"},
     },
 }
 
@@ -345,7 +364,10 @@ def stage_schema(stage: stage_plan_mod.Stage, *, first: bool) -> dict:
                        "diffs": diffs},
     }
 
-EMPTY_DIFF = {"events": [], "todos": [], "wiki": [], "questions": [], "series": []}
+#: The diff arrays routing, merge, and staged-merge normalize and carry. `threads`
+#: rides here like the rest; it is empty on the common bundle that needs no naming.
+EMPTY_DIFF = {"events": [], "todos": [], "wiki": [], "questions": [], "series": [],
+              "threads": []}
 
 
 ACTIVE_DAYS = 90

@@ -281,6 +281,12 @@ SETTINGS: tuple[Setting, ...] = (
             "word overlap. Off until the wake eval set passes; while off, the "
             "post-apply wake stage makes no model call and waiters stay asleep.",
             "dream", kind="bool"),
+    Setting("MEMCAL_DREAM_NAMING", "dream_naming", "Name unknown senders",
+            "When dream draws a row from a thread whose sender has no name — a bare "
+            "number or opaque handle — let it invent a short name so freshness hints "
+            "read as something. The guess is the weakest evidence there is: a "
+            "contact, a platform name, or `memcal who` always overrides it.",
+            "dream", kind="bool"),
 
     # ------------------------------------------------------------------- publish --
     Setting("MEMCAL_PUBLISH_CALENDAR", "publish_calendar", "Publish to calendar",

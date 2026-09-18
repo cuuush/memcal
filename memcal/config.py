@@ -154,6 +154,10 @@ class Config:
     # and leaves waiters asleep.
     semantic_wakes: bool = False
 
+    # Let dream invent a name for a thread from an otherwise-nameless sender when it
+    # draws a row from it (weakest evidence; any real identity overrides it).
+    dream_naming: bool = True
+
     # Maximum concurrent API requests in flight.
     max_parallel: int = 8
 
@@ -259,6 +263,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
         ("MEMCAL_SAME_EVENT_TOKENS", "same_event_tokens", int),
         ("MEMCAL_SAME_EVENT_POOR_TOKENS", "same_event_poor_tokens", int),
         ("MEMCAL_SEMANTIC_WAKES", "semantic_wakes", _flag),
+        ("MEMCAL_DREAM_NAMING", "dream_naming", _flag),
         ("MEMCAL_COLLECT_INTERVAL_MINUTES", "collect_interval_minutes", int),
         ("MEMCAL_REMIND_DEADLINES", "remind_deadlines", _flag),
         ("MEMCAL_IMESSAGE_BACKEND", "imessage_backend", str),
