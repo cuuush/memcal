@@ -126,6 +126,43 @@ class TestPreferencesLeavesTheWiki(Base):
         self.assertEqual(page.slots["favorite animal"]["value"], "otters")
         self.assertFalse((self.cfg.wiki_dir / "preferences").exists())
 
+    def test_staged_write_to_a_legacy_page_forks_no_second_file(self):
+        legacy = self.cfg.wiki_dir / "preferences"
+        legacy.mkdir(parents=True, exist_ok=True)
+        (legacy / "riley.md").write_text(
+            "# Riley\n\n## Facts\n\n- **work**: baker  <!-- test 2026-01-01 -->\n",
+            encoding="utf-8")
+        self.conn.execute("BEGIN")
+        try:
+            wiki.set_slot(self.cfg.wiki_dir, "riley", "work", "cook",
+                          section="preferences", conn=self.conn, commit=False)
+            staged = [r["path"] for r in self.conn.execute(
+                "SELECT path FROM wiki_pending_writes")]
+            self.assertEqual(staged, ["preferences/riley.md"])
+            self.assertFalse(
+                (self.cfg.wiki_dir / "people" / "riley.md").exists())
+        finally:
+            self.conn.rollback()
+
+    def test_migration_conflict_prefers_newer_evidence_and_keeps_history(self):
+        people = self.cfg.wiki_dir / "people"
+        people.mkdir(parents=True, exist_ok=True)
+        (people / "riley.md").write_text(
+            "# Riley\n\n## Facts\n\n"
+            "- **work**: baker  <!-- test 2026-01-01 -->\n", encoding="utf-8")
+        legacy = self.cfg.wiki_dir / "preferences"
+        legacy.mkdir(parents=True, exist_ok=True)
+        (legacy / "riley.md").write_text(
+            "# Riley\n\n## Facts\n\n"
+            "- **work**: cook  <!-- test 2026-09-01 -->\n", encoding="utf-8")
+        self.assertEqual(
+            wiki.migrate_preferences(self.cfg.wiki_dir, conn=self.conn), ["riley"])
+        page = wiki.read(self.cfg.wiki_dir, "riley")
+        self.assertEqual(page.slots["work"]["value"], "cook")
+        trail = wiki.slot_history(self.conn, "riley", "work")
+        self.assertEqual([(r["old_value"], r["new_value"]) for r in trail],
+                         [("baker", "cook")])
+
     def test_sections_hold_no_preferences(self):
         self.assertNotIn("preferences", wiki.SECTIONS)
         self.assertEqual(wiki.SLOTS.get("preferences", None), None)
@@ -135,16 +172,16 @@ class TestSelfPageSortsFirst(Base):
     """The user's own page leads the index and carries the mark."""
 
     def test_self_page_is_first_and_flagged(self):
-        identity.set_me(self.conn, "Christopher Cushman")
+        identity.set_me(self.conn, "Casey", "Casey Morgan")
         wiki.set_slot(self.cfg.wiki_dir, "amy", "work", "baker")
-        wiki.set_slot(self.cfg.wiki_dir, "christopher-cushman", "work",
+        wiki.set_slot(self.cfg.wiki_dir, "casey-morgan", "work",
                       "carpenter")
         out = web_memory.wiki_pages(self.conn, self.cfg)
-        self.assertEqual(out["pages"][0]["slug"], "christopher-cushman")
+        self.assertEqual(out["pages"][0]["slug"], "casey-morgan")
         self.assertTrue(out["pages"][0]["is_self"])
         self.assertFalse(any(p["is_self"] for p in out["pages"][1:]))
         profile = wiki.profile(self.conn, self.cfg.wiki_dir,
-                               "christopher-cushman")
+                               "casey-morgan")
         self.assertTrue(profile["is_self"])
         other = wiki.profile(self.conn, self.cfg.wiki_dir, "amy")
         self.assertFalse(other["is_self"])

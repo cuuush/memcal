@@ -423,6 +423,38 @@ def write(wiki_dir: Path, page: Page) -> Path:
     return page.path
 
 
+def write_raw(wiki_dir: Path, page: Page, text: str) -> Path:
+    """Write hand-edited markdown verbatim, without re-rendering.
+
+    Re-rendering would normalize prose, slot order and comments; a raw edit
+    must preserve exactly what was typed. Atomic like `write`.
+    """
+    if not text.endswith("\n"):
+        text += "\n"
+    _write_rendered(page.path, text)
+    _ALIAS_CACHE.pop(wiki_dir, None)
+    return page.path
+
+
+def record_raw_edit(conn, page: Page, text: str, *, source: str = "you") -> None:
+    """Record history for the slot values a raw markdown edit changed.
+
+    A verbatim file write carries no staged page, so without this a changed
+    value would leave no `slot_history` — and write-precedence (newer evidence
+    wins) would read the user's edit as old. Commits nothing; the caller owns
+    the transaction.
+    """
+    before = page.path.read_text(encoding="utf-8") if page.path.exists() else ""
+    old_slots = (_parse_content(before, page.path, page.slug, page.section).slots
+                 if before else {})
+    new_slots = _parse_content(text, page.path, page.slug, page.section).slots
+    for slot_name, info in new_slots.items():
+        old_value = (old_slots.get(slot_name) or {}).get("value")
+        if old_value != info.get("value"):
+            record_slot_change(conn, page.slug, slot_name, old_value,
+                               info.get("value"), source=source)
+
+
 def _write_rendered(path: Path, content: str) -> None:
     """Publish one page without ever exposing a partly-written markdown file."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -471,7 +503,7 @@ def recover(conn, wiki_dir: Path) -> list[Path]:
         raise RuntimeError("recover wiki pages only between SQLite transactions")
     # Legacy `preferences/` files move to `people/` first, so a staged write
     # below reads the migrated page rather than forking a second file.
-    migrate_preferences(wiki_dir)
+    migrate_preferences(wiki_dir, conn=conn)
     rows = conn.execute(
         "SELECT id, path, content, expected_hash"
         " FROM wiki_pending_writes ORDER BY id").fetchall()
@@ -584,8 +616,11 @@ def set_slot(wiki_dir: Path, slug: str, slot: str, value: str, *,
     with _wiki_write(conn, wiki_dir, commit=commit):
         page = (_page_for_write(conn, wiki_dir, slug, section) if conn is not None
                 else read(wiki_dir, slug))
-        if page is None:
+        is_new = page is None
+        if is_new:
             normalized = canonical(wiki_dir, slug)
+            if section not in SECTIONS:
+                section = "people"
             page = Page(slug=normalized, section=section,
                         path=path_for(wiki_dir, normalized, section),
                         title=normalized.replace("-", " ").title())
@@ -594,8 +629,12 @@ def set_slot(wiki_dir: Path, slug: str, slot: str, value: str, *,
         old_path = page.path
         if section not in SECTIONS:
             section = page.section if page.section in SECTIONS else "people"
-            page.section = section
-            page.path = path_for(wiki_dir, page.slug, section)
+            if is_new or conn is None:
+                page.section = section
+                page.path = path_for(wiki_dir, page.slug, section)
+            # else: a staged write to an existing page keeps the read path.
+            # Repointing mid-transaction would fork a second file for one slug;
+            # recover() migrates legacy files between transactions instead.
         page.slots[name] = {
             "value": value.strip(),
             "source": source or "memcal",
@@ -674,13 +713,30 @@ SLOTS = {
 }
 
 
-def migrate_preferences(wiki_dir: Path) -> list[str]:
+def _ts_newer(a: str | None, b: str | None) -> bool | None:
+    """Is evidence timestamp `a` strictly newer than `b`?
+
+    None when either side says nothing usable — the caller keeps the status
+    quo rather than guessing. ISO dates compare lexicographically.
+    """
+    if not a or not b:
+        return None
+    try:
+        return db.parse_ts(str(a)) > db.parse_ts(str(b))
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
+def migrate_preferences(wiki_dir: Path, conn=None) -> list[str]:
     """Move stray `preferences/*.md` pages into `people/`, merging on collision.
 
     `preferences/` is not a wiki section anymore. Files left there from older
     runs still read (via `LEGACY_SECTIONS`) until this moves them. A page whose
     name collides keeps its facts; only missing slots, aliases, questions and
-    prose move across. Returns the slugs moved.
+    prose move across — except a slot set on both sides with different values,
+    where the newer evidence timestamp wins. Resolutions are recorded in
+    `slot_history` (when `conn` is given) so the displaced value stays
+    queryable instead of vanishing. Returns the slugs moved.
     """
     legacy = wiki_dir / "preferences"
     if not legacy.is_dir():
@@ -694,7 +750,27 @@ def migrate_preferences(wiki_dir: Path) -> list[str]:
         if target_path.exists():
             survivor = parse(target_path, slug, "people")
             for slot, info in incoming.slots.items():
-                survivor.slots.setdefault(slot, info)
+                current = survivor.slots.get(slot)
+                if current is None:
+                    survivor.slots[slot] = info
+                    continue
+                if (current.get("value") or "") == (info.get("value") or ""):
+                    if not current.get("lines") and info.get("lines"):
+                        current["lines"] = info["lines"]
+                    continue
+                incoming_newer = _ts_newer(info.get("ts"), current.get("ts"))
+                if incoming_newer:
+                    if conn is not None:
+                        record_slot_change(conn, slug, slot, current.get("value"),
+                                           info.get("value"),
+                                           source=info.get("source"))
+                    survivor.slots[slot] = info
+                elif conn is not None:
+                    # The survivor stands; the incoming value is still preserved
+                    # in history, tagged with where it lost.
+                    record_slot_change(conn, slug, slot, info.get("value"),
+                                       current.get("value"),
+                                       source="migrate-preferences")
             for question in incoming.questions:
                 if question not in survivor.questions:
                     survivor.questions.append(question)
@@ -710,6 +786,8 @@ def migrate_preferences(wiki_dir: Path) -> list[str]:
             _write_rendered(target_path, incoming.render())
         path.unlink()
         moved.append(slug)
+    if conn is not None:
+        conn.commit()
     if moved:
         _ALIAS_CACHE.pop(wiki_dir, None)
         try:
