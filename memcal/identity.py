@@ -162,9 +162,20 @@ def guess_name(conn: sqlite3.Connection, handle: str, name: str | None, *,
     # a guess never overwrites a person a stronger source already wrote onto a row.
     conn.execute("UPDATE archive SET person = ? WHERE handle = ?"
                  " AND (person IS NULL OR person = '')", (clean, h))
-    # One live guess per handle: a refined guess replaces the prior one.
-    conn.execute("DELETE FROM identity_assumptions"
-                 " WHERE kind = 'name' AND also = ? AND state = 'assumed'", (h,))
+    # One live guess per handle, but keep the trail: a refined guess supersedes the
+    # prior one rather than erasing it, so where a name came from and how it was
+    # revised stays queryable (state='superseded'), while `memcal who` still shows only
+    # the one live 'assumed' guess. A same-name re-guess is a no-op, not a new row.
+    prior = conn.execute(
+        "SELECT keep FROM identity_assumptions WHERE kind = 'name' AND also = ?"
+        " AND state = 'assumed'", (h,)).fetchone()
+    if prior and prior["keep"] == clean:
+        if commit:
+            conn.commit()
+        return True
+    conn.execute("UPDATE identity_assumptions SET state = 'superseded', decided_at = ?"
+                 " WHERE kind = 'name' AND also = ? AND state = 'assumed'",
+                 (db.now(), h))
     conn.execute(
         "INSERT INTO identity_assumptions(kind, keep, also, why, state, source,"
         " created_at) VALUES('name', ?, ?, ?, 'assumed', ?, ?)",

@@ -160,7 +160,7 @@ class Config:
 
     # Distinct days a guess-named thread must keep drawing freshness hints before the
     # hint asks you to confirm or rename the guess. 0 never asks.
-    freshness_guess_nudge_days: int = 3
+    freshness_guess_nudge_days: int = 5
 
     # Maximum concurrent API requests in flight.
     max_parallel: int = 8

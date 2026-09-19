@@ -340,6 +340,20 @@ class TestADreamGuessIsTheWeakestName(Base):
         self.assertEqual(identity.resolve(self.conn, "+18005551212"), "Costco Tire")
         self.assertEqual(len(self._assumed_names()), 1)
 
+    def test_a_revision_keeps_the_prior_guess_as_history(self):
+        identity.guess_name(self.conn, "+18005551212", "Costco", channel="imessage")
+        identity.guess_name(self.conn, "+18005551212", "Costco Tire", channel="imessage")
+        superseded = [r for r in whois.assumptions(self.conn, state="superseded")
+                      if r["kind"] == "name"]
+        self.assertEqual([r["keep"] for r in superseded], ["Costco"])
+        self.assertEqual([r["keep"] for r in self._assumed_names()], ["Costco Tire"])
+
+    def test_a_same_name_reguess_writes_no_new_history(self):
+        identity.guess_name(self.conn, "+18005551212", "Costco", channel="imessage")
+        identity.guess_name(self.conn, "+18005551212", "Costco", channel="imessage")
+        self.assertEqual(len(self._assumed_names()), 1)
+        self.assertEqual(whois.assumptions(self.conn, state="superseded"), [])
+
     def test_a_confirm_promotes_a_guess_to_a_settled_name(self):
         identity.guess_name(self.conn, "+18005551212", "Costco Tire", channel="imessage")
         assumption = self._assumed_names()[0]
