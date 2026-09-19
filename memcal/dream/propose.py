@@ -1424,6 +1424,32 @@ def _replay_absorb(group: list[Bundle], turns: list[dict], cfg: Config,
         good.extend((bundle, diff, saved["generation_id"]) for bundle, diff in routed)
 
 
+def _replay_single(bundle: Bundle, saved: dict, cfg: Config, good: list) -> bool:
+    """Absorb one bundle's diff out of a saved multi-bundle payload.
+
+    The saved request may have packed this bundle with neighbours that have
+    since changed — new lines, regrouped requests — so the whole-request
+    byte-match no longer holds. The prompt promises bundles are unrelated,
+    and packing claims to change nothing about correctness, so a bundle whose
+    own block still appears verbatim in the saved suffix gets the same answer
+    back regardless of who it shared the request with. Routing runs against a
+    singleton group over a copy, so diffs for the changed neighbours are
+    dropped (into a throwaway error list, never the pass log) and only this
+    bundle's diff — or its reviewed-empty — is absorbed.
+    """
+    payload = _json.loads(_json.dumps(saved["parsed"]))
+    if prompt_version(cfg) == "v2":
+        routed, _echoed = _route_v2([bundle], payload, [])
+    else:
+        routed = _route([bundle], payload, [])
+    if not routed:
+        return False
+    for _bundle, diff in routed:
+        _resolve_cites(_bundle, diff)
+    good.extend((_bundle, diff, saved["generation_id"]) for _bundle, diff in routed)
+    return True
+
+
 def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
                 bundles: list[Bundle], *,
                 run_id: int | None = None,
@@ -1494,7 +1520,14 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
 
         # Reuse before sending: a group whose entities and suffix byte-match a
         # saved request is the same question the model already answered. Anything
-        # else — new lines, new calendar state, regrouped bundles — proposes fresh.
+        # else — new lines, new calendar state — proposes fresh for the bundle
+        # that changed.
+        #
+        # Packing sorts by size, so one new line reorders and regroups every
+        # request after it: whole-group matching alone would re-read untouched
+        # conversations just because they moved. The per-bundle fallback below
+        # absorbs each unchanged bundle out of its saved request on its own
+        # block, and only the changed remainder is repacked and sent.
         order = list(range(len(batch)))
         if replay:
             kept = []
@@ -1509,9 +1542,67 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
                     kept.append(index)
             order = kept
 
-        jobs = [(batch[i], suffixes[i], {bundle_id(bundle.entity): reviews[bundle_id(bundle.entity)]
-                                         for bundle in batch[i] if bundle_id(bundle.entity) in reviews})
-                for i in order]
+        send_groups: list[list[Bundle]] = [batch[i] for i in order]
+        send_suffixes: list[str] = [suffixes[i] for i in order]
+        if replay and order:
+            # Which saved turns mention each entity. Ambiguous when a bundle
+            # was asked about twice (a second look over the same singleton):
+            # those re-propose fresh rather than guess which answer to keep.
+            by_entity: dict[str, list[dict]] = {}
+            for fset, turns in replay.items():
+                for turn in turns:
+                    for entity in turn.get("entities") or ():
+                        by_entity.setdefault(str(entity), []).append(turn)
+            cache: dict[str, str] = {}
+            absorbed: set[str] = set()
+            for group in [batch[i] for i in order]:
+                for bundle in group:
+                    if bundle.entity in absorbed:
+                        continue
+                    candidates = by_entity.get(bundle.entity, [])
+                    if len(candidates) != 1:
+                        continue
+                    saved = candidates[0]
+                    block = build_bundle_block(cfg, bundle, conn, cache=cache)
+                    if block not in (saved.get("suffix") or ""):
+                        continue
+                    if _replay_single(bundle, saved, cfg, good):
+                        absorbed.add(bundle.entity)
+                        replayed_calls.append(saved)
+                        seen.append(([bundle], saved.get("suffix") or "",
+                                     ([bundle], saved["parsed"], [])))
+                        if progress:
+                            progress("propose_request", {
+                                "index": 0,
+                                "bundles": 1,
+                                "label": bundle.label,
+                                "ok": True,
+                                "error": "",
+                            })
+            if absorbed:
+                fresh = [b for group in [batch[i] for i in order]
+                         for b in group if b.entity not in absorbed]
+                if fresh:
+                    send_groups = pack(cfg, fresh, conn)
+                    send_suffixes = [build_suffix(cfg, g, conn) for g in send_groups]
+                else:
+                    send_groups, send_suffixes = [], []
+
+        def fresh_finished(index, outcome) -> None:
+            if not progress:
+                return
+            group = send_groups[index]
+            progress("propose_request", {
+                "index": index + 1,
+                "bundles": len(group),
+                "label": ", ".join(b.label for b in group[:2]),
+                "ok": not isinstance(outcome, Exception),
+                "error": str(outcome) if isinstance(outcome, Exception) else "",
+            })
+
+        jobs = [(send_groups[i], send_suffixes[i], {bundle_id(bundle.entity): reviews[bundle_id(bundle.entity)]
+                                         for bundle in send_groups[i] if bundle_id(bundle.entity) in reviews})
+                for i in range(len(send_groups))]
         send = lambda pair: propose_group(  # noqa: E731
             client, cfg, prefix, pair[0], suffix=pair[1], reviews=pair[2])
 
@@ -1528,7 +1619,7 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
         # serialised first call: with no cache (the pinned open-weight endpoints) this is
         # pure added latency, so those keep the flat fan-out.
         results: list = []
-        done = lambda i, out: finished(order[i], out)  # noqa: E731
+        done = lambda i, out: fresh_finished(i, out)  # noqa: E731
         if (len(jobs) > cfg.max_parallel
                 and cfg.propose_model not in llm.NO_PROMPT_CACHE):
             first = client.map(jobs[:1], send, 1, on_done=done)
@@ -1547,7 +1638,7 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
             results = client.map(jobs, send, cfg.max_parallel, on_done=done)
         again: list[list[Bundle]] = []
         for i, outcome in enumerate(results):
-            group, suffix = batch[order[i]], suffixes[order[i]]
+            group, suffix = send_groups[i], send_suffixes[i]
             seen.append((group, suffix, outcome))
             if isinstance(outcome, Exception):
                 # Before anything decides what to do about it. A request that failed is
