@@ -62,7 +62,9 @@ class ObservationsAreImmutablePublicData(unittest.TestCase):
 
 class CollectionChronologyHolds(unittest.TestCase):
     def test_every_life_is_chronologically_sound(self):
-        for life in corpus.all_lives():
+        lives = corpus.all_lives()
+        self.assertTrue(lives)
+        for life in lives:
             self.assertEqual(chronology_ok(list(life.observations)), [], life.id)
 
 
