@@ -71,6 +71,8 @@ EVIDENCE = {
     "profile": 20,          # the platform's account name; beats a per-chat nickname
     "model": 25,            # `whois.resolve` read the whole board and concluded this
     "contact-match": 30,    # this display name is exactly somebody in Contacts
+    "user": 35,             # you confirmed/renamed a guess — beats every scan, but a
+                            # real Contacts card added later still wins
     "contacts": 40,         # Contacts itself
 }
 JUDGEMENT = 100
@@ -139,6 +141,10 @@ def link_by_name(conn: sqlite3.Connection, handle: str, seen_name: str | None,
     return resolve(conn, handle)      # something better already answers for this id
 
 
+#: How many superseded guesses to keep per handle as revision history.
+GUESS_HISTORY_KEEP = 5
+
+
 def guess_name(conn: sqlite3.Connection, handle: str, name: str | None, *,
                channel: str, why: str = "", commit: bool = True) -> bool:
     """Record dream's best-effort name for an otherwise-nameless handle.
@@ -180,6 +186,13 @@ def guess_name(conn: sqlite3.Connection, handle: str, name: str | None, *,
         "INSERT INTO identity_assumptions(kind, keep, also, why, state, source,"
         " created_at) VALUES('name', ?, ?, ?, 'assumed', ?, ?)",
         (clean, h, why or "", f"{(channel or 'cli')}:dream-guess", db.now()))
+    # Keep a trail without letting it grow without bound: a churny sender that is
+    # re-guessed nightly retains only its most recent revisions.
+    conn.execute(
+        "DELETE FROM identity_assumptions WHERE kind = 'name' AND also = ?"
+        " AND state = 'superseded' AND id NOT IN (SELECT id FROM identity_assumptions"
+        " WHERE kind = 'name' AND also = ? AND state = 'superseded'"
+        " ORDER BY id DESC LIMIT ?)", (h, h, GUESS_HISTORY_KEEP))
     if commit:
         conn.commit()
     return True

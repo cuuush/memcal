@@ -403,6 +403,27 @@ class TestADreamGuessIsTheWeakestName(Base):
         self.assertIn("no guessed sender", whois.settle_guess(self.conn, "Dad"))
         self.assertEqual(identity.resolve(self.conn, "+18005551212"), "Dad")
 
+    def test_settle_guess_with_blank_correction_confirms(self):
+        identity.guess_name(self.conn, "+18005551212", "Tire shop", channel="imessage")
+        self.assertEqual(whois.settle_guess(self.conn, "Tire shop", "   "),
+                         "confirmed Tire shop")
+        self.assertFalse(identity.is_guessed(self.conn, "+18005551212"))
+
+    def test_a_confirmed_guess_still_loses_to_a_later_contact(self):
+        identity.guess_name(self.conn, "+18005551212", "Tire shop", channel="imessage")
+        whois.settle_guess(self.conn, "Tire shop")            # user confirms the guess
+        # A real Contacts card added afterwards still wins — the invariant holds.
+        identity.link(self.conn, "+18005551212", "Discount Tire", source="contacts")
+        self.assertEqual(identity.resolve(self.conn, "+18005551212"), "Discount Tire")
+
+    def test_revision_history_is_capped(self):
+        for n in range(identity.GUESS_HISTORY_KEEP + 3):
+            identity.guess_name(self.conn, "+18005551212", f"Guess {n}",
+                                channel="imessage")
+        superseded = [r for r in whois.assumptions(self.conn, state="superseded")
+                      if r["also"] == "+18005551212"]
+        self.assertLessEqual(len(superseded), identity.GUESS_HISTORY_KEEP)
+
 
 class TestFoldingNearMissGuesses(Base):
     """One sender reached two ways is guessed near the same name each time; folding the
