@@ -191,7 +191,7 @@ class TestScoringIsNotVolume(unittest.TestCase):
             line("poker on saturday", "2026-07-27T10:00:00-04:00") for _ in range(20)])
         quiet = Bundle("person:diego", [
             line("poker on saturday", "2026-07-27T11:00:00-04:00")])
-        other = Bundle("person:julian", [
+        other = Bundle("person:avery", [
             line("poker on saturday", "2026-07-27T12:00:00-04:00")])
         scores = score_pairs([chatty, quiet, other])
         self.assertEqual(len(set(scores.values())), 1, scores)
