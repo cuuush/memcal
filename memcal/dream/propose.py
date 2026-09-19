@@ -1300,10 +1300,116 @@ def _propose_staged(client: CompletionClient, cfg: Config, prefix: str, group: l
     return group, merged, done
 
 
+def _replay_files(home, run_id, _seen=None) -> list[dict]:
+    """Saved call files for a run, following resume manifests backwards.
+
+    A resumed run replays calls without saving new files for them, so its own
+    shard holds only its fresh calls plus a `replay.json` manifest naming the
+    run it resumed. Follow the chain so resuming a resume still finds the
+    original completions.
+    """
+    seen = _seen if _seen is not None else set()
+    if run_id is None or run_id in seen:
+        return []
+    seen.add(run_id)
+    out = []
+    try:
+        paths = sorted(calls.shard(home, run_id).glob("*.json"))
+    except OSError:
+        paths = []
+    for path in paths:
+        if path.name.startswith("fail-") or path.name == "replay.json":
+            continue
+        try:
+            out.append(_json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    try:
+        manifest = _json.loads(
+            (calls.shard(home, run_id) / "replay.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        manifest = {}
+    resumed = manifest.get("resumed_from") or []
+    for prev in ([resumed] if isinstance(resumed, int) else resumed):
+        out.extend(_replay_files(home, prev, seen))
+    return out
+
+
+def load_replay(conn: sqlite3.Connection, home, run_id: int) -> dict:
+    """Spent propose turns worth reusing, keyed by request bundle entities.
+
+    One entry per saved turn: generation id, parsed payload, request suffix,
+    and source run. Only clean single-turn requests qualify — a staged plan or
+    a repair turn only makes sense with its sibling turns, so those re-propose
+    fresh. Turns whose rows already applied (they have provenance) are skipped:
+    replaying them would restamp what is already written.
+    """
+    blobs = [b for b in _replay_files(home, run_id)
+             if isinstance(b, dict)
+             and b.get("stage") == "propose"
+             and isinstance(b.get("parsed"), dict)
+             and (b.get("finish_reason") or "") == "stop"
+             and not b.get("truncated")
+             and (b.get("generation_id") or "").strip()]
+    by_request: dict[tuple, list[dict]] = {}
+    for blob in blobs:
+        refs = blob.get("bundles") or []
+        entities = tuple(sorted(str(r.get("entity") or "") for r in refs
+                                if isinstance(r, dict)))
+        if not entities:
+            continue
+        by_request.setdefault((str(blob.get("label") or ""), entities), []).append(blob)
+    applied = {row[0] for row in conn.execute(
+        "SELECT DISTINCT generation_id FROM provenance"
+        " WHERE generation_id IS NOT NULL AND generation_id <> ''")}
+    index: dict[frozenset, list[dict]] = {}
+    for (_label, entities), group in by_request.items():
+        if len(group) != 1:
+            continue
+        blob = group[0]
+        if "_question_coverage_checked" in blob["parsed"] \
+                or "_coverage_errors" in blob["parsed"]:
+            continue
+        gen = blob["generation_id"].strip()
+        if gen in applied:
+            continue
+        index.setdefault(frozenset(entities), []).append({
+            "generation_id": gen,
+            "entities": entities,
+            "parsed": blob["parsed"],
+            "suffix": str(blob.get("suffix") or ""),
+            "at": str(blob.get("at") or ""),
+            "source_run": blob.get("run_id"),
+        })
+    for turns in index.values():
+        turns.sort(key=lambda turn: turn["at"])
+    return index
+
+
+def _replay_absorb(group: list[Bundle], turns: list[dict], cfg: Config,
+                   good: list, errors: list[str]) -> None:
+    """Route saved turns back to their bundles without spending a model call.
+
+    The same `_route` + `_resolve_cites` the live path runs, over a copy of the
+    saved payload (routing mutates). Generation ids are the original calls',
+    so provenance still answers which call wrote each row.
+    """
+    for saved in turns:
+        payload = _json.loads(_json.dumps(saved["parsed"]))
+        if prompt_version(cfg) == "v2":
+            routed, _echoed = _route_v2(group, payload, errors)
+        else:
+            routed = _route(group, payload, errors)
+        for bundle, diff in routed:
+            _resolve_cites(bundle, diff)
+        good.extend((bundle, diff, saved["generation_id"]) for bundle, diff in routed)
+
+
 def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
                 bundles: list[Bundle], *,
                 run_id: int | None = None,
-                progress=None) -> tuple[list[tuple[Bundle, dict]], list[str], list[str]]:
+                progress=None,
+                replay: dict | None = None) -> tuple[list[tuple[Bundle, dict]], list[str], list[str]]:
     """Read every bundle. Returns what came back, what failed, and what was recovered.
 
     Failures and recoveries are separate lists. A failure left a conversation unread and
@@ -1317,6 +1423,9 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
     good: list[tuple[Bundle, dict]] = []
     errors: list[str] = []
     notes: list[str] = []
+    #: Saved turns consumed by this pass. Manifested at the end so a resume of
+    #: this run can follow the chain back to the calls it reused.
+    replayed_calls: list[dict] = []
     # A stage plan that covers only some of the diff is a legitimate experiment and an
     # easy way to stop recording a whole category of memory without noticing. Saying so
     # once per run is the difference between the two.
@@ -1364,9 +1473,26 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
                 "error": str(outcome) if isinstance(outcome, Exception) else "",
             })
 
-        jobs = [(group, suffix, {bundle_id(bundle.entity): reviews[bundle_id(bundle.entity)]
-                                for bundle in group if bundle_id(bundle.entity) in reviews})
-                for group, suffix in zip(batch, suffixes)]
+        # Reuse before sending: a group whose entities and suffix byte-match a
+        # saved request is the same question the model already answered. Anything
+        # else — new lines, new calendar state, regrouped bundles — proposes fresh.
+        order = list(range(len(batch)))
+        if replay:
+            kept = []
+            for index, (group, suffix) in enumerate(zip(batch, suffixes)):
+                turns = replay.get(frozenset(b.entity for b in group))
+                if turns and all(turn["suffix"] == suffix for turn in turns):
+                    _replay_absorb(group, turns, cfg, good, errors)
+                    replayed_calls.extend(turns)
+                    seen.append((group, suffix, (group, turns[-1]["parsed"], [])))
+                    finished(index, (group, turns[-1]["parsed"], []))
+                else:
+                    kept.append(index)
+            order = kept
+
+        jobs = [(batch[i], suffixes[i], {bundle_id(bundle.entity): reviews[bundle_id(bundle.entity)]
+                                         for bundle in batch[i] if bundle_id(bundle.entity) in reviews})
+                for i in order]
         send = lambda pair: propose_group(  # noqa: E731
             client, cfg, prefix, pair[0], suffix=pair[1], reviews=pair[2])
 
@@ -1383,9 +1509,10 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
         # serialised first call: with no cache (the pinned open-weight endpoints) this is
         # pure added latency, so those keep the flat fan-out.
         results: list = []
+        done = lambda i, out: finished(order[i], out)  # noqa: E731
         if (len(jobs) > cfg.max_parallel
                 and cfg.propose_model not in llm.NO_PROMPT_CACHE):
-            first = client.map(jobs[:1], send, 1, on_done=finished)
+            first = client.map(jobs[:1], send, 1, on_done=done)
             # The probe went out alone to warm the cache; if it came back against a wall
             # (account out of allowance, or the model at capacity), every other request
             # in this wave would hit the same wall. Don't fan them out — leave them
@@ -1395,12 +1522,13 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
                 results = first
             else:
                 rest = client.map(jobs[1:], send, cfg.max_parallel,
-                                  on_done=lambda i, out: finished(i + 1, out))
+                                  on_done=lambda i, out: done(i + 1, out))
                 results = [*first, *rest]
         else:
-            results = client.map(jobs, send, cfg.max_parallel, on_done=finished)
+            results = client.map(jobs, send, cfg.max_parallel, on_done=done)
         again: list[list[Bundle]] = []
-        for group, suffix, outcome in zip(batch, suffixes, results):
+        for i, outcome in enumerate(results):
+            group, suffix = batch[order[i]], suffixes[order[i]]
             seen.append((group, suffix, outcome))
             if isinstance(outcome, Exception):
                 # Before anything decides what to do about it. A request that failed is
@@ -1489,6 +1617,14 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
         wave(doubtful, "second-look")
         if (stop := _stop()) is not None:
             return stop
+    if replayed_calls and run_id is not None:
+        calls.note_replay(cfg.home, run_id, replayed_calls)
+        sources = sorted({t["source_run"] for t in replayed_calls
+                          if t.get("source_run")}, key=str)
+        covered = len({e for t in replayed_calls for e in t["entities"]})
+        notes.append(f"replayed {len(replayed_calls)} propose call(s)"
+                     + (f" from run(s) {', '.join(map(str, sources))}" if sources else "")
+                     + f" covering {covered} bundle(s) — no model call")
     return good, errors, notes
 
 

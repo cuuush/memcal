@@ -225,13 +225,14 @@ def dream(
     skip_sweep: bool = False,
     redo: str | None = None,
     progress=None,
+    replay: dict | None = None,
 ) -> DreamResult:
     """Run one pass and record uncaught failures on its run row."""
     opened: list[int] = []
     try:
         return _dream(conn, cfg, opened=opened, mode=mode, model=model, limit=limit,
-                      dry_run=dry_run, skip_sweep=skip_sweep, redo=redo,
-                      progress=progress)
+                       dry_run=dry_run, skip_sweep=skip_sweep, redo=redo,
+                       progress=progress, replay=replay)
     except BaseException as exc:
         if opened:
             with contextlib.suppress(sqlite3.Error):
@@ -253,6 +254,7 @@ def _dream(
     skip_sweep: bool = False,
     redo: str | None = None,
     progress=None,
+    replay: dict | None = None,
 ) -> DreamResult:
     def emit(stage: str, state: str, note: str = "", **detail) -> None:
         if progress:
@@ -454,7 +456,7 @@ def _dream(
             emit("propose", "running",
                  f"wave {index} of {waves} · {len(batch)} bundles", wave=index)
         got, problems, recovered = propose_stage.propose_all(
-            client, conn, cfg, batch, run_id=run_id, progress=track)
+            client, conn, cfg, batch, run_id=run_id, progress=track, replay=replay)
         if breaker.opened:
             # The provider is down, not slow: stop launching waves. This batch's
             # partial successes stay queued with the failures — re-read next pass

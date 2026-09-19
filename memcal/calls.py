@@ -163,6 +163,34 @@ def _atomic_write(target: Path, text: str) -> None:
         raise
 
 
+def note_replay(home: Path, run_id: int, turns: list[dict]) -> None:
+    """Manifest of reused propose calls: which run they came from, which ids.
+
+    A resumed run saves no new files for replayed calls, so without this a
+    resume of the resume would find nothing. Merges across calls.
+    """
+    target = shard(home, run_id) / "replay.json"
+    prior: dict = {}
+    try:
+        if target.is_file():
+            loaded = json.loads(target.read_text(encoding="utf-8"))
+            prior = loaded if isinstance(loaded, dict) else {}
+    except (OSError, ValueError):
+        prior = {}
+    reused = sorted({*(prior.get("reused") or []),
+                     *(t.get("generation_id") for t in turns
+                       if t.get("generation_id"))})
+    sources = sorted({*(prior.get("resumed_from") or []),
+                      *(t.get("source_run") for t in turns
+                        if t.get("source_run") is not None)}, key=str)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(target, json.dumps(
+            {"resumed_from": sources, "reused": reused, "at": db.now()}, indent=2))
+    except OSError:
+        pass
+
+
 def load(home: Path, generation_id: str, run_id: int | None = None) -> dict | None:
     """Loads a saved call JSON record by generation ID, or None if not found."""
     path = find(home, generation_id, run_id)

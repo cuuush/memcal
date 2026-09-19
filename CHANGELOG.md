@@ -12,6 +12,20 @@
 - The Chats review copy no longer says memcal will not guess: group membership
   alone still never names anyone, while a one-to-one thread from a bare number
   may carry a dream guess for review.
+- A dream pass that dies partway keeps its spent propose calls: the next
+  `memcal dream` reports where the last run failed (stage, bundles read, rows
+  written) and asks whether to resume from the saved calls or restart fresh.
+  Resume replays only saved requests that still byte-match the rebuilt bundles,
+  so new traffic proposes normally; non-interactive runs resume without asking.
+- `doctor` reports a Store/schema check, and `dream` refuses to start, when the
+  store is behind the code's schema.sql — so a missing migration fails fast
+  before any model call instead of mid-pass at write time.
+
+### Fixed
+
+- Stores created before the `identity_assumptions.kind` column existed gain it
+  on open, with existing rows reading as merges. Without it, recording a
+  guessed sender name crashed the pass.
 
 ## [0.8.1] - 2026-09-19
 

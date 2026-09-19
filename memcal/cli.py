@@ -1351,10 +1351,50 @@ def _ingest_all_for_dream(args, cfg: Config, conn: sqlite3.Connection) -> None:
     print()
 
 
+def _ask_resume() -> bool:
+    """Reuse the failed run's saved propose calls? Yes by default.
+
+    Non-interactive runs resume without asking: replay is what the failed run
+    would have applied, and it spends nothing.
+    """
+    if not sys.stdin.isatty():
+        print("non-interactive: resuming from the saved calls")
+        return True
+    try:
+        answer = input("Resume from the saved calls instead of re-reading? [Y/n] ")
+    except EOFError:
+        return True
+    return answer.strip().lower() in ("", "y", "yes")
+
+
 @_closes_direct_connections
 def cmd_dream(args) -> int:
     """One pass, or as many as it takes to drain the queue (`--rounds`)."""
     cfg, conn = open_ctx(args)
+    gaps = db.schema_gaps(conn)
+    if gaps:
+        shown = ", ".join(gaps[:8]) + ("…" if len(gaps) > 8 else "")
+        print(f"store schema is behind the code — missing {shown}")
+        print("update memcal and re-run; refusing to spend model calls on a "
+              "store this build cannot migrate")
+        return 1
+    replay = None
+    if not args.dry_run and not getattr(args, "retry", None) \
+            and not getattr(args, "redo", None):
+        from .dream import retry as retry_stage                    # noqa: PLC0415
+        offer = retry_stage.resume_source(conn, cfg.home)
+        if offer is not None:
+            print(f"last dream (run {offer['run_id']}, {offer['mode']}, "
+                  f"{offer['started']}) failed in {offer['stage']}: {offer['error']}")
+            print(f"  read {offer['read']} of {offer['bundles']} bundles "
+                  f"({offer['read_pct']}%) · {offer['wrote']} rows written · "
+                  f"{offer['calls']} propose call(s) already spent")
+            if _ask_resume():
+                replay = offer["index"]
+                print(f"resuming run {offer['run_id']}: replaying "
+                      f"{offer['calls']} saved call(s), proposing the rest fresh")
+            else:
+                print("restarting fresh — the saved calls stay on disk")
     if (not args.dry_run and not getattr(args, "retry", None)
             and not getattr(args, "no_ingest", False)):
         _ingest_all_for_dream(args, cfg, conn)
@@ -1386,7 +1426,7 @@ def cmd_dream(args) -> int:
         result = dream(conn, cfg, mode=args.mode, model=args.model, limit=args.limit,
                        dry_run=args.dry_run, skip_sweep=args.no_sweep,
                        redo=args.redo if round_no == 1 else None,
-                       progress=_dream_progress())
+                       progress=_dream_progress(), replay=replay)
         if args.rounds > 1:
             print(f"\n=== round {round_no} of {args.rounds} ===")
         print(result.report())
@@ -1761,6 +1801,17 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
     else:
         add("Store", "database", FAIL, f"integrity: {verdict}",
             fix=f"restore one of the backups beside {cfg.db_path}")
+
+    # Migrations run on every open, so a gap after open means the migration
+    # list is incomplete. Fail here instead of at write time, mid-pass.
+    gaps = db.schema_gaps(conn)
+    if gaps:
+        shown = ", ".join(gaps[:4]) + ("…" if len(gaps) > 4 else "")
+        add("Store", "schema", FAIL, f"store is behind the code — missing {shown}",
+            fix="update memcal, then re-run; migrations run on open, so a gap "
+                "after open means this build's migration is incomplete")
+    else:
+        add("Store", "schema", OK, "matches the code's schema.sql")
 
     counts = {name: conn.execute(f"SELECT count(*) AS n FROM {name}").fetchone()["n"]
               for name in ("events", "archive", "handles")}

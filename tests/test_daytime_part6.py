@@ -67,7 +67,8 @@ class ModelSub:
         self.rules = list(rules)
         self.calls = 0
 
-    def propose_all(self, client, conn, cfg, batch, run_id=None, progress=None):
+    def propose_all(self, client, conn, cfg, batch, run_id=None, progress=None,
+                    replay=None):
         self.calls += 1
         got = []
         for bundle in batch:
@@ -399,7 +400,8 @@ class TestCompanions(_Base):
         sun_id = self.conn.execute(
             "SELECT id FROM archive WHERE external_id='sun1'").fetchone()["id"]
 
-        def proposing(client, conn, cfg, batch, run_id=None, progress=None):
+        def proposing(client, conn, cfg, batch, run_id=None, progress=None,
+                      replay=None):
             mid = Scripted([[("mid1", "and bring chips?")]])
             cid = archive.open_collection(conn, mode="cli")
             try:

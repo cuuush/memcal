@@ -107,6 +107,12 @@ ADDED_COLUMNS = (
     ("actions", "field_sources", "TEXT NOT NULL DEFAULT '{}'"),
     ("actions", "context_source_ids", "TEXT NOT NULL DEFAULT '[]'"),
     ("actions", "outcome", "TEXT NOT NULL DEFAULT '{}'"),
+    # The merge/name split: pre-split stores only ever recorded merges, so old
+    # rows default to 'merge' and new name guesses insert kind='name' explicitly.
+    ("identity_assumptions", "kind", "TEXT NOT NULL DEFAULT 'merge'"),
+    # Same write-time/evidence-time split as event_history; nullable so old rows
+    # keep `changed_at` authoritative.
+    ("series_history", "evidence_ts", "TEXT"),
 )
 
 
@@ -152,6 +158,90 @@ def migrate(conn: sqlite3.Connection) -> None:
     _resync_archive_fts(conn)
     _retire_unspoken_rows(conn)
     conn.commit()
+
+
+#: `expected_schema()` parsed once per process; schema.sql does not change at runtime.
+_EXPECTED_SCHEMA: dict[str, list[str]] | None = None
+
+#: First tokens that open a table-level constraint rather than a column.
+_CONSTRAINT_STARTS = ("CHECK", "PRIMARY", "FOREIGN", "UNIQUE", "CONSTRAINT", "LIKE")
+
+
+def expected_schema() -> dict[str, list[str]]:
+    """`{table: [columns]}` parsed from schema.sql: what the store should hold.
+
+    Parsed rather than listed, so a column added to schema.sql is automatically
+    expected by every store check. `ADDED_COLUMNS` carries new columns to
+    existing stores.
+    """
+    global _EXPECTED_SCHEMA
+    if _EXPECTED_SCHEMA is None:
+        text = "\n".join(
+            line.split("--", 1)[0] for line in SCHEMA.read_text(encoding="utf-8").splitlines()
+        )
+        found: dict[str, list[str]] = {}
+        for match in re.finditer(
+                r"CREATE TABLE (?:IF NOT EXISTS )?(\w+)\s*\(", text, re.IGNORECASE):
+            table = match.group(1)
+            depth, start = 0, match.end() - 1
+            end = start
+            for end, ch in enumerate(text[start:], start):
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+            columns = []
+            for item in _split_top_level(text[start + 1:end]):
+                token = item.strip().split()[0] if item.strip() else ""
+                name = token.split("(")[0].strip("\"'`[]")
+                if name and name.upper() not in _CONSTRAINT_STARTS:
+                    columns.append(name)
+            found[table] = columns
+        _EXPECTED_SCHEMA = found
+    return _EXPECTED_SCHEMA
+
+
+def _split_top_level(body: str) -> list[str]:
+    """Split a parenthesised column list on commas that open no nesting."""
+    parts, depth, quoted, cur = [], 0, False, []
+    for ch in body:
+        if ch == "'":
+            quoted = not quoted
+        if not quoted:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                parts.append("".join(cur))
+                cur = []
+                continue
+        cur.append(ch)
+    tail = "".join(cur).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def schema_gaps(conn: sqlite3.Connection) -> list[str]:
+    """Columns the code expects but the store lacks, as `table.column`.
+
+    Empty means the store matches schema.sql. Checked after `migrate()`, so a
+    gap means the migration list is incomplete. Passes that spend model calls
+    check this first and refuse on a gap instead of failing at write time.
+    """
+    gaps = []
+    have_tables = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")}
+    for table, columns in expected_schema().items():
+        if table not in have_tables:
+            gaps.append(f"{table} (missing table)")
+            continue
+        have = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        gaps.extend(f"{table}.{col}" for col in columns if col not in have)
+    return gaps
 
 
 #: Bump when an index-affecting schema change requires an FTS rebuild.
