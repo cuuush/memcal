@@ -219,6 +219,8 @@ CREATE INDEX IF NOT EXISTS archive_ts_idx     ON archive(ts);
 CREATE INDEX IF NOT EXISTS archive_person_idx ON archive(person);
 -- Supports per-thread bundling and diagnostics without a full archive scan.
 CREATE INDEX IF NOT EXISTS archive_thread_idx ON archive(thread);
+-- Supports per-sender lookups (the senders tab's newest-subject pass) the same way.
+CREATE INDEX IF NOT EXISTS archive_handle_idx ON archive(handle);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS archive_fts USING fts5(
     text, person, thread, content='archive', content_rowid='id'
@@ -512,6 +514,7 @@ CREATE TABLE IF NOT EXISTS provenance (
 );
 CREATE INDEX IF NOT EXISTS provenance_ref_idx ON provenance(kind, ref);
 CREATE INDEX IF NOT EXISTS provenance_gen_idx ON provenance(generation_id);
+CREATE INDEX IF NOT EXISTS provenance_run_idx ON provenance(run_id);
 
 -- -------------------------------------------------------------- evidence --
 -- Which original lines a write was reading. Many-to-many; `archive` stays the

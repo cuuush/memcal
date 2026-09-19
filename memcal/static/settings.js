@@ -519,11 +519,46 @@ async function saveSecret(name, value, input) {
   loadProbe();          // a credential is usually the reason a source was not usable
 }
 
+/* Paint one source toggle right away, instead of leaving the old state on screen
+   until the slow probe round-trips. The probe re-checks every source over the
+   network, so without this the switch sits there saying "on" for seconds after
+   being turned off — reading as a flip the server ignored. */
+function paintSourceToggle(btn, on) {
+  btn.classList.toggle("on", on);
+  btn.setAttribute("aria-checked", String(on));
+  const name = (btn.getAttribute("aria-label") || "").replace(/^(disable|enable)\s+/, "")
+    || btn.getAttribute("aria-label") || "source";
+  btn.setAttribute("aria-label", `${on ? "disable" : "enable"} ${name}`);
+  btn.title = on ? `disable ${name}` : `enable ${name}`;
+  const word = btn.querySelector(".sword");
+  if (word) word.textContent = on ? "on" : "off";
+  const row = btn.closest(".setrow");
+  if (row) {
+    row.classList.toggle("off", !on);
+    const head = row.querySelector(".setlabel");
+    if (head) {
+      const flag = [...head.querySelectorAll(".setflag")].find(f => f.textContent === "disabled");
+      if (on && flag) flag.remove();
+      if (!on && !flag) head.append(el("span", "setflag bad", "disabled"));
+    }
+  }
+  // The count line above the list, so "3 of 9 enabled" agrees with the switch.
+  const note = $("#setsrcnote");
+  const switches = [...document.querySelectorAll("#setsources .switch")];
+  if (note && switches.length) {
+    const n = switches.filter(s => s.classList.contains("on")).length;
+    note.textContent = `${n} of ${switches.length} enabled — disabled sources are skipped by Collect, `
+      + `ingest all, due checks, and the nightly pull. An explicit ingest still runs them.`;
+  }
+}
+
 async function saveSource(name, enabled, btn) {
-  if (btn) btn.disabled = true;
+  if (btn) { btn.disabled = true; paintSourceToggle(btn, enabled); }
   const out = await api("/api/settings", {source: {name, enabled}});
   if (btn) btn.disabled = false;
-  if (out.error) return;
+  if (out.error) { if (btn) paintSourceToggle(btn, !enabled); return; }
+  // Server truth, in case the request normalized anything on the way through.
+  if (btn && out.source) paintSourceToggle(btn, out.source.enabled !== false);
   page = out;
   // The toggle rewrote MEMCAL_DISABLED_SOURCES on the server. An unsaved
   // hand-edit of that same field would otherwise overwrite the flip on the
