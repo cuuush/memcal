@@ -1720,5 +1720,146 @@ class TestGateRollupCarriesFeedTotals(Base):
                 self.assertEqual(rolled["reasons"], feed["reasons"])
 
 
+class TestMemoryTabSharesOneThreadMap(Base):
+    """The memory tab resolved thread names once per brief handle: every chip
+    cost its own archive scan before the first line painted."""
+
+    def test_every_citation_reuses_the_pages_map(self):
+        event, _ = events.upsert(
+            self.conn, {"title": "Poker at Robbie's", "date": self.ts(2)[:10]})
+        _todo, _ = todos.open_todo(self.conn, "Bring poker chips")
+        question = todos.ask(self.conn, "What time does poker start?")
+        qid = self.conn.execute(
+            "SELECT id FROM questions WHERE key = ?", (question,)).fetchone()[0]
+
+        original = trace.citations
+        shared = []
+
+        def recording(conn, kind, ref, names=None):
+            shared.append(names is not None)
+            return original(conn, kind, ref, names=names)
+
+        trace.citations = recording
+        try:
+            out = web.memory(self.conn, self.cfg)
+        finally:
+            trace.citations = original
+        self.assertTrue(shared, "expected at least one citation lookup")
+        self.assertTrue(all(shared), "every citation must reuse the page's map")
+        self.assertEqual(out["targets"][f"E{event.id}"]["ref"], event.key)
+        self.assertEqual(out["targets"][f"Q{qid}"]["ref"], question)
+
+    def test_a_shared_map_answers_like_a_fresh_one(self):
+        aid = archive.append(
+            self.conn, channel="imessage", external_id="share:1",
+            ts=self.ts(), text="poker friday?", thread="chat-1", handle="h1",
+            gated=True, gate_reason="temporal")
+        trace.stamp(self.conn, kind="todo", ref="k1", verb="inserted",
+                    archive_ids=[aid])
+        self.conn.commit()
+        names = trace.titles(self.conn)
+        self.assertEqual(trace.citations(self.conn, "todo", "k1", names=names),
+                         trace.citations(self.conn, "todo", "k1"))
+
+
+class TestChatsTabScansSpeakersOncePerPass(Base):
+    """The chats tab counted queued lines once per thread — a spool join per card,
+    run twice over (once for the list, once for the review queue) — and rebuilt
+    the speaker map for the titles on top of the one the cards already needed.
+    Unfiltered, the review queue filters the list's own page; filtered, each
+    side scans once."""
+
+    def chat(self, thread: str, texts: list[str], *, person: str) -> None:
+        for i, text in enumerate(texts):
+            aid = archive.append(
+                self.conn, channel="imessage", external_id=f"{thread}:{i}",
+                ts=self.ts(), text=text, thread=thread, handle=f"h-{thread}",
+                person=person, gated=True, gate_reason="temporal")
+            archive.spool_add(self.conn, aid, f"thread:imessage:{thread}")
+        self.conn.commit()
+
+    def counted_conversations(self, **kw):
+        threads.refresh(self.conn)
+        original = threads._speakers
+        calls = []
+
+        def counting(conn):
+            calls.append(1)
+            return original(conn)
+
+        threads._speakers = counting
+        try:
+            out = web_queue.conversations(self.conn, self.cfg, **kw)
+        finally:
+            threads._speakers = original
+        return out, calls
+
+    def test_unfiltered_open_scans_once(self):
+        self.chat("chat-a", ["one", "two"], person="Abe")
+        self.chat("chat-b", ["three"], person="Bea")
+        out, calls = self.counted_conversations()
+        by_thread = {t["thread"]: t for t in out["threads"]}
+        self.assertEqual(by_thread["chat-a"]["queued"], 2)
+        self.assertEqual(by_thread["chat-b"]["queued"], 1)
+        self.assertEqual(len(calls), 1)
+
+    def test_filtered_list_still_reviews_everything(self):
+        self.chat("chat-a", ["one", "two"], person="Abe")
+        self.chat("chat-b", ["three"], person="Bea")
+        out, calls = self.counted_conversations(channel="imessage")
+        self.assertEqual({t["thread"] for t in out["threads"]}, {"chat-a", "chat-b"})
+        self.assertLessEqual(len(calls), 2)
+
+    def test_collision_flags_cover_only_the_displayed_slice(self):
+        # Two 1:1 threads with the same person collide — until the twin falls
+        # below the page cutoff, when the visible card must read as it would
+        # from a direct fetch of that page.
+        self.chat("chat-a", ["one"], person="Abe")
+        self.chat("chat-b", ["two"], person="Abe")
+        threads.refresh(self.conn)
+        cards = threads.rows(self.conn, limit=1000)
+        self.assertTrue(all(c["collision"] for c in cards))
+        page = threads._mark_collisions(cards[:1])
+        direct = threads.rows(self.conn, limit=1)
+        self.assertEqual([c["collision"] for c in page],
+                         [c["collision"] for c in direct])
+        self.assertFalse(page[0]["collision"])
+
+
+class TestSendersTabScopesNewestSubjects(Base):
+    """The senders tab sorted every email row per sender on every open to find
+    each row's newest subject — one window over the whole mailbox — when only
+    the senders on the page need one."""
+
+    class CountingConn:
+        def __init__(self, conn):
+            self._conn = conn
+            self.window_params: list[list] = []
+
+        def execute(self, sql, params=()):
+            if "PARTITION BY handle" in sql:
+                self.window_params.append(list(params))
+            return self._conn.execute(sql, params)
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    def test_subjects_are_newest_and_only_shown_senders_are_scanned(self):
+        self.mail("old@x.com", "first", gated=False, reason="bulk-headers", offset=-2)
+        self.mail("old@x.com", "second", gated=False, reason="bulk-headers", offset=-1)
+        for i in range(3):
+            self.mail("new@x.com", f"news {i}", gated=False,
+                      reason="bulk-headers", offset=-i)
+        self.mail("third@x.com", "other", gated=False, reason="bulk-headers")
+        wrapped = self.CountingConn(self.conn)
+        out = web_queue.senders(wrapped, limit=2)
+        subjects = {s["address"]: s["subject"] for s in out}
+        self.assertEqual(subjects["old@x.com"], "second")
+        self.assertEqual(subjects["new@x.com"], "news 0")
+        self.assertEqual(len(wrapped.window_params), 1)
+        self.assertEqual(set(wrapped.window_params[0]),
+                         {s["address"] for s in out})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -299,21 +299,26 @@ def _mark_source_shifts(conn: sqlite3.Connection, rows: list[dict]) -> list[dict
     return rows
 
 
-def citations(conn: sqlite3.Connection, kind: str, ref: str) -> dict:
+def citations(conn: sqlite3.Connection, kind: str, ref: str,
+              names: dict[tuple, str] | None = None) -> dict:
     """How well a row is backed up, in the few numbers worth saying out loud.
 
     `narrow` separates a row citing its specific lines from one pointing at
     a whole conversation as a fallback.
+
+    `names` is a precomputed thread-title map for callers resolving many rows:
+    building it scans the archive, so resolving it once per page instead of
+    once per row is what keeps the memory tab fast.
     """
     rows = conn.execute(
         """SELECT a.channel, a.thread, a.ts FROM evidence e JOIN archive a ON a.id = e.archive_id
             WHERE e.kind = ? AND e.ref = ?""", (kind, ref)).fetchall()
     spooled = conn.execute(
         """SELECT count(DISTINCT s.id) AS n FROM provenance p
-             JOIN spool s ON s.run_id = p.run_id AND s.entity = p.entity
-            WHERE p.kind = ? AND p.ref = ?""", (kind, ref)).fetchone()["n"]
-    names = titles(conn) if rows else {}
-    where = sorted({names.get((r["channel"], r["thread"]), r["thread"] or r["channel"])
+              JOIN spool s ON s.run_id = p.run_id AND s.entity = p.entity
+             WHERE p.kind = ? AND p.ref = ?""", (kind, ref)).fetchone()["n"]
+    resolved = names if names is not None else (titles(conn) if rows else {})
+    where = sorted({resolved.get((r["channel"], r["thread"]), r["thread"] or r["channel"])
                     for r in rows})
     stamps = sorted(str(r["ts"]) for r in rows)
     return {
