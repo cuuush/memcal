@@ -44,14 +44,17 @@ async function loadRollup() {
   const p = new URLSearchParams({limit: "400"});
   for (const k of ["verdict", "channel", "reason", "q", "queue"]) if (state[k]) p.set(k, state[k]);
   if (state.days !== "0" && !state.queue) p.set("days", state.days);
-  const [rolled, feed] = await Promise.all([
-    api("/api/groups?" + p), api("/api/items?" + feedQuery()),
-  ]);
-  renderChips(feed.reasons || []);
+  // One request: the rollup carries the feed total and the reason chips, so there
+  // is no second items fetch just for the count line. It used to fire both in
+  // parallel — two counts, two facet aggregations and a counterpart scan over the
+  // same filtered set on every Gate open.
+  const rolled = await api("/api/groups?" + p);
+  renderChips(rolled.reasons || []);
   const rows = rolled.groups || [];
+  const total = rolled.total || 0;
   const shown = rows.reduce((a, g) => a + g.n, 0);
-  $("#count").textContent = `${nf(feed.total)} items in ${nf(rows.length)} conversations`
-    + (shown < feed.total ? ` · showing the top ${nf(shown)}` : "");
+  $("#count").textContent = `${nf(total)} items in ${nf(rows.length)} conversations`
+    + (shown < total ? ` · showing the top ${nf(shown)}` : "");
   box.innerHTML = "";
   if (!rows.length) { box.innerHTML = '<div class="empty">nothing matches</div>'; return; }
   const max = Math.max(...rows.map(g => g.n));

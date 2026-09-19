@@ -18,8 +18,13 @@ def dream_preview(conn: sqlite3.Connection, cfg: Config, *, limit: int = 0) -> d
                                  per_entity=cfg.items_per_entity)
     prefix = propose_stage.build_prefix(conn, cfg)
     prefix_tok = textclean.estimate_tokens(prefix)
-    groups = propose_stage.pack(cfg, bundles, conn) if bundles else []
-    cards = {b.entity: _bundle_card(cfg, b, conn) for b in bundles}
+    # One bundle block serves five readers here (packing, the card's text, the
+    # card's token count, the request it rides in, the cost estimate). Rebuilding
+    # it per reader is the same DB queries and wiki reads paid five times over,
+    # which is where an eight-second preview comes from on a large spool.
+    cache: dict[str, str] = {}
+    groups = propose_stage.pack(cfg, bundles, conn, cache=cache) if bundles else []
+    cards = {b.entity: _bundle_card(cfg, b, conn, cache) for b in bundles}
 
     pending = conn.execute(
         "SELECT count(*) n FROM spool WHERE processed_at IS NULL").fetchone()["n"]
@@ -39,7 +44,7 @@ def dream_preview(conn: sqlite3.Connection, cfg: Config, *, limit: int = 0) -> d
         "prefix": {"text": prefix, "tokens": prefix_tok,
                    "cache_min": llm.CACHE_MIN.get(cfg.propose_model, 1024)},
         "bundles": [cards[b.entity] for b in bundles],
-        "requests": [_request_card(cfg, g, i, prefix_tok, cards, conn)
+        "requests": [_request_card(cfg, g, i, prefix_tok, cards, conn, cache)
                      for i, g in enumerate(groups, 1)],
         "spool": {
             "pending": pending,
@@ -75,7 +80,7 @@ def dream_preview(conn: sqlite3.Connection, cfg: Config, *, limit: int = 0) -> d
         },
         "max_parallel": cfg.max_parallel,
         "pack": {"bundles": cfg.pack_bundles, "tokens": cfg.pack_tokens},
-        "cost": _cost_estimate(cfg, prefix_tok, groups, conn),
+        "cost": _cost_estimate(cfg, prefix_tok, groups, conn, cache),
         "budget": _budget_history(conn, cfg),
     }
 
@@ -85,7 +90,8 @@ def dream_preview(conn: sqlite3.Connection, cfg: Config, *, limit: int = 0) -> d
 _bundle_id = propose_stage.bundle_id
 
 
-def _bundle_card(cfg: Config, b, conn: sqlite3.Connection | None = None) -> dict:
+def _bundle_card(cfg: Config, b, conn: sqlite3.Connection | None = None,
+                 cache: dict[str, str] | None = None) -> dict:
     """One bundle, plus the things that are hard to see in a raw log."""
     items = [{
         "who": ("me" if r["from_me"] else (r["person"] or r["handle"] or "unknown")),
@@ -105,6 +111,10 @@ def _bundle_card(cfg: Config, b, conn: sqlite3.Connection | None = None) -> dict
         "context": "spool_id" not in r.keys(),
     } for r in b.items]
     mine = sum(1 for i in items if i["mine"])
+    # Built once: the text below and the token count above it are two readers of
+    # the same block, and the packing, request and cost stages each hold the same
+    # cache — one build per bundle per preview, not five.
+    _block_text = propose_stage.build_bundle_block(cfg, b, conn, cache=cache)
     # Which conversations this bundle is actually made of. A person bundle joins every
     # channel they appear on — that is the point of it — but with 21 lines from four
     # places under one name, "parker shaw · 3 lines" told them nothing about where they
@@ -138,9 +148,8 @@ def _bundle_card(cfg: Config, b, conn: sqlite3.Connection | None = None) -> dict
         "monologue": len(items) > 1 and mine == len(items),
         "missing_pages": [p for p in b.people
                           if p != "me" and not wiki.exists(cfg.wiki_dir, db.slugify(p))],
-        "text": propose_stage.build_bundle_block(cfg, b, conn),
-        "tokens": textclean.estimate_tokens(
-            propose_stage.build_bundle_block(cfg, b, conn)),
+        "text": _block_text,
+        "tokens": textclean.estimate_tokens(_block_text),
         "span": (f"{str(b.items[0]['ts'])[:10]} → {str(b.items[-1]['ts'])[:10]}"
                  if b.items else ""),
     }
@@ -148,10 +157,11 @@ def _bundle_card(cfg: Config, b, conn: sqlite3.Connection | None = None) -> dict
 
 def _request_card(cfg: Config, group: list, index: int, prefix_tok: int,
                   cards: dict[str, dict] | None = None,
-                  conn: sqlite3.Connection | None = None) -> dict:
+                  conn: sqlite3.Connection | None = None,
+                  cache: dict[str, str] | None = None) -> dict:
     """One HTTP call, with the bundles riding in it and the output ceiling it will get."""
     suffix_tok = textclean.estimate_tokens(
-        propose_stage.build_suffix(cfg, group, conn))
+        propose_stage.build_suffix(cfg, group, conn, cache=cache))
     riders = []
     for b in group:
         card = (cards or {}).get(b.entity) or {}
@@ -189,10 +199,12 @@ def _budget_history(conn: sqlite3.Connection, cfg: Config | None = None) -> dict
 
 
 def _cost_estimate(cfg: Config, prefix_tok: int, groups: list,
-                   conn: sqlite3.Connection | None = None) -> dict:
+                   conn: sqlite3.Connection | None = None,
+                   cache: dict[str, str] | None = None) -> dict:
     model = cfg.propose_model
     n = len(groups)
-    suffix = sum(textclean.estimate_tokens(propose_stage.build_suffix(cfg, g, conn))
+    suffix = sum(textclean.estimate_tokens(
+        propose_stage.build_suffix(cfg, g, conn, cache=cache))
                  for g in groups)
     out_cap = sum(propose_stage.model_ceiling(cfg, g) for g in groups)
     return llm.packed_cost(

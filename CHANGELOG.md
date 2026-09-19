@@ -27,6 +27,15 @@
   on open, with existing rows reading as merges. Without it, recording a
   guessed sender name crashed the pass.
 
+### Fixed
+
+- The web UI loads its data faster. The Dream preview built every bundle's
+  model text five times over (packing, card text, card token count, request,
+  cost estimate); it builds each once per preview now. Reopening the Chats or
+  Dream tab no longer recomputes every conversation from the full archive when
+  nothing arrived since the last pass. The Gate rollup arrives in one request
+  instead of two (it carries its own total and reason chips).
+
 ## [0.8.1] - 2026-09-19
 
 ### Added
