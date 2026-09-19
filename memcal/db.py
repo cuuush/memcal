@@ -138,6 +138,24 @@ def _rename_columns(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {table} RENAME COLUMN {old} TO {new}")
 
 
+#: Bumped when review-baseline backfill rules change.
+REVIEW_BASELINES_GENERATION = "1"
+
+
+def _backfill_review_baselines(conn: sqlite3.Connection) -> int:
+    """Open review baselines for evidence links that predate the table.
+
+    Runs once per store; later links are stamped as they attach. A return of 0
+    with the flag set means every later open skips the scan entirely.
+    """
+    if get_meta(conn, "review_baselines.generation", "") == REVIEW_BASELINES_GENERATION:
+        return 0
+    from . import activity  # noqa: PLC0415  (db owns the schema; activity owns the rule)
+    added = activity.backfill_baselines(conn)
+    set_meta(conn, "review_baselines.generation", REVIEW_BASELINES_GENERATION)
+    return added
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA.read_text(encoding="utf-8"))
     _rename_columns(conn)
@@ -157,6 +175,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     _drop_empty_legacy_tables(conn)
     _resync_archive_fts(conn)
     _retire_unspoken_rows(conn)
+    _backfill_review_baselines(conn)
     conn.commit()
 
 
