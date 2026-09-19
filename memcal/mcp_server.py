@@ -37,8 +37,11 @@ TOOLS = [
             "repeats and when the next one is, what the invitation said, who to ask. "
             "Also returns the messages it came from and every change it has been "
             "through, so 'is this right?' and 'where did this come from?' are the same "
-            "one call. Takes the handle the brief prints in brackets, such as E258, "
-            "T2, or Q12. Existing legacy S handles remain readable."),
+            "one call. For a handle it already includes the whole thread behind "
+            "pending new activity, full text with (new) markers and [ids] to cite, "
+            "so a flagged row needs no second call unless a cap truncates it. "
+            "Takes the handle the brief prints in brackets, such as E258, T2, or "
+            "Q12. Existing legacy S handles remain readable."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -184,11 +187,13 @@ TOOLS = [
     {
         "name": "memcal_activity",
         "description": (
-            "New messages behind one plan since its last review — the correction, "
-            "not a keyword search. Use when the brief flags new activity on a row "
-            "before giving current details for it. Reading changes nothing; cite "
-            "the [ids] in a memcal_update (prefer field_sources when fields differ), or acknowledge them with memcal_reviewed "
-            "when the stored row still stands. Takes a brief handle like E46."),
+            "Page pending messages behind one plan when memcal_open's whole-thread "
+            "view is truncated — the correction, not a keyword search. Start with "
+            "memcal_open, which already carries the thread with [ids] to cite; use "
+            "this only to page past a cap. Reading changes nothing; cite the [ids] "
+            "in a memcal_update (prefer field_sources when fields differ), or "
+            "acknowledge them with memcal_reviewed when the stored row still "
+            "stands. Takes a brief handle like E46."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -293,7 +298,7 @@ TOOLS = [
                                    "no field authority. Only valid with field_sources.",
                 },
                 "source_ids": {"type": "array", "items": {"type": "integer"},
-                               "description": "archive [ids] from memcal_activity this change is based on "
+                               "description": "archive [ids] from memcal_open or memcal_activity this change is based on "
                                               "(flat oldest-line rule). Do not combine with field_sources."},
             },
             "required": ["which"], "additionalProperties": False,
@@ -466,8 +471,8 @@ TOOLS = [
         "name": "memcal_reviewed",
         "description": ("Mark activity lines as reviewed with no change to the row — the "
                         "stored plan still stands after reading them. Only the cited "
-                        "lines stop raising hints. Cite the [ids] memcal_activity "
-                        "returned."),
+                        "lines stop raising hints. Cite the [ids] memcal_open or "
+                        "memcal_activity returned."),
         "inputSchema": {
             "type": "object",
             "properties": {

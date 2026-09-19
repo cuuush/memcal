@@ -23,10 +23,23 @@ def parse_handle(token: str) -> str | None:
     return f"{match.group(1).upper()}{match.group(2)}" if match else None
 
 
+#: How many pending lines `open_handle` carries inline. Matches the activity
+#: pager's max so a normal flagged row shows all of them; `memcal_activity`
+#: pages past this.
+OPEN_ACTIVITY_LIMIT = 50
+
+#: Whole-thread tails per open. Tokens are cheap; a second call is not. Capped
+#: so one pathological thread cannot dominate the payload.
+OPEN_THREAD_LIMIT = 60
+OPEN_MAX_THREADS = 3
+
+
 def open_handle(conn: sqlite3.Connection, cfg: Config, token: str) -> str:
     """The whole record behind a brief handle, as text a model reads.
 
     Accepts printed handles (`E258`, `T2`, `Q12`); no `kind` argument needed.
+    Includes pending new activity inline, so a row the brief flagged needs no
+    second `memcal_activity` call unless a cap truncates it.
     """
     handle = parse_handle(token)
     if not handle:
@@ -42,7 +55,12 @@ def open_handle(conn: sqlite3.Connection, cfg: Config, token: str) -> str:
         "question": _question_text,
         "standing": _standing_text,
     }[kind](conn, cfg, ref)
-    return "\n".join([body, _sources_text(conn, kind, ref), _history_text(conn, kind, ref)])
+    return "\n".join([
+        body,
+        _sources_text(conn, kind, ref),
+        _history_text(conn, kind, ref),
+        _activity_text(conn, kind, ref, handle),
+    ])
 
 
 # --------------------------------------------------------------------- events --
@@ -345,6 +363,102 @@ def _history_text(conn: sqlite3.Connection, kind: str, ref: str) -> str:
     out = ["", "changes:"]
     for change in changes[-8:]:
         out.append(f"  {str(change['changed_at'])[:16]}  {change['field']}: "
-                   f"{change['old_value']!r} -> {change['new_value']!r} "
-                   f"(by {change['written_by']})")
+                    f"{change['old_value']!r} -> {change['new_value']!r} "
+                    f"(by {change['written_by']})")
     return "\n".join(out)
+
+
+def _activity_text(conn: sqlite3.Connection, kind: str, ref: str,
+                   handle: str) -> str:
+    """Pending messages plus the whole thread behind them, so one open is enough.
+
+    Returns "" when nothing is pending, keeping opens without fresh traffic
+    byte-identical to before. Otherwise every strong conversational thread is
+    shown tail-first (oldest first, `(new)` marking what is still unreviewed)
+    with full text — tokens are cheap, a second call is not. Non-threaded
+    (calendar-family) pending rides in an "other new messages" list. Cut
+    pending names its `memcal_activity` cursor; cut thread history points at
+    `memcal_conversation`. Reading changes nothing.
+    """
+    from . import activity as activity_mod  # noqa: PLC0415 late, mirrors surfaces
+    try:
+        page = activity_mod.read(conn, kind, ref, cursor=0,
+                                 limit=OPEN_ACTIVITY_LIMIT)
+    except Exception:
+        return ""
+    if not page.get("total"):
+        return ""
+    try:
+        links = activity_mod.associations(conn, kind, ref, strong_only=True)["strong"]
+    except Exception:
+        links = []
+    try:
+        weak = activity_mod.associations(conn, kind, ref)["weak"]
+    except Exception:
+        weak = []
+    covered = activity_mod.reviewed_ids(conn, kind, ref)
+    seen: set[int] = set()
+    lines = ["", f"new activity since last review ({page['total']} message(s)"
+             + (f", {page['omitted']} omitted" if page.get("omitted") else "")
+             + f"; {page.get('reviewed', 0)} already reviewed):"]
+    threads_shown = 0
+    thread_cut = False
+    skipped_threads = 0
+    for link in links:
+        if link.get("family") or not link.get("thread"):
+            continue
+        if link["channel"] in trace.UNTHREADED_STREAMS:
+            continue
+        if threads_shown >= OPEN_MAX_THREADS:
+            skipped_threads += 1
+            continue
+        channel, thread = link["channel"], link["thread"]
+        try:
+            tail, total = activity_mod.thread_tail(
+                conn, channel, thread, limit=OPEN_THREAD_LIMIT)
+        except Exception:
+            continue
+        if not tail:
+            continue
+        threads_shown += 1
+        if total > len(tail):
+            thread_cut = True
+            lines.append(f"full thread {channel}/{thread} "
+                         f"({len(tail)} of {total} shown — older history reads "
+                         f"via memcal_conversation)")
+        else:
+            lines.append(f"full thread {channel}/{thread} "
+                         f"({len(tail)} message(s)):")
+
+        for item in tail:
+            mark = " (new)" if item["id"] not in covered else ""
+            seen.add(item["id"])
+            lines.append(f"[{item['id']}] {str(item['ts'])[:16]} · "
+                         f"{item['who']}{mark}:")
+            lines.append(f"  {item['text']}")
+    rest = [item for item in (page.get("items") or []) if item["id"] not in seen]
+    if rest:
+        lines.append("other new messages:")
+        for item in rest:
+            seen.add(item["id"])
+            lines.append(f"[{item['id']}] {str(item['ts'])[:16]} "
+                         f"{item['channel']}/{item['thread']} · {item['who']}:")
+            lines.append(f"  {item['text']}")
+    truncated = bool(page.get("omitted")) or skipped_threads > 0
+    if page.get("items"):
+        if truncated:
+            tail_note = (f"memcal_activity(handle={handle}) pages past this view, "
+                         f"next cursor {page.get('next_cursor', 0)}")
+        elif thread_cut:
+            tail_note = ("all pending shown; older thread history reads via "
+                         "memcal_conversation")
+        else:
+            tail_note = (f"all pending shown; memcal_activity(handle={handle}) "
+                         f"re-reads them paged")
+        lines.append(
+            f"(cite [ids] in memcal_update or memcal_reviewed — reading changes "
+            f"nothing; {tail_note})")
+    for thread in weak or []:
+        lines.append(f"(possibly related: {thread['channel']}/"
+                     f"{thread['thread']} — {thread['why']})")
+    return "\n".join(lines)

@@ -58,10 +58,11 @@ all-rejected request never reads as a silent no-op.
 
 ## New activity
 
-When the brief flags a plan with new activity, `memcal activity <handle>` (MCP
-`memcal_activity`) reads the messages behind it — paginated, changing nothing.
-Cite their ids in a correction to apply the change, or, when the stored plan still
-stands, acknowledge them with `memcal reviewed <handle> --source-ids "…"` (MCP
-`memcal_reviewed`) so only those lines stop raising the hint. With no handle,
-`memcal activity` lists unlinked backlog traffic. See
-[Daytime freshness](../architecture/freshness.md).
+When the brief flags a plan with new activity, `memcal open <handle>` (MCP
+`memcal_open`) returns the stored row with the new messages already included —
+one call, changing nothing. `memcal activity <handle>` (MCP `memcal_activity`)
+pages further only when that preview is truncated. Cite their ids in a correction
+to apply the change, or, when the stored plan still stands, acknowledge them with
+`memcal reviewed <handle> --source-ids "…"` (MCP `memcal_reviewed`) so only those
+lines stop raising the hint. With no handle, `memcal activity` lists unlinked
+backlog traffic. See [Daytime freshness](../architecture/freshness.md).

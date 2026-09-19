@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Changed
+
+- `memcal_open` returns the whole thread behind pending new activity inline
+  with the stored row — full text, `(new)` marking what is still unreviewed —
+  so a brief freshness hint needs one call instead of `memcal_activity` followed
+  by `memcal_open`. The brief, MCP, Hermes, and CLI copy now steers flagged rows
+  to `memcal_open`; `memcal_activity` remains for paging past a cap. Thread tails
+  reuse the pending mute/explicit-ignore filter, capped at 60 lines across at
+  most 3 threads with 50 pending inline.
+
 ### Added
 
 - Sources can be switched on and off from the Settings tab: each source has an

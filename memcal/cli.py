@@ -2243,11 +2243,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--yes", action="store_true", help="setup without confirmation")
     s.set_defaults(func=cmd_openclaw)
 
-    s = sub.add_parser("open", help="read a handle (E286, T7, Q12) or wiki page")
+    s = sub.add_parser("open", help="read a handle (E286, T7, Q12) or wiki page, with new activity included")
     s.add_argument("ref", help="a brief handle, page name, recorded alias, or 'me'")
     s.set_defaults(func=cmd_open)
 
-    s = sub.add_parser("activity", help="new messages behind one plan, or the backlog")
+    s = sub.add_parser("activity", help="page past open's activity preview, or the backlog")
     s.add_argument("ref", nargs="?",
                    help="a brief handle (E42); omit to list unlinked traffic")
     s.add_argument("--cursor", type=int, default=0,
