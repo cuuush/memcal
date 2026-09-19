@@ -354,6 +354,79 @@ class TestPackedResumeReusesUnchangedBundles(ResumeBase):
         self.assertTrue(any("replayed" in n for n in notes2))
         self.assertEqual(3, len(got2))
 
+    def test_resume_note_counts_each_saved_call_once(self):
+        # One packed call supplies Liam and Mia. The note must say one call
+        # covering two bundles — not two calls covering three (the packed
+        # request's full entity list, Ava included).
+        run_id, _bundles, _got, _client = self._failed_run_with_calls()
+        aid = archive.append(
+            self.conn, channel="imessage", external_id="rs-Ava-new",
+            ts=db.now(), text="actually make it 9, asking Ava",
+            thread="thread-Ava", person="Ava", from_me=False,
+            gated=True, gate_reason="subject-event")
+        archive.spool_add(self.conn, aid, "person:Ava")
+        self.conn.commit()
+        index = propose_stage.load_replay(self.conn, self.cfg.home, run_id)
+        counting = _AnswerEmpty()
+        _got2, errors2, notes2 = propose_stage.propose_all(
+            counting, self.conn, self.cfg, self._bundles(),
+            run_id=self._open_run(self._bundles()), replay=index)
+        self.assertEqual([], errors2)
+        note = next(n for n in notes2 if "replayed" in n)
+        self.assertEqual(
+            f"replayed 1 propose call(s) from run(s) {run_id}"
+            f" covering 2 bundle(s) \u2014 no model call", note)
+
+    def test_second_look_still_fires_after_resume(self):
+        # Liam's line looks like a plan, so the failed run asked about him
+        # twice: the packed main call plus a second-look singleton. Drop the
+        # singleton's file to simulate a crash before the second look. On
+        # resume the main silence replays, but the hedge must still fire
+        # fresh — absorbing the same silence a second time would preserve
+        # exactly what the hedge exists to question, and record Liam twice
+        # under one call.
+        reasons = {"Ava": "subject-event", "Liam": "invitation",
+                   "Mia": "subject-event"}
+        for index, (person, reason) in enumerate(reasons.items()):
+            aid = archive.append(
+                self.conn, channel="imessage", external_id=f"rs2-{person}",
+                ts=db.now(), text=f"dinner tomorrow at 8? asking {person}",
+                thread=f"thread-{person}", person=person, from_me=False,
+                gated=True, gate_reason=reason)
+            self.assertIsNotNone(aid)
+            archive.spool_add(self.conn, aid, f"person:{person}")
+        self.conn.commit()
+        bundles = self._bundles()
+        run_id = self._open_run(bundles, error="OperationalError: boom")
+        client = _AnswerEmpty()
+        got, errors, _notes = propose_stage.propose_all(
+            client, self.conn, self.cfg, bundles, run_id=run_id)
+        self.assertEqual([], errors)
+        self.assertEqual(2, client.sent)
+        dropped = 0
+        for path in sorted(calls.shard(self.cfg.home, run_id).glob("*.json")):
+            if path.name == "replay.json":
+                continue
+            blob = json.loads(path.read_text(encoding="utf-8"))
+            if len(blob.get("bundles") or []) == 1:
+                path.unlink()
+                dropped += 1
+        self.assertEqual(1, dropped)
+        index = propose_stage.load_replay(self.conn, self.cfg.home, run_id)
+        self.assertEqual(1, sum(len(turns) for turns in index.values()))
+        counting = _AnswerEmpty()
+        got2, errors2, _notes2 = propose_stage.propose_all(
+            counting, self.conn, self.cfg, self._bundles(),
+            run_id=self._open_run(self._bundles()), replay=index)
+        self.assertEqual([], errors2)
+        self.assertEqual(1, counting.sent)
+        liam_gens = [g for b, _d, g in got2 if b.entity == "person:Liam"]
+        # Ava appears only in the main packed call, so her generation id names it.
+        main_gen = next(g for b, _d, g in got if b.entity == "person:Ava")
+        self.assertIn(main_gen, liam_gens)
+        self.assertEqual(2, len(liam_gens))
+        self.assertEqual(2, len(set(liam_gens)))
+
 
 class TestResumePrompt(ResumeBase):
     def test_yes_means_resume_no_means_restart(self):
