@@ -99,7 +99,10 @@ class WholeThreadTailStaysFiltered(unittest.TestCase):
         lines, total = activity.thread_tail(self.conn, "imessage", "t1")
         self.assertEqual(total, 0)
         self.assertEqual(lines, [])
-        self.assertIsNotNone(m1)
+        # The line is really there — the filter hides it, not absence.
+        self.assertIsNotNone(
+            self.conn.execute("SELECT id FROM archive WHERE id = ?",
+                              (m1,)).fetchone())
 
 
 if __name__ == "__main__":

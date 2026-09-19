@@ -253,9 +253,19 @@ def associations(conn: sqlite3.Connection, kind: str, ref: str,
     return {"strong": strong, "weak": weak}
 
 
+#: Joins and filter hiding muted threads and explicitly ignored senders from
+#: every activity read. Shared by `_pending_rows` and `thread_tail` so the two
+#: cannot drift — hidden traffic must neither leak nor inflate a count.
+_HIDDEN_SCOPE = ("LEFT JOIN threads t ON t.channel = a.channel AND t.thread = a.thread"
+                 " LEFT JOIN senders s ON s.address = a.handle")
+_HIDDEN_FILTER = ("coalesce(t.decision, '') != 'mute'"
+                  " AND NOT (s.decision IN ('archive', 'ignore')"
+                  " AND coalesce(s.source, 'auto') != 'auto')")
+
+
 def _pending_rows(conn: sqlite3.Connection, pairs: list[dict],
-                  covered: set[int], *, limit: int,
-                  after: int = 0) -> tuple[list[dict], int]:
+                   covered: set[int], *, limit: int,
+                   after: int = 0) -> tuple[list[dict], int]:
     """Associated arrivals minus exactly the covered observations, oldest first.
 
     `limit` bounds the returned rows; the total rides alongside so callers can
@@ -281,11 +291,7 @@ def _pending_rows(conn: sqlite3.Connection, pairs: list[dict],
             clauses.append("(a.channel = ? AND coalesce(a.thread, '') = ?)")
             args += [pair["channel"], pair.get("thread") or ""]
     clause = " OR ".join(clauses)
-    scope = ("LEFT JOIN threads t ON t.channel = a.channel AND t.thread = a.thread"
-             " LEFT JOIN senders s ON s.address = a.handle")
-    hidden = ("coalesce(t.decision, '') != 'mute'"
-              " AND NOT (s.decision IN ('archive', 'ignore')"
-              " AND coalesce(s.source, 'auto') != 'auto')")
+    scope, hidden = _HIDDEN_SCOPE, _HIDDEN_FILTER
     seen = ""
     if covered:
         seen = f" AND a.id NOT IN ({','.join('?' * len(covered))})"
@@ -361,11 +367,7 @@ def thread_tail(conn: sqlite3.Connection, channel: str, thread: str, *,
     """
     if not thread:
         return [], 0
-    scope = ("LEFT JOIN threads t ON t.channel = a.channel AND t.thread = a.thread"
-             " LEFT JOIN senders s ON s.address = a.handle")
-    hidden = ("coalesce(t.decision, '') != 'mute'"
-              " AND NOT (s.decision IN ('archive', 'ignore')"
-              " AND coalesce(s.source, 'auto') != 'auto')")
+    scope, hidden = _HIDDEN_SCOPE, _HIDDEN_FILTER
     total = conn.execute(
         f"SELECT count(*) AS n FROM archive a {scope}"
         f" WHERE a.channel = ? AND coalesce(a.thread, '') = ? AND {hidden}",
