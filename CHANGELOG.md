@@ -52,6 +52,15 @@
   Dream tab no longer recomputes every conversation from the full archive when
   nothing arrived since the last pass. The Gate rollup arrives in one request
   instead of two (it carries its own total and reason chips).
+- The Memory, Senders, and Chats tabs stop re-scanning the archive once per
+  row. The Memory tab resolves thread names once for the page and reads the
+  last pass's writes in one pass; the Senders tab finds newest subjects only
+  for the senders on the page; the Chats tab counts the queue in one grouped
+  query and filters the review queue from the list's own page. New
+  `provenance(run_id)` and `archive(handle)` indexes back the batched reads.
+- Toggling a source off in Settings paints the switch off immediately instead
+  of leaving it on until the slow source re-check round-trips; a failed save
+  flips it back.
 
 ## [0.8.1] - 2026-09-19
 

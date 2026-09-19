@@ -345,9 +345,18 @@ def conversations(conn: sqlite3.Connection, cfg: Config, *, channel: str = "",
     threads.refresh(conn)
     policy = cfg.platform_mute
     threads.apply_platform_mutes(conn, policy)
-    everything = threads.rows(conn, channel=channel, q=q, policy=policy)
+    if channel or q:
+        everything = threads.rows(conn, channel=channel, q=q, policy=policy)
+        review_cards = threads.review(conn, policy=policy)
+    else:
+        # The common open: no filter, so the review queue filters the same
+        # thousand-row page the list slices from instead of scanning the
+        # archive a second time for the same cards.
+        cards = threads.rows(conn, policy=policy, limit=1000)
+        everything = cards[:300]
+        review_cards = threads.review(conn, policy=policy, cards=cards)
     return {"threads": everything,
-            "review": threads.review(conn, policy=policy),
+            "review": review_cards,
             "min_items": threads.REVIEW_MIN_ITEMS,
             "platform_mute": policy,
             # The measurement behind the default, so the setting explains itself rather
@@ -413,15 +422,22 @@ def senders(conn: sqlite3.Connection, *, q: str = "", decision: str = "",
         " GROUP BY 1 ORDER BY n DESC LIMIT ?", args + [limit],
     ).fetchall()
 
-    # The newest subject per sender, in one pass rather than one query per row.
-    latest = {r["handle"]: (db.jload(r["meta"], {}) or {}).get("subject", "")
-              for r in conn.execute(
-                  """SELECT handle, meta FROM (
-                       SELECT handle, meta,
-                              row_number() OVER (PARTITION BY handle ORDER BY ts DESC) AS rn
-                         FROM archive
-                        WHERE channel = 'email' AND from_me = 0 AND handle IS NOT NULL
-                     ) WHERE rn = 1""")}
+    # The newest subject per sender — scoped to the senders on this page, not the
+    # whole mailbox. The unscoped window sorted every email row per sender on
+    # every tab open; with the IN list it sorts at most `limit` senders' mail.
+    addresses = [row["address"] for row in rows]
+    latest: dict[str, str] = {}
+    if addresses:
+        marks = ",".join("?" * len(addresses))
+        latest = {r["handle"]: (db.jload(r["meta"], {}) or {}).get("subject", "")
+                  for r in conn.execute(
+                      f"""SELECT handle, meta FROM (
+                            SELECT handle, meta,
+                                   row_number() OVER (PARTITION BY handle ORDER BY ts DESC) AS rn
+                              FROM archive
+                             WHERE channel = 'email' AND from_me = 0 AND handle IS NOT NULL
+                               AND handle IN ({marks})
+                          ) WHERE rn = 1""", addresses)}
 
     table = {r["address"]: r for r in conn.execute("SELECT * FROM senders")}
     out = []
