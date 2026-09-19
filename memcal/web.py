@@ -74,6 +74,7 @@ from .web_queue import (
     queue_item,
     senders,
     set_sender,
+    settle_name,
 )
 from .web_server import (
     CSRF_COOKIE,

@@ -358,6 +358,11 @@ class Handler(BaseHTTPRequestHandler):
                                  reason=payload.get("reason"))
             elif url.path == "/api/queue":
                 out = web_queue.queue_item(conn, self.cfg, int(payload["id"]), payload["action"])
+            elif url.path == "/api/name":
+                # Confirm or correct a guessed sender ("maybe: X") from the Chats
+                # tab — the same verb the MCP surface has as memcal_name.
+                out = web_queue.settle_name(conn, payload.get("guess", ""),
+                                            payload.get("correct"))
             elif url.path == "/api/chat":
                 out = threads.decide(conn, payload["channel"], payload["thread"],
                                      payload["decision"],
