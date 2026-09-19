@@ -37,11 +37,11 @@ TOOLS = [
             "repeats and when the next one is, what the invitation said, who to ask. "
             "Also returns the messages it came from and every change it has been "
             "through, so 'is this right?' and 'where did this come from?' are the same "
-            "one call. For a handle it already includes pending new activity with "
-            "[ids] to cite, so a flagged row needs no second memcal_activity call "
-            "unless the preview is truncated. Takes the handle the brief prints in "
-            "brackets, such as E258, T2, or Q12. Existing legacy S handles remain "
-            "readable."),
+            "one call. For a handle it already includes the whole thread behind "
+            "pending new activity, full text with (new) markers and [ids] to cite, "
+            "so a flagged row needs no second call unless a cap truncates it. "
+            "Takes the handle the brief prints in brackets, such as E258, T2, or "
+            "Q12. Existing legacy S handles remain readable."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -187,14 +187,13 @@ TOOLS = [
     {
         "name": "memcal_activity",
         "description": (
-            "Page further into new messages behind one plan when memcal_open's "
-            "included preview is truncated — the correction, not a keyword search. "
-            "Start with memcal_open, which already carries the first messages with "
-            "[ids] to cite; use this only to page past that preview. Reading "
-            "changes nothing; cite the [ids] in a memcal_update (prefer "
-            "field_sources when fields differ), or acknowledge them with "
-            "memcal_reviewed when the stored row still stands. Takes a brief "
-            "handle like E46."),
+            "Page pending messages behind one plan when memcal_open's whole-thread "
+            "view is truncated — the correction, not a keyword search. Start with "
+            "memcal_open, which already carries the thread with [ids] to cite; use "
+            "this only to page past a cap. Reading changes nothing; cite the [ids] "
+            "in a memcal_update (prefer field_sources when fields differ), or "
+            "acknowledge them with memcal_reviewed when the stored row still "
+            "stands. Takes a brief handle like E46."),
         "inputSchema": {
             "type": "object",
             "properties": {

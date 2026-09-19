@@ -346,6 +346,47 @@ def pending(conn: sqlite3.Connection, kind: str, ref: str,
             "reviewed": len(covered), "mark": reviewed_max(conn, kind, ref)}
 
 
+#: How many tail lines one thread contributes to an open's whole-thread view.
+#: Matches `trace.conversation`'s default so the two cannot drift.
+THREAD_TAIL_LIMIT = 60
+
+
+def thread_tail(conn: sqlite3.Connection, channel: str, thread: str, *,
+                limit: int = THREAD_TAIL_LIMIT) -> tuple[list[dict], int]:
+    """Last `limit` arrivals in one conversation, oldest first, safely filtered.
+
+    Same mute / explicit-ignore filter as `_pending_rows`, so an open's
+    whole-thread view never leaks hidden traffic. Returns `(lines, total)` —
+    `total` is the full filtered count, so callers can say what was cut.
+    """
+    if not thread:
+        return [], 0
+    scope = ("LEFT JOIN threads t ON t.channel = a.channel AND t.thread = a.thread"
+             " LEFT JOIN senders s ON s.address = a.handle")
+    hidden = ("coalesce(t.decision, '') != 'mute'"
+              " AND NOT (s.decision IN ('archive', 'ignore')"
+              " AND coalesce(s.source, 'auto') != 'auto')")
+    total = conn.execute(
+        f"SELECT count(*) AS n FROM archive a {scope}"
+        f" WHERE a.channel = ? AND coalesce(a.thread, '') = ? AND {hidden}",
+        (channel, thread)).fetchone()["n"]
+    rows = conn.execute(
+        f"""SELECT a.* FROM archive a {scope}
+            WHERE a.channel = ? AND coalesce(a.thread, '') = ? AND {hidden}
+            ORDER BY a.id DESC LIMIT ?""",
+        (channel, thread, limit)).fetchall()
+    lines = [{
+        "id": row["id"],
+        "ts": str(row["ts"]),
+        "channel": row["channel"],
+        "thread": row["thread"] or "",
+        "who": ("me" if row["from_me"]
+                else (row["person"] or row["handle"] or "?")),
+        "text": row["text"] or "",
+    } for row in reversed(rows)]
+    return lines, int(total or 0)
+
+
 def read(conn: sqlite3.Connection, kind: str, ref: str, *,
          cursor: int = 0, limit: int = 20) -> dict:
     """One bounded page of uncovered observations, in arrival order.

@@ -184,9 +184,9 @@ OPEN = {
         "one is, what the invitation actually said, who to ask about it. It also "
         "returns the messages the row came from and every change it has been through, "
         "so 'is this right?' and 'where did this come from?' are one call. For a "
-        "handle it already includes pending new activity with line ids to cite, so a "
-        "flagged row needs no second memcal_activity call unless the preview is "
-        "truncated.\n"
+        "handle it already includes the whole thread behind pending new activity, "
+        "full text with line ids to cite, so a flagged row needs no second call "
+        "unless a cap truncates it.\n"
         "Brief lines carry a short handle such as E258, T2, Q12 or S4; give it that. "
         "Events, to-dos and questions all work; S handles remain readable for older data."),
     "parameters": {
@@ -370,10 +370,10 @@ UPDATE_EVENT = {
 ACTIVITY = {
     "name": "memcal_activity",
     "description": (
-        "Page further into new messages behind one plan when memcal_open's "
-        "included preview is truncated — the correction, not a keyword search. "
-        "Start with memcal_open, which already carries the first messages with "
-        "line ids to cite; use this only to page past that preview. Reading "
+        "Page pending messages behind one plan when memcal_open's whole-thread "
+        "view is truncated — the correction, not a keyword search. Start with "
+        "memcal_open, which already carries the thread with line ids to cite; "
+        "use this only to page past a cap. Reading "
         "changes nothing; cite the line ids in a memcal_update (prefer "
         "field_sources when fields have different supports), or acknowledge them "
         "with memcal_reviewed when the stored row still stands. Brief lines carry "
