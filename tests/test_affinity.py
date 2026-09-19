@@ -121,9 +121,9 @@ class TestTheUserIsNotOneVoice(unittest.TestCase):
     """Every message the user sent has an empty handle.
 
     Falling through to `stream:` for those collapses their half of every conversation in
-    the store into a single speaker. `ambient_tokens` then sees `beer` and `garden` said
-    by "one voice" over two months and suppresses exactly the words that link — which is
-    what happened the first time this was run over the real corpus.
+    the store into a single speaker. `ambient_tokens` then sees the linking words said by
+    "one voice" over two months and suppresses exactly the words that would connect two
+    fragments.
     """
 
     def test_an_unattributed_line_is_credited_to_its_conversation(self):

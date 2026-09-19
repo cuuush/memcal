@@ -386,7 +386,9 @@ def message_ids(headers: email.message.Message) -> tuple[str, str, list[str]]:
     """This message's id, the one it answers, and the chain above it.
 
     All three are preserved because the reply relationship is the only thing that
-    establishes one conversation. The same sender is not: two mails from one senderabout unrelated matters are two conversations, and reading them as one sender bucket is how a booking reference ends up filed under a year of receipts.
+    establishes one conversation. The same sender is not: two mails from one sender
+    about unrelated matters are two conversations, and reading them as one sender
+    bucket is how a booking reference ends up filed under a year of receipts.
     """
     own = _bare_id(header_str(headers, "Message-ID"))
     parent = _bare_id(header_str(headers, "In-Reply-To"))
