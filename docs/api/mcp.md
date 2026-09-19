@@ -23,7 +23,8 @@ the backlog), and `memcal_refresh` (re-render the current brief, no model). See
 `memcal_add`, `memcal_update`, `memcal_schedule`, `memcal_move_once`,
 `memcal_merge`, `memcal_drop`, `memcal_todo`, `memcal_note`, `memcal_alias`,
 `memcal_answer`, `memcal_reviewed` (acknowledge cited activity lines with no row
-change). Writes run as code — no model — with the change and its operation record
+change), and `memcal_name` (confirm or correct a guessed sender shown as
+`maybe:`). Writes run as code — no model — with the change and its operation record
 written together. See [Remember](remember.md) and [Correct](correct.md).
 
 ## Sessions

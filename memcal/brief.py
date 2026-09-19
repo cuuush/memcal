@@ -113,7 +113,8 @@ FRESHNESS_HINT_UNREVIEWED_FORMAT = (
 #: guesses are never nudged — they age out — so this only fires once one has drawn hints
 #: across enough distinct days (MEMCAL_FRESHNESS_GUESS_NUDGE_DAYS).
 FRESHNESS_GUESS_NUDGE = (
-    " This name is a guess; `memcal who` to confirm or rename it.")
+    " This sender's name is a guess; when this plan comes up, confirm or correct it "
+    "with memcal_name.")
 
 #: Phone-ish / long opaque ids must never appear in a brief hint label.
 _PHONE_LIKE = re.compile(r"^\+?[\d\s\-().]{7,}$")

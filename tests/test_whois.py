@@ -385,6 +385,24 @@ class TestADreamGuessIsTheWeakestName(Base):
                                              channel="imessage"))
         self.assertIsNone(identity.resolve(self.conn, "+18005551212"))
 
+    def test_settle_guess_confirms_a_guess(self):
+        identity.guess_name(self.conn, "+18005551212", "Tire shop", channel="imessage")
+        self.assertEqual(whois.settle_guess(self.conn, "Tire shop"), "confirmed Tire shop")
+        self.assertFalse(identity.is_guessed(self.conn, "+18005551212"))
+        self.assertEqual(identity.resolve(self.conn, "+18005551212"), "Tire shop")
+
+    def test_settle_guess_corrects_a_wrong_guess(self):
+        identity.guess_name(self.conn, "+18005551212", "Tire shop", channel="imessage")
+        self.assertEqual(whois.settle_guess(self.conn, "Tire shop", "Costco Auto"),
+                         "renamed Tire shop → Costco Auto")
+        self.assertEqual(identity.resolve(self.conn, "+18005551212"), "Costco Auto")
+        self.assertFalse(identity.is_guessed(self.conn, "+18005551212"))
+
+    def test_settle_guess_leaves_a_real_name_alone(self):
+        identity.link(self.conn, "+18005551212", "Dad", source="contacts")
+        self.assertIn("no guessed sender", whois.settle_guess(self.conn, "Dad"))
+        self.assertEqual(identity.resolve(self.conn, "+18005551212"), "Dad")
+
 
 class TestFoldingNearMissGuesses(Base):
     """One sender reached two ways is guessed near the same name each time; folding the

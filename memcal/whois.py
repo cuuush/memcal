@@ -350,6 +350,40 @@ def fold_guessed_names(conn: sqlite3.Connection) -> list[str]:
     return log
 
 
+def settle_guess(conn: sqlite3.Connection, guess: str,
+                 correct: str | None = None) -> str:
+    """Confirm a guessed sender's name, or replace it with a correction.
+
+    Operates only on handles a guess still names (`dream-guess`); a handle a stronger
+    source already owns is never touched, so a real contact stays authoritative. On
+    confirm the guess is promoted to a judgement (it stops reading as a guess and a
+    later scan cannot revise it); on correction it is renamed to the supplied name at
+    the same authority. Returns a one-line result.
+    """
+    guess = (guess or "").strip()
+    if not guess:
+        return "name the guessed sender to settle"
+    handles = [row["handle"] for row in conn.execute(
+        "SELECT handle, source FROM handles WHERE person = ?", (guess,))
+        if str(row["source"] or "").endswith(":dream-guess")]
+    if not handles:
+        return f"no guessed sender named {guess!r} (a confirmed or contact name is left as is)"
+    fixed = identity.clean_name(correct) if correct else ""
+    if correct and not identity.name_shaped(fixed):
+        return f"{correct!r} is not a usable name"
+    final = fixed or guess
+    for handle in handles:
+        identity.link(conn, handle, final, source="cli", commit=False)
+        conn.execute("UPDATE archive SET person = ? WHERE handle = ?", (final, handle))
+    placeholders = ",".join("?" * len(handles))
+    conn.execute(
+        "UPDATE identity_assumptions SET keep = ?, state = 'confirmed', decided_at = ?,"
+        f" source = 'you' WHERE kind = 'name' AND state = 'assumed' AND also IN ({placeholders})",
+        (final, db.now(), *handles))
+    conn.commit()
+    return f"renamed {guess} → {final}" if fixed and final != guess else f"confirmed {final}"
+
+
 def _rebuild_merges(conn: sqlite3.Connection) -> None:
     """Rebuild affected handle names from their baseline and the active merge edges."""
     rows = conn.execute(

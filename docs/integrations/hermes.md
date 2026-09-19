@@ -26,7 +26,7 @@ hermes memory setup
   `memcal_activity`, `memcal_refresh`) and typed writes (`memcal_add`,
   `memcal_update`, `memcal_schedule`, `memcal_move_once`, `memcal_merge`,
   `memcal_drop`, `memcal_todo`, `memcal_answer`, `memcal_note`, `memcal_alias`,
-  `memcal_reviewed`), executed as code with same-transaction evidence.
+  `memcal_reviewed`, `memcal_name`), executed as code with same-transaction evidence.
 - **Session end** — the brief rewrites, so the next session starts current.
 
 `MEMCAL_HOME` (default `~/.memcal`) and `MEMCAL_SRC` select the store and
