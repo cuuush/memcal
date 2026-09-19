@@ -548,7 +548,7 @@ class TestFreshnessCorrectness81(_Base):
         # Frozen copy shape (Integrations mirror FRESHNESS_HINT_FORMAT).
         self.assertIn("since this plan was reviewed", text)
         self.assertIn("may have changed", text)
-        self.assertIn("memcal_activity(handle=", text)
+        self.assertIn("memcal_open(ref=", text)
 
     def test_email_strong_link_hint_says_sender_not_number(self):
         addr = "billing@vendor.example"
