@@ -391,9 +391,22 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
             for outcome in _apply_wiki(conn, cfg, row, source=source, seen=seen_slots,
                                        evidence_ts=_wiki_evidence_ts(bundle, row),
                                        commit=False, archive_ids=slot_ids):
-                note("wiki", outcome, "wiki:", cites=slot_ids, about=about,
-                     generation=(row.get("_generation_id")
-                                 if isinstance(row, dict) else None))
+                if outcome[0] == "slot":
+                    note("wiki", outcome, "wiki:", cites=slot_ids, about=about,
+                         generation=(row.get("_generation_id")
+                                     if isinstance(row, dict) else None))
+                else:
+                    # Alias and question outcomes are independent claims: the
+                    # line stating a nickname is rarely the line stating an
+                    # address, so each cites its own words rather than
+                    # inheriting the slot's. `note` falls back to derived
+                    # lines, then the bundle, when nothing matches.
+                    own = (_claims(row, "alias" if outcome[0] == "alias"
+                                   else "question")
+                           if isinstance(row, dict) else [])
+                    note("wiki", outcome, "wiki:", about=own,
+                         generation=(row.get("_generation_id")
+                                     if isinstance(row, dict) else None))
         _apply_thread_names(conn, cfg, bundle, diff, counts=counts, log=log)
         for row in diff.get("standing") or []:
             note("standing", _apply_standing(conn, row, written_by=written_by,

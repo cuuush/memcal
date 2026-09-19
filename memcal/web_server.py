@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import archive, db, settings, threads, trace, wiki
+from . import archive, brief, db, settings, threads, trace, wiki
 from .config import Config
 from . import web_queue, web_memory, web_dream, web_jobs, web_settings
 from .dream import retry as dream_retry
@@ -435,29 +435,20 @@ class Handler(BaseHTTPRequestHandler):
                         title = target.replace("-", " ").title()
                         page = wiki.Page(slug=target, section=section, path=path,
                                          title=title)
-                    text = markdown if markdown.endswith("\n") else markdown + "\n"
                     try:
-                        before = (wiki._parse_content(
-                            page.path.read_text(encoding="utf-8"), page.path,
-                            page.slug, page.section).slots if page.path.exists()
-                            else {})
-                        after = wiki._parse_content(
-                            text, page.path, page.slug, page.section).slots
-                        for slot_name, info in after.items():
-                            old_value = (before.get(slot_name) or {}).get("value")
-                            if old_value != info.get("value"):
-                                wiki.record_slot_change(
-                                    conn, page.slug, slot_name, old_value,
-                                    info.get("value"), source="you")
+                        wiki.record_raw_edit(conn, page, markdown)
                         conn.commit()
-                    except Exception:
+                    except Exception as exc:
                         try:
                             conn.rollback()
                         except Exception:
                             pass
-                    wiki._write_rendered(page.path, text)
-                    wiki._ALIAS_CACHE.pop(self.cfg.wiki_dir, None)
-                    out = {"ok": True, "slug": page.slug}
+                        out = {"error": f"could not record the edit: {exc}"}
+                    else:
+                        wiki.write_raw(self.cfg.wiki_dir, page, markdown)
+                        # The page list is part of the brief, like `live.note`.
+                        brief.write(conn, self.cfg)
+                        out = {"ok": True, "slug": page.slug}
             else:
                 return self._send({"error": "not found"}, 404)
             self._send(out)

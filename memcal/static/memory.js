@@ -424,6 +424,7 @@ function openFactEditor(page, fact, box, reload) {
     const out = await api("/api/wiki_slot",
       {slug: page.slug, slot: fact.slot, value});
     if (!out.error) reload();
+    else save.disabled = false;
   };
   save.onclick = commit;
   input.onkeydown = e => {
