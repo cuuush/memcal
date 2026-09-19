@@ -12,6 +12,14 @@
 
 ### Added
 
+- The Dream tab draws the pass that is running right now, whoever started it:
+  a live card with the stage timeline, bundles read out of bundles planned, the
+  bundles being read at this moment, and the recent request feed. Every bundle
+  chip jumps to the exact text the model is reading in the preview list below.
+  A pass gone silent mid-run reads as possibly stalled instead of live. Every
+  pass — CLI, web, or scheduled — reports into `run_bundles`/`run_events`
+  (`GET /api/dream_live`), since the job slot only ever knew about web-started
+  passes. While an outside pass runs, the Dream button stands down.
 - Sources can be switched on and off from the Settings tab: each source has an
   on/off toggle backed by `MEMCAL_DISABLED_SOURCES`. Disabled sources are
   skipped by Collect, `ingest all`, due checks, and the nightly pull; an

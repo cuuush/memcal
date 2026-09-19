@@ -19,6 +19,7 @@ from ..config import Config
 from ..llm import LLMError
 from . import apply as apply_stage
 from . import bundle as bundle_stage
+from . import live as live_stage
 from . import propose as propose_stage
 from . import merge as merge_stage
 from . import sweep as sweep_stage
@@ -260,6 +261,18 @@ def _dream(
         if progress:
             progress("stage", {"stage": stage, "state": state, "note": note, **detail})
 
+    # The cross-process feed behind the Dream tab's live card. `web_jobs` only sees
+    # jobs the web server started; a CLI or scheduled pass would otherwise run
+    # silently. Fanning the same events out here costs one committed row each and
+    # never breaks the pass — `LiveFeed` swallows its own errors.
+    feed = live_stage.LiveFeed(cfg.db_path)
+    _outer_progress = progress
+
+    def progress(event: str, data: dict) -> None:
+        if _outer_progress:
+            _outer_progress(event, data)
+        feed.event(event, data)
+
     emit("prepare", "running", "retiring stale items and building bundles")
     if model:
         cfg.propose_model = model
@@ -316,6 +329,7 @@ def _dream(
     run_id = int(cur.lastrowid)
     opened.append(run_id)
     conn.commit()
+    feed.attach(run_id, bundles)
     for abandoned in _mark_abandoned_runs(conn, run_id):
         print(f"run {abandoned} was left open by a pass that never finished; "
               f"marked abandoned")

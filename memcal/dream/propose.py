@@ -1492,7 +1492,11 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
         suffixes = [build_suffix(cfg, g, conn) for g in batch]
         if progress:
             progress("propose_wave", {"requests": len(batch), "kind": kind,
-                                      "bundles": sum(len(group) for group in batch)})
+                                      "bundles": sum(len(group) for group in batch),
+                                      # Which bundles this wave puts in flight, so a
+                                      # reader can say what is being read right now.
+                                      "entities": [b.entity for group in batch
+                                                   for b in group]})
 
         def finished(index, outcome) -> None:
             if not progress:
@@ -1502,6 +1506,7 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
                 "index": index + 1,
                 "bundles": len(group),
                 "label": ", ".join(b.label for b in group[:2]),
+                "entities": [b.entity for b in group],
                 "ok": not isinstance(outcome, Exception),
                 "error": str(outcome) if isinstance(outcome, Exception) else "",
             })
