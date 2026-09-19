@@ -146,15 +146,10 @@ def _is_guessed_thread(conn: sqlite3.Connection, channel: str, thread: str) -> b
     """True when a 1:1 conversation's name is an unconfirmed dream guess.
 
     Only a lone sender: a guess names one handle, so a thread with several speakers is
-    never shown as a guess even if one of them carries one.
+    never shown as a guess even if one of them carries one. Delegates to
+    threads.is_guessed_thread so the brief and the web UI agree.
     """
-    if not thread:
-        return False
-    rows = conn.execute(
-        "SELECT DISTINCT handle FROM archive WHERE channel = ?"
-        " AND coalesce(thread, '') = ? AND from_me = 0"
-        " AND handle IS NOT NULL AND handle != ''", (channel, thread)).fetchall()
-    return len(rows) == 1 and identity.is_guessed(conn, rows[0]["handle"])
+    return threads.is_guessed_thread(conn, channel, thread)
 
 
 def _hint_label(conn: sqlite3.Connection, channel: str, thread: str) -> str:

@@ -71,6 +71,15 @@ function rollupRow(g, max) {
   sum.append(bar);
   sum.append(el("span", "gname", g.title || g.key));
   sum.append(el("span", "pill archive", g.channel));
+  if (g.guessed) {
+    const gp = el("span", "pill");
+    gp.style.cssText = "border-color:var(--warn);color:var(--warn)";
+    gp.textContent = "dream's guess";
+    gp.title = "Dream invented this name for an otherwise-nameless sender. Confirm or "
+      + "correct it on the Chats tab — until then it reads as a guess everywhere, "
+      + "including the brief.";
+    sum.append(gp);
+  }
   if (g.muted) {
     const m = el("span", "pill"); m.style.cssText = "border-color:var(--warn);color:var(--warn)";
     m.textContent = "muted"; sum.append(m);
@@ -113,7 +122,16 @@ function itemRow(it) {
   const row = el("div", "item");
   row.dataset.id = it.id;
   row.append(el("div", "when", it.ts.slice(5, 16).replace("T", "  ")));
-  row.append(el("div", "who", it.who));
+  const who = el("div", "who", it.who);
+  if (it.guessed) {
+    who.title = "Dream invented this name for an otherwise-nameless sender — "
+      + "a guess until confirmed on the Chats tab.";
+    who.append(el("span", "pill",
+      "guess"));
+    who.lastChild.style.cssText =
+      "border-color:var(--warn);color:var(--warn);margin-left:6px;font-size:11px";
+  }
+  row.append(who);
 
   const st = el("div", "state " + it.state);
   st.append(el("i", "dot"));

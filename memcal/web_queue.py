@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import timedelta
 
-from . import archive, db, gate, identity, threads
+from . import archive, db, gate, identity, presentation, threads
 from .config import Config
 
 PREVIEW_CHARS = 240
@@ -47,11 +47,17 @@ def counterparts(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> dict[tupl
     return out
 
 
-def _who(row: sqlite3.Row, with_whom: dict[tuple, str] | None = None) -> str:
+def _who(row: sqlite3.Row, with_whom: dict[tuple, str] | None = None,
+         persons_guessed: set[str] | None = None) -> str:
     other = (with_whom or {}).get((row["channel"], row["thread"]))
+    if persons_guessed and other in persons_guessed:
+        other = presentation.as_guess(other)
     if row["from_me"]:
         return f"me → {other}" if other else "me"
-    return row["person"] or row["handle"] or "?"
+    name = row["person"] or row["handle"] or "?"
+    if row["person"] and persons_guessed and row["person"] in persons_guessed:
+        name = presentation.as_guess(name)
+    return name
 
 
 def _queue_state(row: sqlite3.Row) -> str:
@@ -81,7 +87,8 @@ def _queue_state(row: sqlite3.Row) -> str:
     return "read" if row["run_id"] is not None else "retired"
 
 
-def _item(row: sqlite3.Row, with_whom: dict[tuple, str] | None = None) -> dict:
+def _item(row: sqlite3.Row, with_whom: dict[tuple, str] | None = None,
+          persons_guessed: set[str] | None = None) -> dict:
     meta = _meta(row)
     text = row["text"] or ""
     subject = meta.get("subject")
@@ -91,6 +98,9 @@ def _item(row: sqlite3.Row, with_whom: dict[tuple, str] | None = None) -> dict:
     body = text
     if subject and body.startswith(subject):
         body = body[len(subject):].strip()
+    who = _who(row, with_whom, persons_guessed)
+    guessed = bool(row["person"] and persons_guessed
+                   and row["person"] in persons_guessed)
     return {
         "id": row["id"],
         "ts": str(row["ts"]),
@@ -98,7 +108,8 @@ def _item(row: sqlite3.Row, with_whom: dict[tuple, str] | None = None) -> dict:
         # The conversation this line is in — what "don't care" acts on when there is no
         # address to blame, which is every chat channel.
         "thread": row["thread"] or "",
-        "who": _who(row, with_whom),
+        "who": who,
+        "guessed": guessed,
         "address": None if row["from_me"] else (row["handle"] or None),
         "from_me": bool(row["from_me"]),
         "subject": subject,
@@ -234,8 +245,14 @@ def items(conn: sqlite3.Connection, *, channel: str = "", verdict: str = "",
         + fclause + " GROUP BY 1, 2 ORDER BY n DESC", fargs
     ).fetchall()
     with_whom = counterparts(conn, rows)
+    persons_guessed = threads.guessed_persons(conn)
+    # Prefix guessed counterparts too: "me → X" reads as confirmed unless the
+    # other side carries the same maybe: marker the brief uses.
+    for key, name in list(with_whom.items()):
+        if name in persons_guessed:
+            with_whom[key] = presentation.as_guess(name)
     return {
-        "items": [_item(r, with_whom) for r in rows],
+        "items": [_item(r, with_whom, persons_guessed) for r in rows],
         "total": total,
         "offset": offset,
         "reasons": [{"reason": r["reason"] or "(none)", "passed": bool(r["gated"]),
@@ -270,13 +287,18 @@ def groups(conn: sqlite3.Connection, *, channel: str = "", verdict: str = "",
 
     names = threads.titles(conn)
     hushed = threads.muted(conn)
+    guessed = threads.guessed_threads(
+        conn, {(row["channel"], row["key"]) for row in rows})
     out = []
     for row in rows:
         key = (row["channel"], row["key"])
+        raw_title = names.get(key, row["key"])
+        is_guessed = key in guessed
         out.append({
             "channel": row["channel"],
             "key": row["key"],
-            "title": names.get(key, row["key"]),
+            "title": presentation.as_guess(raw_title) if is_guessed else raw_title,
+            "guessed": is_guessed,
             "n": row["n"],
             "gated": row["gated"] or 0,
             "structured": row["structured"] or 0,
@@ -316,11 +338,31 @@ def item_detail(conn: sqlite3.Connection, archive_id: int) -> dict:
     row = conn.execute(ITEM_SELECT + " WHERE a.id = ?", (archive_id,)).fetchone()
     if not row:
         return {"error": "no such item"}
-    out = _item(row, counterparts(conn, [row]))
+    persons_guessed = threads.guessed_persons(conn)
+    with_whom = counterparts(conn, [row])
+    for key, name in list(with_whom.items()):
+        if name in persons_guessed:
+            with_whom[key] = presentation.as_guess(name)
+    out = _item(row, with_whom, persons_guessed)
     out["text"] = row["text"] or ""
     out["meta"] = _meta(row)
     out["thread"] = row["thread"]
     return out
+
+
+def settle_name(conn: sqlite3.Connection, guess: str,
+                correct: str | None = None) -> dict:
+    """Confirm or correct a guessed sender name from the web UI.
+
+    Thin wrapper over whois.settle_guess so the Chats tab can offer the same
+    verb the MCP surface has as memcal_name. Returns {"result": ...} or
+    {"error": ...} to match the other POST endpoints.
+    """
+    from . import whois
+    result = whois.settle_guess(conn, guess or "", correct)
+    if result.startswith(("confirmed", "renamed")):
+        return {"result": result}
+    return {"error": result}
 
 
 # ------------------------------------------------------------------ senders --

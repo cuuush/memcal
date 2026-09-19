@@ -34,8 +34,10 @@ function renderReview(data) {
   n.append(el("p", null,
     `You have never posted in these and you know nobody in them — no one in the chat turns `
     + `up anywhere else you do speak. That describes a dev chat you cared about eight years `
-    + `ago and it equally describes your dog park, so memcal will not guess. Reading one `
-    + `costs model calls on every pass; muting keeps it archived and searchable.`));
+    + `ago and it equally describes your dog park, so group membership alone never names `
+    + `anyone. Reading one costs model calls on every pass; muting keeps it archived `
+    + `and searchable. A one-to-one thread from a bare number is different: dream may `
+    + `invent a short name for it, shown below as "maybe: …" until you confirm or correct it.`));
   for (const t of rows) n.append(chatRow(t, Math.max(...rows.map(r => r.n)), true));
   box.append(n);
 }
@@ -69,6 +71,15 @@ function chatRow(t, max, urgent) {
   bar.append(mine, theirs);
   sum.append(bar, el("span", "gname", t.title || t.thread));
   sum.append(el("span", "pill archive", t.channel));
+  if (t.guessed) {
+    const g = el("span", "pill");
+    g.style.cssText = "border-color:var(--warn);color:var(--warn)";
+    g.textContent = "dream's guess";
+    g.title = "Dream invented this name for an otherwise-nameless sender. It is the "
+      + "weakest evidence there is — a contact, a platform name, or confirming it here "
+      + "always wins. Confirming stops it reading as a guess.";
+    sum.append(g);
+  }
   if (t.group) sum.append(el("span", "pill", `${t.members || "?"} people`));
   if (t.collision) {
     const c = el("span", "pill");
@@ -120,6 +131,7 @@ function chatRow(t, max, urgent) {
   mute.onclick = () => decideChat(t, "mute");
   act.append(keep, mute);
   body.append(act);
+  if (t.guessed) body.append(guessRow(t));
   d.append(body);
   if (urgent) d.open = false;
   return d;
@@ -132,6 +144,47 @@ async function decideChat(t, decision) {
     ? `muted — ${nf(out.retired || 0)} queued line(s) dropped, all still in the archive`
     : "kept — it will be read on every pass");
   await loadChats();
+}
+
+/* A guessed 1:1 name is reviewable here, not only over MCP. Confirming promotes
+   it to a judgement so it stops reading as a guess; correcting renames it at
+   the same authority. Same verb as memcal_name. */
+function guessRow(t) {
+  const guess = (t.title || "").replace(/^maybe:\s*/, "");
+  const box = el("div", "gact");
+  box.style.marginTop = "8px";
+  const note = el("div", "note",
+    `"${t.title}" is a guess — check it the next time this sender comes up.`);
+  note.style.margin = "0 0 6px";
+  const row = el("div", "gact");
+  row.style.marginTop = "0";
+  const ok = el("button", "btn", `Confirm “${guess}”`);
+  ok.title = "this is right — stop showing it as a guess";
+  ok.onclick = async () => {
+    const out = await api("/api/name", {guess});
+    if (out.error) return;
+    toast(out.result || "confirmed");
+    await loadChats();
+  };
+  const input = document.createElement("input");
+  input.type = "search";
+  input.placeholder = "correct name…";
+  input.setAttribute("aria-label", `correct the guessed name ${guess}`);
+  input.style.minWidth = "160px";
+  const fix = el("button", "btn", "Rename");
+  fix.title = "the guess was wrong — use this name instead";
+  fix.onclick = async () => {
+    const correct = input.value.trim();
+    if (!correct) { input.focus(); return; }
+    const out = await api("/api/name", {guess, correct});
+    if (out.error) return;
+    toast(out.result || "renamed");
+    await loadChats();
+  };
+  input.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); fix.click(); } };
+  row.append(ok, input, fix);
+  box.append(note, row);
+  return box;
 }
 $("#cstream").onchange = e => { state.cstream = e.target.value; loadChats(); };
 let cTimer;

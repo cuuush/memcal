@@ -1,5 +1,18 @@
 ## [Unreleased]
 
+### Added
+
+- The web UI shows dream's guessed sender names the way the brief does: a 1:1
+  thread dream named itself reads as `maybe: <name>` with a dream's-guess pill
+  on the Chats tab, the Gate rollup, and the per-line feed, instead of reading
+  as a confirmed contact. Confirming a guess there promotes it to a judgement
+  so it stops reading as a guess; correcting renames it at the same authority.
+  `POST /api/name` (`guess`, optional `correct`) is the same verb the MCP
+  surface has as `memcal_name`.
+- The Chats review copy no longer says memcal will not guess: group membership
+  alone still never names anyone, while a one-to-one thread from a bare number
+  may carry a dream guess for review.
+
 ## [0.8.1] - 2026-09-19
 
 ### Added
