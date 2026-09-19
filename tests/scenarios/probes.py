@@ -382,7 +382,7 @@ def boundary_checks(home: Path) -> list[dict]:
         # giant sender bucket; a reply should still join its own root.
         class Mailbox:
             bodies = {
-                1: "Can we meet Tuesday at 10 about the appointment",
+                1: "Can we meet Tuesday at 10 about the appointment?",
                 2: "Tuesday at 10 works.",
                 3: "Your 2026 tax forms are attached.",
             }
