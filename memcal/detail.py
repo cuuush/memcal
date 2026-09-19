@@ -23,10 +23,17 @@ def parse_handle(token: str) -> str | None:
     return f"{match.group(1).upper()}{match.group(2)}" if match else None
 
 
+#: How many pending activity lines `open_handle` carries inline. Enough to
+#: act on a flagged row in one call; `memcal_activity` pages past this.
+OPEN_ACTIVITY_LIMIT = 10
+
+
 def open_handle(conn: sqlite3.Connection, cfg: Config, token: str) -> str:
     """The whole record behind a brief handle, as text a model reads.
 
     Accepts printed handles (`E258`, `T2`, `Q12`); no `kind` argument needed.
+    Includes pending new activity inline, so a row the brief flagged needs no
+    second `memcal_activity` call unless the preview is truncated.
     """
     handle = parse_handle(token)
     if not handle:
@@ -42,7 +49,12 @@ def open_handle(conn: sqlite3.Connection, cfg: Config, token: str) -> str:
         "question": _question_text,
         "standing": _standing_text,
     }[kind](conn, cfg, ref)
-    return "\n".join([body, _sources_text(conn, kind, ref), _history_text(conn, kind, ref)])
+    return "\n".join([
+        body,
+        _sources_text(conn, kind, ref),
+        _history_text(conn, kind, ref),
+        _activity_text(conn, kind, ref, handle),
+    ])
 
 
 # --------------------------------------------------------------------- events --
@@ -345,6 +357,45 @@ def _history_text(conn: sqlite3.Connection, kind: str, ref: str) -> str:
     out = ["", "changes:"]
     for change in changes[-8:]:
         out.append(f"  {str(change['changed_at'])[:16]}  {change['field']}: "
-                   f"{change['old_value']!r} -> {change['new_value']!r} "
-                   f"(by {change['written_by']})")
+                    f"{change['old_value']!r} -> {change['new_value']!r} "
+                    f"(by {change['written_by']})")
     return "\n".join(out)
+
+
+def _activity_text(conn: sqlite3.Connection, kind: str, ref: str,
+                   handle: str) -> str:
+    """Pending new messages behind this row, inline so one open is enough.
+
+    Returns "" when nothing is pending, keeping opens without fresh traffic
+    byte-identical to before. Otherwise a bounded preview (OPEN_ACTIVITY_LIMIT)
+    with [ids] to cite in a correction or review, plus the cursor for
+    `memcal_activity` to page the rest. Reading changes nothing.
+    """
+    from . import activity as activity_mod  # noqa: PLC0415 late, mirrors surfaces
+    try:
+        page = activity_mod.read(conn, kind, ref, cursor=0,
+                                 limit=OPEN_ACTIVITY_LIMIT)
+    except Exception:
+        return ""
+    if not page.get("total"):
+        return ""
+    try:
+        weak = activity_mod.associations(conn, kind, ref)["weak"]
+    except Exception:
+        weak = []
+    lines = ["", f"new activity since last review ({page['total']} message(s)"
+             + (f", {page['omitted']} omitted" if page.get("omitted") else "")
+             + f"; {page.get('reviewed', 0)} already reviewed):"]
+    for item in page.get("items") or []:
+        lines.append(f"[{item['id']}] {str(item['ts'])[:16]} "
+                     f"{item['channel']}/{item['thread']} · {item['who']}:")
+        lines.append(f"  {item['text']}")
+    if page.get("items"):
+        lines.append(
+            f"(cite [ids] in memcal_update or memcal_reviewed — reading changes "
+            f"nothing; memcal_activity(handle={handle}) pages past this preview, "
+            f"next cursor {page.get('next_cursor', 0)})")
+    for thread in weak or []:
+        lines.append(f"(possibly related: {thread['channel']}/"
+                     f"{thread['thread']} — {thread['why']})")
+    return "\n".join(lines)

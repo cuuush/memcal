@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### Changed
+
+- `memcal_open` returns pending new activity inline with the stored row, so a
+  brief freshness hint needs one call instead of `memcal_activity` followed by
+  `memcal_open`. The brief, MCP, Hermes, and CLI copy now steers flagged rows to
+  `memcal_open`; `memcal_activity` remains for paging past the included preview.
+
 ### Added
 
 - The web UI shows dream's guessed sender names the way the brief does: a 1:1

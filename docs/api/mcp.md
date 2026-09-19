@@ -12,9 +12,10 @@ The server also exposes the brief as the `memcal://brief` resource.
 
 ## Reads
 
-`memcal_brief`, `memcal_open`, `memcal_open_page`, `memcal_search_wiki`,
+`memcal_brief`, `memcal_open` (stored row plus pending new activity, so a
+flagged row needs no second call), `memcal_open_page`, `memcal_search_wiki`,
 `memcal_list_days`, `memcal_list_month`, `memcal_search_archive`, `memcal_source`,
-`memcal_conversation`, `memcal_activity` (new messages behind a flagged plan, or
+`memcal_conversation`, `memcal_activity` (page past `memcal_open`'s preview, or
 the backlog), and `memcal_refresh` (re-render the current brief, no model). See
 [Recall](recall.md).
 

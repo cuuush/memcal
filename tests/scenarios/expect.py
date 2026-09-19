@@ -538,7 +538,7 @@ def brief_sources_open(ctx):
             continue
         if line.startswith("  ↳ New activity:") or line.startswith("  ↳ …and "):
             # Activity annotations, not rows: the hint names its
-            # `memcal_activity(handle=E..)` call instead of carrying a handle.
+            # `memcal_open(ref=E..)` call instead of carrying a handle.
             continue
         data_lines.append(line)
     missing = [line for line in data_lines if not brief_mod.SOURCE_RE.search(line)]
