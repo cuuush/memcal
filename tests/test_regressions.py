@@ -4108,5 +4108,133 @@ class TestApplyDatesEachFieldFromTheLinesTheReaderCited(Base):
         self.assertEqual(row.location, "Blue Fern")
 
 
+class TestAPreSplitIdentityStoreGainsKind(Base):
+    """A store whose `identity_assumptions` lacks `kind` gains the column on
+    migrate, with existing rows defaulting to 'merge', and `guess_name` then
+    writes `kind='name'` rows."""
+
+    def test_an_old_merge_table_migrates_and_names(self):
+        path = Path(self.tmp.name) / "presplit.db"
+        conn = sqlite3.connect(path)
+        conn.execute(
+            "CREATE TABLE identity_assumptions ("
+            " id INTEGER PRIMARY KEY,"
+            " keep TEXT NOT NULL, also TEXT NOT NULL,"
+            " handles_moved TEXT NOT NULL DEFAULT '[]', why TEXT,"
+            " state TEXT NOT NULL DEFAULT 'assumed',"
+            " source TEXT NOT NULL DEFAULT 'model',"
+            " created_at TEXT NOT NULL, decided_at TEXT)")
+        conn.execute(
+            "INSERT INTO identity_assumptions(keep, also, handles_moved, why,"
+            " state, source, created_at) VALUES(?,?,?,?,?,?,?)",
+            ("Priya Nair", "Priya", "[]", "fold", "assumed", "model", db.now()))
+        conn.execute(
+            "CREATE TABLE series_history (id INTEGER PRIMARY KEY,"
+            " slug TEXT NOT NULL, field TEXT NOT NULL, old_value TEXT,"
+            " new_value TEXT, changed_at TEXT NOT NULL, written_by TEXT NOT NULL)")
+        conn.commit()
+        conn.close()
+
+        upgraded = db.open_db(path)
+        try:
+            assumed = {row[1] for row in
+                       upgraded.execute("PRAGMA table_info(identity_assumptions)")}
+            self.assertIn("kind", assumed)
+            self.assertEqual(upgraded.execute(
+                "SELECT kind FROM identity_assumptions WHERE also = 'Priya'"
+            ).fetchone()[0], "merge")
+            series_cols = {row[1] for row in
+                           upgraded.execute("PRAGMA table_info(series_history)")}
+            self.assertIn("evidence_ts", series_cols)
+            # `guess_name` is the writer that requires the column.
+            self.assertTrue(identity.guess_name(
+                upgraded, "signal:+15551234567", "Mara Quinn",
+                channel="signal", why="thread naming", commit=True))
+            row = upgraded.execute(
+                "SELECT kind, keep, also FROM identity_assumptions"
+                " WHERE kind = 'name' AND also = ?",
+                (identity.normalize("signal:+15551234567"),)).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row["keep"], "Mara Quinn")
+        finally:
+            upgraded.close()
+
+
+class TestASchemaDriftStopsThePassBeforeItSpends(Base):
+    """`schema_gaps` lists columns in schema.sql but absent from the store.
+    Doctor reports them; dream refuses to run until they resolve."""
+
+    PRESPLIT = (
+        "CREATE TABLE identity_assumptions (id INTEGER PRIMARY KEY,"
+        " keep TEXT NOT NULL, also TEXT NOT NULL,"
+        " handles_moved TEXT NOT NULL DEFAULT '[]', why TEXT,"
+        " state TEXT NOT NULL DEFAULT 'assumed',"
+        " source TEXT NOT NULL DEFAULT 'model',"
+        " created_at TEXT NOT NULL, decided_at TEXT)")
+
+    def setUp(self):
+        super().setUp()
+        # `doctor_findings` reads the schedule, which shells out to launchctl.
+        # Pin it so the check answers from the fixture, not the machine.
+        agents = self.cfg.home / "LaunchAgents"
+        agents.mkdir(parents=True, exist_ok=True)
+        nightly = agents / f"{schedule.LABEL}.plist"
+        nightly.write_bytes(
+            plistlib.dumps({"StartCalendarInterval": {"Hour": 3, "Minute": 0}}))
+        schedule.script_path(self.cfg).write_text(
+            f'#!/bin/sh\nPY="{sys.executable}"\n', encoding="utf-8")
+        schedule.stamp_path(self.cfg).touch()
+        for patch in (mock.patch.object(schedule, "plist_path", return_value=nightly),
+                      mock.patch.object(schedule, "_launchctl",
+                                        return_value=(0, "\tlast exit code = 0\n"))):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_drift_is_visible_before_migrate(self):
+        path = Path(self.tmp.name) / "drift.db"
+        raw = sqlite3.connect(path)
+        try:
+            raw.execute(self.PRESPLIT)
+            raw.commit()
+            gaps = db.schema_gaps(raw)
+        finally:
+            raw.close()
+        self.assertIn("identity_assumptions.kind", gaps)
+
+    def test_no_drift_after_migrate(self):
+        path = Path(self.tmp.name) / "healed.db"
+        raw = sqlite3.connect(path)
+        raw.execute(self.PRESPLIT)
+        raw.commit()
+        raw.close()
+        healed = db.open_db(path)
+        try:
+            self.assertEqual([], db.schema_gaps(healed))
+        finally:
+            healed.close()
+
+    def test_doctor_reports_schema(self):
+        findings = {f"{f.section}/{f.name}": f
+                    for f in cli.doctor_findings(self.conn, self.cfg)}
+        self.assertEqual(cli.OK, findings["Store/schema"].status)
+        with mock.patch.object(cli.db, "schema_gaps",
+                               return_value=["identity_assumptions.kind"]):
+            findings = {f"{f.section}/{f.name}": f
+                        for f in cli.doctor_findings(self.conn, self.cfg)}
+        failed = findings["Store/schema"]
+        self.assertEqual(cli.FAIL, failed.status)
+        self.assertIn("identity_assumptions.kind", failed.detail)
+        self.assertTrue(failed.fix)
+
+    def test_dream_refuses_a_drifted_store(self):
+        args = argparse.Namespace(home=str(self.cfg.home))
+        out = io.StringIO()
+        with mock.patch.object(cli.db, "schema_gaps",
+                               return_value=["identity_assumptions.kind"]), \
+                contextlib.redirect_stdout(out):
+            self.assertEqual(1, cli.cmd_dream(args))
+        self.assertIn("identity_assumptions.kind", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
