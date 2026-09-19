@@ -43,6 +43,11 @@
 - Stores created before the `identity_assumptions.kind` column existed gain it
   on open, with existing rows reading as merges. Without it, recording a
   guessed sender name crashed the pass.
+- Resuming a failed dream no longer re-reads every packed request when one
+  bundle changed: packing sorts by size, so a single new line reordered and
+  regrouped all requests and whole-request byte-matching replayed nothing.
+  Resume now absorbs each unchanged bundle out of its saved request on its own
+  text, and only the bundles that actually changed propose fresh.
 
 ### Fixed
 

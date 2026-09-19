@@ -253,6 +253,108 @@ class TestReplaySavesCalls(ResumeBase):
         self.assertIn("gen-chain-1", gens)
 
 
+class TestPackedResumeReusesUnchangedBundles(ResumeBase):
+    """One new line must not re-read the whole packed request.
+
+    Packing sorts by size, so a single new line reorders and regroups every
+    request after it. Whole-group byte-matching then replays nothing — the
+    pass re-spends what it already bought. The per-bundle fallback absorbs
+    each unchanged bundle out of its saved request, and only the bundle that
+    actually changed proposes fresh.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.cfg.pack_bundles = 6
+
+    def _suffixes(self, client):
+        return list(client.seen_suffixes)
+
+    def test_one_new_line_only_reproposes_that_bundle(self):
+        run_id, _bundles, got, _client = self._failed_run_with_calls()
+        first_gen = {b.entity: g for b, _d, g in got}
+        aid = archive.append(
+            self.conn, channel="imessage", external_id="rs-Ava-new",
+            ts=db.now(), text="actually make it 9, asking Ava",
+            thread="thread-Ava", person="Ava", from_me=False,
+            gated=True, gate_reason="subject-event")
+        archive.spool_add(self.conn, aid, "person:Ava")
+        self.conn.commit()
+        index = propose_stage.load_replay(self.conn, self.cfg.home, run_id)
+        counting = _AnswerEmpty()
+        counting.seen_suffixes = []
+        real_complete = counting.complete
+
+        def _capture(**kw):
+            counting.seen_suffixes.append(str(kw.get("suffix") or ""))
+            return real_complete(**kw)
+
+        counting.complete = _capture
+        got2, errors2, notes2 = propose_stage.propose_all(
+            counting, self.conn, self.cfg, self._bundles(),
+            run_id=self._open_run(self._bundles()), replay=index)
+        self.assertEqual([], errors2)
+        # Only Ava changed, so only one fresh request goes out — and it
+        # carries Ava alone, not the regrouped neighbours.
+        self.assertEqual(1, counting.sent)
+        fresh = self._suffixes(counting)[0]
+        self.assertIn("asking Ava", fresh)
+        self.assertNotIn("asking Liam", fresh)
+        self.assertNotIn("asking Mia", fresh)
+        second_gen = {b.entity: g for b, _d, g in got2}
+        self.assertEqual(set(first_gen), set(second_gen))
+        self.assertNotEqual(first_gen["person:Ava"], second_gen["person:Ava"])
+        self.assertEqual(first_gen["person:Liam"], second_gen["person:Liam"])
+        self.assertEqual(first_gen["person:Mia"], second_gen["person:Mia"])
+        self.assertTrue(any("replayed" in n for n in notes2))
+
+    def test_new_person_leaves_old_bundles_replayed(self):
+        run_id, _bundles, got, _client = self._failed_run_with_calls()
+        first_gen = {b.entity: g for b, _d, g in got}
+        aid = archive.append(
+            self.conn, channel="imessage", external_id="rs-Noah-0",
+            ts=db.now(), text="dinner tomorrow at 8? asking Noah",
+            thread="thread-Noah", person="Noah", from_me=False,
+            gated=True, gate_reason="subject-event")
+        archive.spool_add(self.conn, aid, "person:Noah")
+        self.conn.commit()
+        index = propose_stage.load_replay(self.conn, self.cfg.home, run_id)
+        counting = _AnswerEmpty()
+        counting.seen_suffixes = []
+        real_complete = counting.complete
+
+        def _capture(**kw):
+            counting.seen_suffixes.append(str(kw.get("suffix") or ""))
+            return real_complete(**kw)
+
+        counting.complete = _capture
+        got2, errors2, _notes = propose_stage.propose_all(
+            counting, self.conn, self.cfg, self._bundles(),
+            run_id=self._open_run(self._bundles()), replay=index)
+        self.assertEqual([], errors2)
+        self.assertEqual(1, counting.sent)
+        fresh = self._suffixes(counting)[0]
+        self.assertIn("asking Noah", fresh)
+        self.assertNotIn("asking Liam", fresh)
+        second_gen = {b.entity: g for b, _d, g in got2}
+        for person in self.PEOPLE:
+            self.assertEqual(first_gen[f"person:{person}"],
+                             second_gen[f"person:{person}"])
+
+    def test_untouched_packed_run_still_replays_all(self):
+        run_id, _bundles, _got, _client = self._failed_run_with_calls()
+        new_id = self._open_run(self._bundles())
+        index = propose_stage.load_replay(self.conn, self.cfg.home, run_id)
+        strict = _RefuseAll()
+        got2, errors2, notes2 = propose_stage.propose_all(
+            strict, self.conn, self.cfg, self._bundles(),
+            run_id=new_id, replay=index)
+        self.assertEqual(0, strict.sent)
+        self.assertEqual([], errors2)
+        self.assertTrue(any("replayed" in n for n in notes2))
+        self.assertEqual(3, len(got2))
+
+
 class TestResumePrompt(ResumeBase):
     def test_yes_means_resume_no_means_restart(self):
         self.assertTrue(self._ask(True, ""))
