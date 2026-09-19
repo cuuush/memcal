@@ -2818,6 +2818,18 @@ class TestAToolCanBeAdvertisedAndUnreachable(Base):
         with self.assertRaises(ValueError):
             self._server()._write("memcal_not_a_tool", {"page": "x", "name": "y"})
 
+    def test_memcal_name_settles_a_guessed_sender_through_the_surface(self):
+        """The whole path: advertised tool -> write dispatch -> whois.settle_guess."""
+        identity.guess_name(self.conn, "+18005551212", "Tire shop", channel="imessage")
+        confirmed = self._server().call("memcal_name", {"guess": "Tire shop"})
+        self.assertIn("confirmed", confirmed)
+        self.assertFalse(identity.is_guessed(self.conn, "+18005551212"))
+        identity.guess_name(self.conn, "+18885551212", "Dentst", channel="imessage")
+        renamed = self._server().call(
+            "memcal_name", {"guess": "Dentst", "correct": "Dentist office"})
+        self.assertIn("Dentist office", renamed)
+        self.assertEqual(identity.resolve(self.conn, "+18885551212"), "Dentist office")
+
     def test_a_rule_can_be_written_from_this_surface(self):
         """The MCP surface can write a recurring rule."""
         events.upsert(self.conn, {"title": "Tutoring", "date": self.d(1),

@@ -350,6 +350,21 @@ def fold_guessed_names(conn: sqlite3.Connection) -> list[str]:
     return log
 
 
+def _promote_name(conn: sqlite3.Connection, handle: str, name: str, *,
+                  commit: bool = True) -> None:
+    """Promote a handle's name to a judgement and stamp it onto its lines.
+
+    Shared by `confirm` (a name assumption) and `settle_guess`: link at the `user`
+    authority so it stops reading as a guess and no scan can revise it, yet a real
+    Contacts card added later still wins; and rewrite the handle's archived lines so a
+    rename is visible where readers look.
+    """
+    identity.link(conn, handle, name, source="user", commit=False)
+    conn.execute("UPDATE archive SET person = ? WHERE handle = ?", (name, handle))
+    if commit:
+        conn.commit()
+
+
 def settle_guess(conn: sqlite3.Connection, guess: str,
                  correct: str | None = None) -> str:
     """Confirm a guessed sender's name, or replace it with a correction.
@@ -368,13 +383,14 @@ def settle_guess(conn: sqlite3.Connection, guess: str,
         if str(row["source"] or "").endswith(":dream-guess")]
     if not handles:
         return f"no guessed sender named {guess!r} (a confirmed or contact name is left as is)"
+    # A blank correction means "confirm as is"; only a non-blank one that is not a
+    # usable name is rejected.
     fixed = identity.clean_name(correct) if correct else ""
-    if correct and not identity.name_shaped(fixed):
+    if fixed and not identity.name_shaped(fixed):
         return f"{correct!r} is not a usable name"
     final = fixed or guess
     for handle in handles:
-        identity.link(conn, handle, final, source="cli", commit=False)
-        conn.execute("UPDATE archive SET person = ? WHERE handle = ?", (final, handle))
+        _promote_name(conn, handle, final, commit=False)
     placeholders = ",".join("?" * len(handles))
     conn.execute(
         "UPDATE identity_assumptions SET keep = ?, state = 'confirmed', decided_at = ?,"
@@ -466,7 +482,7 @@ def confirm(conn: sqlite3.Connection, assumption_id: int) -> str | None:
         # later scan cannot revise it. Applies whether it was assumed or unsure.
         if not row["keep"]:
             return None                  # no candidate to confirm; name it by hand
-        identity.link(conn, row["also"], row["keep"], source="cli")
+        _promote_name(conn, row["also"], row["keep"], commit=False)
     elif row["state"] == "unsure" and row["kind"] == "merge":
         if not row["keep"]:
             return None                  # no candidate to confirm; name it by hand
