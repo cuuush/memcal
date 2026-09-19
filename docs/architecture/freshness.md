@@ -86,7 +86,7 @@ inputs does.
 
 ```text
 〔E42〕 Sat 12 Sep  Poker night, 8pm — confirmed · Jordan's
-  ↳ New activity: signal/poker-group — 3 message(s) since this plan was reviewed. It may have changed; open with memcal_activity(handle=E42) before giving current details.
+  ↳ New activity: signal/poker-group — 3 message(s) since this plan was reviewed. It may have changed; open with memcal_open(ref=E42) before giving current details — it already includes the new messages.
 [complete for Wed 9 Sep – Wed 16 Sep; look up anything outside that]
 ```
 

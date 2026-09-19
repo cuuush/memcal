@@ -253,9 +253,19 @@ def associations(conn: sqlite3.Connection, kind: str, ref: str,
     return {"strong": strong, "weak": weak}
 
 
+#: Joins and filter hiding muted threads and explicitly ignored senders from
+#: every activity read. Shared by `_pending_rows` and `thread_tail` so the two
+#: cannot drift — hidden traffic must neither leak nor inflate a count.
+_HIDDEN_SCOPE = ("LEFT JOIN threads t ON t.channel = a.channel AND t.thread = a.thread"
+                 " LEFT JOIN senders s ON s.address = a.handle")
+_HIDDEN_FILTER = ("coalesce(t.decision, '') != 'mute'"
+                  " AND NOT (s.decision IN ('archive', 'ignore')"
+                  " AND coalesce(s.source, 'auto') != 'auto')")
+
+
 def _pending_rows(conn: sqlite3.Connection, pairs: list[dict],
-                  covered: set[int], *, limit: int,
-                  after: int = 0) -> tuple[list[dict], int]:
+                   covered: set[int], *, limit: int,
+                   after: int = 0) -> tuple[list[dict], int]:
     """Associated arrivals minus exactly the covered observations, oldest first.
 
     `limit` bounds the returned rows; the total rides alongside so callers can
@@ -281,11 +291,7 @@ def _pending_rows(conn: sqlite3.Connection, pairs: list[dict],
             clauses.append("(a.channel = ? AND coalesce(a.thread, '') = ?)")
             args += [pair["channel"], pair.get("thread") or ""]
     clause = " OR ".join(clauses)
-    scope = ("LEFT JOIN threads t ON t.channel = a.channel AND t.thread = a.thread"
-             " LEFT JOIN senders s ON s.address = a.handle")
-    hidden = ("coalesce(t.decision, '') != 'mute'"
-              " AND NOT (s.decision IN ('archive', 'ignore')"
-              " AND coalesce(s.source, 'auto') != 'auto')")
+    scope, hidden = _HIDDEN_SCOPE, _HIDDEN_FILTER
     seen = ""
     if covered:
         seen = f" AND a.id NOT IN ({','.join('?' * len(covered))})"
@@ -344,6 +350,43 @@ def pending(conn: sqlite3.Connection, kind: str, ref: str,
     return {"strong": strong_items, "weak": weak_items,
             "strong_total": strong_total, "weak_total": weak_total,
             "reviewed": len(covered), "mark": reviewed_max(conn, kind, ref)}
+
+
+#: How many tail lines one thread contributes to an open's whole-thread view.
+#: Matches `trace.conversation`'s default so the two cannot drift.
+THREAD_TAIL_LIMIT = 60
+
+
+def thread_tail(conn: sqlite3.Connection, channel: str, thread: str, *,
+                limit: int = THREAD_TAIL_LIMIT) -> tuple[list[dict], int]:
+    """Last `limit` arrivals in one conversation, oldest first, safely filtered.
+
+    Same mute / explicit-ignore filter as `_pending_rows`, so an open's
+    whole-thread view never leaks hidden traffic. Returns `(lines, total)` —
+    `total` is the full filtered count, so callers can say what was cut.
+    """
+    if not thread:
+        return [], 0
+    scope, hidden = _HIDDEN_SCOPE, _HIDDEN_FILTER
+    total = conn.execute(
+        f"SELECT count(*) AS n FROM archive a {scope}"
+        f" WHERE a.channel = ? AND coalesce(a.thread, '') = ? AND {hidden}",
+        (channel, thread)).fetchone()["n"]
+    rows = conn.execute(
+        f"""SELECT a.* FROM archive a {scope}
+            WHERE a.channel = ? AND coalesce(a.thread, '') = ? AND {hidden}
+            ORDER BY a.id DESC LIMIT ?""",
+        (channel, thread, limit)).fetchall()
+    lines = [{
+        "id": row["id"],
+        "ts": str(row["ts"]),
+        "channel": row["channel"],
+        "thread": row["thread"] or "",
+        "who": ("me" if row["from_me"]
+                else (row["person"] or row["handle"] or "?")),
+        "text": row["text"] or "",
+    } for row in reversed(rows)]
+    return lines, int(total or 0)
 
 
 def read(conn: sqlite3.Connection, kind: str, ref: str, *,

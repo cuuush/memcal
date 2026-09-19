@@ -95,8 +95,8 @@ HINT_COUNT_CAP = 99
 #: See docs/notes/freshness-gap-81.md.
 FRESHNESS_HINT_FORMAT = (
     "  ↳ New activity: {where} — {count} message(s){extra} since this plan was "
-    "reviewed. It may have changed; open with memcal_activity(handle={handle}) "
-    "before giving current details."
+    "reviewed. It may have changed; open with memcal_open(ref={handle}) "
+    "before giving current details — it already includes the new messages."
 )
 
 #: Same flag for a plan that was never reviewed: the signal (a linked thread
@@ -106,7 +106,8 @@ FRESHNESS_HINT_FORMAT = (
 FRESHNESS_HINT_UNREVIEWED_FORMAT = (
     "  ↳ New activity: {where} — {count} message(s){extra} on a linked thread "
     "not yet reviewed. It may bear on this plan; open with "
-    "memcal_activity(handle={handle}) before giving current details."
+    "memcal_open(ref={handle}) before giving current details — it already "
+    "includes the new messages."
 )
 
 #: Appended to a freshness hint when a guessed sender keeps proving relevant. Quiet

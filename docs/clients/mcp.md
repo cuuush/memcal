@@ -68,8 +68,8 @@ alternates if email ingest isn’t set up yet.
 1. `./install.sh` (do **not** pass `--nightly` — the 3am launchd dream pass — on Linux) then `memcal doctor`
 2. `memcal setup` · configure email ingest · `memcal login` for your mail source
 3. `memcal ingest email --limit 20` (or your mail source name)
-4. Wire MCP with the JSON above · call `memcal_brief` → `memcal_activity` →
-   `memcal_update` with flat `source_ids` when correcting from activity
+4. Wire MCP with the JSON above · call `memcal_brief` → `memcal_open` (already
+   includes new activity) → `memcal_update` with flat `source_ids` when correcting
 
 Nightly / daytime collect without launchd: run `memcal ingest email` (or
 `memcal schedule run`) from user cron. On Linux, `memcal schedule install`

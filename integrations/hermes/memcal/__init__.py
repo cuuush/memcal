@@ -183,7 +183,10 @@ OPEN = {
         "street address, the invite or join link, whether it repeats and when the next "
         "one is, what the invitation actually said, who to ask about it. It also "
         "returns the messages the row came from and every change it has been through, "
-        "so 'is this right?' and 'where did this come from?' are one call.\n"
+        "so 'is this right?' and 'where did this come from?' are one call. For a "
+        "handle it already includes the whole thread behind pending new activity, "
+        "full text with line ids to cite, so a flagged row needs no second call "
+        "unless a cap truncates it.\n"
         "Brief lines carry a short handle such as E258, T2, Q12 or S4; give it that. "
         "Events, to-dos and questions all work; S handles remain readable for older data."),
     "parameters": {
@@ -357,7 +360,7 @@ UPDATE_EVENT = {
                                "Only valid with field_sources.",
             },
             "source_ids": {"type": "array", "items": {"type": "integer"},
-                           "description": "archive line ids from memcal_activity (flat oldest-line). "
+                           "description": "archive line ids from memcal_open or memcal_activity (flat oldest-line). "
                                           "Do not combine with field_sources."},
         },
         "required": ["which"],
@@ -367,12 +370,14 @@ UPDATE_EVENT = {
 ACTIVITY = {
     "name": "memcal_activity",
     "description": (
-        "New messages behind one plan since its last review — the correction, not a "
-        "keyword search. Use when the brief flags new activity on a row before giving "
-        "current details for it. Reading changes nothing; cite the line ids in a "
-        "memcal_update (prefer field_sources when fields have different supports), "
-        "or acknowledge them with memcal_reviewed when the stored row still stands. "
-        "Brief lines carry a handle such as E46; give it that."),
+        "Page pending messages behind one plan when memcal_open's whole-thread "
+        "view is truncated — the correction, not a keyword search. Start with "
+        "memcal_open, which already carries the thread with line ids to cite; "
+        "use this only to page past a cap. Reading "
+        "changes nothing; cite the line ids in a memcal_update (prefer "
+        "field_sources when fields have different supports), or acknowledge them "
+        "with memcal_reviewed when the stored row still stands. Brief lines carry "
+        "a handle such as E46; give it that."),
     "parameters": {
         "type": "object",
         "properties": {
@@ -399,7 +404,7 @@ REVIEWED = {
     "description": (
         "Mark activity lines as reviewed with no change to the row — the stored plan "
         "still stands after reading them. Only the cited lines stop raising hints. "
-        "Cite the line ids memcal_activity returned."),
+        "Cite the line ids memcal_open or memcal_activity returned."),
     "parameters": {
         "type": "object",
         "properties": {
