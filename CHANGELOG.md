@@ -1,6 +1,6 @@
 ## [Unreleased]
 
-## [0.8.0] - 2026-09-19
+## [0.8.1] - 2026-09-19
 
 ### Added
 
@@ -104,7 +104,7 @@
 - Hermes `memcal_update` accepts `remove_participants` (parity with MCP) and surfaces
   mapped write outcomes without the flat “already said that” idiom; `docs/api/correct.md`
   documents `field_sources` / `context_source_ids`.
-- MCP `serverInfo.version` and package `__version__` now report `0.8.0` (matching
+- MCP `serverInfo.version` and package `__version__` now report `0.8.1` (matching
   `pyproject.toml`).
 - `docs/clients/mcp.md` includes copy-paste Cursor and Claude Desktop MCP configs
   plus a Linux Slack → MCP demo path.
