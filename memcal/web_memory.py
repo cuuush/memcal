@@ -147,6 +147,10 @@ def memory(conn: sqlite3.Connection, cfg: Config) -> dict:
 def wiki_pages(conn: sqlite3.Connection, cfg: Config, *, q: str = "") -> dict:
     """Every wiki page as a browsable index — what memcal knows a page for, not its name."""
     needle = q.casefold().strip()
+    try:
+        self_slug = wiki.self_slug(conn, cfg.wiki_dir)
+    except wiki.SelfAmbiguous:
+        self_slug = None
     pages = []
     for slug in wiki.list_pages(cfg.wiki_dir):
         page = wiki.read(cfg.wiki_dir, slug)
@@ -156,6 +160,7 @@ def wiki_pages(conn: sqlite3.Connection, cfg: Config, *, q: str = "") -> dict:
         if needle and needle not in title.casefold() and needle not in slug.casefold() \
                 and not any(needle in a.casefold() for a in page.aliases):
             continue
+        is_self = self_slug is not None and page.slug == self_slug
         pages.append({
             "slug": page.slug, "title": title, "section": page.section,
             "facts": len(page.slots), "questions": len(page.questions),
@@ -163,8 +168,11 @@ def wiki_pages(conn: sqlite3.Connection, cfg: Config, *, q: str = "") -> dict:
             # The slot names, so a card can say what the page is *for* — the same list
             # the brief's index publishes — without opening it.
             "answers": list(page.slots),
+            "is_self": is_self,
         })
-    pages.sort(key=lambda p: (p["section"], p["title"].casefold()))
+    # The user's own page first, then by section and name — "me" should never
+    # hide alphabetically between strangers.
+    pages.sort(key=lambda p: (not p["is_self"], p["section"], p["title"].casefold()))
     return {"pages": pages, "total": len(pages)}
 
 

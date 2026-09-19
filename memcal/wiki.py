@@ -18,8 +18,13 @@ from pathlib import Path
 
 from . import db
 
-SECTIONS = ("people", "places", "projects", "preferences")
+SECTIONS = ("people", "places", "projects")
+#: Sections still read for backward compatibility (never written). `preferences/`
+#: was removed from the wiki: stray files there belong to a person page or `me`.
+LEGACY_SECTIONS = ("preferences",)
 SLOT_RE = re.compile(r"^- \*\*(?P<slot>[^*]+)\*\*:\s*(?P<value>.*?)\s*(?:<!--\s*(?P<meta>.*?)\s*-->)?$")
+#: Line citations inside a slot comment: `#12` tokens naming archive line ids.
+LINE_REF_RE = re.compile(r"^#(\d+)$")
 QUESTION_RE = re.compile(r"^- \[ \]\s*(?P<q>.+?)\s*$")
 ALIAS_RE = re.compile(r"^-\s+(?P<name>.+?)\s*$")
 
@@ -52,7 +57,9 @@ class Page:
         if self.slots:
             lines += ["## Facts", ""]
             for slot, info in self.slots.items():
-                meta = " ".join(x for x in (info.get("source"), info.get("ts")) if x)
+                bits = [x for x in (info.get("source"), info.get("ts")) if x]
+                bits += [f"#{i}" for i in (info.get("lines") or [])]
+                meta = " ".join(bits)
                 suffix = f"  <!-- {meta} -->" if meta else ""
                 lines.append(f"- **{slot}**: {info.get('value','')}{suffix}")
             lines.append("")
@@ -78,12 +85,13 @@ def path_for(wiki_dir: Path, slug: str, section: str | None = None) -> Path:
 
 def exists(wiki_dir: Path, slug: str) -> bool:
     slug = canonical(wiki_dir, slug)
-    return any((wiki_dir / s / f"{slug}.md").exists() for s in SECTIONS)
+    return any((wiki_dir / s / f"{slug}.md").exists()
+               for s in (*SECTIONS, *LEGACY_SECTIONS))
 
 
 def _files(wiki_dir: Path) -> list[Path]:
     found: list[Path] = []
-    for section in SECTIONS:
+    for section in (*SECTIONS, *LEGACY_SECTIONS):
         folder = wiki_dir / section
         if folder.is_dir():
             found.extend(sorted(folder.glob("*.md")))
@@ -300,6 +308,8 @@ def add_alias(wiki_dir: Path, slug: str, name: str, *, section: str = "people",
     name = (name or "").strip()
     if not name:
         raise ValueError("an alias needs a name")
+    if section not in SECTIONS:
+        section = "people"
     target = canonical(wiki_dir, slug)
     other = db.slugify(name)
     if other == target:
@@ -353,7 +363,7 @@ def merge(wiki_dir: Path, keep: str, drop: str, *, source: str = "merge") -> Pag
 
 def read(wiki_dir: Path, slug: str) -> Page | None:
     slug = canonical(wiki_dir, slug)
-    for section in SECTIONS:
+    for section in (*SECTIONS, *LEGACY_SECTIONS):
         path = wiki_dir / section / f"{slug}.md"
         if path.exists():
             return parse(path, slug, section)
@@ -386,11 +396,14 @@ def _parse_content(content: str, path: Path, slug: str, section: str) -> Page:
         if current == "facts":
             m = SLOT_RE.match(line.strip())
             if m:
-                meta = (m.group("meta") or "").split()
+                tokens = (m.group("meta") or "").split()
+                lined = [int(tok[1:]) for tok in tokens if LINE_REF_RE.match(tok)]
+                rest = [tok for tok in tokens if not LINE_REF_RE.match(tok)]
                 page.slots[m.group("slot").strip()] = {
                     "value": m.group("value").strip(),
-                    "source": meta[0] if meta else None,
-                    "ts": meta[1] if len(meta) > 1 else None,
+                    "source": rest[0] if rest else None,
+                    "ts": rest[1] if len(rest) > 1 else None,
+                    "lines": lined,
                 }
                 continue
         elif current == "questions":
@@ -456,6 +469,9 @@ def recover(conn, wiki_dir: Path) -> list[Path]:
     """Publish snapshots left in the SQLite outbox by an interrupted write."""
     if conn.in_transaction:
         raise RuntimeError("recover wiki pages only between SQLite transactions")
+    # Legacy `preferences/` files move to `people/` first, so a staged write
+    # below reads the migrated page rather than forking a second file.
+    migrate_preferences(wiki_dir)
     rows = conn.execute(
         "SELECT id, path, content, expected_hash"
         " FROM wiki_pending_writes ORDER BY id").fetchall()
@@ -546,6 +562,8 @@ def ensure(wiki_dir: Path, slug: str, *, title: str | None = None, section: str 
     page = read(wiki_dir, slug)
     if page:
         return page
+    if section not in SECTIONS:
+        section = "people"
     page = Page(slug=slug, section=section, path=path_for(wiki_dir, slug, section),
                 title=title or slug.replace("-", " ").title())
     write(wiki_dir, page)
@@ -554,8 +572,15 @@ def ensure(wiki_dir: Path, slug: str, *, title: str | None = None, section: str 
 
 def set_slot(wiki_dir: Path, slug: str, slot: str, value: str, *,
              source: str | None = None, section: str = "people",
-             conn=None, inferred: bool = False, commit: bool = True) -> Page:
-    """Fill a named slot."""
+             conn=None, inferred: bool = False, commit: bool = True,
+             archive_ids: list[int] | None = None) -> Page:
+    """Fill a named slot.
+
+    `archive_ids` are the exact archive lines the value was read from. They are
+    stored in the slot's HTML comment (`#12` tokens) so the markdown file alone
+    cites its lines, and stamped as evidence alongside the write.
+    """
+    line_refs = [int(i) for i in (archive_ids or []) if isinstance(i, int)]
     with _wiki_write(conn, wiki_dir, commit=commit):
         page = (_page_for_write(conn, wiki_dir, slug, section) if conn is not None
                 else read(wiki_dir, slug))
@@ -566,15 +591,23 @@ def set_slot(wiki_dir: Path, slug: str, slot: str, value: str, *,
                         title=normalized.replace("-", " ").title())
         name = slot.strip()
         previous = (page.slots.get(name) or {}).get("value")
+        old_path = page.path
+        if section not in SECTIONS:
+            section = page.section if page.section in SECTIONS else "people"
+            page.section = section
+            page.path = path_for(wiki_dir, page.slug, section)
         page.slots[name] = {
             "value": value.strip(),
             "source": source or "memcal",
             "ts": db.today().isoformat(),
+            "lines": line_refs,
         }
         if not inferred:
             page.questions = [q for q in page.questions if slot.lower() not in q.lower()]
         if conn is None:
             _write_rendered(page.path, page.render())
+            if old_path != page.path:
+                old_path.unlink(missing_ok=True)
             _ALIAS_CACHE.pop(wiki_dir, None)
         elif (previous or "") != value.strip():
             record_slot_change(conn, page.slug, name, previous, value.strip(), source=source)
@@ -611,6 +644,8 @@ def slot_history(conn, page: str, slot: str | None = None) -> list:
 
 def add_question(wiki_dir: Path, slug: str, question: str, section: str = "people", *,
                  conn=None, commit: bool = True) -> Page:
+    if section not in SECTIONS:
+        section = "people"
     with _wiki_write(conn, wiki_dir, commit=commit):
         page = (_page_for_write(conn, wiki_dir, slug, section) if conn is not None
                 else read(wiki_dir, slug) or ensure(wiki_dir, slug, section=section))
@@ -636,8 +671,52 @@ SLOTS = {
                "partner or family", "work", "what they're into"),
     "places": ("address", "why we go", "who with"),
     "projects": ("who hosts", "where", "how often", "who comes"),
-    "preferences": (),
 }
+
+
+def migrate_preferences(wiki_dir: Path) -> list[str]:
+    """Move stray `preferences/*.md` pages into `people/`, merging on collision.
+
+    `preferences/` is not a wiki section anymore. Files left there from older
+    runs still read (via `LEGACY_SECTIONS`) until this moves them. A page whose
+    name collides keeps its facts; only missing slots, aliases, questions and
+    prose move across. Returns the slugs moved.
+    """
+    legacy = wiki_dir / "preferences"
+    if not legacy.is_dir():
+        return []
+    moved: list[str] = []
+    for path in sorted(legacy.glob("*.md")):
+        slug = path.stem
+        incoming = _parse_content(path.read_text(encoding="utf-8"), path, slug,
+                                  "preferences")
+        target_path = wiki_dir / "people" / f"{slug}.md"
+        if target_path.exists():
+            survivor = parse(target_path, slug, "people")
+            for slot, info in incoming.slots.items():
+                survivor.slots.setdefault(slot, info)
+            for question in incoming.questions:
+                if question not in survivor.questions:
+                    survivor.questions.append(question)
+            if incoming.body.strip():
+                survivor.body = (survivor.body + "\n\n" + incoming.body.strip()).strip()
+            for name in incoming.aliases:
+                if not any(db.slugify(a) == db.slugify(name) for a in survivor.aliases):
+                    survivor.aliases.append(name)
+            survivor.section, survivor.path = "people", target_path
+            write(wiki_dir, survivor)
+        else:
+            incoming.section, incoming.path = "people", target_path
+            _write_rendered(target_path, incoming.render())
+        path.unlink()
+        moved.append(slug)
+    if moved:
+        _ALIAS_CACHE.pop(wiki_dir, None)
+        try:
+            legacy.rmdir()
+        except OSError:
+            pass
+    return moved
 
 MAX_NEW_PAGES_PER_RUN = 12
 
@@ -984,13 +1063,44 @@ def profile(conn, wiki_dir: Path, slug: str, *, context: int = 0) -> dict | None
                                 context=context)
         for slot in page.slots
     }
+    # The latest write behind each slot: which bundle it came out of, and the
+    # call/run behind that bundle. This is what turns "40 lines it came from"
+    # into "line 12, from bundle abc123, read in run 5". The bundle id is the
+    # same six hex characters `propose.bundle_id` mints (sha1 of the entity),
+    # computed here so this module stays importable without the dream package.
+    provenance: dict[str, dict] = {}
+    for slot in page.slots:
+        stamps = trace.history(conn, "wiki", f"{page.slug}.{slot.lower()}")
+        if not stamps:
+            continue
+        newest = stamps[0]
+        entity = newest["entity"] or ""
+        provenance[slot] = {
+            "entity": entity,
+            "bundle": (hashlib.sha1(entity.encode("utf-8")).hexdigest()[:6]
+                       if entity else ""),
+            "run": newest["run_id"],
+            "gen": newest["generation_id"] or "",
+            "verb": newest["verb"] or "",
+            "at": str(newest["at"])[:16],
+        }
+    try:
+        is_self = canonical(wiki_dir, page.slug) == self_slug(conn, wiki_dir)
+    except SelfAmbiguous:
+        is_self = False
     return {
         "slug": page.slug,
         "title": page.title or page.slug,
         "section": page.section,
+        "is_self": is_self,
         # Same slot list the brief index prints, so the two cannot disagree.
         "answers": list(page.slots),
         "facts": [{"slot": name, **info} for name, info in page.slots.items()],
+        # Archive line ids cited in the markdown comment itself, so the file
+        # alone names its lines without a database lookup.
+        "cited_ids": {slot: list((info or {}).get("lines") or [])
+                      for slot, info in page.slots.items()},
+        "provenance": provenance,
         "aliases": list(page.aliases),
         "open_questions": list(page.questions),
         "page": page.render(),
