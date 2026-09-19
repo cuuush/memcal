@@ -404,7 +404,9 @@ function renderGroups() {
 function renderRuntime() {
   const p = page.provider, s = page.store;
   const box = $("#setruntime"); box.innerHTML = "";
-  const card = el("div", "card");
+  const wrap = el("div", "setruntime");
+  const pcard = el("div", "card");
+  pcard.append(el("div", "setcardk", "model provider"));
 
   const head = el("div", "row");
   head.append(el("span", "bname", p.name));
@@ -414,26 +416,28 @@ function renderRuntime() {
   detail.style.margin = "0";
   head.append(pill, detail);
   if (p.default_model)
-    head.append(el("span", "setflag", `provider default model: ${p.default_model}`));
-  card.append(head);
+    head.append(el("span", "setflag", `default model: ${p.default_model}`));
+  pcard.append(head);
   const m = page.models || {};
   if ((m.known || []).length) {
-    card.append(el("p", "note",
+    pcard.append(el("p", "note",
       `${m.known.length} model${m.known.length === 1 ? "" : "s"} available here`
       + (m.roster_source ? ` — from ${m.roster_source}` : "")
-      + (m.closed ? ". Known models owned by another provider are rejected; unknown "
-                    + "names remain available for newer releases."
+      + (m.closed ? ". Models owned by another provider are rejected; unknown "
+                    + "names stay available for newer releases."
                   : ". OpenRouter routes more than memcal prices, so anything you type "
                     + "is still accepted.")));
   }
   if (!p.ok) {
-    card.append(el("div", "setwarn", p.needs_key
+    pcard.append(el("div", "setwarn", p.needs_key
       ? "OpenRouter needs an API key — set OPENROUTER_API_KEY under Credentials below."
       : "The provider is chosen but its command is not on this process's PATH. An "
         + "absolute path in the executable field below is what the nightly agent needs "
         + "anyway."));
   }
 
+  const scard = el("div", "card");
+  scard.append(el("div", "setcardk", "storage"));
   const grid = el("div", "setpaths");
   const rows = [["store", s.home], ["database", `${s.db}  ·  ${nf(Math.round(s.db_bytes / 1024))} KB`],
                 ["brief", s.brief], ["wiki", s.wiki], ["plugins", s.plugins],
@@ -441,17 +445,15 @@ function renderRuntime() {
   for (const [k, v] of rows) {
     grid.append(el("div", "setpathk", k), el("div", "setpathv", v));
   }
-  card.append(grid);
-  box.append(card);
+  scard.append(grid);
+  wrap.append(pcard, scard);
+  box.append(wrap);
   $("#setfile").textContent = page.env_file;
 }
 
 function renderFiles() {
   const box = $("#setfiles"); box.innerHTML = "";
   const card = el("div", "card");
-  card.append(el("p", "note",
-    "memcal reads these in order, and the first one that sets a key wins. memcal only "
-    + "ever writes the store's own file."));
   for (const f of page.files) {
     const row = el("div", "setfile");
     row.append(el("span", "setflag" + (f.role === "store" ? " store" : ""), f.role));
@@ -517,6 +519,26 @@ async function saveSecret(name, value, input) {
   loadProbe();          // a credential is usually the reason a source was not usable
 }
 
+async function saveSource(name, enabled, btn) {
+  if (btn) btn.disabled = true;
+  const out = await api("/api/settings", {source: {name, enabled}});
+  if (btn) btn.disabled = false;
+  if (out.error) return;
+  page = out;
+  // The toggle rewrote MEMCAL_DISABLED_SOURCES on the server. An unsaved
+  // hand-edit of that same field would otherwise overwrite the flip on the
+  // next save, so it is dropped here and the toast says so.
+  if (pending.has("MEMCAL_DISABLED_SOURCES")) {
+    pending.delete("MEMCAL_DISABLED_SOURCES");
+    toast(out.source.enabled ? `${out.source.name} enabled — dropped the unsaved edit to Disabled sources`
+                             : `${out.source.name} disabled — dropped the unsaved edit to Disabled sources`);
+  } else {
+    toast(out.source.enabled ? `${out.source.name} enabled` : `${out.source.name} disabled`);
+  }
+  render();
+  loadProbe();
+}
+
 function renderProbe(probe) {
   const roster = probe.roster || {};
   if (page && page.models && roster.provider === page.models.provider
@@ -541,26 +563,56 @@ function renderProbe(probe) {
   }
   const box = $("#setsources"); box.innerHTML = "";
   const card = el("div", "card");
+  const enabled = (probe.sources || []).filter(s => s.enabled !== false).length;
+  const total = (probe.sources || []).length;
+  const note = $("#setsrcnote");
+  if (note) note.textContent = total
+    ? `${enabled} of ${total} enabled — disabled sources are skipped by Collect, `
+      + `ingest all, due checks, and the nightly pull. An explicit ingest still runs them.`
+    : "What feeds memcal.";
   for (const s of probe.sources) {
-    const row = el("div", "setrow");
+    const on = s.enabled !== false;
+    const row = el("div", "setrow" + (on ? "" : " off"));
     const main = el("div", "setmain");
     const head = el("div", "setlabel");
     head.append(el("span", null, s.name));
     const pill = el("span", "setflag" + (s.usable ? " ok" : " bad"),
-                   s.usable ? "usable" : "not usable");
+                   s.usable ? "usable" : "needs setup");
     head.append(pill);
+    if (!on) head.append(el("span", "setflag bad", "disabled"));
     if (!s.in_all) {
-      const tag = el("span", "setflag", "not in `ingest all`");
-      tag.title = "Skipped by a plain collect — it is slow, interactive, or covered by "
-                + "another source.";
+      const tag = el("span", "setflag", "manual only");
+      tag.title = "Never in a plain collect — it is slow, interactive, or covered by "
+                + "another source. Run it by name when you want it.";
       head.append(tag);
     }
     main.append(head, el("p", "sethelp", s.description));
     const meta = el("div", "setmeta");
     meta.append(el("span", null, s.detail));
-    if (s.secrets.length) meta.append(el("span", null, `wants ${s.secrets.join(", ")}`));
+    if (s.secrets.length) meta.append(el("span", null, `needs ${s.secrets.join(", ")}`));
     main.append(meta);
-    row.append(main, el("div", "setctl"));
+    if (!s.usable && (s.secrets || []).length) {
+      const fix = el("button", "retrylink", "add it under Credentials ↓");
+      fix.type = "button";
+      fix.onclick = () => {
+        const creds = $("#setcreds");
+        if (creds) creds.scrollIntoView({behavior: "smooth", block: "start"});
+      };
+      main.append(fix);
+    }
+    const side = el("div", "setctl");
+    const toggle = el("button", "switch" + (on ? " on" : ""));
+    toggle.type = "button";
+    toggle.setAttribute("role", "switch");
+    toggle.setAttribute("aria-checked", String(on));
+    toggle.setAttribute("aria-label", `${on ? "disable" : "enable"} ${s.name}`);
+    toggle.title = on ? `disable ${s.name}` : `enable ${s.name}`;
+    const knob = el("span", "knob");
+    const word = el("span", "sword", on ? "on" : "off");
+    toggle.append(knob, word);
+    toggle.onclick = e => saveSource(s.name, !on, e.currentTarget);
+    side.append(toggle);
+    row.append(main, side);
     card.append(row);
   }
   for (const problem of probe.load_errors || [])

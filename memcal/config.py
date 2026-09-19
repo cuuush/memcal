@@ -136,6 +136,11 @@ class Config:
     # forces a check and records it for the next due decision.
     collect_interval_minutes: int = 5
 
+    # Comma-separated source names memcal skips in `ingest all`, due checks, the
+    # web Collect button, and the nightly pull. An explicit `memcal ingest <name>`
+    # still runs. Empty means everything enabled.
+    disabled_sources: str = ""
+
     # Request packing strategy:
     #   size      group bundles by token size
     #   affinity  group conversations sharing dates, keywords, and participants
@@ -270,6 +275,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
         ("MEMCAL_DREAM_NAMING", "dream_naming", _flag),
         ("MEMCAL_FRESHNESS_GUESS_NUDGE_DAYS", "freshness_guess_nudge_days", int),
         ("MEMCAL_COLLECT_INTERVAL_MINUTES", "collect_interval_minutes", int),
+        ("MEMCAL_DISABLED_SOURCES", "disabled_sources", str),
         ("MEMCAL_REMIND_DEADLINES", "remind_deadlines", _flag),
         ("MEMCAL_IMESSAGE_BACKEND", "imessage_backend", str),
         ("MEMCAL_IMESSAGE_FALLBACK", "imessage_fallback", _flag),
