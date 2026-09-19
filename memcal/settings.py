@@ -519,7 +519,10 @@ def _normalize_disabled_sources(text: str) -> tuple[str, object]:
     parts = [p.strip().lower() for p in text.replace(";", ",").split(",")]
     parts = [p for p in parts if p]
     for part in parts:
-        if not _re.fullmatch(r"[a-z0-9][a-z0-9_-]*", part):
+        # Registry names are free-form, but in practice lowercase alphanumerics
+        # with dashes, underscores, and dots; anything else (spaces, slashes)
+        # cannot be a source anyone registered.
+        if not _re.fullmatch(r"[a-z0-9][a-z0-9._-]*", part):
             raise SettingsError(
                 f"Disabled sources takes comma-separated source names, not {part!r}")
     seen = sorted(set(parts))

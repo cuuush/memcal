@@ -1798,11 +1798,14 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
     # -- Sources -------------------------------------------------------------
     behind = dict(archive.stale_streams(conn, cfg=cfg))
     fresh = {row["channel"]: row for row in archive.freshness(conn, cfg)}
+    off = sources.disabled_set(cfg)
     for source in sources.all_sources(cfg):
         usable, message = source.check(cfg)
         seen = fresh.get(source.name)
         age = db.age_phrase(seen["newest"]) if seen and seen["newest"] else "never"
         detail = f"{(seen or {}).get('n', 0)} items, last seen {age}"
+        if source.name.lower() in off:
+            detail += " — disabled, skipped by `ingest all`"
         if source.name in behind and usable:  # noqa: SIM114 — three distinct verdicts
             # Reachable now but behind: the scheduled attempt misses its dependency.
             add("Sources", source.name, FAIL, f"{_ago(seen['newest'])} behind — but reachable right now",
@@ -1815,7 +1818,10 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
             login = f"memcal login {source.name}"
             fix = login if login in message else \
                 f"memcal sources         # what {source.name} still needs"
-            add("Sources", source.name, status, _one_line(message),
+            note = _one_line(message)
+            if source.name.lower() in off:
+                note += " — disabled, skipped by `ingest all`"
+            add("Sources", source.name, status, note,
                 fix=fix if status == WARN else "")
         else:
             add("Sources", source.name, OK, detail)
@@ -2120,7 +2126,7 @@ start here:
   memcal status E286 confirmed
   memcal done T7
 
-  memcal ingest all          pull every source into the archive
+  memcal ingest all          pull every enabled source into the archive
   memcal dream               read what is new and write what it means
   memcal doctor              is any of this working
 """
