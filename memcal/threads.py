@@ -689,6 +689,17 @@ def rows(conn: sqlite3.Connection, *, channel: str = "", q: str = "",
     persons_guessed = guessed_persons(conn)
     cards = [_card(row, names, roster, policy, guessed, persons_guessed, queued)
              for row in found]
+    return _mark_collisions(cards)
+
+
+def _mark_collisions(cards: list[dict]) -> list[dict]:
+    """Flag same-named conversations within one displayed page.
+
+    Scoped to the cards actually shown: a twin sitting below the page cutoff
+    is a second page's problem, not this one's. Callers slicing a wider fetch
+    down to a page re-mark the slice so flags match what a direct fetch of
+    that page would have said.
+    """
     # Two conversations with one name is the failure that looks like one conversation
     # with missing messages. Say which ones, and let the roster tell them apart. Scoped
     # per channel: the same friend on iMessage and on WhatsApp is one person, not a clash.

@@ -1810,6 +1810,21 @@ class TestChatsTabScansSpeakersOncePerPass(Base):
         self.assertEqual({t["thread"] for t in out["threads"]}, {"chat-a", "chat-b"})
         self.assertLessEqual(len(calls), 2)
 
+    def test_collision_flags_cover_only_the_displayed_slice(self):
+        # Two 1:1 threads with the same person collide — until the twin falls
+        # below the page cutoff, when the visible card must read as it would
+        # from a direct fetch of that page.
+        self.chat("chat-a", ["one"], person="Abe")
+        self.chat("chat-b", ["two"], person="Abe")
+        threads.refresh(self.conn)
+        cards = threads.rows(self.conn, limit=1000)
+        self.assertTrue(all(c["collision"] for c in cards))
+        page = threads._mark_collisions(cards[:1])
+        direct = threads.rows(self.conn, limit=1)
+        self.assertEqual([c["collision"] for c in page],
+                         [c["collision"] for c in direct])
+        self.assertFalse(page[0]["collision"])
+
 
 class TestSendersTabScopesNewestSubjects(Base):
     """The senders tab sorted every email row per sender on every open to find
