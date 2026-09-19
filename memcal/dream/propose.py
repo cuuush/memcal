@@ -514,13 +514,18 @@ def _fmt(cfg: Config) -> str:
 
 
 def pack(cfg: Config, bundles: list[Bundle],
-         conn: sqlite3.Connection | None = None) -> list[list[Bundle]]:
+         conn: sqlite3.Connection | None = None,
+         *, cache: dict[str, str] | None = None) -> list[list[Bundle]]:
     """Group bundles into requests, largest first so one big bundle rides alone.
 
     With `pack_strategy=affinity`, conversations that look like they are about the same
     occasion are grouped first and everything else falls through to the size-ordered
     packing below. The affinity pass is pure code over the store — see `affinity.py` for
     why a wrong answer there is cheap.
+
+    `cache` memoises `build_bundle_block` by entity for the caller holding it. The
+    Dream tab builds every block five times over (packing, two card halves, two
+    suffixes); the pass itself builds each once, so it passes nothing and pays nothing.
     """
     max_bundles = max(1, getattr(cfg, "pack_bundles", PACK_BUNDLES))
     max_tokens = max(1000, getattr(cfg, "pack_tokens", PACK_TOKENS))
@@ -528,12 +533,14 @@ def pack(cfg: Config, bundles: list[Bundle],
     if getattr(cfg, "pack_strategy", "size") == "affinity":
         groups, bundles = affinity.group(
             bundles, max_bundles=max_bundles, max_tokens=max_tokens,
-            cost=lambda b: textclean.estimate_tokens(build_bundle_block(cfg, b, conn)),
+            cost=lambda b: textclean.estimate_tokens(
+                build_bundle_block(cfg, b, conn, cache=cache)),
             near_days=getattr(cfg, "affinity_near_days", 3))
     current: list[Bundle] = []
     current_tokens = 0
     for bundle in sorted(bundles, key=lambda b: -len(b.render(_fmt(cfg)))):
-        cost = textclean.estimate_tokens(build_bundle_block(cfg, bundle, conn))
+        cost = textclean.estimate_tokens(
+            build_bundle_block(cfg, bundle, conn, cache=cache))
         too_big = current and (current_tokens + cost > max_tokens
                                or len(current) >= max_bundles)
         if too_big:
@@ -896,8 +903,16 @@ def _self_page_block(conn: sqlite3.Connection | None, cfg: Config,
 
 
 def build_bundle_block(cfg: Config, bundle: Bundle,
-                       conn: sqlite3.Connection | None = None) -> str:
-    """One bundle as the model sees it: what it may be amending, its pages, its items."""
+                       conn: sqlite3.Connection | None = None,
+                       *, cache: dict[str, str] | None = None) -> str:
+    """One bundle as the model sees it: what it may be amending, its pages, its items.
+
+    `cache` is keyed by entity and lives with the caller (one preview, one pass):
+    the block is pure code over the bundle plus the store, so rebuilding it for
+    every reader of the same request is the same answer paid for five times.
+    """
+    if cache is not None and bundle.entity in cache:
+        return cache[bundle.entity]
     context = []
     head = None
     v2 = prompt_version(cfg) == "v2"
@@ -945,7 +960,10 @@ def build_bundle_block(cfg: Config, bundle: Bundle,
     # id below that context fixed routing but made every small bundle look duplicated.
     # Traffic first and supporting context second preserves the association with one id.
     traffic = bundle.render(_fmt(cfg), head if v2 else None)
-    return "\n".join([traffic, *context])
+    block = "\n".join([traffic, *context])
+    if cache is not None:
+        cache[bundle.entity] = block
+    return block
 
 
 def question_manifest(conn: sqlite3.Connection, bundle: Bundle) -> dict:
@@ -1092,9 +1110,10 @@ def build_open_rows(conn: sqlite3.Connection, bundle: Bundle) -> str:
 
 
 def build_suffix(cfg: Config, group: list[Bundle],
-                 conn: sqlite3.Connection | None = None) -> str:
+                 conn: sqlite3.Connection | None = None,
+                 *, cache: dict[str, str] | None = None) -> str:
     """The varying half of one request: every bundle in this group."""
-    blocks = [build_bundle_block(cfg, bundle, conn) for bundle in group]
+    blocks = [build_bundle_block(cfg, bundle, conn, cache=cache) for bundle in group]
     if prompt_version(cfg) == "v2":
         # Paired with their labels, not as a bare list of hex. Six opaque six-character
         # ids in one request is six chances to transpose two of them, and a transposed
