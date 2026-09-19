@@ -2306,7 +2306,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a named fact on the page; omit to read the whole page")
     s.add_argument("value", nargs="?", help="what to put in the slot")
     s.add_argument("--section", default="people",
-                   choices=["people", "places", "projects", "preferences"],
+                   choices=["people", "places", "projects"],
                    help="which directory the page lives in")
     s.set_defaults(func=cmd_page)
 

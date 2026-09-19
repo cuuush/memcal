@@ -242,17 +242,26 @@ export async function openWikiPreview(slug, holder) {
   renderWikiProfile(page, holder);
 }
 
-/* One page, the way memcal holds it: what it knows, where each fact came from, and
-   which past events it turned up in. The rendered markdown is one fact per line with no
-   way to tell a quote from the small talk beside it, and every source the page carries —
-   `page.sources`, `page.narrow` — was thrown away. This renders them, so "the wiki says
-   Jordan lives at 42 Example St" is followed by the message that said so. Shared by the
-   event panel's wiki links and the Wiki tab, so the two cannot drift. */
-export function renderWikiProfile(page, holder) {
+/* One page, the way memcal holds it: what it knows, the exact line behind each
+   fact, and which past events it turned up in. A cited fact leads with its lines —
+   the messages it was built from, each clickable to read the conversation around
+   it — plus the bundle it came out of as a link back to the Dream tab. An old
+   fact with only bundle-wide evidence says so and caps the preview rather than
+   dumping forty lines. Shared by the event panel's wiki links and the Wiki tab,
+   so the two cannot drift. `reload` re-opens the page after an edit; previews
+   without one simply omit the edit buttons. */
+export function renderWikiProfile(page, holder, reload) {
   holder.innerHTML = "";
   const head = el("div", "wikihead");
   head.append(el("span", "bname", page.title || page.slug));
+  if (page.is_self) head.append(el("span", "youbadge", "you"));
   if (page.section) head.append(el("span", "wikisection", page.section));
+  if (reload) {
+    const edit = el("button", "btn minim", "edit markdown");
+    edit.title = "edit this page as markdown — the wiki is files, this is the file";
+    edit.onclick = () => openMarkdownEditor(page, holder, reload);
+    head.append(edit);
+  }
   holder.append(head);
 
   if ((page.aliases || []).length) {
@@ -268,6 +277,7 @@ export function renderWikiProfile(page, holder) {
     for (const fact of facts) {
       const cited = (page.narrow || {})[fact.slot];
       const lines = (page.sources || {})[fact.slot] || [];
+      const prov = ((page.provenance || {})[fact.slot]) || null;
       const box = el("div", "wikifact");
       const top = el("div", "wikifacttop");
       top.append(el("span", "metak", fact.slot),
@@ -275,36 +285,66 @@ export function renderWikiProfile(page, holder) {
       // How well this one fact is backed, on the fact itself — the same three states
       // the brief lines carry, because a value quoted from one message and a value
       // guessed at from a whole conversation are not the same claim.
-      if (lines.length) {
-        const chip = el("span", "cites" + (cited ? "" : " wide"),
-                        cited ? `${lines.length} cited`
-                              : `${lines.length} lines, uncited`);
-        chip.title = cited ? "the messages this fact was read from"
-                           : "no message was pointed at — the whole conversation is attached";
+      const quoted = lines.filter(l => l.evidence);
+      if (quoted.length && cited) {
+        const chip = el("span", "cites", `${quoted.length} cited`);
+        chip.title = "the messages this fact was read from — click one to read around it";
+        top.append(chip);
+      } else if (lines.length) {
+        const chip = el("span", "cites wide", `${lines.length} lines, uncited`);
+        chip.title = "no message was pointed at — the whole conversation is attached";
         top.append(chip);
       } else if (fact.source) {
         top.append(el("span", "cites none", fact.source));
       }
+      if (reload) {
+        const edit = el("button", "whybtn", "edit");
+        edit.title = "change this fact — your edit wins over older evidence";
+        edit.onclick = () => openFactEditor(page, fact, box, reload);
+        top.append(edit);
+      }
       box.append(top);
-      if (lines.length) {
-        const toggle = el("button", "timecites");
-        const label = `▸ ${lines.length} line${lines.length === 1 ? "" : "s"} it came from`;
-        toggle.textContent = label;
-        const wrap = el("div", "timelines"); wrap.hidden = true;
-        for (const cite of lines) {
-          const row = el("div", "timeline-src" + (cite.evidence ? "" : " ctx"));
-          row.append(el("span", "tsrcwho", cite.who || "?"),
-                     el("span", "tsrcwhen", String(cite.ts || "").slice(0, 16).replace("T", " ")),
-                     el("span", "tsrctext", cite.text || ""));
-          row.title = `${cite.channel || ""}${cite.thread ? " · " + cite.thread : ""}`;
-          row.onclick = () => openConversation(cite);
-          wrap.append(row);
+      // Where it came from, as something to go and look at: the bundle link opens
+      // the Dream tab on the exact bundle, and each line opens its conversation.
+      if (prov && (prov.bundle || prov.run)) {
+        const from = el("div", "timefrom");
+        from.append(el("span", "timefromk", "from"));
+        if (prov.bundle) {
+          const b = el("span", "bid link", prov.bundle);
+          b.title = "show this bundle on the Dream tab";
+          b.onclick = () => jumpToBundle(prov.bundle);
+          from.append(b, document.createTextNode(" "));
         }
-        toggle.onclick = () => {
-          wrap.hidden = !wrap.hidden;
-          toggle.textContent = (wrap.hidden ? "▸" : "▾") + label.slice(1);
-        };
-        box.append(toggle, wrap);
+        const bits = [prov.entity, prov.run ? "run " + prov.run : "",
+                      prov.at || ""].filter(Boolean).join(" · ");
+        const v = el("span", "timefromv", bits);
+        v.title = prov.entity || "";
+        from.append(v);
+        box.append(from);
+      }
+      if (quoted.length && cited) {
+        // The exact lines, on screen — no toggle to open, because one or two
+        // lines are the answer and hiding them behind a count re-creates the
+        // complaint that started this.
+        const wrap = el("div", "timelines");
+        for (const cite of quoted) wrap.append(citeRow(cite));
+        box.append(wrap);
+      } else if (lines.length) {
+        // Old bundle-wide evidence: a capped preview plus the way out, not a
+        // forty-line dump. The bundle link above names the conversation.
+        const wrap = el("div", "timelines");
+        const shown = lines.slice(0, WIDE_PREVIEW);
+        for (const cite of shown) wrap.append(citeRow(cite));
+        box.append(wrap);
+        if (lines.length > shown.length) {
+          const toggle = el("button", "timecites",
+            `▸ show all ${lines.length} lines`);
+          toggle.onclick = () => {
+            for (const cite of lines.slice(shown.length)) wrap.append(citeRow(cite));
+            toggle.remove();
+          };
+          box.append(toggle);
+        }
       }
       holder.append(box);
     }
@@ -347,6 +387,78 @@ export function renderWikiProfile(page, holder) {
     // drawing an empty shell.
     const pre = el("pre"); pre.textContent = page.page || ""; holder.append(pre);
   }
+}
+
+/* How many lines of bundle-wide evidence to show before asking. Narrow citations
+   are one or two lines and always render whole; this only caps the old shape. */
+const WIDE_PREVIEW = 6;
+
+function citeRow(cite) {
+  const row = el("div", "timeline-src" + (cite.evidence ? "" : " ctx"));
+  row.append(el("span", "tsrcwho", cite.who || "?"),
+             el("span", "tsrcwhen", String(cite.ts || "").slice(0, 16).replace("T", " ")),
+             el("span", "tsrctext", cite.text || ""));
+  row.title = `${cite.channel || ""}${cite.thread ? " · " + cite.thread : ""} — click to read around it`;
+  row.onclick = () => openConversation(cite);
+  return row;
+}
+
+/* One fact, edited in place. Saves through /api/wiki_slot at user authority —
+   an explicit correction newer evidence must not walk back. */
+function openFactEditor(page, fact, box, reload) {
+  let form = box.querySelector(".wikiedit");
+  if (form) { form.remove(); return; }
+  form = el("div", "wikiedit");
+  const input = document.createElement("input");
+  input.type = "text"; input.value = fact.value || ""; input.maxLength = 500;
+  const save = el("button", "btn go minim", "save");
+  const cancel = el("button", "btn minim", "cancel");
+  form.append(input, save, cancel);
+  box.append(form);
+  input.focus(); input.select();
+  cancel.onclick = () => form.remove();
+  const commit = async () => {
+    const value = input.value.trim();
+    if (!value || value === fact.value) { form.remove(); return; }
+    save.disabled = true;
+    const out = await api("/api/wiki_slot",
+      {slug: page.slug, slot: fact.slot, value});
+    if (!out.error) reload();
+  };
+  save.onclick = commit;
+  input.onkeydown = e => {
+    if (e.key === "Enter") commit();
+    if (e.key === "Escape") form.remove();
+  };
+}
+
+/* The whole file as markdown — because the wiki is files, and the file is the
+   thing being edited. Saves verbatim so prose, ordering and comments survive. */
+async function openMarkdownEditor(page, holder, reload) {
+  const raw = await api("/api/wiki_raw?slug=" + encodeURIComponent(page.slug));
+  if (raw.error) return;
+  holder.innerHTML = "";
+  const head = el("div", "wikihead");
+  head.append(el("span", "bname", (page.title || page.slug) + " · markdown"));
+  holder.append(head);
+  const area = document.createElement("textarea");
+  area.className = "wikimd";
+  area.value = raw.markdown || "";
+  area.spellcheck = false;
+  holder.append(area);
+  const row = el("div", "wikieditrow");
+  const save = el("button", "btn go", "save page");
+  const cancel = el("button", "btn", "cancel");
+  row.append(save, cancel);
+  holder.append(row);
+  cancel.onclick = reload;
+  save.onclick = async () => {
+    save.disabled = true;
+    const out = await api("/api/wiki_save",
+      {slug: page.slug, markdown: area.value});
+    if (!out.error) reload();
+    else save.disabled = false;
+  };
 }
 
 function renderEventDetail(detail, body) {
