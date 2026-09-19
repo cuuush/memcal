@@ -1,82 +1,6 @@
 ## [Unreleased]
 
-### Fixed
-
-- Brief activity hints ignore calendar (iCal) self-feed churn: UNTHREADED family
-  revisions no longer raise a "New activity" line on an ical-backed event. Chat /
-  email / other conversational strong links still hint. Hint ≠ apply — flag text
-  only (`ACTIVITY_HINT_FORMAT` is frozen for Integrations to mirror).
-- Activity hint labels no longer leak raw phone or opaque ids; they prefer
-  `threads.label` / whois display names when richer, else `threads.title()`, else
-  "unknown number" / a short title. Displayed pending counts cap at `99+`, and a
-  hint requires a review mark so never-reviewed threads cannot dump whole-history
-  sizes into the brief.
-- The `[UNREVIEWED: stream/thread …]` brief footer is gone (it dumped PII). Unlinked
-  backlog, when present, is a single non-identifying `[coverage incomplete …]`
-  notice. See `docs/notes/freshness-gap-81.md`.
-
-### Added
-
-- Coding-agent install packaging: root `AGENTS.md` now leads with Hermes / OpenClaw / MCP harness setup (Mac-first; email+MCP on Linux), plus `skills/memcal-install` for assistants that load the skills standard (`npx skills add … --skill memcal-install`).
-- Grok is a fifth model backend: `MEMCAL_LLM_PROVIDER=grok` runs xAI's Grok Build
-  CLI in headless mode against your existing Grok login (native model `grok-4.5`,
-  set with `MEMCAL_GROK_COMMAND`). Like the other CLI backends it returns one-shot
-  structured completions, with its tools, subagents, plan mode and web search
-  switched off; the packed prompt rides in a temp file (`--prompt-file`) so a large
-  propose wave stays under the shell argument limit, and the schema is passed inline
-  as the `--json-schema` literal.
-- The iMessage transport is configurable. `MEMCAL_IMESSAGE_BACKEND` picks `bluebubbles`
-  (the server — groups, participants, clean text, and it can run on another machine) or
-  `chatdb` (read the local database directly, never touching BlueBubbles).
-  `MEMCAL_IMESSAGE_FALLBACK` (default on) decides whether an unreachable BlueBubbles
-  server quietly reads `chat.db` or fails hard. The server address is set with
-  `bluebubblesurl=` in the store's `.env` (defaults to `http://localhost:1234`), so a
-  remote server is a first-class option. Documented in the iMessage source page.
-- A nightly pass opens BlueBubbles when it finds a **local** server down, so iMessage is
-  read through it rather than falling back to `chat.db`. It launches the app hidden and
-  in the background (no window, never fullscreen), only launches an app installed on this
-  Mac, and never launches a remote server. `MEMCAL_BLUEBUBBLES_LOCATION` (`auto`/`local`/
-  `remote`) says where the server runs; `MEMCAL_BLUEBUBBLES_AUTOSTART` (default on) turns
-  the launching off. The launch happens only from the scheduled pass, never from a plain
-  `memcal ingest`.
-- iMessage `attributedBody` blobs (the typedstream body newer macOS leaves when
-  `message.text` is NULL) are decoded with the `pytypedstream` library instead of a
-  hand-rolled byte scraper — a real deserializer in place of a reverse-engineered
-  regex. `pytypedstream` is now a runtime dependency; `install.sh` installs it.
-- Live event add/update accept optional `field_sources` (field → archive line ids) and
-  `context_source_ids` (background only). Each field uses the newest supporting
-  timestamp; flat `source_ids` keep the oldest-line rule. Writes return structured
-  per-field outcomes (`applied` / `unchanged` / `rejected`, with `evidence_advanced`
-  when a newer same-value cite advances evidence). MCP and the in-repo Hermes adapter
-  pass the new arguments through.
-
-### Changed
-
-- `memcal open` / `memcal_open` open both brief handles and wiki pages (`me`, page
-  names, recorded aliases). `memcal page` and `memcal_open_page` remain as read
-  aliases; page slot-write stays on `memcal page`. Search/open hints point at the
-  unified verb.
-- The agent brief legend is one quiet line — handles and pages open with
-  `memcal_open` — dropping the long "full detail" essay. About-you / trim /
-  ambiguity pointers say `memcal_open me` (CLI legend keeps `memcal open`).
-- `activity.read` requests strong-only associations so pagination does not scan weak
-  candidates.
-- Mixed/invalid citation refusals name the affected fields and ask for `field_sources`;
-  they never advise stripping citations or restating retrieved text as an uncited
-  correction.
-- Hermes `memcal_update` accepts `remove_participants` (parity with MCP) and surfaces
-  mapped write outcomes without the flat “already said that” idiom; `docs/api/correct.md`
-  documents `field_sources` / `context_source_ids`.
-- MCP `serverInfo.version` and package `__version__` now report `0.8.0` (matching
-  `pyproject.toml`).
-- `docs/clients/mcp.md` includes copy-paste Cursor and Claude Desktop MCP configs
-  plus a Linux Slack → MCP demo path.
-- Integrations index lists Hermes as 21 tools and MCP as 22.
-- On Linux (and other non-macOS hosts), `memcal schedule install` refuses to write
-  LaunchAgents and prints ready-to-paste cron lines for `memcal schedule run` /
-  `memcal ingest --due` instead.
-
-## [0.8.0] - 2026-09-16
+## [0.8.0] - 2026-09-19
 
 ### Added
 
@@ -124,6 +48,38 @@
 - Hermes refreshes the snapshot every turn with the latest flags, reports an
   explicit unavailable warning instead of a stale snapshot when rendering fails,
   and offers `memcal_refresh` for mid-turn re-reads.
+- Coding-agent install packaging: root `AGENTS.md` now leads with Hermes / OpenClaw / MCP harness setup (Mac-first; email+MCP on Linux), plus `skills/memcal-install` for assistants that load the skills standard (`npx skills add … --skill memcal-install`).
+- Grok is a fifth model backend: `MEMCAL_LLM_PROVIDER=grok` runs xAI's Grok Build
+  CLI in headless mode against your existing Grok login (native model `grok-4.5`,
+  set with `MEMCAL_GROK_COMMAND`). Like the other CLI backends it returns one-shot
+  structured completions, with its tools, subagents, plan mode and web search
+  switched off; the packed prompt rides in a temp file (`--prompt-file`) so a large
+  propose wave stays under the shell argument limit, and the schema is passed inline
+  as the `--json-schema` literal.
+- The iMessage transport is configurable. `MEMCAL_IMESSAGE_BACKEND` picks `bluebubbles`
+  (the server — groups, participants, clean text, and it can run on another machine) or
+  `chatdb` (read the local database directly, never touching BlueBubbles).
+  `MEMCAL_IMESSAGE_FALLBACK` (default on) decides whether an unreachable BlueBubbles
+  server quietly reads `chat.db` or fails hard. The server address is set with
+  `bluebubblesurl=` in the store's `.env` (defaults to `http://localhost:1234`), so a
+  remote server is a first-class option. Documented in the iMessage source page.
+- A nightly pass opens BlueBubbles when it finds a **local** server down, so iMessage is
+  read through it rather than falling back to `chat.db`. It launches the app hidden and
+  in the background (no window, never fullscreen), only launches an app installed on this
+  Mac, and never launches a remote server. `MEMCAL_BLUEBUBBLES_LOCATION` (`auto`/`local`/
+  `remote`) says where the server runs; `MEMCAL_BLUEBUBBLES_AUTOSTART` (default on) turns
+  the launching off. The launch happens only from the scheduled pass, never from a plain
+  `memcal ingest`.
+- iMessage `attributedBody` blobs (the typedstream body newer macOS leaves when
+  `message.text` is NULL) are decoded with the `pytypedstream` library instead of a
+  hand-rolled byte scraper — a real deserializer in place of a reverse-engineered
+  regex. `pytypedstream` is now a runtime dependency; `install.sh` installs it.
+- Live event add/update accept optional `field_sources` (field → archive line ids) and
+  `context_source_ids` (background only). Each field uses the newest supporting
+  timestamp; flat `source_ids` keep the oldest-line rule. Writes return structured
+  per-field outcomes (`applied` / `unchanged` / `rejected`, with `evidence_advanced`
+  when a newer same-value cite advances evidence). MCP and the in-repo Hermes adapter
+  pass the new arguments through.
 
 ### Changed
 
@@ -132,7 +88,30 @@
   (https://cuuush.github.io/memcal/). Details previously only in the README —
   CLI backend behavior, Settings-tab model fields, benchmark variant defaults
   and live-layer progress, the launchd fallback, and project status — moved
-  into their docs pages.
+   into their docs pages.
+- `memcal open` / `memcal_open` open both brief handles and wiki pages (`me`, page
+  names, recorded aliases). `memcal page` and `memcal_open_page` remain as read
+  aliases; page slot-write stays on `memcal page`. Search/open hints point at the
+  unified verb.
+- The agent brief legend is one quiet line — handles and pages open with
+  `memcal_open` — dropping the long "full detail" essay. About-you / trim /
+  ambiguity pointers say `memcal_open me` (CLI legend keeps `memcal open`).
+- `activity.read` requests strong-only associations so pagination does not scan weak
+  candidates.
+- Mixed/invalid citation refusals name the affected fields and ask for `field_sources`;
+  they never advise stripping citations or restating retrieved text as an uncited
+  correction.
+- Hermes `memcal_update` accepts `remove_participants` (parity with MCP) and surfaces
+  mapped write outcomes without the flat “already said that” idiom; `docs/api/correct.md`
+  documents `field_sources` / `context_source_ids`.
+- MCP `serverInfo.version` and package `__version__` now report `0.8.0` (matching
+  `pyproject.toml`).
+- `docs/clients/mcp.md` includes copy-paste Cursor and Claude Desktop MCP configs
+  plus a Linux Slack → MCP demo path.
+- Integrations index lists Hermes as 21 tools and MCP as 22.
+- On Linux (and other non-macOS hosts), `memcal schedule install` refuses to write
+  LaunchAgents and prints ready-to-paste cron lines for `memcal schedule run` /
+  `memcal ingest --due` instead.
 
 ### Fixed
 
@@ -177,6 +156,18 @@
   than re-checking the wrong identity live.
 - The web UI's frontend bundle reads only script and style assets, so a binary
   file under `memcal/static/` no longer breaks every page that embeds it.
+- Brief activity hints ignore calendar (iCal) self-feed churn: UNTHREADED family
+  revisions no longer raise a "New activity" line on an ical-backed event. Chat /
+  email / other conversational strong links still hint. Hint ≠ apply — flag text
+  only (`ACTIVITY_HINT_FORMAT` is frozen for Integrations to mirror).
+- Activity hint labels no longer leak raw phone or opaque ids; they prefer
+  `threads.label` / whois display names when richer, else `threads.title()`, else
+  "unknown number" / a short title. Displayed pending counts cap at `99+`, and a
+  hint requires a review mark so never-reviewed threads cannot dump whole-history
+  sizes into the brief.
+- The `[UNREVIEWED: stream/thread …]` brief footer is gone (it dumped PII). Unlinked
+  backlog, when present, is a single non-identifying `[coverage incomplete …]`
+  notice. See `docs/notes/freshness-gap-81.md`.
 
 ## [0.7.0] - 2026-09-11
 
