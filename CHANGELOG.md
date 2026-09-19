@@ -19,6 +19,20 @@
   sources, and the tab's headings were rewritten (`Configuration files` instead
   of `Where these live`, `Nightly automation`) with the Sources list moved
   above Credentials.
+- Wiki facts cite their exact lines. Dream's wiki rows carry `cites` like every
+  other row, so a fact's evidence is the one or two lines it was read from
+  instead of the whole bundle; the same ids are stored in the slot's HTML
+  comment (`<!-- bundle 2026-09-01 #12 #13 -->`), so the markdown file alone
+  cites its lines. The web UI shows each cited fact with its lines inline and
+  the bundle it came out of as a link back to the Dream tab; older bundle-wide
+  facts read as uncited with a capped preview. Each fact is editable in place,
+  and the page is editable as raw markdown — the wiki is files, and the file is
+  what both editors write. A user's explicit edit lands at user authority, so a
+  later pass cannot walk it back with older evidence.
+- The wiki index pins the user's own page first with a `you` badge (it also
+  badges on the open page) and groups the rest into People, Places, and
+  Projects. `preferences/` is not a wiki section anymore: stray files there
+  migrate into `people/`, and new writes never land there.
 - The web UI shows dream's guessed sender names the way the brief does: a 1:1
   thread dream named itself reads as `maybe: <name>` with a dream's-guess pill
   on the Chats tab, the Gate rollup, and the per-line feed, instead of reading

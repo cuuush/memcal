@@ -579,7 +579,7 @@ NOTE = {
             "slot": {"type": "string",
                      "description": "the label, e.g. 'likes', 'dungeon master for', 'works at'"},
             "value": {"type": "string", "description": "the bare answer, e.g. 'Pokemon'"},
-            "section": {"type": "string", "enum": ["people", "places", "projects", "preferences"],
+            "section": {"type": "string", "enum": ["people", "places", "projects"],
                         "description": "omit unless it is obviously not a person"},
         },
         "required": ["page", "slot", "value"],

@@ -378,12 +378,35 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
                  generation=row.get("_generation_id") if isinstance(row, dict) else None)
         for row in diff.get("wiki") or []:
             # A wiki row is three independent claims, so it can produce three outcomes.
+            # `cites` are the lines stating the new slot value. Passing them (with
+            # the value as the `about` fallback) is what keeps a fact's evidence to
+            # the one or two lines it was read from instead of the whole bundle.
+            # The same ids go into the markdown comment, so the file alone cites
+            # its lines; when the model pointed at nothing, the value's own best
+            # lines decide rather than the bundle.
+            cited = row.get("cite_ids") if isinstance(row, dict) else None
+            about = _claims(row, "value") if isinstance(row, dict) else []
+            slot_ids = ([i for i in (cited or ()) if isinstance(i, int)]
+                        or _supporting_lines(bundle, about))
             for outcome in _apply_wiki(conn, cfg, row, source=source, seen=seen_slots,
                                        evidence_ts=_wiki_evidence_ts(bundle, row),
-                                       commit=False):
-                note("wiki", outcome, "wiki:",
-                     generation=(row.get("_generation_id")
-                                 if isinstance(row, dict) else None))
+                                       commit=False, archive_ids=slot_ids):
+                if outcome[0] == "slot":
+                    note("wiki", outcome, "wiki:", cites=slot_ids, about=about,
+                         generation=(row.get("_generation_id")
+                                     if isinstance(row, dict) else None))
+                else:
+                    # Alias and question outcomes are independent claims: the
+                    # line stating a nickname is rarely the line stating an
+                    # address, so each cites its own words rather than
+                    # inheriting the slot's. `note` falls back to derived
+                    # lines, then the bundle, when nothing matches.
+                    own = (_claims(row, "alias" if outcome[0] == "alias"
+                                   else "question")
+                           if isinstance(row, dict) else [])
+                    note("wiki", outcome, "wiki:", about=own,
+                         generation=(row.get("_generation_id")
+                                     if isinstance(row, dict) else None))
         _apply_thread_names(conn, cfg, bundle, diff, counts=counts, log=log)
         for row in diff.get("standing") or []:
             note("standing", _apply_standing(conn, row, written_by=written_by,
@@ -1074,13 +1097,13 @@ MAX_SLOT_VALUE = 120
 def resolve_section(conn, cfg: Config, slug: str, proposed: str | None) -> str:
     """Where a page belongs is knowable, so don't leave it to the model.
 
-    It once filed a person's favourite animal under `preferences/`, which is meant for
-    the user's own preferences. An existing page always wins; otherwise a slug we can
-    recognise as a person goes to `people/`.
+    An existing page always wins; otherwise a slug we can recognise as a person
+    goes to `people/`. A legacy `preferences/` page reads as `people/` — that
+    section no longer exists and nothing new is ever filed there.
     """
     existing = wiki.read(cfg.wiki_dir, slug)
     if existing:
-        return existing.section
+        return existing.section if existing.section in wiki.SECTIONS else "people"
     known = {db.slugify(row["person"]) for row in
              conn.execute("SELECT DISTINCT person FROM handles WHERE person IS NOT NULL")}
     known |= {db.slugify(row["subject"]) for row in
@@ -1177,7 +1200,8 @@ def _ts_not_newer(older: str, newer: str) -> bool:
 
 
 def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None = None,
-                evidence_ts: str | None = None, commit: bool = True):
+                evidence_ts: str | None = None, commit: bool = True,
+                archive_ids: list[int] | None = None):
     """Every field on this row that carries something, not the first one that does.
 
     Returns a list of outcomes, because a wiki row is three independent claims — a
@@ -1240,7 +1264,8 @@ def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None =
                         seen.add(marker)
                     before = conn.total_changes if conn is not None else None
                     wiki.set_slot(cfg.wiki_dir, slug, slot, value, source=source,
-                                  section=section, conn=conn, commit=commit)
+                                  section=section, conn=conn, commit=commit,
+                                  archive_ids=archive_ids)
                     made_self = True
                     if before is None or conn.total_changes != before:
                         out.append(("slot", f"{slug}.{slot} = {value}",

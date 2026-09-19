@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import archive, db, settings, threads, trace, wiki
+from . import archive, brief, db, settings, threads, trace, wiki
 from .config import Config
 from . import web_queue, web_memory, web_dream, web_jobs, web_settings
 from .dream import retry as dream_retry
@@ -327,6 +327,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/wiki":
             profile = wiki.profile(conn, self.cfg.wiki_dir, query.get("slug", ""))
             return profile or {"error": "no such wiki page"}
+        if path == "/api/wiki_raw":
+            # The file itself, for the markdown editor. The wiki is markdown
+            # files; this is the bytes on disk, not a rendering.
+            page = wiki.read(self.cfg.wiki_dir, query.get("slug", ""))
+            if not page:
+                return {"error": "no such wiki page"}
+            return {"slug": page.slug, "section": page.section,
+                    "title": page.title or page.slug,
+                    "markdown": page.path.read_text(encoding="utf-8")}
         if path == "/api/trace":
             return web_memory.trace_call(conn, self.cfg, query.get("gen", ""))
         if path == "/api/generations":
@@ -390,6 +399,56 @@ class Handler(BaseHTTPRequestHandler):
                 out = self._retry_dream(conn, payload)
             elif url.path == "/api/settings":
                 out = web_settings.save(self.cfg, payload, conn)
+            elif url.path == "/api/wiki_slot":
+                # One fact, edited inline. A user's explicit edit, so it lands
+                # at user authority and later dream passes cannot undo it with
+                # older evidence.
+                from . import live as live_mod
+                slug = str(payload.get("slug") or "").strip()
+                slot = str(payload.get("slot") or "").strip()
+                value = str(payload.get("value") or "").strip()
+                if not slug or not slot or not value:
+                    out = {"error": "slug, slot and value are all required"}
+                else:
+                    ok, message = live_mod.note(
+                        conn, self.cfg, slug, slot, value, source="you")
+                    out = {"ok": ok, "message": message}
+                    if not ok:
+                        out["error"] = message
+            elif url.path == "/api/wiki_save":
+                # The whole file as markdown. Written verbatim — not re-rendered —
+                # so prose, ordering and comments survive exactly as edited.
+                slug = str(payload.get("slug") or "").strip()
+                markdown = payload.get("markdown")
+                if not slug or not isinstance(markdown, str):
+                    out = {"error": "slug and markdown are both required"}
+                elif len(markdown.encode("utf-8")) > MAX_REQUEST_BYTES:
+                    out = {"error": "page too large"}
+                else:
+                    page = wiki.read(self.cfg.wiki_dir, slug)
+                    if page is None:
+                        section = str(payload.get("section") or "people")
+                        if section not in wiki.SECTIONS:
+                            section = "people"
+                        target = wiki.canonical(self.cfg.wiki_dir, slug)
+                        path = wiki.path_for(self.cfg.wiki_dir, target, section)
+                        title = target.replace("-", " ").title()
+                        page = wiki.Page(slug=target, section=section, path=path,
+                                         title=title)
+                    try:
+                        wiki.record_raw_edit(conn, page, markdown)
+                        conn.commit()
+                    except Exception as exc:
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
+                        out = {"error": f"could not record the edit: {exc}"}
+                    else:
+                        wiki.write_raw(self.cfg.wiki_dir, page, markdown)
+                        # The page list is part of the brief, like `live.note`.
+                        brief.write(conn, self.cfg)
+                        out = {"ok": True, "slug": page.slug}
             else:
                 return self._send({"error": "not found"}, 404)
             self._send(out)

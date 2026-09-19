@@ -134,7 +134,7 @@ BUNDLE_DIFF = {
                 "properties": {
                     "page": {"type": "string", "description": "page slug, e.g. jordan"},
                     "section": {"type": "string",
-                                "enum": ["people", "places", "projects", "preferences"]},
+                                "enum": ["people", "places", "projects"]},
                     "slot": _STR,
                     "value": _STR,
                     "question": {**_STR, "description": "an open question to record on the page"},
@@ -235,6 +235,19 @@ TODO_DIFF_V2 = {
     },
 }
 
+#: A durable fact about one page. `cites` names the lines stating the new value —
+#: without them the fact attaches to the whole bundle and its citation reads as
+#: "the conversation it came out of" rather than the line it was built from.
+WIKI_DIFF_V2 = {
+    **BUNDLE_DIFF["properties"]["wiki"]["items"],
+    "required": (BUNDLE_DIFF["properties"]["wiki"]["items"]["required"]
+                 + ["cites"]),
+    "properties": {
+        **BUNDLE_DIFF["properties"]["wiki"]["items"]["properties"],
+        "cites": _CITES,
+    },
+}
+
 #: A change to the *schedule*, as against a change to one occasion.
 #:
 #: "Can we move to Tuesdays at 1pm going forward" is one sentence and, before this
@@ -283,6 +296,7 @@ BUNDLE_DIFF_V2 = {
         **{k: v for k, v in BUNDLE_DIFF["properties"].items() if k != "entity"},
         "events": {"type": "array", "items": EVENT_DIFF_V2},
         "todos": {"type": "array", "items": TODO_DIFF_V2},
+        "wiki": {"type": "array", "items": WIKI_DIFF_V2},
         "series": {"type": "array", "items": SERIES_DIFF_V2,
                    "description": "only when the schedule itself changed, not one date"},
         "bundle": {"type": "string",
@@ -1770,7 +1784,7 @@ def _resolve_cites(bundle: Bundle, diff: dict) -> None:
     the field its authority to overrule a settled value rather than granting authority on
     the strength of a number nobody can check.
     """
-    for key in ("events", "todos", "questions"):
+    for key in ("events", "todos", "wiki", "questions"):
         for row in diff.get(key) or []:
             if not isinstance(row, dict):
                 continue

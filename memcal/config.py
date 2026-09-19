@@ -222,7 +222,7 @@ class Config:
 
     def ensure_dirs(self) -> None:
         self.home.mkdir(parents=True, exist_ok=True)
-        for sub in ("people", "places", "projects", "preferences"):
+        for sub in ("people", "places", "projects"):
             (self.wiki_dir / sub).mkdir(parents=True, exist_ok=True)
         self.plugin_dir.mkdir(parents=True, exist_ok=True)
 
