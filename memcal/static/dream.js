@@ -29,8 +29,8 @@ function takeHandoff() {
 
 export async function loadDream() {
   takeHandoff();
-  const [p, job] = await Promise.all([
-    api("/api/dream_preview"), api("/api/job")]);
+  const [p, job, liveResp] = await Promise.all([
+    api("/api/dream_preview"), api("/api/job"), api("/api/dream_live")]);
   preview = p;
   if (preview.error) return;
   passRunning = !!(job.job && !job.done);
@@ -41,6 +41,7 @@ export async function loadDream() {
   renderRequests(preview);
   renderBundles(preview);
   resumeJobs(job);
+  updateLive(liveResp.live, passRunning);
   if (state.bundleFlash) {
     const want = state.bundleFlash;
     state.bundleFlash = "";
@@ -415,6 +416,146 @@ function bundleCard(b) {
   raw.append(pre);
   d.append(raw);
   return d;
+}
+/* --------------------------------------------------- the live pass -- */
+/* A pass started on the CLI (or by the schedule) never appears in /api/job,
+   which only tracks jobs this server started. Every pass reports into the
+   store instead, and this card draws it: stage by stage, bundle by bundle, as
+   it happens. The chips below are the same bundles as the preview list, so a
+   click scrolls to the exact text the model is reading right now. */
+let liveTimer = null;
+
+function ago(s) {
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return `${Math.floor(s / 3600)}h ago`;
+}
+
+function updateLive(live, jobRunning) {
+  stopLivePolling();
+  const btn = $("#dream");
+  if (!live) {
+    $("#dlive").innerHTML = "";
+    if (!jobRunning) { btn.disabled = false; btn.title = ""; }
+    return;
+  }
+  renderLive(live);
+  // One pass at a time: the button's own job slot does not know about a pass
+  // another process started, so say so here rather than running a second one
+  // over the same spool. A quiet pass — possibly dead — does not hold the
+  // button: starting a new one marks it abandoned.
+  if (!jobRunning && live.status === "live") {
+    btn.disabled = true;
+    btn.title = `run #${live.run.id} is already dreaming — one pass at a time`;
+  }
+  liveTimer = setInterval(tickLive, 2000);
+}
+
+function stopLivePolling() {
+  if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+}
+
+async function tickLive() {
+  if (state.view !== "dream" || document.hidden) return;
+  const d = await api("/api/dream_live");
+  if (!d.live) {
+    // The pass ended between polls: stop polling first, then redraw the whole
+    // tab once so the preview, the button, and New memories catch up.
+    stopLivePolling();
+    $("#dlive").innerHTML = "";
+    await loadDream();
+    return;
+  }
+  renderLive(d.live);
+}
+
+function liveChip(b) {
+  const chip = el("span", "rider live-" + b.state);
+  chip.append(el("span", "bid", b.id));
+  chip.append(el("span", "rname", b.label));
+  chip.append(el("span", "rtok", `${b.lines}L`));
+  chip.title = `${b.entity} · ${b.state}`;
+  chip.onclick = () => {
+    if (!flashBundle(b.id)) {
+      toast(`bundle ${b.id} is not in the preview — it has already been read. `
+            + `Open its run to see it as it was sent.`);
+    }
+  };
+  return chip;
+}
+
+function renderLive(live) {
+  const box = $("#dlive"); box.innerHTML = "";
+  const quiet = live.status !== "live";
+  const card = el("div", "livecard" + (quiet ? " quiet" : ""));
+
+  const head = el("div", "liverow");
+  const dot = el("span", "livedot");
+  dot.title = quiet ? "no heartbeat — the pass may have stalled" : "happening now";
+  const title = el("b", null,
+    `${quiet ? "Pass gone quiet" : "Dreaming now"} — run #${live.run.id} · `
+    + `${live.run.mode} · ${live.run.model || "model?"}`);
+  const sub = el("span", "note",
+    quiet ? `last progress ${ago(live.age_s)} — it may have stalled; the Runs tab still lists it`
+    : live.propose.total ? `${nf(live.propose.done)}/${nf(live.propose.total)} bundles read`
+    : `started ${live.run.started_at.slice(5, 16).replace("T", " ")} · ${nf(live.run.bundles)} bundles`);
+  sub.style.margin = "0";
+  head.append(dot, title, sub);
+  card.append(head);
+
+  if (live.propose.total) {
+    const track = el("div", "ptrack");
+    const fill = el("i");
+    fill.style.width = Math.max(2, Math.min(100,
+      100 * live.propose.done / live.propose.total)) + "%";
+    track.append(fill);
+    card.append(track);
+  }
+
+  if (live.stages.length) {
+    const legend = el("div", "plegend");
+    for (const s of live.stages) {
+      const pill = el("span", "pstep " + (s.state || "waiting"), s.stage);
+      pill.title = s.note ? `${s.state} — ${s.note}` : s.state;
+      legend.append(pill);
+    }
+    card.append(legend);
+    const running = live.stages.find(s => s.state === "running");
+    if (running && running.note) card.append(el("div", "pdetail", running.note));
+  }
+
+  const reading = live.bundles.filter(b => b.state === "reading");
+  if (reading.length) {
+    const now = el("div", "livenow");
+    now.append(el("span", "clabel", "reading now:"));
+    for (const b of reading) now.append(liveChip(b));
+    card.append(now);
+  }
+
+  if (live.bundles.length) {
+    const c = live.counts || {};
+    const all = el("details", "liveall");
+    const sum = el("summary");
+    sum.textContent = `all ${live.bundles.length} bundles — `
+      + `${nf(c.reading || 0)} reading · ${nf(c.done || 0)} read · `
+      + `${nf(c.failed || 0)} failed · ${nf(c.queued || 0)} queued`;
+    all.append(sum);
+    const chips = el("div", "bchips");
+    for (const b of live.bundles) chips.append(liveChip(b));
+    all.append(chips);
+    card.append(all);
+  }
+
+  if (live.requests.length) {
+    const feed = el("div", "livefeed");
+    for (const r of live.requests.slice(-6)) {
+      feed.append(el("div", "freq" + (r.ok ? "" : " bad"),
+        `${r.ok ? "✓" : "✗"} ${r.label} · ${r.done}/${r.total}`
+        + (r.error ? ` — ${r.error.slice(0, 160)}` : "")));
+    }
+    card.append(feed);
+  }
+  box.append(card);
 }
 /* Rejoin whatever is running. One at a time, so this is one job and its kind says
    which button and which log it belongs to. */

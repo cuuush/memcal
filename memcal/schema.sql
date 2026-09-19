@@ -371,6 +371,43 @@ CREATE TABLE IF NOT EXISTS runs (
     error        TEXT
 );
 
+-- -------------------------------------------------------- live dream feed ----
+-- Cross-process progress for the pass that is running right now. `web_jobs` only
+-- tracks jobs the web server itself started, so a pass begun on the CLI (or by
+-- the nightly tick) would otherwise be invisible to the Dream tab. Every pass
+-- writes here on its own connection — committed per event, so a reader sees it
+-- while the pass's main connection is still mid-transaction — and the Dream tab
+-- polls it. Rows are per-run and pruned to the recent past; the finished pass
+-- itself stays on `runs` and `generations`.
+CREATE TABLE IF NOT EXISTS run_bundles (
+    run_id     INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    entity     TEXT NOT NULL,              -- bundle key: person or thread
+    bundle_id  TEXT NOT NULL,              -- the six-character handle shown in the UI
+    label      TEXT NOT NULL,
+    kind       TEXT NOT NULL DEFAULT '',   -- person | thread
+    lines      INTEGER NOT NULL DEFAULT 0,
+    -- queued | reading | done | failed. `reading` is set when the bundle's request
+    -- goes out; the terminal state lands when its reply comes back.
+    state      TEXT NOT NULL DEFAULT 'queued',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(run_id, entity)
+);
+CREATE TABLE IF NOT EXISTS run_events (
+    id         INTEGER PRIMARY KEY,
+    run_id     INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    at         TEXT NOT NULL,
+    event      TEXT NOT NULL,              -- stage | propose_wave | propose_request
+    stage      TEXT NOT NULL DEFAULT '',
+    state      TEXT NOT NULL DEFAULT '',
+    note       TEXT NOT NULL DEFAULT '',
+    done       INTEGER NOT NULL DEFAULT 0,
+    total      INTEGER NOT NULL DEFAULT 0,
+    label      TEXT NOT NULL DEFAULT '',
+    entities   TEXT NOT NULL DEFAULT '[]', -- json array of bundle entities in play
+    error      TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS run_events_run_idx ON run_events(run_id, id);
+
 -- ----------------------------------------------------------- generations ----
 -- One row per model call, holding the id OpenRouter files it under: the only way
 -- back to the stored prompt, completion, and reasoning.
