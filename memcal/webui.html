@@ -261,6 +261,9 @@
   <!-- --------------------------------------------------------- settings -->
   <section class="view" id="view-settings" hidden>
     <h2>Runtime</h2>
+    <p class="note">
+      The model provider this store runs against, and the files on disk behind it.
+    </p>
     <div id="setruntime"></div>
 
     <h2>Settings</h2>
@@ -274,7 +277,7 @@
     <div class="filters">
       <input type="search" id="setq" placeholder="search a setting, or its variable   (/)">
       <label class="note" style="margin:0">
-        <input type="checkbox" id="setcustom"> only what differs from the default
+        <input type="checkbox" id="setcustom"> only changed
         <span id="setcustomn" class="setkeys"></span>
       </label>
       <span class="note" style="margin:0" id="setcount"></span>
@@ -283,20 +286,33 @@
     <div class="chips" id="setnav"></div>
     <div id="setgroups"></div>
 
-    <h2>Where these live</h2>
-    <div id="setfiles"></div>
+    <h2>Sources</h2>
+    <p class="note" id="setsrcnote">
+      What feeds memcal. Flip a source off and Collect, <code>ingest all</code>, due
+      checks, and the nightly pull skip it — an explicit
+      <code>memcal ingest &lt;name&gt;</code> still runs it.
+    </p>
+    <div id="setsources"><div class="empty">checking…</div></div>
 
     <h2>Credentials</h2>
     <p class="note">
-      What each source asks for. memcal never reads one of these back out to the page —
-      it can tell you a credential is set, and it can replace it.
+      What each source asks for. memcal never sends a saved value back to the page —
+      it only says whether one is set, and lets you replace or clear it.
     </p>
     <div id="setcreds"></div>
 
-    <h2>Sources</h2>
-    <div id="setsources"><div class="empty">checking…</div></div>
+    <h2>Configuration files</h2>
+    <p class="note">
+      The <code>.env</code> files memcal reads, highest precedence first. Only the
+      store file is ever written — the rest are shown so a value coming from
+      somewhere unexpected stops being a mystery.
+    </p>
+    <div id="setfiles"></div>
 
-    <h2>The nightly pass</h2>
+    <h2>Nightly automation</h2>
+    <p class="note">
+      The background pass that collects and dreams while you sleep.
+    </p>
     <div id="setschedule"><div class="empty">checking…</div></div>
   </section>
 </main>

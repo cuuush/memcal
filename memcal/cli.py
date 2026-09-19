@@ -962,13 +962,16 @@ def cmd_ingest(args) -> int:
         print("ingest: --due and --stale cannot be combined", file=sys.stderr)
         return 2
     if args.channel == "all":
-        chosen = [s for s in sources.all_sources(cfg) if s.in_all]
+        chosen = sources.active_sources(cfg)
     else:
         source = sources.get(args.channel, cfg)
         if not source:
             known = ", ".join(sources.names(cfg))
             print(f"unknown source {args.channel!r}. Available: {known}")
             return 1
+        if not sources.is_enabled(cfg, source.name):
+            print(f"{source.name} is disabled — running it explicitly anyway "
+                  f"(clear Disabled sources to re-enable it for `ingest all`)")
         chosen = [source]
 
     if stale:
@@ -1060,12 +1063,14 @@ def cmd_sources(args) -> int:
     """What can feed memcal right now, and what each one still needs."""
     cfg, _conn = open_ctx(args)
     rows = sources.all_sources(cfg)
+    off = sources.disabled_set(cfg)
     if args.json:
         out = []
         for source in rows:
             ok, message = source.check(cfg)
             out.append({"name": source.name, "usable": ok, "detail": message,
                         "description": source.description, "in_all": source.in_all,
+                        "enabled": source.name.lower() not in off,
                         "health": getattr(source, "health", "channel")})
         return emit_json({"sources": out, "load_errors": list(sources.load_errors()),
                           "plugin_dir": str(cfg.plugin_dir)})
@@ -1074,7 +1079,12 @@ def cmd_sources(args) -> int:
     for source in rows:
         ok, message = source.check(cfg)
         flag = "ok" if ok else "--"
-        tag = "" if source.in_all else "  (not in `ingest all`)"
+        tags = []
+        if not source.in_all:
+            tags.append("not in `ingest all`")
+        if source.name.lower() in off:
+            tags.append("disabled")
+        tag = f"  ({'; '.join(tags)})" if tags else ""
         print(f"{flag} {source.name:12} {source.description}{tag}")
         print(f"   {message}")
     for problem in sources.load_errors():
@@ -1331,7 +1341,7 @@ def _ingest_all_for_dream(args, cfg: Config, conn: sqlite3.Connection) -> None:
     behavior. A pull failure is reported but never blocks the pass: dreaming over what is
     already here is still worth doing.
     """
-    chosen = [s for s in sources.all_sources(cfg) if s.in_all]
+    chosen = sources.active_sources(cfg)
     if not chosen:
         return
     # Wake the local BlueBubbles server (hidden) before pulling, so iMessage reads

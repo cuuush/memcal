@@ -2,6 +2,13 @@
 
 ### Added
 
+- Sources can be switched on and off from the Settings tab: each source has an
+  on/off toggle backed by `MEMCAL_DISABLED_SOURCES`. Disabled sources are
+  skipped by Collect, `ingest all`, due checks, and the nightly pull; an
+  explicit `memcal ingest <name>` still runs. `memcal sources` marks disabled
+  sources, and the tab's headings were rewritten (`Configuration files` instead
+  of `Where these live`, `Nightly automation`) with the Sources list moved
+  above Credentials.
 - The web UI shows dream's guessed sender names the way the brief does: a 1:1
   thread dream named itself reads as `maybe: <name>` with a dream's-guess pill
   on the Chats tab, the Gate rollup, and the per-line feed, instead of reading

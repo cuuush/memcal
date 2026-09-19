@@ -221,6 +221,12 @@ SETTINGS: tuple[Setting, ...] = (
             "The launchd cadence takes effect on `memcal schedule install`, "
             "which re-renders the plist.",
             "collect", kind="int", minimum=1, maximum=1440, unit="minutes"),
+    Setting("MEMCAL_DISABLED_SOURCES", "disabled_sources", "Disabled sources",
+            "Comma-separated source names to skip in `ingest all`, due checks, "
+            "the Collect button, and the nightly pull. An explicit "
+            "`memcal ingest <name>` still runs. Easiest to change from the "
+            "Sources list below; empty means everything is enabled.",
+            "collect", kind="text", placeholder="none — all sources enabled"),
 
     # --------------------------------------------------------------------- dream --
     Setting("MEMCAL_PACK_BUNDLES", "pack_bundles", "Bundles per request",
@@ -497,7 +503,27 @@ def coerce(setting: Setting, raw, *, provider: str = "") -> tuple[str, object]:
             stages.parse(text)
         except stages.UnknownStage as exc:
             raise SettingsError(str(exc)) from exc
+    if setting.key == "MEMCAL_DISABLED_SOURCES":
+        return _normalize_disabled_sources(text)
     return text, text
+
+
+def _normalize_disabled_sources(text: str) -> tuple[str, object]:
+    """Comma-separated source names, lowercased, deduped, and sorted.
+
+    Unknown names are kept: a plugin may be uninstalled today and reinstalled
+    tomorrow, and refusing the save would strand the rest of the form over a
+    source that is not even here.
+    """
+    import re as _re
+    parts = [p.strip().lower() for p in text.replace(";", ",").split(",")]
+    parts = [p for p in parts if p]
+    for part in parts:
+        if not _re.fullmatch(r"[a-z0-9][a-z0-9_-]*", part):
+            raise SettingsError(
+                f"Disabled sources takes comma-separated source names, not {part!r}")
+    seen = sorted(set(parts))
+    return ",".join(seen), ",".join(seen)
 
 
 def _check_models_served(cfg: Config, provider: str,

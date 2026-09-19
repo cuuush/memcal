@@ -267,7 +267,7 @@ def _collection_line(conn: sqlite3.Connection, cfg: Config) -> str | None:
     """
     try:
         from . import sources as sources_pkg
-        known = sorted(s.name for s in sources_pkg.all_sources(cfg) if s.in_all)
+        known = sorted(s.name for s in sources_pkg.active_sources(cfg))
     except Exception:
         return None
     if not known:
