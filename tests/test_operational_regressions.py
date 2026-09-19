@@ -2805,7 +2805,7 @@ class TestAToolCanBeAdvertisedAndUnreachable(Base):
     def test_the_two_lists_of_write_tools_cannot_drift(self):
         """`WRITE_TOOLS` is the single declaration; `_write` refuses anything outside it
         and `call` routes on it, so there is no second list to fall out of step."""
-        self.assertEqual(10, len(mcp_server.WRITE_TOOLS),
+        self.assertEqual(11, len(mcp_server.WRITE_TOOLS),
                          "a green loop over an empty set proves nothing")
         self.assertIn("memcal_reviewed", mcp_server.WRITE_TOOLS)
         for name in sorted(mcp_server.WRITE_TOOLS):

@@ -15,7 +15,7 @@ import traceback
 from datetime import timedelta
 
 from . import (archive, brief, config, db, detail, events, harness, live, presentation,
-               series, todos, trace, wiki)
+               series, todos, trace, whois, wiki)
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -428,6 +428,26 @@ TOOLS = [
         },
     },
     {
+        "name": "memcal_name",
+        "description": ("Confirm or correct a guessed sender's name — the ones shown as "
+                        "'maybe: <name>'. When a freshness hint says a name is a guess, "
+                        "check it with the user, then call this: `guess` is the guessed "
+                        "name as shown; give `correct` only if the user says it is "
+                        "someone else. Confirming stops it reading as a guess; a real "
+                        "contact name is never touched. Do not raise it unprompted — only "
+                        "when already discussing that plan or sender."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "guess": {"type": "string",
+                          "description": "the guessed name as shown, e.g. 'Tire shop'"},
+                "correct": {"type": "string",
+                            "description": "the real name, only if the guess was wrong"},
+            },
+            "required": ["guess"], "additionalProperties": False,
+        },
+    },
+    {
         "name": "memcal_answer",
         "description": ("Record what the user said about one of the 'Ask about' questions, "
                         "or that an 'Open' to-do is done, so it stops being asked. "
@@ -540,7 +560,7 @@ def _render_search_hits(hits: list[dict], query: str, limit: int) -> str:
 WRITE_TOOLS = frozenset({
     "memcal_add", "memcal_update", "memcal_schedule", "memcal_move_once",
     "memcal_merge", "memcal_drop", "memcal_todo", "memcal_note", "memcal_alias",
-    "memcal_reviewed",
+    "memcal_reviewed", "memcal_name",
 })
 
 
@@ -907,6 +927,8 @@ class Server:
         if name == "memcal_reviewed":
             return live.reviewed(conn, cfg, args.get("handle", ""),
                                  origin=self._cited(args))
+        if name == "memcal_name":
+            return whois.settle_guess(conn, args.get("guess", ""), args.get("correct"))
         raise ValueError(f"unroutable write tool {name}")
 
     # --------------------------------------------------------------- protocol --

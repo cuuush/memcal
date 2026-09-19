@@ -608,10 +608,10 @@ class TestFreshnessCorrectness81(_Base):
         self.cfg.freshness_guess_nudge_days = 3
         text = brief.render(self.conn, self.cfg)
         self.assertIn("maybe: Tire shop", text)
-        self.assertIn("memcal who", text)
+        self.assertIn("memcal_name", text)
         # A higher bar (or 0) leaves the same guess un-nudged — quiet guesses age out.
         self.cfg.freshness_guess_nudge_days = 0
-        self.assertNotIn("memcal who", brief.render(self.conn, self.cfg))
+        self.assertNotIn("memcal_name", brief.render(self.conn, self.cfg))
 
     def test_chat_label_preferred_when_richer_than_raw_thread(self):
         phone = "+15559876543"

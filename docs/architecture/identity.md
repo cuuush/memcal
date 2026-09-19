@@ -61,5 +61,8 @@ folds into a longer one that contains all its distinctive words) and reversible.
 
 Quiet guesses are left to age out. Only one that keeps drawing
 [freshness](freshness.md) hints across enough distinct days earns a short line
-asking you to confirm or rename it — persistence, not a one-off, is what warrants
-the interruption.
+asking to confirm or rename it — persistence, not a one-off, is what warrants the
+interruption. An assistant settles it in context with the `memcal_name` tool
+(confirm the guess, or correct it) when the plan comes up, rather than out of the
+blue; `memcal who --confirm` / `memcal who <n> "Name"` do the same by hand. A
+revised guess supersedes the prior one and keeps the earlier spelling as history.
