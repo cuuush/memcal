@@ -1424,7 +1424,7 @@ def _replay_absorb(group: list[Bundle], turns: list[dict], cfg: Config,
         good.extend((bundle, diff, saved["generation_id"]) for bundle, diff in routed)
 
 
-def _replay_single(bundle: Bundle, saved: dict, cfg: Config, good: list) -> bool:
+def _replay_single(bundle: Bundle, saved: dict, cfg: Config, good: list) -> dict | None:
     """Absorb one bundle's diff out of a saved multi-bundle payload.
 
     The saved request may have packed this bundle with neighbours that have
@@ -1435,7 +1435,9 @@ def _replay_single(bundle: Bundle, saved: dict, cfg: Config, good: list) -> bool
     back regardless of who it shared the request with. Routing runs against a
     singleton group over a copy, so diffs for the changed neighbours are
     dropped (into a throwaway error list, never the pass log) and only this
-    bundle's diff — or its reviewed-empty — is absorbed.
+    bundle's diff — or its reviewed-empty — is absorbed. Returns the filtered
+    payload absorbed, so the caller logs what this bundle actually got rather
+    than the whole neighbour-inclusive request.
     """
     payload = _json.loads(_json.dumps(saved["parsed"]))
     if prompt_version(cfg) == "v2":
@@ -1443,11 +1445,11 @@ def _replay_single(bundle: Bundle, saved: dict, cfg: Config, good: list) -> bool
     else:
         routed = _route([bundle], payload, [])
     if not routed:
-        return False
+        return None
     for _bundle, diff in routed:
         _resolve_cites(_bundle, diff)
     good.extend((_bundle, diff, saved["generation_id"]) for _bundle, diff in routed)
-    return True
+    return payload
 
 
 def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
@@ -1471,6 +1473,11 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
     #: Saved turns consumed by this pass. Manifested at the end so a resume of
     #: this run can follow the chain back to the calls it reused.
     replayed_calls: list[dict] = []
+    #: `(generation_id, entity)` pairs already absorbed. One packed call answers
+    #: several bundles, so the guard cannot be on the call alone: siblings sharing
+    #: a request must each absorb, while a later wave must not absorb the same
+    #: bundle twice. The resume note derives its counts from these pairs.
+    replayed: set[tuple[str, str]] = set()
     # A stage plan that covers only some of the diff is a legitimate experiment and an
     # easy way to stop recording a whole category of memory without noticing. Saying so
     # once per run is the difference between the two.
@@ -1533,9 +1540,13 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
             kept = []
             for index, (group, suffix) in enumerate(zip(batch, suffixes)):
                 turns = replay.get(frozenset(b.entity for b in group))
-                if turns and all(turn["suffix"] == suffix for turn in turns):
+                pairs = {(str(t.get("generation_id") or ""), b.entity)
+                         for t in (turns or []) for b in group}
+                if (turns and all(turn["suffix"] == suffix for turn in turns)
+                        and not (pairs & replayed)):
                     _replay_absorb(group, turns, cfg, good, errors)
                     replayed_calls.extend(turns)
+                    replayed.update(pairs)
                     seen.append((group, suffix, (group, turns[-1]["parsed"], [])))
                     finished(index, (group, turns[-1]["parsed"], []))
                 else:
@@ -1555,33 +1566,45 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
                         by_entity.setdefault(str(entity), []).append(turn)
             cache: dict[str, str] = {}
             absorbed: set[str] = set()
-            for group in [batch[i] for i in order]:
-                for bundle in group:
+            for index in order:
+                for bundle in batch[index]:
                     if bundle.entity in absorbed:
                         continue
                     candidates = by_entity.get(bundle.entity, [])
                     if len(candidates) != 1:
                         continue
                     saved = candidates[0]
+                    pair = (str(saved.get("generation_id") or ""), bundle.entity)
+                    if pair in replayed:
+                        # This bundle already absorbed this call, usually in an
+                        # earlier wave. The second look below re-sends it fresh
+                        # rather than replaying the same silence twice, which is
+                        # also what keeps its hedge working: a resumed silence
+                        # is still a silence worth asking about again.
+                        continue
                     block = build_bundle_block(cfg, bundle, conn, cache=cache)
                     if block not in (saved.get("suffix") or ""):
                         continue
-                    if _replay_single(bundle, saved, cfg, good):
-                        absorbed.add(bundle.entity)
-                        replayed_calls.append(saved)
-                        seen.append(([bundle], saved.get("suffix") or "",
-                                     ([bundle], saved["parsed"], [])))
-                        if progress:
-                            progress("propose_request", {
-                                "index": 0,
-                                "bundles": 1,
-                                "label": bundle.label,
-                                "ok": True,
-                                "error": "",
-                            })
-            if absorbed:
-                fresh = [b for group in [batch[i] for i in order]
-                         for b in group if b.entity not in absorbed]
+                    filtered = _replay_single(bundle, saved, cfg, good)
+                    if filtered is None:
+                        continue
+                    absorbed.add(bundle.entity)
+                    replayed.add(pair)
+                    replayed_calls.append(saved)
+                    seen.append(([bundle], saved.get("suffix") or "",
+                                 ([bundle], filtered, [])))
+                    if progress:
+                        progress("propose_request", {
+                            "index": index + 1,
+                            "bundles": 1,
+                            "label": bundle.label,
+                            "ok": True,
+                            "error": "",
+                            "replayed": True,
+                        })
+            fresh = [b for index in order for b in batch[index]
+                     if b.entity not in absorbed]
+            if len(fresh) < sum(len(batch[index]) for index in order):
                 if fresh:
                     send_groups = pack(cfg, fresh, conn)
                     send_suffixes = [build_suffix(cfg, g, conn) for g in send_groups]
@@ -1716,7 +1739,9 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
     # Second look at the bundles the gate was sure about and the model was silent on.
     # Deliberately after the truncation retries, and deliberately once: this is a hedge
     # against a call that under-thought, not a way to argue with a model that read
-    # something and correctly found nothing in it.
+    # something and correctly found nothing in it. Replayed bundles still qualify,
+    # and the replay paths above will not re-absorb them (their calls are consumed),
+    # so the hedge fires fresh on resume exactly as it would have live.
     doubtful = doubted(list(seen))
     if doubtful:
         notes.append(f"asked again about {len(doubtful)} bundle(s) the gate or event "
@@ -1731,10 +1756,10 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
         calls.note_replay(cfg.home, run_id, replayed_calls)
         sources = sorted({t["source_run"] for t in replayed_calls
                           if t.get("source_run")}, key=str)
-        covered = len({e for t in replayed_calls for e in t["entities"]})
-        notes.append(f"replayed {len(replayed_calls)} propose call(s)"
+        notes.append(f"replayed {len({g for g, _e in replayed})} propose call(s)"
                      + (f" from run(s) {', '.join(map(str, sources))}" if sources else "")
-                     + f" covering {covered} bundle(s) — no model call")
+                     + f" covering {len({_e for _g, _e in replayed})} bundle(s)"
+                       f" — no model call")
     return good, errors, notes
 
 

@@ -48,9 +48,6 @@
   regrouped all requests and whole-request byte-matching replayed nothing.
   Resume now absorbs each unchanged bundle out of its saved request on its own
   text, and only the bundles that actually changed propose fresh.
-
-### Fixed
-
 - The web UI loads its data faster. The Dream preview built every bundle's
   model text five times over (packing, card text, card token count, request,
   cost estimate); it builds each once per preview now. Reopening the Chats or
