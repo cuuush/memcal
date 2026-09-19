@@ -32,7 +32,7 @@ export async function loadDream() {
   const [p, job, liveResp] = await Promise.all([
     api("/api/dream_preview"), api("/api/job"), api("/api/dream_live")]);
   preview = p;
-  if (preview.error) return;
+  if (preview.error) { stopLivePolling(); return; }
   passRunning = !!(job.job && !job.done);
   renderTiles(preview);
   await renderRetry(preview);
@@ -436,7 +436,12 @@ function updateLive(live, jobRunning) {
   const btn = $("#dream");
   if (!live) {
     $("#dlive").innerHTML = "";
-    if (!jobRunning) { btn.disabled = false; btn.title = ""; }
+    // renderTiles owns the empty-spool state (`disabled = !bundles.length`);
+    // re-enabling unconditionally here would arm the button over an empty queue.
+    if (!jobRunning) {
+      btn.disabled = !preview || !preview.bundles || !preview.bundles.length;
+      btn.title = "";
+    }
     return;
   }
   renderLive(live);
@@ -456,7 +461,10 @@ function stopLivePolling() {
 }
 
 async function tickLive() {
-  if (state.view !== "dream" || document.hidden) return;
+  // Navigating away stops the poll; coming back reloads the tab, which
+  // restarts it if the pass is still going. A hidden tab just skips its turn.
+  if (state.view !== "dream") { stopLivePolling(); return; }
+  if (document.hidden) return;
   const d = await api("/api/dream_live");
   if (!d.live) {
     // The pass ended between polls: stop polling first, then redraw the whole

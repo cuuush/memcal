@@ -240,6 +240,9 @@ def dream_live(conn: sqlite3.Connection) -> dict:
     row = conn.execute(
         """SELECT * FROM runs
             WHERE finished_at IS NULL AND error IS NULL
+              -- A priced-but-not-run pass is recorded under its own mode so it
+              -- stops reading as a pass; it never runs, so it is never live.
+              AND mode != 'dry-run'
             ORDER BY id DESC LIMIT 1""").fetchone()
     if not row:
         return {"live": None}
@@ -274,9 +277,9 @@ def dream_live(conn: sqlite3.Connection) -> dict:
     states = [b["state"] for b in bundles]
     requests = [{
         # The feed keeps only the error string, not the boolean, so an empty
-        # error is a reply that came back. (A truncated reply also lands here:
-        # it answered, just shortly. What it did not answer stays queued by
-        # the pass itself.)
+        # error is a reply that came back. A truncated reply raises in propose
+        # and lands here as failed; the split-and-resend it triggers flips
+        # those bundles to done when its own reply lands.
         "label": e["label"] or "request",
         "ok": not e["error"],
         "error": e["error"] or "",
