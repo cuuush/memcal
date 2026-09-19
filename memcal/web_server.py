@@ -296,6 +296,12 @@ class Handler(BaseHTTPRequestHandler):
                                  limit=int(query.get("limit", 0) or 0))
         if path == "/api/job":
             return web_jobs.job_status(query.get("id", ""), query.get("kind", ""))
+        if path == "/api/dream_live":
+            # The pass that is running right now, whoever started it — a CLI or
+            # scheduled pass never appears in /api/job, which only tracks jobs
+            # this server started. Polled, not streamed: the writer is another
+            # process and there is no in-memory object to subscribe to.
+            return web_dream.dream_live(conn)
         if path == "/api/why":
             return web_memory.why(conn, query.get("kind", ""), query.get("ref", ""), cfg=self.cfg)
         if path == "/api/conversation":

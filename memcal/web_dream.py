@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from . import archive, db, llm, textclean, threads, wiki
 from .config import Config
@@ -215,3 +215,107 @@ def _cost_estimate(cfg: Config, prefix_tok: int, groups: list,
 # --------------------------------------------------------------------- jobs --
 # Collect and dream both outlast a request, so they run on a thread and the page polls.
 # One at a time: two passes over the same spool would each claim half the traffic.
+
+
+#: The stages a pass moves through, in order. Anything else a pass reports (the
+#: dry-run's `price`, the backoff's `model` wait) is appended after these.
+LIVE_STAGES = ("prepare", "propose", "merge", "apply", "sweep", "render")
+
+#: A heartbeat younger than this means a pass that is running. Older than this but
+#: younger than `LIVE_QUIET_AFTER_S` means one that went silent mid-pass — worth
+#: naming as possibly stalled. Older than that is finished-or-dead: the Runs tab
+#: still lists it, but the Dream tab stops advertising it.
+LIVE_FRESH_AFTER_S = 600
+LIVE_QUIET_AFTER_S = 3600
+
+
+def dream_live(conn: sqlite3.Connection) -> dict:
+    """The pass that is running right now, if any — whoever started it.
+
+    `web_jobs` only knows jobs the web server started, so a CLI or scheduled pass
+    would otherwise run invisibly. Every pass reports into `run_events` on its own
+    connection (see `dream.live`), which is what this reads: one unfinished run
+    row plus its heartbeat, stage states, per-bundle states, and recent requests.
+    """
+    row = conn.execute(
+        """SELECT * FROM runs
+            WHERE finished_at IS NULL AND error IS NULL
+            ORDER BY id DESC LIMIT 1""").fetchone()
+    if not row:
+        return {"live": None}
+    run_id = row["id"]
+    events = conn.execute(
+        "SELECT * FROM run_events WHERE run_id = ? ORDER BY id",
+        (run_id,)).fetchall()
+    bundles = conn.execute(
+        "SELECT * FROM run_bundles WHERE run_id = ? ORDER BY entity",
+        (run_id,)).fetchall()
+
+    heartbeat = events[-1]["at"] if events else row["started_at"]
+    age_s = _age_s(heartbeat)
+    if age_s is None or age_s >= LIVE_QUIET_AFTER_S:
+        return {"live": None}
+
+    last_stage: dict[str, sqlite3.Row] = {}
+    for event in events:
+        if event["event"] == "stage" and event["stage"]:
+            last_stage[event["stage"]] = event
+    ordered = [last_stage[s] for s in LIVE_STAGES if s in last_stage]
+    ordered += [e for s, e in last_stage.items() if s not in LIVE_STAGES]
+    stages = [{"stage": e["stage"], "state": e["state"] or "waiting",
+               "note": e["note"] or "", "at": str(e["at"])[:19]} for e in ordered]
+
+    done, total = 0, 0
+    for event in reversed(events):
+        if event["event"] in ("propose_wave", "propose_request") and event["total"]:
+            done, total = event["done"], event["total"]
+            break
+
+    states = [b["state"] for b in bundles]
+    requests = [{
+        # The feed keeps only the error string, not the boolean, so an empty
+        # error is a reply that came back. (A truncated reply also lands here:
+        # it answered, just shortly. What it did not answer stays queued by
+        # the pass itself.)
+        "label": e["label"] or "request",
+        "ok": not e["error"],
+        "error": e["error"] or "",
+        "done": e["done"], "total": e["total"], "at": str(e["at"])[:19],
+    } for e in events if e["event"] == "propose_request"][-12:]
+    return {"live": {
+        "run": {
+            "id": run_id, "mode": row["mode"] or "",
+            "model": (row["model"] or "").split("/")[-1],
+            "started_at": str(row["started_at"])[:19],
+            "bundles": row["bundles"], "items": row["items"],
+        },
+        "status": "live" if age_s < LIVE_FRESH_AFTER_S else "quiet",
+        "age_s": age_s,
+        "stages": stages,
+        "propose": {"done": done, "total": total},
+        "counts": {s: states.count(s)
+                   for s in ("queued", "reading", "done", "failed")},
+        "bundles": [{
+            "entity": b["entity"], "id": b["bundle_id"], "label": b["label"],
+            "kind": b["kind"] or "", "lines": b["lines"], "state": b["state"],
+        } for b in bundles],
+        "requests": requests,
+    }}
+
+
+def _age_s(stamp: str | None) -> int | None:
+    """Seconds since this heartbeat, or None when it cannot be read."""
+    if not stamp:
+        return None
+    try:
+        then = datetime.fromisoformat(str(stamp))
+    except ValueError:
+        return None
+    if then.tzinfo is None:
+        # `db.now()` stamps carry the local offset; a naive stamp is read the
+        # same way rather than as UTC, which would misstate the age by hours.
+        then = then.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    try:
+        return max(0, int((db.now_dt() - then).total_seconds()))
+    except Exception:
+        return None

@@ -323,6 +323,32 @@
   .pnote { color: var(--ink-3); font: 10.5px/1 var(--mono); white-space: nowrap;
            max-width: 30ch; overflow: hidden; text-overflow: ellipsis; }
 
+  /* ---- the live pass: a dream started anywhere, drawn on the Dream tab ---- */
+  .livecard { background: var(--surface-1); border: 1px solid var(--pass);
+              border-left-width: 3px; border-radius: 10px; padding: 12px 14px;
+              margin-bottom: 18px; }
+  .livecard.quiet { border-color: var(--warn); }
+  .liverow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .livedot { width: 9px; height: 9px; border-radius: 50%; background: var(--pass);
+             flex: none; animation: lpulse 1.6s ease-in-out infinite; }
+  .livecard.quiet .livedot { background: var(--warn); animation: none; }
+  @keyframes lpulse { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+  .livecard .ptrack { margin-top: 10px; }
+  .livecard .plegend { margin-top: 10px; }
+  .livenow { display: flex; flex-wrap: wrap; gap: 5px; align-items: center;
+             margin-top: 10px; }
+  .liveall { margin-top: 8px; }
+  .liveall summary { cursor: pointer; color: var(--ink-3); font-size: 12px; }
+  .bchips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  /* Which bundles are mid-read is the one thing the card is for, so it gets the
+     color; read ones dim away and failed ones warn. */
+  .rider.live-reading { border-color: var(--pass); }
+  .rider.live-done { opacity: .55; }
+  .rider.live-failed { border-color: var(--warn); }
+  .livefeed { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
+  .freq { font: 11.5px/1.5 var(--mono); color: var(--ink-2); }
+  .freq.bad { color: var(--warn); }
+
   /* ---------------------------------------------------------------- trace */
   .whybtn { margin-left: 8px; font-size: 11px; padding: 1px 6px; cursor: pointer;
             color: var(--ink-3); background: transparent; border: 1px solid var(--line);
