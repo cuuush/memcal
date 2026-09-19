@@ -1623,5 +1623,102 @@ class TestGuessedNamesReachTheWebUI(Base):
         self.assertFalse(card["title"].startswith(presentation.GUESS_PREFIX))
 
 
+class TestDreamPreviewBuildsEachBundleBlockOnce(Base):
+    """The preview built every bundle block five times over: packing, the card's
+    text, the card's token count, the request it rides in, and the cost estimate.
+    Each build re-runs the bundle's calendar/action/question lookups and wiki
+    reads, which is where a multi-second Dream tab came from on a large spool."""
+
+    def spool(self, thread: str, texts: list[str]) -> None:
+        for i, text in enumerate(texts):
+            aid = archive.append(
+                self.conn, channel="imessage", external_id=f"{thread}:{i}:{text}",
+                ts=self.ts(), text=text, thread=thread, handle="+15550001111",
+                gated=True, gate_reason="temporal")
+            archive.spool_add(self.conn, aid, f"thread:imessage:{thread}")
+        self.conn.commit()
+
+    def test_one_build_per_bundle(self):
+        self.spool("chat-a", ["poker friday?", "yeah 8pm"])
+        self.spool("chat-b", ["dentist tuesday", "moved to wednesday"])
+        self.spool("chat-c", ["flight is booked"])
+        original = propose_stage.build_bundle_block
+        calls = []
+
+        def counting(cfg, bundle, conn=None, **kw):
+            # A call that the shared cache already holds is not a build.
+            if kw.get("cache") is None or bundle.entity not in kw["cache"]:
+                calls.append(bundle.entity)
+            return original(cfg, bundle, conn, **kw)
+
+        propose_stage.build_bundle_block = counting
+        try:
+            out = web.dream_preview(self.conn, self.cfg)
+        finally:
+            propose_stage.build_bundle_block = original
+        self.assertGreater(len(out["bundles"]), 0)
+        # Every build is for a distinct entity: repeats would be cache hits.
+        self.assertEqual(sorted(calls), sorted(set(calls)))
+        self.assertEqual({b["entity"] for b in out["bundles"]}, set(calls))
+
+
+class TestThreadsRefreshSkipsUnchangedStores(Base):
+    """refresh() rescanned the whole archive on every call, and the Chats and
+    Dream tabs each call it on every open. With nothing new arrived the threads
+    table already holds the answer, so a repeat call must not rescan."""
+
+    def test_a_repeat_refresh_does_no_work(self):
+        self.mail("a@x.com", "one", gated=True, reason="unknown-sender")
+        first = threads.refresh(self.conn)
+        original = threads.refresh_members
+        calls = []
+
+        def counting(conn):
+            calls.append(1)
+            return original(conn)
+
+        threads.refresh_members = counting
+        try:
+            second = threads.refresh(self.conn)
+        finally:
+            threads.refresh_members = original
+        self.assertEqual(second, first)
+        self.assertEqual(calls, [])
+        before = [dict(r) for r in self.conn.execute(
+            "SELECT channel, thread, mine, theirs FROM threads ORDER BY 1, 2")]
+        threads.refresh(self.conn)
+        after = [dict(r) for r in self.conn.execute(
+            "SELECT channel, thread, mine, theirs FROM threads ORDER BY 1, 2")]
+        self.assertEqual(before, after)
+
+    def test_new_mail_and_new_handles_refresh_again(self):
+        self.mail("a@x.com", "one", gated=True, reason="unknown-sender")
+        threads.refresh(self.conn)
+        self.mail("b@x.com", "two", gated=True, reason="unknown-sender")
+        out = threads.refresh(self.conn)
+        self.assertEqual(out, 2)
+        self.assertTrue(identity.guess_name(
+            self.conn, "b@x.com", "Bo", channel="email", why="test"))
+        self.conn.commit()
+        # A dream guess renames a thread with no new mail; the refresh must notice.
+        self.assertEqual(threads.refresh(self.conn), 2)
+
+
+class TestGateRollupCarriesFeedTotals(Base):
+    """The rollup page fetched the whole items endpoint in parallel just for its
+    chips and count line. The rollup carries both now, so Gate opens on one."""
+
+    def test_total_and_reasons_match_the_feed(self):
+        self.mail("keep@x.com", "poker friday", gated=True, reason="unknown-sender")
+        self.mail("junk@x.com", "50% off", gated=False, reason="bulk-headers")
+        self.mail("junk@x.com", "70% off", gated=False, reason="bulk-headers")
+        for kw in ({}, {"queue": "queued"}, {"verdict": "skipped"}):
+            with self.subTest(**kw):
+                rolled = web.groups(self.conn, **kw)
+                feed = web.items(self.conn, **kw)
+                self.assertEqual(rolled["total"], feed["total"])
+                self.assertEqual(rolled["reasons"], feed["reasons"])
+
+
 if __name__ == "__main__":
     unittest.main()
