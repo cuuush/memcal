@@ -54,6 +54,10 @@ class OpenIncludesPendingActivity(unittest.TestCase):
         self.assertIn(f"[{m2}]", opened)
         self.assertIn("new activity since last review", opened)
         self.assertIn(f"memcal_activity(handle=E{event.id})", opened)
+        self.assertIn("full thread imessage/t1", opened)
+        # Reviewed context rides along unmarked; pending is marked new.
+        self.assertIn("poker saturday?", opened)
+        self.assertIn("(new)", opened)
 
         page = activity.read(self.conn, "event", event.key)
         for item in page["items"]:
@@ -65,6 +69,37 @@ class OpenIncludesPendingActivity(unittest.TestCase):
             origin=live.Origin.of("test"))
         opened = detail.open_handle(self.conn, self.cfg, f"E{event.id}")
         self.assertNotIn("new activity since last review", opened)
+
+
+class WholeThreadTailStaysFiltered(unittest.TestCase):
+    """`thread_tail` uses the same mute/explicit-ignore filter as pending."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        from memcal.config import Config
+        self.cfg = Config(home=Path(self.tmp.name))
+        self.cfg.ensure_dirs()
+        self.conn = db.open_db(self.cfg.db_path)
+        db.set_today("2026-09-12")
+        self.addCleanup(db.set_today, None)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def test_muted_thread_tail_hides_its_lines(self):
+        from memcal import threads
+        m1 = archive.append(
+            self.conn, channel="imessage", external_id="o1",
+            ts="2026-09-10T10:00:00", thread="t1", text="hello?",
+            person="Jordan", handle="j", from_me=False)
+        self.conn.commit()
+        threads.decide(self.conn, "imessage", "t1", "mute")
+        self.conn.commit()
+        lines, total = activity.thread_tail(self.conn, "imessage", "t1")
+        self.assertEqual(total, 0)
+        self.assertEqual(lines, [])
+        self.assertIsNotNone(m1)
 
 
 if __name__ == "__main__":

@@ -23,9 +23,15 @@ def parse_handle(token: str) -> str | None:
     return f"{match.group(1).upper()}{match.group(2)}" if match else None
 
 
-#: How many pending activity lines `open_handle` carries inline. Enough to
-#: act on a flagged row in one call; `memcal_activity` pages past this.
-OPEN_ACTIVITY_LIMIT = 10
+#: How many pending lines `open_handle` carries inline. Matches the activity
+#: pager's max so a normal flagged row shows all of them; `memcal_activity`
+#: pages past this.
+OPEN_ACTIVITY_LIMIT = 50
+
+#: Whole-thread tails per open. Tokens are cheap; a second call is not. Capped
+#: so one pathological thread cannot dominate the payload.
+OPEN_THREAD_LIMIT = 60
+OPEN_MAX_THREADS = 3
 
 
 def open_handle(conn: sqlite3.Connection, cfg: Config, token: str) -> str:
@@ -364,12 +370,15 @@ def _history_text(conn: sqlite3.Connection, kind: str, ref: str) -> str:
 
 def _activity_text(conn: sqlite3.Connection, kind: str, ref: str,
                    handle: str) -> str:
-    """Pending new messages behind this row, inline so one open is enough.
+    """Pending messages plus the whole thread behind them, so one open is enough.
 
     Returns "" when nothing is pending, keeping opens without fresh traffic
-    byte-identical to before. Otherwise a bounded preview (OPEN_ACTIVITY_LIMIT)
-    with [ids] to cite in a correction or review, plus the cursor for
-    `memcal_activity` to page the rest. Reading changes nothing.
+    byte-identical to before. Otherwise every strong conversational thread is
+    shown tail-first (oldest first, `(new)` marking what is still unreviewed)
+    with full text — tokens are cheap, a second call is not. Non-threaded
+    (calendar-family) pending rides in an "other new messages" list. Anything
+    cut by a cap names its cursor for `memcal_activity`. Reading changes
+    nothing.
     """
     from . import activity as activity_mod  # noqa: PLC0415 late, mirrors surfaces
     try:
@@ -380,21 +389,67 @@ def _activity_text(conn: sqlite3.Connection, kind: str, ref: str,
     if not page.get("total"):
         return ""
     try:
+        links = activity_mod.associations(conn, kind, ref, strong_only=True)["strong"]
+    except Exception:
+        links = []
+    try:
         weak = activity_mod.associations(conn, kind, ref)["weak"]
     except Exception:
         weak = []
+    covered = activity_mod.reviewed_ids(conn, kind, ref)
+    seen: set[int] = set()
     lines = ["", f"new activity since last review ({page['total']} message(s)"
              + (f", {page['omitted']} omitted" if page.get("omitted") else "")
              + f"; {page.get('reviewed', 0)} already reviewed):"]
-    for item in page.get("items") or []:
-        lines.append(f"[{item['id']}] {str(item['ts'])[:16]} "
-                     f"{item['channel']}/{item['thread']} · {item['who']}:")
-        lines.append(f"  {item['text']}")
+    threads_shown = 0
+    for link in links:
+        if threads_shown >= OPEN_MAX_THREADS:
+            break
+        if link.get("family") or not link.get("thread"):
+            continue
+        if link["channel"] in trace.UNTHREADED_STREAMS:
+            continue
+        channel, thread = link["channel"], link["thread"]
+        try:
+            tail, total = activity_mod.thread_tail(
+                conn, channel, thread, limit=OPEN_THREAD_LIMIT)
+        except Exception:
+            continue
+        if not tail:
+            continue
+        threads_shown += 1
+        if total > len(tail):
+            lines.append(f"full thread {channel}/{thread} "
+                         f"({len(tail)} of {total} shown)")
+        else:
+            lines.append(f"full thread {channel}/{thread} "
+                         f"({len(tail)} message(s)):")
+
+        for item in tail:
+            mark = " (new)" if item["id"] not in covered else ""
+            seen.add(item["id"])
+            lines.append(f"[{item['id']}] {str(item['ts'])[:16]} · "
+                         f"{item['who']}{mark}:")
+            lines.append(f"  {item['text']}")
+    rest = [item for item in (page.get("items") or []) if item["id"] not in seen]
+    if rest:
+        lines.append("other new messages:")
+        for item in rest:
+            seen.add(item["id"])
+            lines.append(f"[{item['id']}] {str(item['ts'])[:16]} "
+                         f"{item['channel']}/{item['thread']} · {item['who']}:")
+            lines.append(f"  {item['text']}")
+    truncated = bool(page.get("omitted")) or any(
+        True for _ in links[OPEN_MAX_THREADS:] if not _.get("family"))
     if page.get("items"):
+        tail_note = (f"memcal_activity(handle={handle}) pages past this view, "
+                     f"next cursor {page.get('next_cursor', 0)}"
+                     if truncated else
+                     f"all pending shown; memcal_activity(handle={handle}) "
+                     f"re-reads them paged")
         lines.append(
             f"(cite [ids] in memcal_update or memcal_reviewed — reading changes "
-            f"nothing; memcal_activity(handle={handle}) pages past this preview, "
-            f"next cursor {page.get('next_cursor', 0)})")
+            f"nothing; {tail_note})")
     for thread in weak or []:
         lines.append(f"(possibly related: {thread['channel']}/"
                      f"{thread['thread']} — {thread['why']})")
