@@ -118,6 +118,34 @@ def load_errors() -> list[str]:
     return list(_load_errors)
 
 
+def disabled_set(cfg=None) -> set[str]:
+    """Source names the store has switched off, lowercased."""
+    raw = str(getattr(cfg, "disabled_sources", "") or "") if cfg is not None else ""
+    out: set[str] = set()
+    for part in raw.replace(";", ",").split(","):
+        name = part.strip().lower()
+        if name:
+            out.add(name)
+    return out
+
+
+def is_enabled(cfg, name: str) -> bool:
+    """Whether a source participates in automatic collection."""
+    return str(name or "").strip().lower() not in disabled_set(cfg)
+
+
+def active_sources(cfg=None) -> list[Source]:
+    """Sources that `ingest all`, due checks, Collect, and the nightly pull run.
+
+    `in_all is False` is the source's own opt-out (slow, interactive, or covered
+    by another source); disabled is the person's. An explicit
+    `memcal ingest <name>` still runs either.
+    """
+    off = disabled_set(cfg)
+    return [s for s in all_sources(cfg)
+            if getattr(s, "in_all", True) and s.name.lower() not in off]
+
+
 # Maximum rounds an ingest run executes to bring a stale source current.
 DEFAULT_ROUNDS = 25
 

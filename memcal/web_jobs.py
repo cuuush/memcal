@@ -262,7 +262,7 @@ def _collect_inner(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
     """Every source that can run, run to exhaustion — the spool for the next dream."""
     from . import sources
 
-    wanted = [s for s in sources.all_sources(cfg) if s.in_all]
+    wanted = sources.active_sources(cfg)
     job.plan(["contacts"] + [s.name for s in wanted] + ["chats"])
     # The job object dies with the process; this outlives it, and is what the queue view
     # groups by so "what will the next dream skip?" has something to group *on*.

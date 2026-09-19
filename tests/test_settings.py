@@ -479,6 +479,84 @@ class TestStagesArePickedRatherThanSpelled(Base):
         self.assertEqual(config.load(self.home).propose_stages, "on")
 
 
+class TestDisabledSourcesCanBeToggled(Base):
+    """Sources are switched off by name, and automatic collection respects it."""
+
+    def test_the_disabled_list_round_trips_through_the_file(self):
+        settings.save(self.cfg, {"MEMCAL_DISABLED_SOURCES": "Slack, GROUPME "})
+        self.assertEqual(self.cfg.disabled_sources, "groupme,slack")
+        self.assertEqual(config.load(self.home).disabled_sources, "groupme,slack")
+        self.assertTrue(self.find("MEMCAL_DISABLED_SOURCES")["custom"])
+
+    def test_clearing_the_list_re_enables_everything(self):
+        settings.save(self.cfg, {"MEMCAL_DISABLED_SOURCES": "slack"})
+        settings.save(self.cfg, {"MEMCAL_DISABLED_SOURCES": ""})
+        self.assertEqual(self.cfg.disabled_sources, "")
+        self.assertFalse(self.find("MEMCAL_DISABLED_SOURCES")["custom"])
+
+    def test_a_name_that_cannot_be_a_source_is_refused(self):
+        with self.assertRaises(settings.SettingsError):
+            settings.save(self.cfg, {"MEMCAL_DISABLED_SOURCES": "not a source!"})
+
+    def test_a_dotted_plugin_name_can_be_disabled(self):
+        settings.save(self.cfg, {"MEMCAL_DISABLED_SOURCES": "my.source"})
+        self.assertEqual(self.cfg.disabled_sources, "my.source")
+
+    def test_a_toggle_combined_with_form_edits_keeps_both_receipts(self):
+        out = web_settings.save(self.cfg, {
+            "source": {"name": "slack", "enabled": False},
+            "changes": {"MEMCAL_DAYS_BACK": "5"},
+        })
+        self.assertEqual(out["source"], {"name": "slack", "enabled": False})
+        self.assertIn("MEMCAL_DISABLED_SOURCES", out["saved"])
+        self.assertIn("MEMCAL_DAYS_BACK", out["saved"])
+        self.assertEqual(self.cfg.days_back, 5)
+
+    def test_automatic_collection_skips_disabled_sources(self):
+        from memcal import sources as sources_pkg
+        settings.save(self.cfg, {"MEMCAL_DISABLED_SOURCES": "slack"})
+        self.assertFalse(sources_pkg.is_enabled(self.cfg, "slack"))
+        self.assertFalse(sources_pkg.is_enabled(self.cfg, "Slack"))
+        self.assertTrue(sources_pkg.is_enabled(self.cfg, "groupme"))
+        names = [s.name for s in sources_pkg.active_sources(self.cfg)]
+        self.assertNotIn("slack", names)
+        self.assertIn("groupme", names)
+
+    def test_the_source_toggle_flips_one_name_and_keeps_the_rest(self):
+        from memcal import sources as sources_pkg
+        settings.save(self.cfg, {"MEMCAL_DISABLED_SOURCES": "groupme"})
+        out = web_settings.save(self.cfg, {"source": {"name": "slack", "enabled": False}})
+        self.assertEqual(out["source"], {"name": "slack", "enabled": False})
+        self.assertEqual(
+            sources_pkg.disabled_set(self.cfg), {"groupme", "slack"})
+        out = web_settings.save(self.cfg, {"source": {"name": "slack", "enabled": True}})
+        self.assertEqual(
+            sources_pkg.disabled_set(self.cfg), {"groupme"})
+
+    def test_the_source_toggle_refuses_unknown_names_and_non_bools(self):
+        with self.assertRaises(settings.SettingsError):
+            web_settings.save(self.cfg, {"source": {"name": "nonesuch", "enabled": False}})
+        with self.assertRaises(settings.SettingsError):
+            web_settings.save(self.cfg, {"source": {"name": "slack", "enabled": "off"}})
+
+    def test_the_probe_reports_whether_each_source_is_enabled(self):
+        from memcal import sources as sources_pkg
+        settings.save(self.cfg, {"MEMCAL_DISABLED_SOURCES": "slack"})
+        probe = web_settings.probe(self.cfg)
+        self.assertEqual(probe["disabled"], ["slack"])
+        by_name = {s["name"]: s for s in probe["sources"]}
+        self.assertFalse(by_name["slack"]["enabled"])
+        self.assertTrue(by_name["groupme"]["enabled"])
+
+    def test_the_tab_has_toggles_and_no_longer_says_where_these_live(self):
+        source = web_server.frontend_source()
+        self.assertNotIn("Where these live", source)
+        for needle in ("Configuration files", "function saveSource", '"switch"',
+                       "Nightly automation", "setcardk"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, source)
+
+
 class TestTheTabIsWiredIntoThePage(unittest.TestCase):
     """The schema is only reachable if the shell, the router and the module agree."""
 
