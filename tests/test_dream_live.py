@@ -194,6 +194,16 @@ class TestDreamLiveSnapshot(Base):
         self.conn.commit()
         self.assertEqual(web_dream.dream_live(self.conn), {"live": None})
 
+    def test_dry_run_is_never_live(self):
+        # A priced-but-not-run pass is recorded, not run: it must not advertise
+        # as a pass in progress while its (fast, model-free) pricing runs.
+        run_id = self.open_run(mode="dry-run")
+        feed = live_stage.LiveFeed(self.cfg.db_path)
+        feed.attach(run_id, [_bundle("person:Alice", "Alice")])
+        feed.event("stage", {"stage": "price", "state": "running",
+                             "note": "packing requests"})
+        self.assertEqual(web_dream.dream_live(self.conn), {"live": None})
+
 
 class TestDreamLiveStaleness(Base):
     def test_quiet_pass_reads_as_stalled_then_goes_silent(self):

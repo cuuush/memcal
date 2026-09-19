@@ -29,7 +29,11 @@ from .. import db
 def _conn(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, timeout=db.BUSY_TIMEOUT_MS / 1000)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA foreign_keys = ON")
+    # Keep the feed alive where the main connection stays alive: a read-only or
+    # network filesystem may refuse WAL, and `db.connect` tolerates that.
+    with contextlib.suppress(sqlite3.Error):
+        conn.execute("PRAGMA journal_mode = WAL")
     conn.execute(f"PRAGMA busy_timeout = {db.BUSY_TIMEOUT_MS}")
     return conn
 
