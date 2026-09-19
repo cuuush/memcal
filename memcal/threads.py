@@ -237,13 +237,55 @@ def refresh_members(conn: sqlite3.Connection) -> int:
     return len(memberships)
 
 
+#: meta key holding the watermark refresh() last fully recomputed at.
+REFRESH_WATERMARK_KEY = "threads.refresh_watermark"
+
+
+def _refresh_watermark(conn: sqlite3.Connection) -> str | None:
+    """Fingerprint of everything refresh() reads, from indexes alone.
+
+    The web UI calls refresh() on every tab open, and the full recompute walks
+    every archive row in Python — near a second on a large store, paid on every
+    click even when nothing arrived since the last one. The recompute reads the
+    archive (speakers, timestamps, handles) and the handles table (a dream guess
+    renames a thread with no new mail), so those two fingerprints are the whole
+    of "did anything refresh could notice change". Both come off index tips, and
+    a store too old to have a meta table answers with an error and gets the full
+    pass, exactly as today.
+    """
+    try:
+        archive_mark = conn.execute(
+            "SELECT count(*), max(id) FROM archive").fetchone()
+        handles_mark = conn.execute(
+            "SELECT count(*), max(updated_at) FROM handles").fetchone()
+    except sqlite3.Error:
+        return None
+    return (f"{archive_mark[0]}/{archive_mark[1]}"
+            f"/{handles_mark[0]}/{handles_mark[1]}")
+
+
 def refresh(conn: sqlite3.Connection) -> int:
     """Recompute every thread's shape from the archive. Cheap, and safe to re-run.
 
     Derived rather than counted at ingest because the interesting numbers only become
     true in hindsight: a chat the user has never posted in is a chat the user has never posted in
     *yet*, and one message from them changes the answer for the whole thread.
+
+    Skips the rescan when the watermark says nothing it reads has moved. A skipped
+    pass also skips the commit, so a read-only page stops taking the writer lock
+    on every open.
     """
+    mark = _refresh_watermark(conn)
+    if mark is not None:
+        try:
+            seen = db.get_meta(conn, REFRESH_WATERMARK_KEY)
+        except sqlite3.Error:
+            seen = None
+        if seen == mark:
+            try:
+                return conn.execute("SELECT count(*) FROM threads").fetchone()[0]
+            except sqlite3.Error:
+                return 0
     refresh_members(conn)
     rows = conn.execute(
         """SELECT channel, thread,
@@ -272,11 +314,16 @@ def refresh(conn: sqlite3.Connection) -> int:
                  known = excluded.known, mutuals = excluded.mutuals,
                  first_ts = excluded.first_ts, last_ts = excluded.last_ts,
                  updated_at = excluded.updated_at""",
-            (row["channel"], row["thread"], len(who) + 1, int(len(who) > 1),
-             row["mine"] or 0, row["theirs"] or 0, len(named), mutuals,
-             row["first_ts"], row["last_ts"], stamp),
-        )
+             (row["channel"], row["thread"], len(who) + 1, int(len(who) > 1),
+              row["mine"] or 0, row["theirs"] or 0, len(named), mutuals,
+              row["first_ts"], row["last_ts"], stamp),
+         )
     conn.commit()
+    if mark is not None:
+        try:
+            db.set_meta(conn, REFRESH_WATERMARK_KEY, mark)
+        except sqlite3.Error:
+            pass
     return len(rows)
 
 

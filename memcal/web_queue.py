@@ -269,6 +269,11 @@ def groups(conn: sqlite3.Connection, *, channel: str = "", verdict: str = "",
     A flat list of five thousand lines is not a view of what was collected, it is the
     raw material for one — you cannot see that 381 of them are the dog park until they
     are next to each other. Same filters as the feed, so a reason chip narrows both.
+
+    Also carries the feed's `total` and `reasons`: the rollup page used to fetch the
+    whole items endpoint in parallel just for its chips and count line, which is a
+    second count, a second facet aggregation and a second counterpart scan over the
+    same filtered set.
     """
     clause, args = _filters(channel=channel, verdict=verdict, reason=reason, q=q,
                             days=days, queue=queue, priority=priority)
@@ -284,6 +289,19 @@ def groups(conn: sqlite3.Connection, *, channel: str = "", verdict: str = "",
                   sum(CASE WHEN s.run_id IS NOT NULL THEN 1 ELSE 0 END) AS reviewed
              FROM archive a LEFT JOIN spool s ON s.archive_id = a.id""" + clause +
         " GROUP BY 1, 2 ORDER BY n DESC LIMIT ?", args + [limit]).fetchall()
+
+    total = conn.execute(
+        "SELECT count(*) AS n" + ARCHIVE_JOIN + clause, args
+    ).fetchone()["n"]
+
+    # Facets ignore the reason filter, so the chips stay put when one is clicked —
+    # the same query the feed runs, so both views chip identically.
+    fclause, fargs = _filters(channel=channel, verdict=verdict, q=q, days=days,
+                              queue=queue, priority=priority)
+    facets = conn.execute(
+        "SELECT a.gate_reason AS reason, a.gated, count(*) AS n" + ARCHIVE_JOIN
+        + fclause + " GROUP BY 1, 2 ORDER BY n DESC", fargs
+    ).fetchall()
 
     names = threads.titles(conn)
     hushed = threads.muted(conn)
@@ -313,7 +331,12 @@ def groups(conn: sqlite3.Connection, *, channel: str = "", verdict: str = "",
             "last": str(row["last_ts"] or "")[:10],
             "muted": key in hushed,
         })
-    return {"groups": out, "total": len(out)}
+    return {"groups": out, "total": total,
+            "conversations": len(out),
+            "reasons": [{"reason": r["reason"] or "(none)", "passed": bool(r["gated"]),
+                         "structured": r["reason"] == "calendar-structured",
+                         "n": r["n"]} for r in facets],
+            }
 
 
 def conversations(conn: sqlite3.Connection, cfg: Config, *, channel: str = "",
