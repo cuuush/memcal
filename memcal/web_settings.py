@@ -11,10 +11,17 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+import threading
 from pathlib import Path
 
 from . import llm, schedule, settings
 from .config import Config
+
+
+#: Serializes source toggles: each one reads the live disabled set, flips one
+#: name, and writes it back, so two rapid flips cannot compute from the same
+#: set and have the second overwrite the first.
+_SOURCE_LOCK = threading.Lock()
 
 
 def _bytes(path: Path) -> int:
@@ -251,12 +258,13 @@ def _apply_source_toggle(cfg: Config, spec: dict) -> dict:
     if not isinstance(enabled, bool):
         raise settings.SettingsError(
             f"source {known[name]} takes enabled true or false, not {enabled!r}")
-    off = set(sources.disabled_set(cfg))
-    if enabled:
-        off.discard(name)
-    else:
-        off.add(name)
-    saved = settings.save(cfg, {"MEMCAL_DISABLED_SOURCES": ",".join(sorted(off))})
+    with _SOURCE_LOCK:
+        off = set(sources.disabled_set(cfg))
+        if enabled:
+            off.discard(name)
+        else:
+            off.add(name)
+        saved = settings.save(cfg, {"MEMCAL_DISABLED_SOURCES": ",".join(sorted(off))})
     return {"source": {"name": known[name], "enabled": enabled},
             **saved}
 
@@ -278,7 +286,12 @@ def save(cfg: Config, payload: dict, conn=None) -> dict:
     if payload.get("source") is not None:
         out.update(_apply_source_toggle(cfg, payload["source"]))
     if payload.get("changes") is not None:
-        out.update(settings.save(cfg, payload["changes"]))
+        # A payload carrying both a toggle and form edits merges the receipts:
+        # each save reports its own `saved`/`warnings`, and the later update
+        # must not swallow the earlier one.
+        saved = settings.save(cfg, payload["changes"])
+        out["saved"] = [*out.get("saved", []), *saved.get("saved", [])]
+        out["warnings"] = [*out.get("warnings", []), *saved.get("warnings", [])]
     if not out:
         raise settings.SettingsError("nothing to save")
     return {**out, **page(cfg, conn)}

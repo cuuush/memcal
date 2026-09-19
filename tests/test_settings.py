@@ -498,6 +498,20 @@ class TestDisabledSourcesCanBeToggled(Base):
         with self.assertRaises(settings.SettingsError):
             settings.save(self.cfg, {"MEMCAL_DISABLED_SOURCES": "not a source!"})
 
+    def test_a_dotted_plugin_name_can_be_disabled(self):
+        settings.save(self.cfg, {"MEMCAL_DISABLED_SOURCES": "my.source"})
+        self.assertEqual(self.cfg.disabled_sources, "my.source")
+
+    def test_a_toggle_combined_with_form_edits_keeps_both_receipts(self):
+        out = web_settings.save(self.cfg, {
+            "source": {"name": "slack", "enabled": False},
+            "changes": {"MEMCAL_DAYS_BACK": "5"},
+        })
+        self.assertEqual(out["source"], {"name": "slack", "enabled": False})
+        self.assertIn("MEMCAL_DISABLED_SOURCES", out["saved"])
+        self.assertIn("MEMCAL_DAYS_BACK", out["saved"])
+        self.assertEqual(self.cfg.days_back, 5)
+
     def test_automatic_collection_skips_disabled_sources(self):
         from memcal import sources as sources_pkg
         settings.save(self.cfg, {"MEMCAL_DISABLED_SOURCES": "slack"})

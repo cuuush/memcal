@@ -525,7 +525,16 @@ async function saveSource(name, enabled, btn) {
   if (btn) btn.disabled = false;
   if (out.error) return;
   page = out;
-  toast(out.source.enabled ? `${out.source.name} enabled` : `${out.source.name} disabled`);
+  // The toggle rewrote MEMCAL_DISABLED_SOURCES on the server. An unsaved
+  // hand-edit of that same field would otherwise overwrite the flip on the
+  // next save, so it is dropped here and the toast says so.
+  if (pending.has("MEMCAL_DISABLED_SOURCES")) {
+    pending.delete("MEMCAL_DISABLED_SOURCES");
+    toast(out.source.enabled ? `${out.source.name} enabled — dropped the unsaved edit to Disabled sources`
+                             : `${out.source.name} disabled — dropped the unsaved edit to Disabled sources`);
+  } else {
+    toast(out.source.enabled ? `${out.source.name} enabled` : `${out.source.name} disabled`);
+  }
   render();
   loadProbe();
 }
