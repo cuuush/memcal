@@ -544,10 +544,11 @@ class TestHermesProvider(unittest.TestCase):
 class TestSourceReload(unittest.TestCase):
     """A long-running Hermes must not serve a six-hour-old memcal.
 
-    Real session: memcal was edited at 23:55, Hermes had been running since 17:53, and
-    the conversation at 00:21 hit bugs that were already fixed on disk. Python serves
-    every later `import memcal` from sys.modules, so a fix reaches the user only on the
-    next restart — and from the outside that is indistinguishable from a broken tool.
+    The failure: memcal is edited on disk while a Hermes process started hours earlier
+    is still running, and a later conversation hits bugs that were already fixed. Python
+    serves every later `import memcal` from sys.modules, so a fix reaches the user only
+    on the next restart — and from the outside that is indistinguishable from a broken
+    tool.
     """
 
     def setUp(self):

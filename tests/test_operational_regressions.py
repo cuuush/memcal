@@ -1688,7 +1688,7 @@ def _wa_store(members=(), sessions=(), messages=()):
 
 
 class TestALinkedIdIsNotAPhoneNumber(Base):
-    """91 people, 1,669 messages, none of them ever resolved to anybody.
+    """A large group's members never resolve to anybody.
 
     WhatsApp moved group members off `@s.whatsapp.net` onto `@lid`, an opaque per-user
     id that exists so a group does not leak everyone's number. Its local part is all
