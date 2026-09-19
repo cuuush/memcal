@@ -3522,10 +3522,10 @@ class TestMailIsIncludedByDefaultAndRankedNotDropped(Base):
     def test_a_reply_joins_its_own_conversation_and_a_new_subject_does_not(self):
         mailbox = self.Mailbox({1: "a", 2: "b", 3: "c"})
         self._deliver(1, self._message("appt-1@adv.example", "Appointment",
-                                       sender="advisor@adv.example"), mailbox)
+                                        sender="advisor@adv.example"), mailbox)
         self._deliver(2, self._message("appt-2@adv.example", "Re: Appointment",
-                                       sender="advisor@adv.example",
-                                       reply_to="appt-1@adv.example"), mailbox)
+                                        sender="advisor@adv.example",
+                                        reply_to="appt-1@adv.example"), mailbox)
         self._deliver(3, self._message("tax-1@adv.example", "Your tax forms",
                                        sender="advisor@adv.example"), mailbox)
         threads_seen = [row["thread"] for row in self.conn.execute(
