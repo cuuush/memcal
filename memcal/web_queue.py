@@ -351,9 +351,10 @@ def conversations(conn: sqlite3.Connection, cfg: Config, *, channel: str = "",
     else:
         # The common open: no filter, so the review queue filters the same
         # thousand-row page the list slices from instead of scanning the
-        # archive a second time for the same cards.
+        # archive a second time for the same cards. Collision flags are
+        # re-marked over the displayed slice, matching a direct fetch of it.
         cards = threads.rows(conn, policy=policy, limit=1000)
-        everything = cards[:300]
+        everything = threads._mark_collisions(cards[:300])
         review_cards = threads.review(conn, policy=policy, cards=cards)
     return {"threads": everything,
             "review": review_cards,
