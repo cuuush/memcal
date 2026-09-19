@@ -1567,5 +1567,61 @@ class TestTheBundleListDoesNotBuryThePage(Base):
         body = script.split("function flashBundle")[1].split("\n}")[0]
         self.assertIn("dbundlebox", body)
 
+class TestGuessedNamesReachTheWebUI(Base):
+    """Dream's guessed sender names must read as guesses everywhere, not just the brief."""
+
+    def guessed_thread(self, handle: str = "+15551234567",
+                       name: str = "Tire shop") -> str:
+        aid = archive.append(
+            self.conn, channel="imessage", external_id=f"g:{handle}",
+            ts=self.ts(), text="poker friday?", thread=handle, handle=handle,
+            gated=True, gate_reason="temporal")
+        self.conn.commit()
+        self.assertTrue(identity.guess_name(
+            self.conn, handle, name, channel="imessage", why="test"))
+        threads.refresh(self.conn)
+        return handle
+
+    def test_chats_mark_a_guess_and_prefix_the_title(self):
+        handle = self.guessed_thread()
+        card = [t for t in web_queue.conversations(self.conn, self.cfg)["threads"]
+                if t["thread"] == handle][0]
+        self.assertTrue(card["guessed"])
+        self.assertEqual(card["title"], presentation.as_guess("Tire shop"))
+
+    def test_gate_rollup_and_feed_mark_a_guess(self):
+        handle = self.guessed_thread()
+        group = [g for g in web_queue.groups(self.conn)["groups"]
+                 if g["key"] == handle][0]
+        self.assertTrue(group["guessed"])
+        self.assertEqual(group["title"], presentation.as_guess("Tire shop"))
+        item = web_queue.items(self.conn)["items"][0]
+        self.assertTrue(item["guessed"])
+        self.assertEqual(item["who"], presentation.as_guess("Tire shop"))
+
+    def test_settling_a_guess_clears_it_everywhere(self):
+        handle = self.guessed_thread()
+        out = web_queue.settle_name(self.conn, "Tire shop")
+        self.assertIn("result", out)
+        self.assertFalse(threads.is_guessed_thread(self.conn, "imessage", handle))
+        card = [t for t in threads.rows(self.conn) if t["thread"] == handle][0]
+        self.assertFalse(card["guessed"])
+        self.assertEqual(card["title"], "Tire shop")
+
+    def test_a_group_is_never_shown_as_a_guess(self):
+        """A guess names one handle; a thread with several speakers keeps its name."""
+        h1, h2 = "+15550001111", "+15550002222"
+        for i, h in enumerate((h1, h2)):
+            archive.append(self.conn, channel="groupme", external_id=f"grp:{i}",
+                           ts=self.ts(), text=f"line {i}", thread="chat-9",
+                           handle=h, gated=True, gate_reason="temporal")
+        self.conn.commit()
+        identity.guess_name(self.conn, h1, "Tire shop", channel="groupme", why="test")
+        threads.refresh(self.conn)
+        card = [t for t in threads.rows(self.conn) if t["thread"] == "chat-9"][0]
+        self.assertFalse(card["guessed"])
+        self.assertFalse(card["title"].startswith(presentation.GUESS_PREFIX))
+
+
 if __name__ == "__main__":
     unittest.main()
