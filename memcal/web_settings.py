@@ -210,6 +210,7 @@ def page(cfg: Config, conn=None, provider_name: str = "",
 def probe(cfg: Config) -> dict:
     """The slow half: a source check may open a socket, and launchctl is a subprocess."""
     from . import sources                                          # noqa: PLC0415
+    off = sources.disabled_set(cfg)
     found = []
     for source in sources.all_sources(cfg):
         try:
@@ -219,6 +220,7 @@ def probe(cfg: Config) -> dict:
         found.append({"name": source.name, "description": source.description,
                       "usable": bool(ok), "detail": detail,
                       "in_all": bool(getattr(source, "in_all", True)),
+                      "enabled": source.name.lower() not in off,
                       "secrets": list(getattr(source, "secrets", ()) or ())})
     try:
         nightly = schedule.status(cfg)
@@ -227,15 +229,44 @@ def probe(cfg: Config) -> dict:
     roster, roster_from = llm.list_models(cfg, _chosen(cfg))
     return {"sources": found, "load_errors": list(sources.load_errors()),
             "plugin_dir": str(cfg.plugin_dir), "schedule": nightly,
+            "disabled": sorted(off),
             "roster": {"provider": _chosen(cfg), "models": roster,
                        "source": roster_from}}
 
 
+def _apply_source_toggle(cfg: Config, spec: dict) -> dict:
+    """Flip one source on or off, storing the answer as MEMCAL_DISABLED_SOURCES."""
+    from . import sources                                          # noqa: PLC0415
+    if not isinstance(spec, dict):
+        raise settings.SettingsError("source takes {name, enabled}")
+    name = str(spec.get("name", "")).strip().lower()
+    if not name:
+        raise settings.SettingsError("source takes {name, enabled}")
+    known = {s.name.lower(): s.name for s in sources.all_sources(cfg)}
+    if name not in known:
+        raise settings.SettingsError(
+            f"no source named {spec.get('name', '')!r}. "
+            f"Known: {', '.join(sorted(known.values())) or 'none'}")
+    enabled = spec.get("enabled")
+    if not isinstance(enabled, bool):
+        raise settings.SettingsError(
+            f"source {known[name]} takes enabled true or false, not {enabled!r}")
+    off = set(sources.disabled_set(cfg))
+    if enabled:
+        off.discard(name)
+    else:
+        off.add(name)
+    saved = settings.save(cfg, {"MEMCAL_DISABLED_SOURCES": ",".join(sorted(off))})
+    return {"source": {"name": known[name], "enabled": enabled},
+            **saved}
+
+
 def save(cfg: Config, payload: dict, conn=None) -> dict:
-    """One POST for the form and for a credential; neither is implicit.
+    """One POST for the form, a credential, or a source toggle; none is implicit.
 
     A credential is write-only by construction: it goes in, and only its presence ever
-    comes back out.
+    comes back out. A source toggle rewrites MEMCAL_DISABLED_SOURCES and answers with
+    the page it just changed, so the tab can redraw without a second round trip.
     """
     out: dict = {}
     if payload.get("secret") is not None:
@@ -244,6 +275,8 @@ def save(cfg: Config, payload: dict, conn=None) -> dict:
             raise settings.SettingsError("secret takes {name, value}")
         out["secret"] = settings.save_credential(
             cfg, secret.get("name", ""), secret.get("value", ""))
+    if payload.get("source") is not None:
+        out.update(_apply_source_toggle(cfg, payload["source"]))
     if payload.get("changes") is not None:
         out.update(settings.save(cfg, payload["changes"]))
     if not out:

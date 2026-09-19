@@ -190,14 +190,18 @@ def stale_streams(conn: sqlite3.Connection, days: int = STALE_AFTER_DAYS,
     """Return active streams whose newest item is older than `days`, as (channel, age phrase).
 
     Only active registered streams are checked. Removed sources persist historical metadata
-    in `meta` and `archive` but are excluded from active staleness reporting.
+    in `meta` and `archive` but are excluded from active staleness reporting, as are
+    sources the store has disabled.
     """
+    from . import sources as _sources
     cutoff = (db.today() - timedelta(days=days)).isoformat()
     known = registered_streams(cfg)
+    off = _sources.disabled_set(cfg) if cfg is not None else set()
     return [(row["channel"], db.age_phrase(row["newest"]))
             for row in freshness(conn, cfg)
             if row["channel"] not in INTERNAL_STREAMS
             and row["channel"] in known
+            and row["channel"].lower() not in off
             and row["newest"] and row["newest"][:10] < cutoff]
 
 

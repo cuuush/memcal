@@ -28,4 +28,7 @@ you are making; one control sets the propose, sweep, and merge models together.
 Model fields reject names known to belong to another provider, and changing
 providers resets such fields to the new default. Executable fields offer
 resolved paths; calendar fields offer calendars memcal has read. The tab also
-reports what each source still needs and what the nightly job is doing.
+shows every source with an on/off toggle (disabled sources are skipped by
+Collect, `ingest all`, due checks, and the nightly pull), the credentials each
+source needs, the `.env` files behind every value, and what the nightly job is
+doing.

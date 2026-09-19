@@ -61,6 +61,7 @@ the output schema is passed inline as the `--json-schema` literal.
 |---|---|---|
 | `MEMCAL_SPOOL_HORIZON_DAYS` | `30` (1–365) | Older lines archive but never queue for the model |
 | `MEMCAL_COLLECT_INTERVAL_MINUTES` | `5` (1–1440, minutes) | How often a checked source becomes due for `ingest --due` |
+| `MEMCAL_DISABLED_SOURCES` | empty = all on | Comma-separated sources to skip in `ingest all`, due checks, Collect, and the nightly pull; explicit `memcal ingest <name>` still runs |
 | `MEMCAL_EMAIL_BACKFILL_DAYS` | `0` = horizon | First mail reach, then watermark |
 | `MEMCAL_PLATFORM_MUTE` | `show` | `show`, `ask`, or `mute` muted-chat evidence policy |
 | `MEMCAL_IMESSAGE_BACKEND` | `bluebubbles` | `bluebubbles` (server) or `chatdb` (local database). See [iMessage](../sources/imessage.md) |
