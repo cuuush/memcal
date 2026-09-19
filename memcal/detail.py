@@ -39,7 +39,7 @@ def open_handle(conn: sqlite3.Connection, cfg: Config, token: str) -> str:
 
     Accepts printed handles (`E258`, `T2`, `Q12`); no `kind` argument needed.
     Includes pending new activity inline, so a row the brief flagged needs no
-    second `memcal_activity` call unless the preview is truncated.
+    second `memcal_activity` call unless a cap truncates it.
     """
     handle = parse_handle(token)
     if not handle:
@@ -376,9 +376,9 @@ def _activity_text(conn: sqlite3.Connection, kind: str, ref: str,
     byte-identical to before. Otherwise every strong conversational thread is
     shown tail-first (oldest first, `(new)` marking what is still unreviewed)
     with full text — tokens are cheap, a second call is not. Non-threaded
-    (calendar-family) pending rides in an "other new messages" list. Anything
-    cut by a cap names its cursor for `memcal_activity`. Reading changes
-    nothing.
+    (calendar-family) pending rides in an "other new messages" list. Cut
+    pending names its `memcal_activity` cursor; cut thread history points at
+    `memcal_conversation`. Reading changes nothing.
     """
     from . import activity as activity_mod  # noqa: PLC0415 late, mirrors surfaces
     try:
@@ -402,12 +402,15 @@ def _activity_text(conn: sqlite3.Connection, kind: str, ref: str,
              + (f", {page['omitted']} omitted" if page.get("omitted") else "")
              + f"; {page.get('reviewed', 0)} already reviewed):"]
     threads_shown = 0
+    thread_cut = False
+    skipped_threads = 0
     for link in links:
-        if threads_shown >= OPEN_MAX_THREADS:
-            break
         if link.get("family") or not link.get("thread"):
             continue
         if link["channel"] in trace.UNTHREADED_STREAMS:
+            continue
+        if threads_shown >= OPEN_MAX_THREADS:
+            skipped_threads += 1
             continue
         channel, thread = link["channel"], link["thread"]
         try:
@@ -419,8 +422,10 @@ def _activity_text(conn: sqlite3.Connection, kind: str, ref: str,
             continue
         threads_shown += 1
         if total > len(tail):
+            thread_cut = True
             lines.append(f"full thread {channel}/{thread} "
-                         f"({len(tail)} of {total} shown)")
+                         f"({len(tail)} of {total} shown — older history reads "
+                         f"via memcal_conversation)")
         else:
             lines.append(f"full thread {channel}/{thread} "
                          f"({len(tail)} message(s)):")
@@ -439,14 +444,17 @@ def _activity_text(conn: sqlite3.Connection, kind: str, ref: str,
             lines.append(f"[{item['id']}] {str(item['ts'])[:16]} "
                          f"{item['channel']}/{item['thread']} · {item['who']}:")
             lines.append(f"  {item['text']}")
-    truncated = bool(page.get("omitted")) or any(
-        True for _ in links[OPEN_MAX_THREADS:] if not _.get("family"))
+    truncated = bool(page.get("omitted")) or skipped_threads > 0
     if page.get("items"):
-        tail_note = (f"memcal_activity(handle={handle}) pages past this view, "
-                     f"next cursor {page.get('next_cursor', 0)}"
-                     if truncated else
-                     f"all pending shown; memcal_activity(handle={handle}) "
-                     f"re-reads them paged")
+        if truncated:
+            tail_note = (f"memcal_activity(handle={handle}) pages past this view, "
+                         f"next cursor {page.get('next_cursor', 0)}")
+        elif thread_cut:
+            tail_note = ("all pending shown; older thread history reads via "
+                         "memcal_conversation")
+        else:
+            tail_note = (f"all pending shown; memcal_activity(handle={handle}) "
+                         f"re-reads them paged")
         lines.append(
             f"(cite [ids] in memcal_update or memcal_reviewed — reading changes "
             f"nothing; {tail_note})")
