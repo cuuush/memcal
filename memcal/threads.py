@@ -371,9 +371,16 @@ def _join(names: list[str], extra: int) -> str:
 MAX_NAMED = 3
 
 
-def titles(conn: sqlite3.Connection) -> dict[tuple, str]:
-    """A readable name for every thread, in one pass. `{(channel, thread): name}`."""
-    speakers = _speakers(conn)
+def titles(conn: sqlite3.Connection,
+           speakers: dict[tuple, list[dict]] | None = None) -> dict[tuple, str]:
+    """A readable name for every thread, in one pass. `{(channel, thread): name}`.
+
+    `speakers` is a precomputed `_speakers` map for callers that already hold
+    one: building it scans the archive, so a page resolving hundreds of cards
+    must not rebuild it once per card.
+    """
+    if speakers is None:
+        speakers = _speakers(conn)
     rows = {(r["channel"], r["thread"]): r
             for r in conn.execute("SELECT channel, thread, label, is_group, mine FROM threads")}
     out = {}
@@ -667,16 +674,32 @@ def rows(conn: sqlite3.Connection, *, channel: str = "", q: str = "",
         where.append("(lower(t.thread) LIKE ? OR lower(coalesce(t.label,'')) LIKE ?)")
         args += [f"%{q.lower()}%"] * 2
     found = conn.execute(
-        f"""SELECT t.*, (SELECT count(*) FROM spool s JOIN archive a ON a.id = s.archive_id
-                          WHERE s.processed_at IS NULL AND a.channel = t.channel
-                            AND a.thread = t.thread) AS queued
-              FROM threads t WHERE {' AND '.join(where)}
-             ORDER BY (t.mine + t.theirs) DESC LIMIT ?""", args + [limit]).fetchall()
-    names = titles(conn)
+        f"""SELECT t.* FROM threads t WHERE {' AND '.join(where)}
+              ORDER BY (t.mine + t.theirs) DESC LIMIT ?""", args + [limit]).fetchall()
+    # One grouped pass, not one count per card: the correlated form ran a
+    # spool×archive join for every thread on the page, twice over — once for
+    # the list and once for the review queue below it.
+    queued = {(r["channel"], r["thread"]): r["n"] for r in conn.execute(
+        """SELECT a.channel, a.thread, count(*) AS n FROM spool s
+             JOIN archive a ON a.id = s.archive_id
+            WHERE s.processed_at IS NULL GROUP BY 1, 2""")}
     roster = _speakers(conn)
+    names = titles(conn, speakers=roster)
     guessed = guessed_threads(conn, {(r["channel"], r["thread"]) for r in found})
     persons_guessed = guessed_persons(conn)
-    cards = [_card(row, names, roster, policy, guessed, persons_guessed) for row in found]
+    cards = [_card(row, names, roster, policy, guessed, persons_guessed, queued)
+             for row in found]
+    return _mark_collisions(cards)
+
+
+def _mark_collisions(cards: list[dict]) -> list[dict]:
+    """Flag same-named conversations within one displayed page.
+
+    Scoped to the cards actually shown: a twin sitting below the page cutoff
+    is a second page's problem, not this one's. Callers slicing a wider fetch
+    down to a page re-mark the slice so flags match what a direct fetch of
+    that page would have said.
+    """
     # Two conversations with one name is the failure that looks like one conversation
     # with missing messages. Say which ones, and let the roster tell them apart. Scoped
     # per channel: the same friend on iMessage and on WhatsApp is one person, not a clash.
@@ -700,7 +723,8 @@ def rows(conn: sqlite3.Connection, *, channel: str = "", q: str = "",
 def _card(row: sqlite3.Row, names: dict[tuple, str],
           roster: dict[tuple, list[dict]] | None = None, policy: str = "show",
           guessed: set[tuple] | None = None,
-          persons_guessed: set[str] | None = None) -> dict:
+          persons_guessed: set[str] | None = None,
+          queued: dict[tuple, int] | None = None) -> dict:
     total = (row["mine"] or 0) + (row["theirs"] or 0)
     who = (roster or {}).get((row["channel"], row["thread"]), [])
     raw_title = names.get((row["channel"], row["thread"]), row["thread"])
@@ -731,7 +755,7 @@ def _card(row: sqlite3.Row, names: dict[tuple, str],
         "known": row["known"] or 0,
         "mutuals": row["mutuals"] or 0,
         "members": row["members"] or 0,
-        "queued": row["queued"] or 0,
+        "queued": (queued or {}).get((row["channel"], row["thread"]), 0),
         "last": str(row["last_ts"] or "")[:10],
         "decision": row["decision"] or "",
         "reason": row["reason"] or "",
@@ -755,9 +779,16 @@ def _is_candidate(row: sqlite3.Row, policy: str = "show") -> bool:
     return not row["mutuals"]
 
 
-def review(conn: sqlite3.Connection, limit: int = 25, policy: str = "show") -> list[dict]:
-    """The ask-me queue: noisiest unjudged chats the user is not part of."""
-    return sorted((c for c in rows(conn, limit=1000, policy=policy) if c["candidate"]),
+def review(conn: sqlite3.Connection, limit: int = 25, policy: str = "show",
+           cards: list[dict] | None = None) -> list[dict]:
+    """The ask-me queue: noisiest unjudged chats the user is not part of.
+
+    `cards` is a precomputed `rows()` page to filter instead of re-querying:
+    the chats tab already holds the unfiltered thousand-row page, so asking
+    for it twice doubles the tab's archive scans on every open.
+    """
+    pool = cards if cards is not None else rows(conn, limit=1000, policy=policy)
+    return sorted((c for c in pool if c["candidate"]),
                   key=lambda c: -c["n"])[:limit]
 
 

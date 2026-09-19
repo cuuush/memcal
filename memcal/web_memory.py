@@ -108,34 +108,49 @@ def memory(conn: sqlite3.Connection, cfg: Config) -> dict:
         """SELECT id FROM runs
             WHERE mode != 'dry-run' AND finished_at IS NOT NULL
             ORDER BY id DESC LIMIT 1""").fetchone()
+    wanted: dict[str, dict[int, str]] = {}
     for token in {token for line in lines for token in line["sources"]}:
         parsed = brief.parse_source(token)
-        if not parsed:
-            continue
-        kind, row_id = parsed
-        row = conn.execute(
-            f"SELECT key FROM {_TABLE[kind]} WHERE id = ?", (row_id,)).fetchone()
-        if not row:
-            continue
-        change = ""
-        if last_run:
-            verbs = {stamp["verb"] for stamp in conn.execute(
-                """SELECT verb FROM provenance
-                    WHERE run_id = ? AND kind = ? AND ref = ?""",
-                (last_run["id"], kind, row["key"]),
-            )}
-            if verbs:
-                change = ("new" if verbs & {"inserted", "opened", "asked", "added"}
-                          else "edited")
+        if parsed:
+            # One token names one row; the first spelling wins so a handle
+            # repeated across lines resolves to the same target.
+            wanted.setdefault(parsed[0], {}).setdefault(parsed[1], token)
+    keys: dict[tuple[str, int], str] = {}
+    for kind, ids in wanted.items():
+        # One query per table, not one per handle: every line on the page carries
+        # a chip, and each chip used to cost its own lookup plus its own archive
+        # scan for thread names.
+        marks = ",".join("?" * len(ids))
+        for row in conn.execute(
+                f"SELECT id, key FROM {_TABLE[kind]} WHERE id IN ({marks})",
+                list(ids)):
+            keys[(kind, row["id"])] = row["key"]
+    verbs: dict[tuple[str, str], set[str]] = {}
+    if last_run and keys:
+        # The per-handle form of this (`run_id = ? AND kind = ? AND ref = ?`)
+        # has no run index to use and re-scanned provenance once per chip.
+        # One pass over the run's writes, filtered to the rows on this page.
+        wanted_keys = {(kind, key) for (kind, _), key in keys.items()}
+        for row in conn.execute(
+                "SELECT kind, ref, verb FROM provenance WHERE run_id = ?",
+                (last_run["id"],)):
+            if (row["kind"], row["ref"]) in wanted_keys:
+                verbs.setdefault((row["kind"], row["ref"]), set()).add(row["verb"])
+    names = trace.titles(conn)
+    for (kind, row_id), key in keys.items():
+        token = wanted[kind][row_id]
+        found = verbs.get((kind, key), set())
+        change = ("new" if found & {"inserted", "opened", "asked", "added"}
+                  else "edited") if found else ""
         targets[token] = {
-            "kind": kind, "ref": row["key"],
+            "kind": kind, "ref": key,
             "last_dream_change": change,
             "change_label": presentation.change_label(change),
             # Counted here rather than by fetching every line: the page shows a chip per
             # brief line, and "how much is behind this" is the question it answers.
             # `resolve_source` would pull the lines themselves — forty rows a token,
             # thirty tokens, to render a number.
-            "citations": trace.citations(conn, kind, row["key"]),
+            "citations": trace.citations(conn, kind, key, names=names),
         }
     return {
         "brief": text,
