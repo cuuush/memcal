@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from . import db, identity
+from . import db, identity, presentation
 
 #: Below this a chat is not worth interrupting anyone about, whatever it scores.
 REVIEW_MIN_ITEMS = 20
@@ -359,6 +359,73 @@ def title(conn: sqlite3.Connection, channel: str, thread: str) -> str:
     return titles(conn).get((channel, thread), thread or channel)
 
 
+def is_guessed_thread(conn: sqlite3.Connection, channel: str, thread: str) -> bool:
+    """True when a 1:1 conversation's name is an unconfirmed dream guess.
+
+    Only a lone sender: a guess names one handle, so a thread with several
+    speakers is never shown as a guess even if one of them carries one.
+    Shared with brief._is_guessed_thread so the web UI and the brief agree.
+    """
+    if not thread:
+        return False
+    rows = conn.execute(
+        "SELECT DISTINCT handle FROM archive WHERE channel = ?"
+        " AND coalesce(thread, '') = ? AND from_me = 0"
+        " AND handle IS NOT NULL AND handle != ''", (channel, thread)).fetchall()
+    return len(rows) == 1 and identity.is_guessed(conn, rows[0]["handle"])
+
+
+def guessed_threads(conn: sqlite3.Connection,
+                    keys: set[tuple] | None = None) -> set[tuple]:
+    """Which (channel, thread) pairs are 1:1 guessed names, in two queries.
+
+    `rows()` and the gate rollup render hundreds of threads; per-thread
+    queries would be N+1. Read the guessed handles once, read the distinct
+    speakers per thread once, join in Python.
+    """
+    try:
+        guessed_handles = {
+            identity.normalize(r["handle"]) for r in conn.execute(
+                "SELECT handle FROM handles WHERE source LIKE '%:dream-guess'")}
+    except sqlite3.Error:
+        return set()
+    if not guessed_handles:
+        return set()
+    if keys is not None and not keys:
+        return set()
+    if keys is not None:
+        chans = sorted({c for c, _ in keys})
+        marks = ",".join("?" * len(chans))
+        qrows = conn.execute(
+            f"""SELECT DISTINCT channel, thread, handle FROM archive
+                 WHERE from_me = 0 AND handle IS NOT NULL AND handle != ''
+                   AND channel IN ({marks})""", chans).fetchall()
+    else:
+        qrows = conn.execute(
+            """SELECT DISTINCT channel, thread, handle FROM archive
+                 WHERE from_me = 0 AND handle IS NOT NULL AND handle != ''""").fetchall()
+    per_thread: dict[tuple, set[str]] = {}
+    for r in qrows:
+        if not r["thread"]:
+            continue
+        key = (r["channel"], r["thread"])
+        if keys is not None and key not in keys:
+            continue
+        per_thread.setdefault(key, set()).add(identity.normalize(r["handle"]))
+    return {k for k, v in per_thread.items()
+            if len(v) == 1 and next(iter(v)) in guessed_handles}
+
+
+def guessed_persons(conn: sqlite3.Connection) -> set[str]:
+    """Person names currently backed only by a dream guess, for display prefixing."""
+    try:
+        return {r["person"] for r in conn.execute(
+            "SELECT person FROM handles WHERE source LIKE '%:dream-guess'"
+            " AND person IS NOT NULL AND person != ''")}
+    except sqlite3.Error:
+        return set()
+
+
 # ------------------------------------------------------------------ merging --
 # iMessage splits a conversation in two more often than you would think. When one
 # person's phone stops playing along, the same group chat exists twice — once over
@@ -560,30 +627,52 @@ def rows(conn: sqlite3.Connection, *, channel: str = "", q: str = "",
              ORDER BY (t.mine + t.theirs) DESC LIMIT ?""", args + [limit]).fetchall()
     names = titles(conn)
     roster = _speakers(conn)
-    cards = [_card(row, names, roster, policy) for row in found]
+    guessed = guessed_threads(conn, {(r["channel"], r["thread"]) for r in found})
+    persons_guessed = guessed_persons(conn)
+    cards = [_card(row, names, roster, policy, guessed, persons_guessed) for row in found]
     # Two conversations with one name is the failure that looks like one conversation
     # with missing messages. Say which ones, and let the roster tell them apart. Scoped
     # per channel: the same friend on iMessage and on WhatsApp is one person, not a clash.
+    # Compare on the unprefixed name so a guessed "maybe: X" still collides with a
+    # confirmed "X" — they read as the same name at a glance.
     seen: dict[tuple, int] = {}
     for card in cards:
-        key = (card["channel"], card["title"])
+        raw = card["title"]
+        if raw.startswith(presentation.GUESS_PREFIX):
+            raw = raw[len(presentation.GUESS_PREFIX):]
+        key = (card["channel"], raw)
         seen[key] = seen.get(key, 0) + 1
     for card in cards:
-        card["collision"] = seen.get((card["channel"], card["title"]), 0) > 1
+        raw = card["title"]
+        if raw.startswith(presentation.GUESS_PREFIX):
+            raw = raw[len(presentation.GUESS_PREFIX):]
+        card["collision"] = seen.get((card["channel"], raw), 0) > 1
     return cards
 
 
 def _card(row: sqlite3.Row, names: dict[tuple, str],
-          roster: dict[tuple, list[dict]] | None = None, policy: str = "show") -> dict:
+          roster: dict[tuple, list[dict]] | None = None, policy: str = "show",
+          guessed: set[tuple] | None = None,
+          persons_guessed: set[str] | None = None) -> dict:
     total = (row["mine"] or 0) + (row["theirs"] or 0)
     who = (roster or {}).get((row["channel"], row["thread"]), [])
+    raw_title = names.get((row["channel"], row["thread"]), row["thread"])
+    is_guessed = (row["channel"], row["thread"]) in (guessed or set())
+    title = presentation.as_guess(raw_title) if is_guessed else raw_title
+    speakers = []
+    for w in who[:6]:
+        name = w["person"] or w["handle"]
+        if w["person"] and persons_guessed and w["person"] in persons_guessed:
+            name = presentation.as_guess(name)
+        speakers.append(name)
     return {
         # The roster is what tells two same-named chats apart, so it travels with the card.
-        "speakers": [w["person"] or w["handle"] for w in who[:6]],
+        "speakers": speakers,
         "more_speakers": max(0, len(who) - 6),
         "channel": row["channel"],
         "thread": row["thread"],
-        "title": names.get((row["channel"], row["thread"]), row["thread"]),
+        "title": title,
+        "guessed": is_guessed,
         "label": row["label"] or "",
         # Shown next to the title because two chats can share a name and this is the
         # only thing that tells them apart at a glance.
