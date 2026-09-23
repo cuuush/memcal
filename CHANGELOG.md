@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### Fixed
+
+- The deterministic integration benchmark now opens the brief's `About you`
+  pointer through `memcal_open me` and checks its displayed facts against the
+  returned page. It no longer mistakes that valid wiki pointer for a missing
+  event or to-do handle.
+
 ### Changed
 
 - `memcal_open` returns the whole thread behind pending new activity inline

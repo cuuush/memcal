@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from memcal import brief as brief_mod
-from memcal import db, detail, events, todos, trace, wiki
+from memcal import db, detail, events, mcp_server, todos, trace, wiki
 
 
 # --------------------------------------------------------------------- context --
@@ -361,6 +361,34 @@ def every_handle_opens(ctx):
                         else f"dead handles: {', '.join(broken)}")
 
 
+def _about_you_opens(ctx, line):
+    """Follow the brief's self-page pointer and check its displayed facts."""
+    if not line.startswith(brief_mod.ABOUT_YOU_PREFIX):
+        return False
+    server = mcp_server.Server.__new__(mcp_server.Server)
+    server.conn, server.cfg = ctx.conn, ctx.cfg
+    opened = server.call("memcal_open", {"ref": "me"})
+    try:
+        slug = wiki.resolve_self_page(ctx.conn, ctx.cfg.wiki_dir, "me")
+    except wiki.SelfAmbiguous:
+        return False
+    profile = wiki.profile(ctx.conn, ctx.cfg.wiki_dir, slug) if slug else None
+    if not profile or profile["page"].strip() not in opened:
+        return False
+    facts = [(fact["slot"], str(fact.get("value", "")))
+             for fact in profile["facts"]]
+    if not facts or any(f"- **{slot}**: {value}" not in opened
+                        for slot, value in facts):
+        return False
+    shown = line[len(brief_mod.ABOUT_YOU_PREFIX):]
+    entries = [f"{slot}: {value}" for slot, value in facts]
+    allowed = {"[trimmed — open the page for your facts]",
+               " · ".join(entries)}
+    allowed.update(" · ".join(entries[:count]) + f" · +{len(entries) - count} more"
+                   for count in range(1, len(entries)))
+    return shown in allowed
+
+
 def every_row_has_a_handle(ctx):
     """A brief line a reader cannot open is a fact they cannot check or correct.
 
@@ -375,6 +403,8 @@ def every_row_has_a_handle(ctx):
             continue
         if stripped.startswith("↳ New activity:") or stripped.startswith("↳ …and "):
             # Annotations on rows, not rows: see `brief_sources_open`.
+            continue
+        if stripped.startswith("About you") and _about_you_opens(ctx, stripped):
             continue
         if not brief_mod.SOURCE_RE.search(line):
             missing.append(stripped[:48])
@@ -541,7 +571,9 @@ def brief_sources_open(ctx):
             # `memcal_open(ref=E..)` call instead of carrying a handle.
             continue
         data_lines.append(line)
-    missing = [line for line in data_lines if not brief_mod.SOURCE_RE.search(line)]
+    missing = [line for line in data_lines
+               if not brief_mod.SOURCE_RE.search(line)
+               and not _about_you_opens(ctx, line)]
     tokens = brief_mod.SOURCE_RE.findall(text)
     broken = [token for token in tokens
               if trace.resolve_source(ctx.conn, token).get("error")]
