@@ -25,7 +25,7 @@ Instant answers: Memcal pre-renders a brief of your week into the prompt, so Her
 
 ## Install
 
-Requires Python 3.11+, SQLite with FTS5, and one model backend (Codex by default; Claude Code, Antigravity, or OpenRouter also work).
+Requires Python 3.11+, SQLite with FTS5, and one model backend (Codex by default; Claude Code, Antigravity, Grok, OpenRouter, or an OpenAI-compatible API also work).
 
 ### Quick start
 
@@ -35,6 +35,18 @@ memcal setup
 memcal doctor
 memcal brief
 ```
+
+For a service with an OpenAI-compatible chat-completions endpoint, configure its
+base URL, model ID, and API key explicitly:
+
+```bash
+memcal setup --provider openai-compatible --model YOUR_MODEL \
+  --base-url https://YOUR_HOST/v1 --api-key YOUR_KEY
+```
+
+`MEMCAL_PROPOSE_OUTPUT_FLOOR` can reserve more output tokens for models whose
+reasoning consumes the completion allowance. The default, `0`, uses Memcal's
+calculated ceiling.
 
 Memcal is built first for **macOS** — Messages, Calendar (EventKit), and launchd scheduling are the full product path. Connect those, then ask the agent what your week looks like.
 
@@ -68,4 +80,3 @@ Full guides: **https://cuuush.github.io/memcal/**
 - [Evaluation](https://cuuush.github.io/memcal/evaluation/) — how memory quality is measured
 
 Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Notable changes: [CHANGELOG.md](CHANGELOG.md).
-

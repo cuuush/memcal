@@ -430,7 +430,7 @@ function renderRuntime() {
   }
   if (!p.ok) {
     pcard.append(el("div", "setwarn", p.needs_key
-      ? "OpenRouter needs an API key — set OPENROUTER_API_KEY under Credentials below."
+      ? p.detail + " — check the provider fields and Credentials below."
       : "The provider is chosen but its command is not on this process's PATH. An "
         + "absolute path in the executable field below is what the nightly agent needs "
         + "anyway."));

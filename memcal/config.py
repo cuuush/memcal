@@ -41,6 +41,7 @@ class Config:
     # Codex or Antigravity authentication; OpenRouter needs an API key, which is why it
     # is not the default — a fresh install works from a login the user already has.
     llm_provider: str = "codex"
+    openai_base_url: str = ""
     claude_command: str = "claude"
     codex_command: str = "codex"
     agy_command: str = "agy"
@@ -62,6 +63,7 @@ class Config:
     # Request bundle count and token ceiling for prompt packing.
     pack_bundles: int = 6
     pack_tokens: int = 12_000
+    propose_output_floor: int = 0
 
     # Policy for platform-muted conversations:
     #   show  - archive and display without treating as high-priority signal (default)
@@ -196,6 +198,10 @@ class Config:
     def api_key(self) -> str | None:
         return self.secret("OPENROUTER_API_KEY", "openrouter")
 
+    @property
+    def openai_api_key(self) -> str | None:
+        return self.secret("OPENAI_COMPAT_API_KEY")
+
     def secret(self, *names: str) -> str | None:
         """Look up a credential by any of several names, case- and separator-insensitive.
 
@@ -242,6 +248,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
     cfg = Config(home=home_path, env=env)
     for name, attr, cast in (
         ("MEMCAL_LLM_PROVIDER", "llm_provider", str),
+        ("MEMCAL_OPENAI_BASE_URL", "openai_base_url", str),
         ("MEMCAL_CLAUDE_COMMAND", "claude_command", str),
         ("MEMCAL_CODEX_COMMAND", "codex_command", str),
         ("MEMCAL_AGY_COMMAND", "agy_command", str),
@@ -262,6 +269,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
         ("MEMCAL_ITEM_BUDGET", "item_budget", int),
         ("MEMCAL_ITEMS_PER_ENTITY", "items_per_entity", int),
         ("MEMCAL_PACK_BUNDLES", "pack_bundles", int),
+        ("MEMCAL_PROPOSE_OUTPUT_FLOOR", "propose_output_floor", int),
         ("MEMCAL_PACK_TOKENS", "pack_tokens", int),
         ("MEMCAL_PLATFORM_MUTE", "platform_mute", str),
         ("MEMCAL_PROMPT_VERSION", "prompt_version", str),
@@ -297,13 +305,14 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
 
     # Fill unset stage models from the provider default; explicitly configured models win.
     defaults = {
+        "openai-compatible": "",
         "claude-code": "claude-sonnet-5",
         "codex": "gpt-5.6-luna",
         "antigravity": "gemini-3.8-flash-high",
         "grok": "grok-4.5",
     }
     default_model = defaults.get(cfg.llm_provider)
-    if default_model:
+    if default_model is not None:
         for env_name, attr in (
             ("MEMCAL_PROPOSE_MODEL", "propose_model"),
             ("MEMCAL_SWEEP_MODEL", "sweep_model"),

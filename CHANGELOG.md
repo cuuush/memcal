@@ -12,6 +12,11 @@
 
 ### Added
 
+- A generic OpenAI-compatible chat-completions backend accepts an API base URL,
+  model ID, and key. It sends standard chat fields without OpenRouter-specific
+  routing or cache controls, so a scratch store can use the same endpoint as its
+  agent harness. A configurable propose output floor gives reasoning models room
+  to finish their JSON replies.
 - The Dream tab draws the pass that is running right now, whoever started it:
   a live card with the stage timeline, bundles read out of bundles planned, the
   bundles being read at this moment, and the recent request feed. Every bundle

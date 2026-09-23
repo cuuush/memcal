@@ -195,7 +195,8 @@ def _provider_choice() -> str:
                ("2", "claude-code", "Claude Code programmatic mode"),
                ("3", "antigravity", "Antigravity programmatic mode"),
                ("4", "grok", "Grok programmatic mode"),
-               ("5", "openrouter", "OpenRouter API key"))
+               ("5", "openrouter", "OpenRouter API key"),
+               ("6", "openai-compatible", "OpenAI-compatible API"))
     print("LLM provider:")
     for number, _value, label in choices:
         print(f"  {number}. {label}")
@@ -226,6 +227,9 @@ def cmd_setup(args) -> int:
         except EOFError:
             model = default_model
     model = model or default_model
+    if not model:
+        print("error: this endpoint needs --model", file=sys.stderr)
+        return 1
 
     values = {
         "MEMCAL_LLM_PROVIDER": provider,
@@ -248,6 +252,20 @@ def cmd_setup(args) -> int:
             return 1
         if args.api_key or not cfg.api_key:
             values["OPENROUTER_API_KEY"] = key
+    if provider == "openai-compatible":
+        base_url = args.base_url or cfg.openai_base_url
+        if not base_url and guided:
+            base_url = input("API base URL (https://host/v1): ").strip()
+        key = args.api_key or cfg.openai_api_key
+        if not key and guided:
+            key = getpass.getpass("API key: ").strip()
+        if not base_url or not key:
+            print("error: OpenAI-compatible API needs --base-url and --api-key",
+                  file=sys.stderr)
+            return 1
+        values["MEMCAL_OPENAI_BASE_URL"] = base_url
+        if args.api_key or not cfg.openai_api_key:
+            values["OPENAI_COMPAT_API_KEY"] = key
     _write_env(cfg.home / ".env", values)
 
     ready = config.load(cfg.home)
@@ -1694,7 +1712,7 @@ def cmd_schedule(args) -> int:
 
 def cmd_models(args) -> int:
     cfg, _conn = open_ctx(args)
-    if cfg.llm_provider != "openrouter":
+    if cfg.llm_provider not in {"openrouter", "openai-compatible"}:
         default = llm.PROVIDER_DEFAULT_MODELS[cfg.llm_provider]
         print(f"provider  {cfg.llm_provider}")
         print(f"default   {default}")
@@ -2234,7 +2252,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--provider", choices=tuple(llm.PROVIDER_DEFAULT_MODELS),
                    help="skip the provider prompt")
     s.add_argument("--model", help="provider-native model id")
-    s.add_argument("--api-key", help="OpenRouter only; saved with mode 0600")
+    s.add_argument("--api-key", help="API key for OpenRouter or OpenAI-compatible backend")
+    s.add_argument("--base-url", help="OpenAI-compatible API base URL, such as https://host/v1")
     s.set_defaults(func=cmd_setup)
 
     s = sub.add_parser("openclaw", help="install or inspect the OpenClaw integration")
