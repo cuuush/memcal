@@ -50,7 +50,7 @@ def provider(cfg: Config) -> dict:
         ok, detail = False, f"{type(exc).__name__}: {exc}"
     return {"name": name, "ok": bool(ok), "detail": detail,
             "default_model": llm.PROVIDER_DEFAULT_MODELS.get(name, ""),
-            "needs_key": name == "openrouter"}
+            "needs_key": name in {"openrouter", "openai-compatible"}}
 
 
 def store(cfg: Config) -> dict:
@@ -194,6 +194,10 @@ def suggestions(cfg: Config, conn=None, provider_name: str = "",
         calendars, [{"value": "memcal", "note": "a calendar of its own, as documented"}])
     found["MEMCAL_PUBLISH_REMINDERS"] = _dedupe(
         [{"value": "memcal", "note": "a list of its own, as documented"}])
+    found["MEMCAL_OPENAI_BASE_URL"] = _dedupe(
+        [{"value": cfg.openai_base_url, "note": "current endpoint"}]
+        if cfg.openai_base_url else [],
+        [{"value": "https://host/v1", "note": "replace host with your API endpoint"}])
     return found
 
 

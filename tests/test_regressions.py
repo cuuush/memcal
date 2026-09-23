@@ -3762,13 +3762,14 @@ class TestACancellationWithNoTargetIsKeptRatherThanInventedOrDropped(Base):
         self.assertTrue(any("held" in line for line in log), log)
 
     def test_an_ambiguous_one_asks_instead_of_choosing(self):
+        db.set_today("2026-09-14T20:00:00")
+        self.addCleanup(db.set_today, None)
         for title in ("Climbing gym Monday", "Climbing gym Friday"):
             events.upsert(self.conn, {"title": title, "date": "2026-09-19",
                                       "status": "confirmed"}, written_by="live")
         pending.note(self.conn, kind="cancellation",
                      observation="climbing gym is off", entity="person:Riley Morgan",
                      commit=True)
-        self.addCleanup(db.set_today, None)
         asked = []
         pending.retry(self.conn, ask=lambda text, key: asked.append(text))
         self.assertEqual(len(asked), 1)

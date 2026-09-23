@@ -1,4 +1,4 @@
-"""Completion clients for OpenRouter, Claude Code, Codex, Antigravity, and Grok.
+"""Completion clients for HTTP endpoints and authenticated agent CLIs.
 
 Stdlib only. The dream pass sends N independent calls that share a byte-identical
 prefix within each wave, so the prefix is marked cacheable and the varying bundle
@@ -18,6 +18,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -335,6 +336,7 @@ class OpenRouter(CompletionClient):
             )
         super().__init__()
         self.api_key = api_key
+        self.base_url = BASE_URL
         self.timeout = timeout
         #: Called before any wait long enough to resemble a hang.
         self.on_retry = on_retry
@@ -355,7 +357,7 @@ class OpenRouter(CompletionClient):
         started = time.monotonic()
         tally = tally if tally is not None else Tally()
         while True:
-            req = urllib.request.Request(f"{BASE_URL}{path}", data=body, headers=self.headers)
+            req = urllib.request.Request(f"{self.base_url}{path}", data=body, headers=self.headers)
             capacity = False
             wait = min(MAX_BACKOFF, 2.0 ** min(tally.faults + tally.waits, 10))
             # Charged before the attempt, not after it: a request that raises is a
@@ -499,12 +501,65 @@ class OpenRouter(CompletionClient):
         return reply
 
     def list_models(self, filter_text: str = "") -> list[dict]:
-        req = urllib.request.Request(f"{BASE_URL}/models", headers=self.headers)
+        req = urllib.request.Request(f"{self.base_url}/models", headers=self.headers)
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8")).get("data", [])
         if filter_text:
             data = [m for m in data if filter_text.lower() in m["id"].lower()]
         return data
+
+
+class OpenAICompatible(OpenRouter):
+    """Standard chat-completions transport with no OpenRouter-only fields."""
+
+    def __init__(self, api_key: str | None, base_url: str, *,
+                 on_retry: Callable[[str], None] | None = None):
+        if not api_key:
+            raise LLMError("OPENAI_COMPAT_API_KEY is missing")
+        url = str(base_url or "").rstrip("/")
+        parsed = urlsplit(url)
+        if (not parsed.netloc or parsed.query or parsed.fragment or
+                (parsed.scheme != "https" and not (
+                    parsed.scheme == "http" and parsed.hostname in
+                    {"localhost", "127.0.0.1", "::1"}))):
+            raise LLMError("MEMCAL_OPENAI_BASE_URL must be HTTPS or local HTTP")
+        CompletionClient.__init__(self)
+        self.base_url = url
+        self.timeout = 300.0
+        self.on_retry = on_retry
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def complete(self, *, model: str, prefix: str, suffix: str,
+                 schema: dict | None = None, schema_name: str = "diff",
+                 max_tokens: int = 8000, cache_prefix: bool = True,
+                 capture_reasoning: bool = False, provider: list[str] | None = None,
+                 json_object: bool = False, reasoning_effort: str | None = None,
+                 turns: list[dict] | None = None,
+                 service_tier: str | None = None) -> Reply:
+        if not model:
+            raise LLMError("model ID is missing for OpenAI-compatible endpoint")
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": prefix},
+                {"role": "user", "content": suffix},
+                *(turns or ()),
+            ],
+            "max_tokens": max_tokens,
+        }
+        tally = Tally()
+        try:
+            raw = self._post("/chat/completions", payload, tally=tally)
+            reply = _reply_from(raw, model, tally)
+        except Exception as exc:
+            self._charge(Usage(failed=1))
+            exc.tally = tally
+            raise
+        self._charge(reply.usage)
+        return reply
 
 
 def _programmatic_prompt(prefix: str, suffix: str,
@@ -633,7 +688,7 @@ def list_models(cfg, provider: str) -> tuple[list[str], str]:
 def serves(provider: str, model: str) -> bool | None:
     """Return whether a provider roster names a model, or None without a roster."""
     provider = str(provider or "").strip().lower()
-    if provider == "openrouter" or provider not in PROVIDER_DEFAULT_MODELS:
+    if provider in {"openrouter", "openai-compatible"} or provider not in PROVIDER_DEFAULT_MODELS:
         return None
     model = str(model or "").strip()
     if not model:
@@ -649,7 +704,7 @@ def belongs_elsewhere(provider: str, model: str) -> str:
     if not model or not provider or serves(provider, model) is not False:
         return ""
     for other, rows in ((name, catalog(name)) for name in PROVIDER_DEFAULT_MODELS):
-        if other in (provider, "openrouter"):
+        if other in (provider, "openrouter", "openai-compatible"):
             # OpenRouter's price catalog is not an ownership roster.
             continue
         if any(model == native for native, _priced in rows):
@@ -1062,6 +1117,7 @@ class Grok(ProgrammaticClient):
 
 PROVIDER_DEFAULT_MODELS = {
     "openrouter": "openai/gpt-5.6-luna",
+    "openai-compatible": "",
     "claude-code": "claude-sonnet-5",
     "codex": "gpt-5.6-luna",
     "antigravity": "gemini-3.8-flash-high",
@@ -1099,6 +1155,9 @@ def client_for(cfg, *, on_retry: Callable[[str], None] | None = None) -> Complet
     provider = str(getattr(cfg, "llm_provider", DEFAULT_PROVIDER) or DEFAULT_PROVIDER).lower()
     if provider == "openrouter":
         return OpenRouter(cfg.api_key, on_retry=on_retry)
+    if provider == "openai-compatible":
+        return OpenAICompatible(cfg.openai_api_key, cfg.openai_base_url,
+                                on_retry=on_retry)
     backend = PROVIDER_COMMANDS.get(provider)
     if backend:
         return backend.client(backend.command(cfg), cwd=cfg.home,
@@ -1113,6 +1172,14 @@ def provider_status(cfg) -> tuple[bool, str]:
     provider = str(getattr(cfg, "llm_provider", DEFAULT_PROVIDER) or DEFAULT_PROVIDER).lower()
     if provider == "openrouter":
         return bool(cfg.api_key), "API key present" if cfg.api_key else "API key missing"
+    if provider == "openai-compatible":
+        try:
+            OpenAICompatible(cfg.openai_api_key, cfg.openai_base_url)
+        except LLMError as exc:
+            return False, str(exc)
+        if not all((cfg.propose_model, cfg.sweep_model, cfg.match_model)):
+            return False, "set propose, sweep, and match model IDs"
+        return True, "API key and endpoint configured"
     backend = PROVIDER_COMMANDS.get(provider)
     if not backend:
         return False, f"unknown provider: {provider}"

@@ -585,7 +585,8 @@ def model_ceiling(cfg: Config, group: list[Bundle]) -> int:
     # Per bundle, not per request: see the note on `Endpoint.think_tokens`. A group of
     # four tiny bundles is four judgements however little text it carries.
     floor = spec.think_tokens * max(1, len(group))
-    return min(32000, max(int(output_ceiling(group) * spec.ceiling_boost), floor))
+    return min(32000, max(int(output_ceiling(group) * spec.ceiling_boost), floor,
+                          cfg.propose_output_floor))
 
 
 QUESTION_REPAIR_SCHEMA = {

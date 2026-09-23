@@ -83,6 +83,7 @@ GROUPS: tuple[Group, ...] = (
 
 #: Short labels; the group note explains each provider.
 _PROVIDERS = (
+    ("openai-compatible", "OpenAI-compatible API"),
     ("codex", "Codex"),
     ("claude-code", "Claude Code"),
     ("antigravity", "Antigravity"),
@@ -96,6 +97,10 @@ SETTINGS: tuple[Setting, ...] = (
             "Every application model call goes through this. Changing it also changes "
             "what a model name has to look like.",
             "provider", kind="choice", choices=_PROVIDERS),
+    Setting("MEMCAL_OPENAI_BASE_URL", "openai_base_url", "OpenAI-compatible base URL",
+            "HTTPS endpoint ending at the API version, for example https://host/v1. "
+            "Local HTTP is allowed for development.",
+            "provider", kind="combo", placeholder="https://host/v1"),
     Setting("MEMCAL_PROPOSE_MODEL", "propose_model", "Propose model",
             "Reads the night's traffic and proposes what to write. This is where a "
             "pass spends most of its money.",
@@ -233,6 +238,10 @@ SETTINGS: tuple[Setting, ...] = (
             "How many conversations ride in one request. More means fewer, larger "
             "requests.",
             "dream", kind="int", minimum=1, maximum=64),
+    Setting("MEMCAL_PROPOSE_OUTPUT_FLOOR", "propose_output_floor", "Minimum propose output tokens",
+            "Reserve output tokens for models that spend part of the allowance thinking. "
+            "Zero uses the calculated ceiling.",
+            "dream", kind="int", minimum=0, maximum=32000, unit="tokens"),
     Setting("MEMCAL_PACK_TOKENS", "pack_tokens", "Tokens per request",
             "The size ceiling for one request, whichever comes first with the bundle "
             "count above.",
@@ -334,7 +343,7 @@ def default_text(setting: Setting, cfg: Config | None = None) -> str:
         from . import llm                                          # noqa: PLC0415
         native = llm.PROVIDER_DEFAULT_MODELS.get(
             str(getattr(cfg, "llm_provider", "") or "").lower())
-        if native:
+        if native is not None:
             return native
     value = _FIELD_DEFAULTS.get(setting.attr, "")
     if setting.kind == "bool":
@@ -471,7 +480,7 @@ def coerce(setting: Setting, raw, *, provider: str = "") -> tuple[str, object]:
         if provider and setting.attr in _PROVIDER_MODEL_ATTRS:
             from . import llm                                      # noqa: PLC0415
             native = llm.PROVIDER_DEFAULT_MODELS.get(provider.lower())
-            if native:
+            if native is not None:
                 return "", native
         return "", _FIELD_DEFAULTS.get(setting.attr)
     if setting.kind == "int":
@@ -624,7 +633,7 @@ def resolve_provider_models(cfg: Config) -> None:
     from . import llm                                              # noqa: PLC0415
     native = llm.PROVIDER_DEFAULT_MODELS.get(
         str(getattr(cfg, "llm_provider", "") or "").strip().lower())
-    if not native:
+    if native is None:
         return
     for setting in SETTINGS:
         if setting.attr not in _PROVIDER_MODEL_ATTRS:
@@ -650,6 +659,8 @@ def credentials(cfg: Config) -> list[dict]:
             wanted.setdefault(name, []).append(source.name)
     if str(getattr(cfg, "llm_provider", "")).lower() == "openrouter":
         wanted.setdefault("OPENROUTER_API_KEY", []).append("openrouter")
+    if str(getattr(cfg, "llm_provider", "")).lower() == "openai-compatible":
+        wanted.setdefault("OPENAI_COMPAT_API_KEY", []).append("openai-compatible")
     return [{"name": name, "used_by": users,
              "present": bool(cfg.secret(name, name.lower()))}
             for name, users in sorted(wanted.items())]
