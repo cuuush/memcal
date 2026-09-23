@@ -13,7 +13,7 @@ from unittest import mock
 from datetime import date
 from pathlib import Path
 
-from memcal import db, events, todos
+from memcal import brief, db, events, mcp_server, todos, wiki
 from memcal.sources import whatsapp
 from memcal.config import Config
 from memcal.dream import sweep
@@ -129,6 +129,38 @@ class TestBenchmarkStructure(unittest.TestCase):
         self.assertIn("50%", text)
         self.assertIn("x", text)
         self.assertIn("$0.3000", text)
+
+
+class TestSelfPageBriefPointer(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.cfg = Config(home=Path(self.tmp.name))
+        self.cfg.ensure_dirs()
+        self.conn = db.open_db(self.cfg.db_path)
+        self.addCleanup(self.conn.close)
+        wiki.set_slot(self.cfg.wiki_dir, "me", "neighborhood", "North End",
+                      source="test", conn=self.conn)
+        event, _ = events.upsert(self.conn, {"title": "Dinner",
+                                             "date": "2026-08-11"})
+        self.about = brief._about_you_line(self.conn, self.cfg)
+        self.ctx = expect.Ctx(self.conn, self.cfg)
+        self.ctx.brief = lambda: ("## People and facts\n" + self.about + "\n"
+                                  + brief.source_tag("event", event.id) + " Dinner")
+
+    def test_real_self_page_pointer_satisfies_both_openability_checks(self):
+        self.assertTrue(expect.every_row_has_a_handle(self.ctx)[0])
+        self.assertTrue(expect.brief_sources_open(self.ctx)[0])
+
+    def test_pointer_fails_if_open_tool_cannot_reach_the_page(self):
+        with mock.patch.object(mcp_server.Server, "call", return_value="No page for 'me'"):
+            self.assertFalse(expect.every_row_has_a_handle(self.ctx)[0])
+            self.assertFalse(expect.brief_sources_open(self.ctx)[0])
+
+    def test_pointer_fails_if_the_brief_invents_a_fact(self):
+        self.about += " · address: 99 Invented Street"
+        self.assertFalse(expect.every_row_has_a_handle(self.ctx)[0])
+        self.assertFalse(expect.brief_sources_open(self.ctx)[0])
 
 
 class TestTheAnswerKeyCouldNotSeeAnsweredQuestions(unittest.TestCase):
