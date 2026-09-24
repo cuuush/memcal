@@ -2158,9 +2158,8 @@ class TestHalfAnAnswerCouldStillDeleteRows(Base):
                     "questions": ["Which Casey?"],
                 }, model=kwargs.get("model", ""), finish_reason="length")
 
-        _result, actions = sweep_stage.sweep(CutOff(), self.conn, self.cfg, [])
-        self.assertEqual(len(actions), 1)
-        self.assertIn("nothing from it was applied", actions[0])
+        with self.assertRaisesRegex(llm.LLMError, "state was not fully reviewed"):
+            sweep_stage.sweep(CutOff(), self.conn, self.cfg, [])
         self.assertIsNotNone(events.get(self.conn, event.key), "the event survived")
         self.assertEqual("open", todos.get(self.conn, key).status)
         self.assertEqual([], [row["text"] for row in todos.open_questions(self.conn)])
