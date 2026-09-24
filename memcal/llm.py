@@ -550,6 +550,15 @@ class OpenAICompatible(OpenRouter):
             ],
             "max_tokens": max_tokens,
         }
+        if schema is not None:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": schema_name, "schema": schema},
+            }
+        elif json_object:
+            payload["response_format"] = {"type": "json_object"}
+        if reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
         tally = Tally()
         try:
             raw = self._post("/chat/completions", payload, tally=tally)

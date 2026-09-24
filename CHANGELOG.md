@@ -2,6 +2,10 @@
 
 ### Fixed
 
+- OpenAI-compatible dream calls now send the requested JSON schema. Reasoning
+  output budgets grow with evidence size, and a truncated sweep marks the pass
+  incomplete. Merge compares same-time proposals drawn from overlapping source
+  messages even when their titles differ, so it can arbitrate duplicate events.
 - The deterministic integration benchmark now opens the brief's `About you`
   pointer through `memcal_open me` and checks its displayed facts against the
   returned page. It no longer mistakes that valid wiki pointer for a missing

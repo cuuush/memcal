@@ -585,8 +585,15 @@ def model_ceiling(cfg: Config, group: list[Bundle]) -> int:
     # Per bundle, not per request: see the note on `Endpoint.think_tokens`. A group of
     # four tiny bundles is four judgements however little text it carries.
     floor = spec.think_tokens * max(1, len(group))
-    return min(32000, max(int(output_ceiling(group) * spec.ceiling_boost), floor,
-                          cfg.propose_output_floor))
+    ceiling = max(int(output_ceiling(group) * spec.ceiling_boost), floor,
+                  cfg.propose_output_floor)
+    if cfg.llm_provider == "openai-compatible":
+        # Generic endpoints have no registered reasoning profile. Reserve room for
+        # hidden reasoning as the evidence grows, and leave space for the JSON answer.
+        evidence_chars = sum(len(str(row["text"])) for bundle in group
+                             for row in bundle.items if "text" in row.keys())
+        ceiling = max(ceiling, 16000 + evidence_chars // 2)
+    return min(65536 if cfg.llm_provider == "openai-compatible" else 32000, ceiling)
 
 
 QUESTION_REPAIR_SCHEMA = {

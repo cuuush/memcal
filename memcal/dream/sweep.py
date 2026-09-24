@@ -10,7 +10,7 @@ import sqlite3
 
 from .. import db, events, todos, trace
 from ..config import Config
-from ..llm import CompletionClient
+from ..llm import CompletionClient, LLMError
 
 SWEEP_INSTRUCTIONS = """\
 You are reviewing the state of a personal memory system right after a batch of writes.
@@ -113,6 +113,8 @@ def sweep(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
     """Execute the sweep stage, returning (result_dict, actions_taken)."""
     snapshot = state_snapshot(conn, cfg, diff_log)
     ceiling = sweep_ceiling(snapshot, cfg.sweep_model)
+    if cfg.llm_provider == "openai-compatible":
+        ceiling = min(65536, max(ceiling, 16000 + len(snapshot) // 2))
     reply = client.complete(
         model=cfg.sweep_model,
         prefix=SWEEP_INSTRUCTIONS,
@@ -128,11 +130,8 @@ def sweep(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
     result = reply.data if isinstance(reply.data, dict) else {}
     actions: list[str] = []
     if reply.truncated:
-        # Record truncation warning when the response reaches the token ceiling.
-        actions.append(f"sweep reply cut off at the {ceiling}-token ceiling — "
-                       f"state was not fully reviewed, nothing from it was applied")
-        # A partial response cannot authorize destructive actions.
-        return {}, actions
+        raise LLMError(f"reply cut off at the {ceiling}-token ceiling; "
+                       "state was not fully reviewed")
 
     for row in result.get("drop_events") or []:
         key = (row or {}).get("key")

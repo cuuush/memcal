@@ -214,6 +214,10 @@ def same_event(a: Mention, b: Mention, cfg: Config | None = None,
     # the call refuses it.
     clock = str(a.row.get("time") or "")
     if apart == 0 and clock and clock == str(b.row.get("time") or ""):
+        if not a.existing and not b.existing:
+            left_ids = {item["id"] for item in a.bundle.items}
+            if left_ids.intersection(item["id"] for item in b.bundle.items):
+                return True
         if shared_people or same_place or (shared_title and _person_variant(a.row, b.row)):
             return True
 
@@ -585,6 +589,8 @@ MERGE_ANSWER_TOKENS = 600
 def _ceiling(cfg: Config, base: int = MERGE_TOKENS) -> int:
     """Allow for the endpoint's configured reasoning budget."""
     spec = llm.endpoint(cfg.match_model)
+    if cfg.llm_provider == "openai-compatible":
+        return 16384
     return min(8000, max(int(base * spec.ceiling_boost),
                          spec.think_tokens + MERGE_ANSWER_TOKENS))
 

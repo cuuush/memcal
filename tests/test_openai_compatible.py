@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from memcal import config, llm
-from memcal.dream import bundle as bundle_stage, propose as propose_stage
+from memcal.dream import bundle as bundle_stage, merge as merge_stage, propose as propose_stage
 
 
 class TestOpenAICompatibleEndpoint(unittest.TestCase):
@@ -32,8 +32,12 @@ class TestOpenAICompatibleEndpoint(unittest.TestCase):
         self.assertEqual(request.get_header("Authorization"), "Bearer test-key")
         self.assertEqual(payload["messages"][0], {"role": "system", "content": "system text"})
         self.assertEqual(payload["messages"][-1], {"role": "assistant", "content": "prior"})
-        self.assertFalse({"provider", "usage", "service_tier", "response_format",
-                          "reasoning"} & payload.keys())
+        self.assertFalse({"provider", "usage", "service_tier", "reasoning"}
+                         & payload.keys())
+        self.assertEqual(payload["response_format"], {
+            "type": "json_schema",
+            "json_schema": {"name": "diff", "schema": {"type": "object"}},
+        })
         self.assertEqual(reply.data, {"reviewed": []})
         self.assertEqual((reply.usage.prompt_tokens, reply.usage.completion_tokens),
                          (12, 4))
@@ -66,6 +70,18 @@ class TestOpenAICompatibleEndpoint(unittest.TestCase):
         self.assertLess(propose_stage.model_ceiling(cfg, group), 8192)
         cfg.propose_output_floor = 8192
         self.assertEqual(propose_stage.model_ceiling(cfg, group), 8192)
+        cfg.llm_provider = "openai-compatible"
+        self.assertGreaterEqual(propose_stage.model_ceiling(cfg, group), 16000)
+
+    def test_overlapping_bundles_nominate_differently_named_same_time_events(self):
+        person = bundle_stage.Bundle(entity="person:Devon", items=[{"id": 1}, {"id": 2}])
+        thread = bundle_stage.Bundle(entity="thread:text:pizza", items=[{"id": 2}])
+        row = {"date": "2026-09-11", "time": "19:00", "status": "confirmed"}
+        pizza = merge_stage.Mention({**row, "title": "Pizza"}, person, {})
+        meetup = merge_stage.Mention({**row, "title": "Meetup"}, thread, {})
+        self.assertTrue(merge_stage.same_event(pizza, meetup))
+        meetup.row["time"] = "20:00"
+        self.assertFalse(merge_stage.same_event(pizza, meetup))
 
 
 if __name__ == "__main__":
