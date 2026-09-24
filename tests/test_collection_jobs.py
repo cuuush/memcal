@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from memcal import archive, db, web_jobs
+from memcal import archive, db, identity, web_jobs
 from memcal.config import Config
 from memcal.sources import base, groupme, ical, imessage, proton
 from memcal.sources.spec import SourceError
@@ -774,6 +774,47 @@ class TestASourceThatFilledItsPageSaysSo(unittest.TestCase):
         report = imessage.ingest(self.conn, limit=5, db_path=chat_db)
         self.assertEqual(report.read, 5)
         self.assertTrue(report.more, "catch_up cannot loop on a source that never says so")
+
+    def test_chatdb_routes_direct_replies_together_and_two_guests_as_group(self):
+        chat_db = Path(self.tmp.name) / "two-chats.db"
+        src = sqlite3.connect(chat_db)
+        src.executescript(
+            "CREATE TABLE message (ROWID INTEGER PRIMARY KEY, guid TEXT, text TEXT,"
+            " attributedBody BLOB, date INTEGER, is_from_me INTEGER, handle_id INTEGER);"
+            "CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT);"
+            "CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, chat_identifier TEXT,"
+            " display_name TEXT);"
+            "CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);"
+            "CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER);")
+        src.executemany("INSERT INTO handle VALUES(?,?)", [(1, "devon"), (2, "maya")])
+        src.executemany("INSERT INTO chat VALUES(?,?,NULL)",
+                        [(1, "pizza-plan"), (2, "ducks-side")])
+        src.executemany("INSERT INTO chat_handle_join VALUES(?,?)",
+                        [(1, 1), (2, 1), (2, 2)])
+        stamp = imessage.apple_ns((db.now_dt() - timedelta(days=1)).isoformat())
+        src.executemany("INSERT INTO message VALUES(?,?,?,NULL,?,?,?)", [
+            (1, "pizza-1", "pizza Friday?", stamp, 1, None),
+            (2, "pizza-2", "yes, Friday at 7", stamp + 1, 0, 1),
+            (3, "ducks-1", "ducks Saturday?", stamp + 2, 0, 2),
+            (4, "ducks-2", "9 works for me", stamp + 3, 0, 1),
+        ])
+        src.executemany("INSERT INTO chat_message_join VALUES(?,?)",
+                        [(1, 1), (1, 2), (2, 3), (2, 4)])
+        src.commit()
+        src.close()
+        identity.link(self.conn, "devon", "Devon", source="contacts")
+        identity.link(self.conn, "maya", "Maya", source="contacts")
+
+        report = imessage.ingest(self.conn, db_path=chat_db)
+        self.assertEqual((report.archived, report.passed), (4, 4))
+        rows = self.conn.execute(
+            "SELECT a.external_id, s.entity FROM spool s JOIN archive a"
+            " ON a.id = s.archive_id ORDER BY a.id").fetchall()
+        self.assertEqual([(r["external_id"], r["entity"]) for r in rows], [
+            ("pizza-1", "person:Devon"), ("pizza-2", "person:Devon"),
+            ("ducks-1", "thread:imessage:ducks-side"),
+            ("ducks-2", "thread:imessage:ducks-side"),
+        ])
 
     def test_a_source_that_ran_dry_does_not_ask_for_another_round(self):
         """The counterweight. "Always more" is the same bug pointed the other way: every

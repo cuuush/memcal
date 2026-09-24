@@ -2,6 +2,10 @@
 
 ### Fixed
 
+- Native iMessage ingestion now recognizes a chat with two other participants
+  as a group and routes sent messages in a direct chat to that chat's sole
+  counterpart even when `handle_id` is absent. A collection ID can be passed
+  through the native reader for source provenance.
 - OpenAI-compatible dream calls now send the requested JSON schema. Reasoning
   output budgets grow with evidence size, and a truncated sweep marks the pass
   incomplete. Merge compares same-time proposals drawn from overlapping source
