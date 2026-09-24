@@ -34,7 +34,10 @@ SELECT m.ROWID              AS rowid,
        h.id                 AS handle,
        c.chat_identifier    AS chat,
        c.display_name       AS chat_name,
-       (SELECT count(*) FROM chat_handle_join chj WHERE chj.chat_id = c.ROWID) AS members
+       (SELECT count(*) FROM chat_handle_join chj WHERE chj.chat_id = c.ROWID) AS members,
+       (SELECT h2.id FROM chat_handle_join chj
+          JOIN handle h2 ON h2.ROWID = chj.handle_id
+         WHERE chj.chat_id = c.ROWID LIMIT 1) AS chat_handle
 FROM message m
 LEFT JOIN handle h ON h.ROWID = m.handle_id
 LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
@@ -161,7 +164,8 @@ def repair_decoded_text(conn: sqlite3.Connection, src: sqlite3.Connection) -> in
 
 
 def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None = None,
-           since_rowid: int | None = None, backfill: bool = False) -> IngestReport:
+           since_rowid: int | None = None, backfill: bool = False,
+           collection_id: int | None = None) -> IngestReport:
     """Read new lines out of chat.db.
 
     Incrementally by default: the read is floored at the newest line the stream already
@@ -207,13 +211,17 @@ def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None 
             continue
 
         handle = identity.normalize(row["handle"] or "")
-        person = identity.resolve(conn, handle) if handle else None
+        members = int(row["members"] or 0)
+        # Outgoing chat.db rows can omit handle_id. In a direct chat the one
+        # member still identifies the counterpart for the dream bundle.
+        counterpart = identity.normalize(row["chat_handle"] or "") if members == 1 else ""
+        person = identity.resolve(conn, handle or counterpart) if handle or counterpart else None
         from_me = bool(row["from_me"])
         if handle and not person and not from_me:
             identity.note_unresolved(conn, handle, "imessage", None, text)
             report.unknown_handles.add(handle)
 
-        is_group = (row["members"] or 0) > 2
+        is_group = members > 1
         thread = row["chat_name"] or row["chat"] or handle or "unknown"
         threads.record(conn, "imessage", thread, label=row["chat_name"], is_group=is_group)
         if handle and not from_me:
@@ -235,6 +243,7 @@ def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None 
             meta={"group": is_group, "rowid": int(row["rowid"])},
             gated=bool(verdict),
             gate_reason=verdict.reason,
+            collection_id=collection_id,
         )
         if archive_id is None:
             continue
