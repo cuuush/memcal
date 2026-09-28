@@ -2,12 +2,12 @@
 
 iMessage can be read two ways. Pick one with `MEMCAL_IMESSAGE_BACKEND`:
 
-- **`bluebubbles`** (default): read through your [BlueBubbles](https://bluebubbles.app)
+- **`bluebubbles`**: read through your [BlueBubbles](https://bluebubbles.app)
   server — groups, participants, attachments, and clean message text, and the server
   can run on another Mac. Set the password with `bluebubbles=` and, for a non-default
   address, the URL with `bluebubblesurl=` in the store's `.env`.
-- **`chatdb`**: read `~/Library/Messages/chat.db` on this Mac directly. No server, no
-  password; needs Full Disk Access for whatever runs the pass. `attributedBody` message
+- **`chatdb`** (default): read `~/Library/Messages/chat.db` on this Mac directly.
+  No server or password; needs Full Disk Access for whatever runs the pass. `attributedBody` message
   bodies are decoded with the [`pytypedstream`](https://pypi.org/project/pytypedstream/)
   library.
 
@@ -21,7 +21,7 @@ attached to people. See [Identity](../architecture/identity.md).
 
 | Setting | Values | Default | What it does |
 | --- | --- | --- | --- |
-| `MEMCAL_IMESSAGE_BACKEND` | `bluebubbles`, `chatdb` | `bluebubbles` | Which transport to read iMessage through. `chatdb` never contacts BlueBubbles. |
+| `MEMCAL_IMESSAGE_BACKEND` | `chatdb`, `bluebubbles` | `chatdb` | Which transport to read iMessage through. `chatdb` never contacts BlueBubbles. |
 | `MEMCAL_IMESSAGE_FALLBACK` | on/off | on | With the `bluebubbles` backend, read the local `chat.db` when the server is unreachable. Off makes an unreachable server a hard failure instead. |
 | `MEMCAL_BLUEBUBBLES_LOCATION` | `auto`, `local`, `remote` | `auto` | Where the server runs, which decides whether opening the app could help. `auto` infers it from the URL (localhost is local); `local` forces "this Mac"; `remote` forces "another machine". |
 | `MEMCAL_BLUEBUBBLES_AUTOSTART` | on/off | on | Open BlueBubbles when a local server is down (see below). |
@@ -57,7 +57,7 @@ touching a machine that only hosts the server remotely, set
 
 ## Recipes
 
-Local server, open it when it is down (the default):
+Local server, open it when it is down:
 
 ```
 MEMCAL_IMESSAGE_BACKEND=bluebubbles

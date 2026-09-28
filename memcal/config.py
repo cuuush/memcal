@@ -112,7 +112,7 @@ class Config:
     # Which iMessage transport to read through:
     #   bluebubbles  the BlueBubbles server (richer: groups, participants, clean text)
     #   chatdb       read ~/Library/Messages/chat.db directly, never touch BlueBubbles
-    imessage_backend: str = "bluebubbles"
+    imessage_backend: str = "chatdb"
 
     # When the backend is BlueBubbles and its server is unavailable, fall back to reading
     # the local chat.db. Off means an unavailable BlueBubbles server is a hard failure.
