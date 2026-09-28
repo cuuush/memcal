@@ -173,8 +173,8 @@ SETTINGS: tuple[Setting, ...] = (
             "touches BlueBubbles. Set the server address with `bluebubblesurl` and its "
             "password with `bluebubbles` in the store's .env.",
             "collect", kind="choice",
-            choices=(("bluebubbles", "bluebubbles · via the server"),
-                     ("chatdb", "chatdb · read the local database"))),
+            choices=(("chatdb", "chatdb · read the local database"),
+                     ("bluebubbles", "bluebubbles · via the server"))),
     Setting("MEMCAL_IMESSAGE_FALLBACK", "imessage_fallback",
             "Fall back to the local database",
             "When the transport is BlueBubbles and its server cannot be reached, read "

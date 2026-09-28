@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- The local iMessage reader recognizes a chat with two other participants as a group.
 - The deterministic integration benchmark now opens the brief's `About you`
   pointer through `memcal_open me` and checks its displayed facts against the
   returned page. It no longer mistakes that valid wiki pointer for a missing
@@ -9,6 +10,10 @@
 
 ### Changed
 
+- iMessage reads the local Messages database by default. Explicit BlueBubbles
+  settings still select the server.
+- Rerunning `memcal setup` shows saved provider and model choices, keeps them
+  when Enter is pressed, and confirms a change summary before saving.
 - `memcal_open` returns the whole thread behind pending new activity inline
   with the stored row — full text, `(new)` marking what is still unreviewed —
   so a brief freshness hint needs one call instead of `memcal_activity` followed

@@ -190,7 +190,7 @@ def cmd_init(args) -> int:
 _write_env = settings.write_env
 
 
-def _provider_choice() -> str:
+def _provider_choice(current: str = "codex") -> str:
     choices = (("1", "codex", "Codex programmatic mode"),
                ("2", "claude-code", "Claude Code programmatic mode"),
                ("3", "antigravity", "Antigravity programmatic mode"),
@@ -200,12 +200,13 @@ def _provider_choice() -> str:
     print("LLM provider:")
     for number, _value, label in choices:
         print(f"  {number}. {label}")
-    try:
-        answer = input("Choose [1]: ").strip() or "1"
-    except EOFError as exc:
-        raise SystemExit("no interactive input; pass --provider") from exc
     by_input = {number: value for number, value, _label in choices}
     by_input.update({value: value for _number, value, _label in choices})
+    default = next((number for number, value, _ in choices if value == current), "1")
+    try:
+        answer = input(f"Choose [{default}]: ").strip() or default
+    except EOFError as exc:
+        raise SystemExit("no interactive input; pass --provider") from exc
     if answer not in by_input:
         numbers = ", ".join(number for number, _value, _label in choices)
         names = ", ".join(value for _number, value, _label in choices)
@@ -218,24 +219,27 @@ def cmd_setup(args) -> int:
     cfg = config.load(getattr(args, "home", None))
     cfg.ensure_dirs()
     guided = not args.provider
-    provider = args.provider or _provider_choice()
+    provider = args.provider or _provider_choice(cfg.llm_provider)
     default_model = llm.PROVIDER_DEFAULT_MODELS[provider]
     model = args.model
     if guided and not model:
+        shown_model = cfg.propose_model if provider == cfg.llm_provider else default_model
         try:
-            model = input(f"Model [{default_model}]: ").strip() or default_model
+            model = input(f"Model [{shown_model or 'required'}]: ").strip() or shown_model
         except EOFError:
-            model = default_model
+            model = shown_model
     model = model or default_model
     if not model:
         print("error: this endpoint needs --model", file=sys.stderr)
         return 1
 
+    keep_stage_models = (guided and provider == cfg.llm_provider
+                         and model == cfg.propose_model)
     values = {
         "MEMCAL_LLM_PROVIDER": provider,
         "MEMCAL_PROPOSE_MODEL": model,
-        "MEMCAL_SWEEP_MODEL": model,
-        "MEMCAL_MATCH_MODEL": model,
+        "MEMCAL_SWEEP_MODEL": cfg.sweep_model if keep_stage_models else model,
+        "MEMCAL_MATCH_MODEL": cfg.match_model if keep_stage_models else model,
     }
     backend = llm.PROVIDER_COMMANDS.get(provider)
     if backend:
@@ -266,13 +270,48 @@ def cmd_setup(args) -> int:
         values["MEMCAL_OPENAI_BASE_URL"] = base_url
         if args.api_key or not cfg.openai_api_key:
             values["OPENAI_COMPAT_API_KEY"] = key
+    if guided:
+        before = {
+            "MEMCAL_LLM_PROVIDER": cfg.llm_provider,
+            "MEMCAL_PROPOSE_MODEL": cfg.propose_model,
+            "MEMCAL_SWEEP_MODEL": cfg.sweep_model,
+            "MEMCAL_MATCH_MODEL": cfg.match_model,
+            "MEMCAL_OPENAI_BASE_URL": cfg.openai_base_url,
+        }
+        if backend:
+            before[backend.env] = getattr(cfg, backend.env.removeprefix("MEMCAL_").lower(), "")
+        labels = {
+            "MEMCAL_LLM_PROVIDER": "Provider", "MEMCAL_PROPOSE_MODEL": "Propose model",
+            "MEMCAL_SWEEP_MODEL": "Sweep model", "MEMCAL_MATCH_MODEL": "Match model",
+            "MEMCAL_OPENAI_BASE_URL": "API base URL",
+        }
+        if backend:
+            labels[backend.env] = "Runtime command"
+        print("\nChanges:")
+        changed = [(key, value) for key, value in values.items()
+                   if key in before and value != before[key]]
+        for key, value in changed:
+            print(f"  {labels[key]}: {before[key] or '(unset)'} → {value}")
+        if any(key in values for key in ("OPENROUTER_API_KEY", "OPENAI_COMPAT_API_KEY")):
+            print("  API key: updated")
+        if not changed and not any(key in values for key in (
+                "OPENROUTER_API_KEY", "OPENAI_COMPAT_API_KEY")):
+            print("  None")
+        try:
+            answer = input("Save? [Y/n]: ").strip().lower()
+        except EOFError:
+            answer = "n"
+        if answer not in ("", "y", "yes"):
+            print("Setup canceled.")
+            return 0
     _write_env(cfg.home / ".env", values)
 
     ready = config.load(cfg.home)
     ok, detail = llm.provider_status(ready)
     print(f"saved     {cfg.home / '.env'}")
     print(f"provider  {provider}")
-    print(f"model     {model}")
+    print(f"models    propose={ready.propose_model} sweep={ready.sweep_model} "
+          f"match={ready.match_model}")
     print(f"runtime   {detail}")
     if not ok:
         print("setup was saved, but the selected runtime is not available", file=sys.stderr)

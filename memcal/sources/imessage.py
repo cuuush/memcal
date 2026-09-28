@@ -213,7 +213,7 @@ def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None 
             identity.note_unresolved(conn, handle, "imessage", None, text)
             report.unknown_handles.add(handle)
 
-        is_group = (row["members"] or 0) > 2
+        is_group = (row["members"] or 0) > 1
         thread = row["chat_name"] or row["chat"] or handle or "unknown"
         threads.record(conn, "imessage", thread, label=row["chat_name"], is_group=is_group)
         if handle and not from_me:
@@ -265,7 +265,7 @@ def available() -> bool:
 
 
 def _backend(cfg) -> str:
-    return str(getattr(cfg, "imessage_backend", "bluebubbles") or "bluebubbles").lower()
+    return str(getattr(cfg, "imessage_backend", "chatdb") or "chatdb").lower()
 
 
 @register

@@ -62,6 +62,15 @@ class TestProviderNativeDefaults(unittest.TestCase):
         self.assertEqual(cfg.match_model, "my-match-model")
 
 
+class TestLocalIMessageDefault(unittest.TestCase):
+    def test_new_store_uses_chatdb_but_explicit_bluebubbles_still_wins(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            self.assertEqual(config.load(home).imessage_backend, "chatdb")
+            (home / ".env").write_text("MEMCAL_IMESSAGE_BACKEND=bluebubbles\n")
+            self.assertEqual(config.load(home).imessage_backend, "bluebubbles")
+
+
 class TestClaudeCodeProgrammaticContract(unittest.TestCase):
     def test_print_mode_returns_a_normal_completion_reply(self):
         raw = {
@@ -424,7 +433,7 @@ class TestInteractiveProviderSetup(unittest.TestCase):
             env_path.write_text("# personal\nSOME_SOURCE_TOKEN=keep-me\n")
             args = argparse.Namespace(
                 home=str(home), provider=None, model=None, api_key=None)
-            with mock.patch("builtins.input", side_effect=["2", ""]), mock.patch(
+            with mock.patch("builtins.input", side_effect=["2", "", ""]), mock.patch(
                     "memcal.llm.provider_status", return_value=(True, "/bin/claude")):
                 result = cli.cmd_setup(args)
             saved = env_path.read_text()
@@ -435,6 +444,60 @@ class TestInteractiveProviderSetup(unittest.TestCase):
         self.assertIn("MEMCAL_LLM_PROVIDER=claude-code", saved)
         self.assertEqual(saved.count("claude-sonnet-5"), 3)
         self.assertEqual(mode, 0o600)
+
+    def test_rerun_enter_keeps_provider_and_distinct_stage_models(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            path = home / ".env"
+            original = ("MEMCAL_LLM_PROVIDER=claude-code\n"
+                        "MEMCAL_PROPOSE_MODEL=claude-opus-5\n"
+                        "MEMCAL_SWEEP_MODEL=claude-sonnet-5\n"
+                        "MEMCAL_MATCH_MODEL=claude-haiku-5\n")
+            path.write_text(original)
+            args = argparse.Namespace(home=str(home), provider=None, model=None,
+                                      api_key=None, base_url=None)
+            with mock.patch("builtins.input", side_effect=["", "", ""]), mock.patch(
+                    "memcal.llm.provider_status", return_value=(True, "ready")):
+                result = cli.cmd_setup(args)
+            self.assertEqual(result, 0)
+            saved = config.load(home)
+            self.assertEqual(saved.llm_provider, "claude-code")
+            self.assertEqual(saved.propose_model, "claude-opus-5")
+            self.assertEqual(saved.sweep_model, "claude-sonnet-5")
+            self.assertEqual(saved.match_model, "claude-haiku-5")
+
+    def test_switch_provider_uses_its_default_model_after_confirmation(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            path = home / ".env"
+            path.write_text("MEMCAL_LLM_PROVIDER=claude-code\n"
+                            "MEMCAL_PROPOSE_MODEL=claude-opus-5\n")
+            args = argparse.Namespace(home=str(home), provider=None, model=None,
+                                      api_key=None, base_url=None)
+            with mock.patch("builtins.input", side_effect=["1", "", ""]), mock.patch(
+                    "memcal.llm.provider_status", return_value=(True, "ready")):
+                result = cli.cmd_setup(args)
+            saved = config.load(home)
+            self.assertEqual(result, 0)
+            self.assertEqual(saved.llm_provider, "codex")
+            self.assertEqual(saved.propose_model, llm.PROVIDER_DEFAULT_MODELS["codex"])
+            self.assertEqual(saved.sweep_model, saved.propose_model)
+            self.assertEqual(saved.match_model, saved.propose_model)
+
+    def test_declined_summary_does_not_write(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            path = home / ".env"
+            original = "MEMCAL_LLM_PROVIDER=claude-code\n"
+            path.write_text(original)
+            args = argparse.Namespace(home=str(home), provider=None, model=None,
+                                      api_key=None, base_url=None)
+            with mock.patch("builtins.input", side_effect=["1", "", "n"]), mock.patch(
+                    "memcal.llm.provider_status") as status:
+                result = cli.cmd_setup(args)
+            self.assertEqual(result, 0)
+            self.assertEqual(path.read_text(), original)
+            status.assert_not_called()
 
 
 class TestACliBackendIsGivenTheSameDeadlineMemcalIsWaitingOut(unittest.TestCase):
