@@ -64,7 +64,7 @@ the output schema is passed inline as the `--json-schema` literal.
 | `MEMCAL_DISABLED_SOURCES` | empty = all on | Comma-separated sources to skip in `ingest all`, due checks, Collect, and the nightly pull; explicit `memcal ingest <name>` still runs |
 | `MEMCAL_EMAIL_BACKFILL_DAYS` | `0` = horizon | First mail reach, then watermark |
 | `MEMCAL_PLATFORM_MUTE` | `show` | `show`, `ask`, or `mute` muted-chat evidence policy |
-| `MEMCAL_IMESSAGE_BACKEND` | `bluebubbles` | `bluebubbles` (server) or `chatdb` (local database). See [iMessage](../sources/imessage.md) |
+| `MEMCAL_IMESSAGE_BACKEND` | `chatdb` | `bluebubbles` (server) or `chatdb` (local database). See [iMessage](../sources/imessage.md) |
 | `MEMCAL_IMESSAGE_FALLBACK` | on | With the BlueBubbles backend, read local `chat.db` when the server is unreachable; off = hard failure |
 | `MEMCAL_BLUEBUBBLES_LOCATION` | `auto` | `auto` (infer from URL), `local`, or `remote` — decides whether the app may be opened |
 | `MEMCAL_BLUEBUBBLES_AUTOSTART` | on | Open a down **local** BlueBubbles server (hidden) during the nightly pass |

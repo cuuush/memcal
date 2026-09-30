@@ -125,7 +125,7 @@ def ensure_server(cfg: Config, *, opener=None, sleep=None) -> list[str]:
     this Mac, the app is installed, and it is not already answering. Returns notes.
     """
     notes: list[str] = []
-    if str(getattr(cfg, "imessage_backend", "bluebubbles")).lower() != "bluebubbles":
+    if str(getattr(cfg, "imessage_backend", "chatdb")).lower() != "bluebubbles":
         return notes          # reading chat.db directly; nothing to wake
     if not getattr(cfg, "bluebubbles_autostart", True):
         return notes
@@ -313,4 +313,3 @@ class BlueBubblesSource(Source):
 def _absorb(report, other) -> None:
     """Merge result report into the caller report."""
     report.absorb(other)
-

@@ -824,6 +824,16 @@ class TestASourceThatFilledItsPageSaysSo(unittest.TestCase):
         self.assertEqual(report.read, 3)
         self.assertFalse(report.more)
 
+    def test_two_other_handles_make_a_group_conversation(self):
+        chat_db = self._chat_db(1)
+        with sqlite3.connect(chat_db) as src:
+            src.execute("INSERT INTO handle VALUES(2, '+19175550002')")
+            src.execute("INSERT INTO chat_handle_join VALUES(1, 2)")
+        imessage.ingest(self.conn, limit=5, db_path=chat_db)
+        row = self.conn.execute(
+            "SELECT meta FROM archive WHERE channel = 'imessage'").fetchone()
+        self.assertIn('"group": true', row[0])
+
     def test_every_source_report_can_say_it_is_behind(self):
         """The general form, so the next connector is covered too. Three fields decide
         three different remedies — read again, look at the gate, look at the horizon —

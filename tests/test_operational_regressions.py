@@ -3762,6 +3762,7 @@ class TestDreamOpensBlueBubblesWhenItCan(Base):
     def setUp(self):
         super().setUp()
         self.cfg.env = {"BLUEBUBBLES_PASSWORD": "pw"}
+        self.cfg.imessage_backend = "bluebubbles"
 
     def _client(self, up_after: int):
         """A client whose ping is refused for the first `up_after` calls, then answers."""
@@ -3893,6 +3894,7 @@ class TestIMessageBackendSelection(Base):
     def setUp(self):
         super().setUp()
         self.cfg.env = {"BLUEBUBBLES_PASSWORD": "pw"}
+        self.cfg.imessage_backend = "bluebubbles"
         self.src = imessage.IMessageSource()
 
     def _report(self):
