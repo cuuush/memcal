@@ -65,7 +65,7 @@ class TestClustering(unittest.TestCase):
                     title="Beer garden at Harborview Hall", location="Harbor Point",
                     participants=["Jamie", "Quinn Brooks"]),
             mention("person:Avery Morgan", date="2026-08-02",
-                    title="Beer garden in Midtown with Quinn and Jamie",
+                    title="Beer garden with Quinn and Jamie",
                     participants=["Avery Morgan", "Quinn Brooks"]),
         ]
         groups = merge_stage.cluster([
@@ -265,11 +265,11 @@ class TestResolving(unittest.TestCase):
     def test_todos_and_wiki_are_never_touched(self):
         bundle = Bundle(entity="person:A")
         diff = {"events": [{"date": "2026-08-01", "title": "Beer garden", "subject": "me"}],
-                "todos": [{"text": "ask julian"}], "wiki": [{"page": "robbie", "slot": "hosts"}]}
+                "todos": [{"text": "ask avery"}], "wiki": [{"page": "robbie", "slot": "hosts"}]}
         other = mention("person:B", date="2026-08-01", title="Beer garden")
         out, _log = merge_stage.merge_all(
             FakeClient(), Config(home=Path("/tmp")), [(bundle, diff, "g"), other])
-        self.assertEqual(diff["todos"], [{"text": "ask julian"}])
+        self.assertEqual(diff["todos"], [{"text": "ask avery"}])
         self.assertEqual(diff["wiki"], [{"page": "robbie", "slot": "hosts"}])
         self.assertEqual(len(rows(out)), 1)
 
@@ -322,7 +322,7 @@ class TestOneFriendGroupIsNotOneEvent(unittest.TestCase):
     def test_wording_still_clusters_across_the_wider_window(self):
         # Narrowing the guest-list rule must not narrow the title rule with it: two
         # mentions that share real words are still one event four days apart.
-        a = mention("person:Quinn", date="2026-08-01", title="Beer garden in Midtown",
+        a = mention("person:Quinn", date="2026-08-01", title="Beer garden",
                     participants=["Quinn Brooks"])
         b = mention("thread:imessage:g", date="2026-08-04",
                     title="Beer garden at Harborview Hall", participants=["Jamie"])

@@ -160,7 +160,7 @@ def handle_of(jid: str | None) -> str | None:
     A `@lid` gets `whatsapp:lid:<id>`, which is an opaque id that says so. That is
     worth more than it sounds: it cannot be mistaken for a phone number by anything
     downstream, `identity.normalize` leaves it alone the way it leaves `groupme:123`
-    alone, and the 91 people behind them show up in the name-this-person queue as
+    alone, and the people behind them show up in the name-this-person queue as
     unresolved instead of as wrong.
     """
     if not jid:
