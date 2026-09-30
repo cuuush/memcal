@@ -586,6 +586,28 @@ CREATE TABLE IF NOT EXISTS reviewed_lines (
     PRIMARY KEY(kind, ref, archive_id)
 );
 
+-- Where one fact's review of one source starts: the newest observation that
+-- already existed when the fact first cited that source. Pending activity is
+-- arrivals *after* this line — older history predates the fact, was never
+-- bundled for it (processed spool never re-bundles), and must not read as
+-- "message(s) since this plan was reviewed". Rows already queued for the next
+-- pass (unprocessed spool) are excluded from the baseline so they still flag
+-- until dream actually reads them. Holes above the baseline stay holes:
+-- `reviewed_lines` keeps its exact meaning and nothing here marks anything
+-- considered.
+CREATE TABLE IF NOT EXISTS review_baselines (
+    kind         TEXT NOT NULL,        -- event | todo | question | wiki | …
+    ref          TEXT NOT NULL,        -- that row's stable key
+    channel      TEXT NOT NULL,        -- the linked source
+    thread       TEXT NOT NULL DEFAULT '',  -- the linked conversation (families use '')
+    family       TEXT NOT NULL DEFAULT '',  -- item identity on streams without
+                                            -- conversations (families use thread '')
+    baseline_id  INTEGER NOT NULL DEFAULT 0,  -- max archive id already present
+    created_at   TEXT NOT NULL,
+    PRIMARY KEY(kind, ref, channel, thread, family)
+);
+CREATE INDEX IF NOT EXISTS review_baselines_ref_idx ON review_baselines(kind, ref);
+
 -- -------------------------------------------------------------- slot history --
 -- Prior wiki slot values, mirroring `event_history`. Kept in SQLite so user-edited
 -- pages stay clean.

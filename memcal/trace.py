@@ -107,6 +107,15 @@ def stamp(conn: sqlite3.Connection, *, kind: str, ref: str, verb: str | None = N
             activity.note_review(conn, kind, ref, considered,
                                  by_run=run_id, by_stage=stage or "",
                                  commit=False)
+        # First cite of a scope opens its review baseline: history already
+        # present predates the fact and is never "since reviewed". Auxiliary
+        # metadata — it must never break the write it accompanies.
+        try:
+            from . import activity as activity_mod  # noqa: PLC0415
+            activity_mod.ensure_baselines(conn, kind, ref, archive_ids,
+                                          commit=False)
+        except Exception:
+            pass
     except sqlite3.Error:
         if strict:
             raise
