@@ -257,6 +257,20 @@ class TestBaselineLifecycleFollowsEvidence(_Base):
         self.assertIn(("t", "chat", "room b"), base)
         self.assertEqual(activity.baselines(self.conn, "event", drop.key), {})
 
+    def test_merge_preserves_earlier_baseline_for_shared_scope(self):
+        from memcal import events
+        keep, _ = live.add_event(self.conn, self.cfg, title="Poker night",
+                                 when="2026-09-12", origin=live.Origin.of("test"))
+        drop, _ = live.add_event(self.conn, self.cfg, title="Poker night",
+                                 when="2026-09-13", origin=live.Origin.of("test"))
+        for event, baseline in ((keep, 20), (drop, 10)):
+            self.conn.execute(
+                "INSERT INTO review_baselines VALUES(?,?,?,?,?,?,?)",
+                ("event", event.key, "chat", "room", "", baseline, db.now()))
+        self.assertIsNotNone(events.merge(self.conn, keep.key, drop.key))
+        self.assertEqual(activity.baselines(self.conn, "event", keep.key)
+                         [("t", "chat", "room")], 10)
+
     def test_delete_drops_the_baselines(self):
         m1 = self.collect("chat", "m1", "poker saturday?", "room a")
         self.process_spool()

@@ -2,6 +2,8 @@
 
 ### Fixed
 
+- Merging events with a shared conversation preserves the earliest review baseline.
+
 - Native iMessage ingestion now recognizes a chat with two other participants
   as a group and routes sent messages in a direct chat to that chat's sole
   counterpart even when `handle_id` is absent. A collection ID can be passed
