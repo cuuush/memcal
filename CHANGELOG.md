@@ -96,8 +96,11 @@
   above the baseline (omitted pages, arrivals during a pass) stay pending, and
   `memcal_open`'s `(new)` markers agree with the counts.
 
-### Fixed
-
+- Resuming a failed dream no longer re-reads every packed request when one
+  bundle changed: packing sorts by size, so a single new line reordered and
+  regrouped all requests and whole-request byte-matching replayed nothing.
+  Resume now absorbs each unchanged bundle out of its saved request on its own
+  text, and only the bundles that actually changed propose fresh.
 - The web UI loads its data faster. The Dream preview built every bundle's
   model text five times over (packing, card text, card token count, request,
   cost estimate); it builds each once per preview now. Reopening the Chats or
