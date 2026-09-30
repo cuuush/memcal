@@ -397,6 +397,10 @@ def _activity_text(conn: sqlite3.Connection, kind: str, ref: str,
     except Exception:
         weak = []
     covered = activity_mod.reviewed_ids(conn, kind, ref)
+    try:
+        base = activity_mod.baselines(conn, kind, ref)
+    except Exception:
+        base = {}
     seen: set[int] = set()
     lines = ["", f"new activity since last review ({page['total']} message(s)"
              + (f", {page['omitted']} omitted" if page.get("omitted") else "")
@@ -431,7 +435,9 @@ def _activity_text(conn: sqlite3.Connection, kind: str, ref: str,
                          f"({len(tail)} message(s)):")
 
         for item in tail:
-            mark = " (new)" if item["id"] not in covered else ""
+            baseline = base.get(("t", channel, thread), 0)
+            mark = " (new)" if (item["id"] not in covered
+                                and item["id"] > baseline) else ""
             seen.add(item["id"])
             lines.append(f"[{item['id']}] {str(item['ts'])[:16]} · "
                          f"{item['who']}{mark}:")

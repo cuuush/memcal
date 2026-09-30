@@ -1294,6 +1294,7 @@ def history(conn: sqlite3.Connection, event_id: int) -> list[sqlite3.Row]:
 def delete(conn: sqlite3.Connection, key: str, *, commit: bool = True) -> bool:
     cur = conn.execute("DELETE FROM events WHERE key = ?", (key,))
     conn.execute("DELETE FROM reviewed_lines WHERE kind = 'event' AND ref = ?", (key,))
+    conn.execute("DELETE FROM review_baselines WHERE kind = 'event' AND ref = ?", (key,))
     if commit:
         conn.commit()
     return cur.rowcount > 0
@@ -1450,6 +1451,16 @@ def merge(conn: sqlite3.Connection, keep_key: str, drop_key: str,
              FROM reviewed_lines WHERE kind = 'event' AND ref = ?""",
         (keep.key, drop.key))
     conn.execute("DELETE FROM reviewed_lines WHERE kind = 'event' AND ref = ?",
+                 (drop.key,))
+    # Baselines follow the same way: the survivor keeps its own scopes, and
+    # inherits the dropped row's scopes only where it has none of its own.
+    conn.execute(
+        """INSERT OR IGNORE INTO review_baselines
+               (kind, ref, channel, thread, family, baseline_id, created_at)
+           SELECT 'event', ?, channel, thread, family, baseline_id, created_at
+             FROM review_baselines WHERE kind = 'event' AND ref = ?""",
+        (keep.key, drop.key))
+    conn.execute("DELETE FROM review_baselines WHERE kind = 'event' AND ref = ?",
                  (drop.key,))
     conn.execute("DELETE FROM events WHERE id = ?", (drop.id,))
     if commit:

@@ -85,6 +85,16 @@
 - Stores created before the `identity_assumptions.kind` column existed gain it
   on open, with existing rows reading as merges. Without it, recording a
   guessed sender name crashed the pass.
+- Freshness hints no longer count a plan's whole thread history as "since this
+  plan was reviewed". Each fact now records a review baseline where its review
+  of a source starts — the newest observation already present when it first
+  cited that source, unread queue excepted — and pending activity counts only
+  arrivals above it. Plans linked to long, already-processed threads start at
+  zero instead of `99+`, genuinely new arrivals still flag with exact ids, and
+  a dream no-change review clears what it read. Existing stores gain baselines
+  for their old links on open, so the next brief already reads clean; holes
+  above the baseline (omitted pages, arrivals during a pass) stay pending, and
+  `memcal_open`'s `(new)` markers agree with the counts.
 
 ### Fixed
 

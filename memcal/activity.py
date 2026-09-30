@@ -137,6 +137,203 @@ def advance_thread(conn: sqlite3.Connection, items, *,
     return moved
 
 
+# ------------------------------------------------------------ baselines --
+
+def baselines(conn: sqlite3.Connection, kind: str, ref: str) -> dict:
+    """Where one fact's review of each linked source starts, by scope.
+
+    Keys are `("t", channel, thread)` for conversations and `("f", channel,
+    family)` for item families on streams without conversations; values are
+    archive ids. A pending read counts only arrivals above the baseline: older
+    history predates the fact and was never bundled for it, so it must not
+    read as "since reviewed". Missing scopes baseline at 0 (no exclusion).
+    """
+    out: dict[tuple[str, str, str], int] = {}
+    if not kind or not ref:
+        return out
+    try:
+        rows = conn.execute(
+            "SELECT channel, thread, family, baseline_id FROM review_baselines"
+            " WHERE kind = ? AND ref = ?",
+            (kind, ref)).fetchall()
+    except sqlite3.Error:
+        return out
+    for row in rows:
+        if row["family"]:
+            out[("f", row["channel"], row["family"])] = int(row["baseline_id"] or 0)
+        else:
+            out[("t", row["channel"], row["thread"] or "")] = int(row["baseline_id"] or 0)
+    return out
+
+
+def _scope_baseline(conn: sqlite3.Connection, channel: str, thread: str,
+                     family: str) -> int:
+    """Newest observation already present in one scope, queued lines excepted.
+
+    Rows still waiting in unprocessed spool are excluded so they keep flagging
+    until dream actually reads them; everything else present now predates the
+    link and can never be bundled for the fact again.
+    """
+    if family:
+        row = conn.execute(
+            """SELECT max(a.id) AS m FROM archive a
+                 LEFT JOIN spool s ON s.archive_id = a.id AND s.processed_at IS NULL
+               WHERE a.channel = ? AND (a.external_id = ?
+                      OR a.external_id LIKE ? ESCAPE '\\')
+                 AND s.archive_id IS NULL""",
+            (channel, family,
+             family.replace("\\", "\\\\").replace("%", "\\%")
+             .replace("_", "\\_") + ":%")).fetchone()
+    else:
+        row = conn.execute(
+            """SELECT max(a.id) AS m FROM archive a
+                 LEFT JOIN spool s ON s.archive_id = a.id AND s.processed_at IS NULL
+               WHERE a.channel = ? AND coalesce(a.thread, '') = ?
+                 AND s.archive_id IS NULL""",
+            (channel, thread or "")).fetchone()
+    try:
+        return int(row["m"] or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _link_scopes(conn: sqlite3.Connection, archive_ids) -> list[tuple[str, str, str]]:
+    """The `(channel, thread, family)` scopes a stamp's lines link, deduplicated.
+
+    Mirrors the association rules: authored turns (internal streams) never link
+    a conversation, and streams without conversations link by item family.
+    """
+    from . import archive as archive_mod  # noqa: PLC0415
+    from . import trace as trace_mod  # noqa: PLC0415
+    ids = [int(i) for i in (archive_ids or []) if i]
+    if not ids:
+        return []
+    placeholders = ",".join("?" * len(ids))
+    rows = conn.execute(
+        f"SELECT channel, thread, external_id FROM archive WHERE id IN ({placeholders})",
+        tuple(ids)).fetchall()
+    unthreaded = set(trace_mod.UNTHREADED_STREAMS)
+    internal = set(archive_mod.INTERNAL_STREAMS)
+    scopes: dict[tuple[str, str, str], None] = {}
+    for row in rows:
+        channel = row["channel"]
+        if channel in unthreaded:
+            external = str(row["external_id"] or "")
+            if ":" in external:
+                scopes[(channel, "", external.split(":", 1)[0])] = None
+        elif row["thread"] is not None and channel not in internal:
+            scopes[(channel, row["thread"] or "", "")] = None
+    return list(scopes)
+
+
+def ensure_baselines(conn: sqlite3.Connection, kind: str, ref: str, archive_ids,
+                      *, commit: bool = True) -> int:
+    """Open a review baseline for each newly linked scope, first link wins.
+
+    Called when evidence attaches: history already present (outside the unread
+    queue) predates the fact and is excluded from later pending reads, while
+    holes above the baseline — omitted pages, arrivals during a pass — stay
+    pending exactly as before. Idempotent; returns how many scopes were opened.
+    """
+    if not kind or not ref:
+        return 0
+    try:
+        have = {(row["channel"], row["thread"] or "", row["family"] or "")
+                for row in conn.execute(
+                    "SELECT channel, thread, family FROM review_baselines"
+                    " WHERE kind = ? AND ref = ?", (kind, ref)).fetchall()}
+    except sqlite3.Error:
+        return 0
+    added = 0
+    for channel, thread, family in _link_scopes(conn, archive_ids):
+        if (channel, thread, family) in have:
+            continue
+        have.add((channel, thread, family))
+        try:
+            conn.execute(
+                """INSERT OR IGNORE INTO review_baselines
+                       (kind, ref, channel, thread, family, baseline_id, created_at)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (kind, ref, channel, thread, family,
+                 _scope_baseline(conn, channel, thread, family), db.now()))
+            added += 1
+        except sqlite3.Error:
+            continue
+    if commit:
+        try:
+            conn.commit()
+        except sqlite3.Error:
+            pass
+    return added
+
+
+def backfill_baselines(conn: sqlite3.Connection) -> int:
+    """Open baselines for evidence links that predate the baseline table.
+
+    One-time healing for existing stores: every linked scope without a baseline
+    gets one under the same rule `ensure_baselines` uses, so long-standing
+    threads stop reading their whole history as new. Idempotent; returns how
+    many scopes were opened.
+    """
+    from . import archive as archive_mod  # noqa: PLC0415
+    from . import trace as trace_mod  # noqa: PLC0415
+    try:
+        linked: set[tuple[str, str, str, str, str]] = set()
+        internal = set(archive_mod.INTERNAL_STREAMS)
+        unthreaded = set(trace_mod.UNTHREADED_STREAMS)
+        skip = internal | unthreaded
+        params: list = []
+        if skip:
+            filt = " AND a.channel NOT IN (%s)" % ",".join("?" * len(skip))
+            params = list(skip)
+        else:
+            filt = ""
+        for row in conn.execute(
+                """SELECT DISTINCT e.kind AS kind, e.ref AS ref,
+                          a.channel AS channel, coalesce(a.thread, '') AS thread
+                     FROM evidence e JOIN archive a ON a.id = e.archive_id
+                    WHERE a.thread IS NOT NULL""" + filt, params):
+            linked.add((row["kind"], row["ref"], row["channel"], row["thread"], ""))
+        if unthreaded:
+            for row in conn.execute(
+                    """SELECT DISTINCT e.kind AS kind, e.ref AS ref,
+                              a.channel AS channel,
+                              substr(a.external_id, 1, instr(a.external_id, ':') - 1)
+                                AS family
+                         FROM evidence e JOIN archive a ON a.id = e.archive_id
+                        WHERE a.channel IN (%s)
+                          AND instr(a.external_id, ':') > 0"""
+                    % ",".join("?" * len(unthreaded)), tuple(unthreaded)):
+                linked.add((row["kind"], row["ref"], row["channel"], "", row["family"]))
+        have = {(row["kind"], row["ref"], row["channel"], row["thread"] or "",
+                 row["family"] or "")
+                for row in conn.execute(
+                    "SELECT kind, ref, channel, thread, family FROM review_baselines"
+                ).fetchall()}
+    except sqlite3.Error:
+        return 0
+    added = 0
+    for kind, ref, channel, thread, family in sorted(linked):
+        if (kind, ref, channel, thread, family) in have:
+            continue
+        have.add((kind, ref, channel, thread, family))
+        try:
+            conn.execute(
+                """INSERT OR IGNORE INTO review_baselines
+                       (kind, ref, channel, thread, family, baseline_id, created_at)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (kind, ref, channel, thread, family,
+                 _scope_baseline(conn, channel, thread, family), db.now()))
+            added += 1
+        except sqlite3.Error:
+            continue
+    try:
+        conn.commit()
+    except sqlite3.Error:
+        pass
+    return added
+
+
 # ------------------------------------------------------------ nomination --
 
 def evidence_threads(conn: sqlite3.Connection, kind: str, ref: str,
@@ -265,7 +462,9 @@ _HIDDEN_FILTER = ("coalesce(t.decision, '') != 'mute'"
 
 def _pending_rows(conn: sqlite3.Connection, pairs: list[dict],
                    covered: set[int], *, limit: int,
-                   after: int = 0) -> tuple[list[dict], int]:
+                   after: int = 0,
+                   baselines: "dict[tuple[str, str, str], int] | None" = None,
+                   ) -> tuple[list[dict], int]:
     """Associated arrivals minus exactly the covered observations, oldest first.
 
     `limit` bounds the returned rows; the total rides alongside so callers can
@@ -276,20 +475,32 @@ def _pending_rows(conn: sqlite3.Connection, pairs: list[dict],
 
     Pairs name either a conversation (`channel` + `thread`) or, on streams
     without conversations, one cited item (`channel` + `family`).
+
+    `baselines` excludes each scope's pre-link history: arrivals at or below
+    the fact's baseline for that scope predate the fact and were never bundled
+    for it, so they are not "since reviewed". Holes above the baseline stay
+    pending exactly as before.
     """
     if not pairs:
         return [], 0
+    base = baselines or {}
     clauses, args = [], []
     for pair in pairs:
         if pair.get("family"):
+            key = ("f", pair["channel"], pair["family"])
             clauses.append("(a.channel = ? AND (a.external_id = ?"
-                           " OR a.external_id LIKE ? ESCAPE '\\'))")
+                           " OR a.external_id LIKE ? ESCAPE '\\')"
+                           " AND a.id > ?)")
             args += [pair["channel"], pair["family"],
                      pair["family"].replace("\\", "\\\\")
-                     .replace("%", "\\%").replace("_", "\\_") + ":%"]
+                     .replace("%", "\\%").replace("_", "\\_") + ":%",
+                     int(base.get(key, 0) or 0)]
         else:
-            clauses.append("(a.channel = ? AND coalesce(a.thread, '') = ?)")
-            args += [pair["channel"], pair.get("thread") or ""]
+            key = ("t", pair["channel"], pair.get("thread") or "")
+            clauses.append("(a.channel = ? AND coalesce(a.thread, '') = ?"
+                           " AND a.id > ?)")
+            args += [pair["channel"], pair.get("thread") or "",
+                     int(base.get(key, 0) or 0)]
     clause = " OR ".join(clauses)
     scope, hidden = _HIDDEN_SCOPE, _HIDDEN_FILTER
     seen = ""
@@ -327,6 +538,9 @@ def pending(conn: sqlite3.Connection, kind: str, ref: str,
             conversational_only: bool = False) -> dict:
     """Associated observations minus exactly the covered ones.
 
+    Each linked scope counts only arrivals above its review baseline: history
+    already present when the fact first cited the scope predates the fact and
+    is never "since reviewed". Holes above the baseline stay pending.
     `strong_only` skips the weak association scan and its arrivals query for
     callers that read only the strong side (e.g. the brief's freshness hint).
     `conversational_only` drops UNTHREADED streams (ical family revisions) so a
@@ -340,13 +554,14 @@ def pending(conn: sqlite3.Connection, kind: str, ref: str,
         strong_links = [p for p in strong_links
                         if p.get("channel") not in skip and not p.get("family")]
     covered = reviewed_ids(conn, kind, ref)
+    base = baselines(conn, kind, ref)
     strong_items, strong_total = _pending_rows(conn, strong_links, covered,
-                                              limit=limit)
+                                              limit=limit, baselines=base)
     if strong_only:
         weak_items, weak_total = [], 0
     else:
         weak_items, weak_total = _pending_rows(conn, links["weak"], covered,
-                                              limit=limit)
+                                              limit=limit, baselines=base)
     return {"strong": strong_items, "weak": weak_items,
             "strong_total": strong_total, "weak_total": weak_total,
             "reviewed": len(covered), "mark": reviewed_max(conn, kind, ref)}
@@ -401,9 +616,10 @@ def read(conn: sqlite3.Connection, kind: str, ref: str, *,
     # Readers only consume strong associations; skip the weak-candidate scan.
     links = associations(conn, kind, ref, strong_only=True)
     covered = reviewed_ids(conn, kind, ref)
+    base = baselines(conn, kind, ref)
     start = int(cursor or 0)
     items, total = _pending_rows(conn, links["strong"], covered,
-                                 limit=limit + 1, after=start)
+                                 limit=limit + 1, after=start, baselines=base)
     omitted = max(0, total - len(items[:limit]))
     page = items[:limit]
     return {"items": page, "reviewed": len(covered),
