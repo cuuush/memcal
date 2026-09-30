@@ -36,6 +36,11 @@ memcal doctor
 memcal brief
 ```
 
+Run `memcal setup` again to switch providers or models. Enter keeps each saved
+choice; the wizard shows a change summary before saving. On macOS, iMessage reads
+the local Messages database by default and needs Full Disk Access for the process
+running Memcal. See [iMessage setup](docs/sources/imessage.md) to use BlueBubbles.
+
 For a service with an OpenAI-compatible chat-completions endpoint, configure its
 base URL, model ID, and API key explicitly:
 

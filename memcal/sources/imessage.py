@@ -274,7 +274,7 @@ def available() -> bool:
 
 
 def _backend(cfg) -> str:
-    return str(getattr(cfg, "imessage_backend", "bluebubbles") or "bluebubbles").lower()
+    return str(getattr(cfg, "imessage_backend", "chatdb") or "chatdb").lower()
 
 
 @register
