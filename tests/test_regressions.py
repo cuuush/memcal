@@ -3787,6 +3787,8 @@ class TestACorrectionFromSomeoneNotOnTheRowIsStillShownTheRow(Base):
 
     def setUp(self):
         super().setUp()
+        db.set_today("2026-09-20")
+        self.addCleanup(db.set_today, None)
         identity.link(self.conn, "+19175551001", "Alex Rivera", source="fixture")
         events.upsert(self.conn, {"title": "Ramen dinner", "date": "2026-09-24",
                                   "time": "19:00", "status": "confirmed",

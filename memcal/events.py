@@ -1452,13 +1452,14 @@ def merge(conn: sqlite3.Connection, keep_key: str, drop_key: str,
         (keep.key, drop.key))
     conn.execute("DELETE FROM reviewed_lines WHERE kind = 'event' AND ref = ?",
                  (drop.key,))
-    # Baselines follow the same way: the survivor keeps its own scopes, and
-    # inherits the dropped row's scopes only where it has none of its own.
+    # Keep the earliest baseline so merging cannot hide pending arrivals.
     conn.execute(
-        """INSERT OR IGNORE INTO review_baselines
+        """INSERT INTO review_baselines
                (kind, ref, channel, thread, family, baseline_id, created_at)
            SELECT 'event', ?, channel, thread, family, baseline_id, created_at
-             FROM review_baselines WHERE kind = 'event' AND ref = ?""",
+             FROM review_baselines WHERE kind = 'event' AND ref = ?
+           ON CONFLICT(kind, ref, channel, thread, family) DO UPDATE SET
+               baseline_id = MIN(review_baselines.baseline_id, excluded.baseline_id)""",
         (keep.key, drop.key))
     conn.execute("DELETE FROM review_baselines WHERE kind = 'event' AND ref = ?",
                  (drop.key,))
