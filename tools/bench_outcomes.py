@@ -57,10 +57,10 @@ def r1_beer(conn) -> tuple[bool, str]:
     row = upcoming[0]
     got, missing = [], []
     for name, ok in (("2026-08-02", str(row["date"]) == "2026-08-02"),
-                     ("harborview/midtown", any(w in (row["location"] or "").lower()
-                                              for w in ("harborview", "midtown"))),
+                     ("harborview", any(w in (row["location"] or "").lower()
+                                              for w in ("harborview",))),
                      ("marco", any("marco" in p for p in _people(row))),
-                     ("julian", any("julian" in p or "julian" in p for p in _people(row)))):
+                     ("avery", any("avery" in p for p in _people(row)))):
         (got if ok else missing).append(name)
     return not missing, (f"{row['key']}@{row['date']} · has {', '.join(got) or 'none of it'}"
                          + (f" · missing {', '.join(missing)}" if missing else ""))

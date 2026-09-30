@@ -23,7 +23,7 @@ NEAR_DAYS = 4
 #: friend-group membership; wording and place matches handle legitimate cross-day cases.
 SAME_GUESTS_DAYS = 0
 
-#: Words that carry no identity. "beer garden with quinn" and "beer garden with julian"
+#: Words that carry no identity. "beer garden with quinn" and "beer garden with avery"
 #: must overlap on "beer" and "garden", not on "with".
 _NOISE = {
     "the", "a", "an", "and", "or", "with", "at", "in", "on", "for", "to", "of", "my",

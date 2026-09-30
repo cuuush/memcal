@@ -121,9 +121,9 @@ class TestTheUserIsNotOneVoice(unittest.TestCase):
     """Every message the user sent has an empty handle.
 
     Falling through to `channel:` for those collapses their half of every conversation in
-    the store into a single speaker. `ambient_tokens` then sees `beer` and `garden` said
-    by "one voice" over two months and suppresses exactly the words that link — which is
-    what happened the first time this was run over the real corpus.
+    the store into a single speaker. `ambient_tokens` then sees the linking words said by
+    "one voice" over two months and suppresses exactly the words that would connect two
+    fragments.
     """
 
     def test_an_unattributed_line_is_credited_to_its_conversation(self):
@@ -191,7 +191,7 @@ class TestScoringIsNotVolume(unittest.TestCase):
             line("poker on saturday", "2026-07-27T10:00:00-04:00") for _ in range(20)])
         quiet = Bundle("person:diego", [
             line("poker on saturday", "2026-07-27T11:00:00-04:00")])
-        other = Bundle("person:julian", [
+        other = Bundle("person:avery", [
             line("poker on saturday", "2026-07-27T12:00:00-04:00")])
         scores = score_pairs([chatty, quiet, other])
         self.assertEqual(len(set(scores.values())), 1, scores)

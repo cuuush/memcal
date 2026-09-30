@@ -668,7 +668,7 @@ def clock_checks(home: Path) -> list[dict]:
         todos.ask(conn, "When is the tutoring appointment this month?",
                   key="q:tutoring", written_by="dream:day1")
         todos.ask(conn, "Is the BGC meeting still happening on Saturday?",
-                  key="q:psk", written_by="dream:day1")
+                  key="q:bgc", written_by="dream:day1")
         todos.ask(conn, "Did you ever sort out the parking permit?",
                   key="q:permit", written_by="dream:day1")
         todos.ask(conn, "Which day is the board game night at Jose's?",
@@ -695,8 +695,8 @@ def clock_checks(home: Path) -> list[dict]:
         # a parking question under "Hang out with Quinn" on the word `out`.
         checks.append(result(
             "clock.generic-word-is-not-a-subject", "question linking",
-            linked_title("q:psk") is None,
-            f"BGC question linked to {linked_title('q:psk') or '(nothing)'}"))
+            linked_title("q:bgc") is None,
+            f"BGC question linked to {linked_title('q:bgc') or '(nothing)'}"))
         checks.append(result(
             "clock.out-is-not-a-subject", "question linking",
             linked_title("q:permit") is None,
@@ -823,7 +823,7 @@ def clock_checks(home: Path) -> list[dict]:
         events.upsert(conn, {
             "title": "Solstice weekend", "date": "2026-08-14", "until": "2026-08-17",
             "kind": "commitment", "status": "confirmed", "subject": "me",
-            "location": "Rivertown, PA"}, written_by="ical")
+            "location": "upstate"}, written_by="ical")
         away, _ = events.upsert(conn, {
             "title": "Dad's birthday steak dinner", "date": "2026-08-16",
             "kind": "commitment", "status": "mentioned", "subject": "me",
@@ -831,7 +831,7 @@ def clock_checks(home: Path) -> list[dict]:
         same_place, _ = events.upsert(conn, {
             "title": "Sunrise set", "date": "2026-08-16", "kind": "commitment",
             "status": "mentioned", "subject": "me",
-            "location": "Rivertown, PA"}, written_by="dream:day1")
+            "location": "upstate"}, written_by="dream:day1")
         free_day, _ = events.upsert(conn, {
             "title": "Dentist cleaning", "date": "2026-08-18", "kind": "commitment",
             "status": "mentioned", "subject": "me",

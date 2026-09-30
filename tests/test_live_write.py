@@ -59,12 +59,12 @@ class TestAdding(Base):
     def test_a_plan_lands_whole(self):
         event, verb = live.add_event(
             self.conn, self.cfg, title="Beer garden at Harborview Hall", when="sunday",
-            time="after 6", location="Harbor Point, Midtown", status="confirmed",
+            time="after 6", location="Harbor Point", status="confirmed",
             participants=["Jamie", "Quinn Brooks"])
         self.assertEqual(verb, "inserted")
         line = event.one_line()
         for expected in ("Beer garden at Harborview Hall", "after 6", "confirmed",
-                         "Harbor Point, Midtown", "Jamie"):
+                         "Harbor Point", "Jamie"):
             self.assertIn(expected, line)
 
     def test_the_words_the_user_used_resolve_to_a_date(self):
@@ -165,13 +165,13 @@ class TestMerging(Base):
         self.add("Rowan meetup", when="sunday", status="confirmed",
                  participants=["Rowan Vale"])
         self.add("Beer garden at Harborview Hall", when="sunday", time="after 6",
-                 location="Harbor Point, Midtown", participants=["Jamie", "Quinn Brooks"])
+                 location="Harbor Point", participants=["Jamie", "Quinn Brooks"])
         merged = live.merge_events(self.conn, self.cfg, keep="beer garden",
                                    drop="Rowan meetup")
         self.assertEqual(len(events.between(self.conn, merged.date, merged.date)), 1)
         self.assertIn("Rowan Vale", merged.participants)
         self.assertIn("Jamie", merged.participants)
-        self.assertEqual(merged.location, "Harbor Point, Midtown")
+        self.assertEqual(merged.location, "Harbor Point")
         self.assertEqual(merged.status, "confirmed")   # the settled one survives
 
     def test_the_disappearing_row_is_recorded_not_just_deleted(self):

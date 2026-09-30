@@ -1688,7 +1688,7 @@ def _wa_store(members=(), sessions=(), messages=()):
 
 
 class TestALinkedIdIsNotAPhoneNumber(Base):
-    """91 people, 1,669 messages, none of them ever resolved to anybody.
+    """A large group's members never resolve to anybody.
 
     WhatsApp moved group members off `@s.whatsapp.net` onto `@lid`, an opaque per-user
     id that exists so a group does not leak everyone's number. Its local part is all
@@ -2651,10 +2651,10 @@ class TestOneNameOnTwoPlatformsIsTwoPeopleForever(Base):
                          identity.resolve(self.conn, "groupme:Rohan Kapoor"))
 
     def test_it_never_becomes_a_question_in_the_brief(self):
-        """The user was shown *'Is "Robin" the same person as Sam Ellis…?'* and dismissed it
-        — "why do u really care haha…. redacted" — and it is one of the five in
+        """A contact-disambiguation question ("Is X the same person as Y?") was shown
+        once and dismissed, and it is one of the five in
         `TestQuestionsWorthAsking.DISMISSED`. `NOT_WORTH_ASKING` has had a branch for
-        that sentence ever since, under "memcal's own homework, not their life".
+        that shape ever since, under "memcal's own homework, not their life".
 
         So the first version of this feature, which opened a question per pair, was
         re-proposing something already refused. "Becomes a question" does
@@ -2671,7 +2671,7 @@ class TestOneNameOnTwoPlatformsIsTwoPeopleForever(Base):
     def test_the_sentence_he_dismissed_is_still_refused(self):
         """Keep the rejected question shape unaskable."""
         self.assertFalse(todos.is_worth_asking(
-            'Is "Robin" the same person as Sam Ellis, who you paid $100 for dinner?'))
+            'Is "Robin" the same person as Jordan?'))
 
     def test_it_never_asks_whether_he_is_himself(self):
         identity.set_me(self.conn, "Casey Morgan")

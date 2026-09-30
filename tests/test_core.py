@@ -1621,7 +1621,7 @@ class TestAQuestionAskedAboutADayHeSpentElsewhere(Base):
 
     def test_a_question_about_a_day_he_was_elsewhere_is_refused(self):
         self._row("Solstice festival", "2026-08-07", until="2026-08-10",
-                  status="confirmed", location="Rivertown, PA")
+                  status="confirmed", location="upstate")
         birthday = self._row("Dad's birthday", "2026-08-09",
                              location="Peddler's Village")
         self.assertEqual(
@@ -1632,7 +1632,7 @@ class TestAQuestionAskedAboutADayHeSpentElsewhere(Base):
     def test_the_refusal_leaves_a_trace(self):
         """Silence and refusal must not look the same from outside."""
         self._row("Solstice festival", "2026-08-07", until="2026-08-10",
-                  status="confirmed", location="Rivertown, PA")
+                  status="confirmed", location="upstate")
         birthday = self._row("Dad's birthday", "2026-08-09",
                              location="Peddler's Village")
         todos.ask(self.conn, "Did Dad's birthday happen on Sunday?",
@@ -1646,8 +1646,8 @@ class TestAQuestionAskedAboutADayHeSpentElsewhere(Base):
     def test_the_same_place_is_not_a_conflict(self):
         """"The user is busy" is not the claim. Being somewhere *else* is."""
         self._row("Solstice festival", "2026-08-07", until="2026-08-10",
-                  status="confirmed", location="Rivertown, PA")
-        set_time = self._row("Sunrise set", "2026-08-09", location="Rivertown, PA")
+                  status="confirmed", location="upstate")
+        set_time = self._row("Sunrise set", "2026-08-09", location="upstate")
         self.assertNotEqual(
             todos.ask(self.conn, "Did Sunrise set happen on Sunday?",
                       about_event=set_time.id), "")
@@ -1659,7 +1659,7 @@ class TestAQuestionAskedAboutADayHeSpentElsewhere(Base):
         `mentioned` on the same day is the store being unsure twice, and suppressing the
         question would leave nothing able to resolve either of them.
         """
-        self._row("Maybe a festival", "2026-08-09", location="Rivertown, PA")
+        self._row("Maybe a festival", "2026-08-09", location="upstate")
         birthday = self._row("Dad's birthday", "2026-08-09",
                              location="Peddler's Village")
         self.assertNotEqual(
@@ -1694,7 +1694,7 @@ class TestAQuestionAskedAboutADayHeSpentElsewhere(Base):
 
     def test_a_nested_row_is_the_same_occasion_not_a_clash(self):
         festival = self._row("Solstice festival", "2026-08-07", until="2026-08-10",
-                             status="confirmed", location="Rivertown, PA")
+                             status="confirmed", location="upstate")
         breakfast = self._row("Breakfast at Solstice", "2026-08-09",
                               location="Woodlands campground")
         self.conn.execute("UPDATE events SET part_of = ? WHERE id = ?",
@@ -1810,7 +1810,7 @@ class TestASeriesDidNotCarryItsQualitiesToAMovedInstance(Base):
         `part_of` exists to prevent — three rows called Solstice were three unrelated
         plans. A looser rule here would lend a festival's location to a breakfast.
         """
-        self._series("Solstice", location="Rivertown, PA")
+        self._series("Solstice", location="upstate")
         row, _ = events.upsert(self.conn, {
             "title": "Breakfast at Solstice", "date": "2026-08-26",
             "kind": "commitment"}, written_by="dream:web")
@@ -2472,9 +2472,9 @@ class TestAnInferenceCannotOverwriteAnObservation(Base):
     """A subscribed calendar knows when its own events are. A friend mentioning one in
     passing is reporting, and may be reporting the wrong week.
 
-    The live failure: a chat proposal moved a subscribed festival from 2026-08-07 to
-    2026-08-01 and rewrote its source to the friend who had mentioned it. Nothing ranked
-    the two claims, so last write won, and the user corrected it by hand.
+    The failure: a chat proposal moved a subscribed event from 2026-08-07 to 2026-08-01
+    and rewrote its source to the sender who had mentioned it. Nothing ranked the two
+    claims, so last write won, and the correction had to be made by hand.
     """
 
     def _ical_row(self):
@@ -2590,13 +2590,11 @@ class TestWeakMatchBoundaries(Base):
         self.assertEqual(events.get(self.conn, past.key).status, "happened")
 
     def test_a_weak_match_pools_detail_without_moving_the_date(self):
-        """The live failure: one plan, three conversations, three proposals.
+        """The failure: one plan, three conversations, three proposals.
 
-        The group thread settled it — "Did we say Saturday?" / "We said Sunday" — and
-        wrote Sunday. An unrelated thread about paperwork mentioned "julian is
-        probably coming over next weekend to go to a beer garden", dated that fragment
-        Saturday, and matched on participant overlap alone. Merging the two is right;
-        letting the passing mention relocate the settled one is not, and which of them
+        One thread settled the date; an unrelated thread mentioned the same people on a
+        different day and matched on participant overlap alone. Merging the two is right;
+        letting the passing mention relocate the settled date is not, and which of them
         won was decided by which parallel call happened to finish last.
         """
         settled, _ = events.upsert(self.conn, {
@@ -3264,11 +3262,11 @@ class TestWikiPagesEarnTheirPlace(Base):
 
 
 class TestThirdPartyTraffic(Base):
-    """Their friends settling a plan in front of them is still their world.
+    """A plan settled between two other people is still relevant to the user.
 
-    From a real trace: "this exchange is between Jamie and Quinn, not involving me
-    directly. If Casey isn't part of that conversation, is it even relevant to track?"
-    — and it dropped the bundle.
+    The failure: the model reasoned that an exchange not involving the user directly
+    was not worth tracking, and dropped the bundle. Whether the user is a participant
+    is not the test of relevance.
     """
 
     def test_the_prompt_says_he_need_not_be_speaking(self):
@@ -3871,9 +3869,9 @@ class TestEvidenceMeetsObligation(Base):
 class TestResolvingWhatIsAlreadyDone(Base):
     """An agent writing the same fact twice in one turn must not be told it failed.
 
-    Real session: memcal_remember closed "Mail the signed paperwork back", then
-    memcal_answer was called about the same thing and got "nothing open matches that"
-    — which reads as a bug and invites a retry against something already correct.
+    The failure: memcal_remember closed a to-do, then memcal_answer was called about
+    the same item and got "nothing open matches that" — which reads as a bug and
+    invites a retry against something already correct.
     """
 
     def test_an_already_closed_todo_reports_settled_not_missing(self):
@@ -3906,29 +3904,29 @@ class TestResolvingWhatIsAlreadyDone(Base):
 
 
 class TestQuestionsWorthAsking(Base):
-    """The user read five questions and dismissed four. They share a shape, not a topic.
+    """Whether a question is worth asking is a matter of shape, not topic.
 
-    "why do u really care haha…. redacted", "that's also a silly question",
-    "why is that on there. That's been resolved a while ago." The bar is not whether
-    something is unknown — almost everything is. It is whether the answer changes what
-    the user does next.
+    Almost everything is unknown; that is not the bar. The bar is whether the answer
+    changes what the user does next. Permission-to-track, contact disambiguation, a
+    settled past, biography, and dedupe-the-calendar shapes never clear it, whatever
+    their subject; a live plan with a missing detail does.
     """
 
     DISMISSED = [
-        "Your car lease ends in March and you were talking about parking it cheaply in "
-        "Midtown — is finding a lot something you want tracked?",
-        'Is "Robin" the same person as Sam Ellis, who you paid $100 for dinner on Jul 2?',
-        "Alex Rivera sent you $100 and $122 for Moonrise expenses and car "
-        "camping — were you fronting the group's festival costs?",
-        "Is BGC a fraternity you were in — and where?",
-        "Your billing address is [address] — is that still current?",
+        "Is finding a parking spot something you want tracked?",
+        'Is "Robin" the same person as Jordan?',
+        "You sent and received a few payments for a group trip — were you fronting the "
+        "group's costs?",
+        "Was that a club you were in, and where?",
+        "Is your billing address still current?",
     ]
     KEPT = [
-        'Jamie\'s "next Sunday" plan (going earlier than 6, Q joining after) — which Sunday?',
-        "Which day next weekend is Avery coming over for the beer garden?",
-        "Are you going to Solstice Aug 7-9, and do you have a ticket yet?",
+        'The plan for "next Sunday" (going earlier than 6, others joining after) — which '
+        "Sunday?",
+        "Which day next weekend is the group meeting up?",
+        "Are you going to the event Aug 7-9, and do you have a ticket yet?",
         "Does 'I guess I could mail it this week instead' refer to the paperwork?",
-        "What time is the D&D session on Sunday?",
+        "What time is the game night on Sunday?",
     ]
 
     def test_the_dismissed_ones_never_get_stored(self):
@@ -3953,8 +3951,8 @@ class TestQuestionsWorthAsking(Base):
 class TestQuestionsExpire(Base):
     """A question nobody engaged with holds a slot against one that matters.
 
-    "why is that on there. That's been resolved a while ago." — three days stale, and
-    it was still taking a place in a six-line list.
+    A question the user has clearly moved past — three days stale — was still taking a
+    place in a six-line list.
     """
 
     def _age(self, days: int) -> None:
