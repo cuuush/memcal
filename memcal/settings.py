@@ -584,12 +584,8 @@ def write_env(path: Path, values: dict[str, str]) -> None:
         pass
 
 
-def save(cfg: Config, changes: dict) -> dict:
-    """Validate everything, then write once, then apply to the running process.
-
-    All-or-nothing on purpose: half a form landing because the fourth field had a typo
-    leaves the store in a state nobody chose.
-    """
+def prepare(cfg: Config, changes: dict) -> dict[str, tuple[str, object]]:
+    """Validate proposed settings without writing them."""
     if not isinstance(changes, dict):
         raise SettingsError("expected an object of setting keys")
     unknown = [key for key in changes if key not in BY_KEY]
@@ -605,6 +601,12 @@ def save(cfg: Config, changes: dict) -> dict:
     for key, raw in changes.items():
         planned[key] = coerce(BY_KEY[key], raw, provider=check_text(provider))
     _check_models_served(cfg, check_text(provider), planned)
+    return planned
+
+
+def save(cfg: Config, changes: dict) -> dict:
+    """Validate everything, write once, and apply to the running process."""
+    planned = prepare(cfg, changes)
 
     files = _file_values(cfg)
     write_env(cfg.home / STORE_ENV, {key: text for key, (text, _v) in planned.items()})
