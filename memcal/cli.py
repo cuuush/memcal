@@ -199,12 +199,12 @@ def _provider_choice(current: str = "codex") -> str:
                ("6", "openai-compatible", "OpenAI-compatible API"))
     print("LLM provider:")
     for number, _value, label in choices:
-        print(f"  {number}. {label}")
+        print(f"  {number}. {label}" + (" (current)" if _value == current else ""))
     by_input = {number: value for number, value, _label in choices}
     by_input.update({value: value for _number, value, _label in choices})
     default = next((number for number, value, _ in choices if value == current), "1")
     try:
-        answer = input(f"Choose [{default}]: ").strip() or default
+        answer = input(f"Provider [{default}: {by_input[default]}]: ").strip() or default
     except EOFError as exc:
         raise SystemExit("no interactive input; pass --provider") from exc
     if answer not in by_input:
@@ -219,6 +219,8 @@ def cmd_setup(args) -> int:
     cfg = config.load(getattr(args, "home", None))
     cfg.ensure_dirs()
     guided = not args.provider
+    if guided:
+        print("Memcal setup — press Enter to keep the value shown.")
     provider = args.provider or _provider_choice(cfg.llm_provider)
     default_model = llm.PROVIDER_DEFAULT_MODELS[provider]
     model = args.model
@@ -249,26 +251,28 @@ def cmd_setup(args) -> int:
             values[backend.env] = resolved
     if provider == "openrouter":
         key = args.api_key or cfg.api_key
-        if not key and guided:
-            key = getpass.getpass("OpenRouter API key: ").strip()
+        if guided and not args.api_key:
+            hint = " [configured; Enter to keep]" if key else ""
+            key = getpass.getpass(f"OpenRouter API key{hint}: ").strip() or key
         if not key:
             print("error: OpenRouter needs --api-key or OPENROUTER_API_KEY", file=sys.stderr)
             return 1
-        if args.api_key or not cfg.api_key:
+        if key != cfg.api_key or args.api_key:
             values["OPENROUTER_API_KEY"] = key
     if provider == "openai-compatible":
         base_url = args.base_url or cfg.openai_base_url
-        if not base_url and guided:
-            base_url = input("API base URL (https://host/v1): ").strip()
+        if guided and not getattr(args, "base_url", None):
+            base_url = input(f"API base URL [{base_url or 'https://host/v1'}]: ").strip() or base_url
         key = args.api_key or cfg.openai_api_key
-        if not key and guided:
-            key = getpass.getpass("API key: ").strip()
+        if guided and not args.api_key:
+            hint = " [configured; Enter to keep]" if key else ""
+            key = getpass.getpass(f"API key{hint}: ").strip() or key
         if not base_url or not key:
             print("error: OpenAI-compatible API needs --base-url and --api-key",
                   file=sys.stderr)
             return 1
         values["MEMCAL_OPENAI_BASE_URL"] = base_url
-        if args.api_key or not cfg.openai_api_key:
+        if key != cfg.openai_api_key or args.api_key:
             values["OPENAI_COMPAT_API_KEY"] = key
     if guided:
         before = {
@@ -2209,7 +2213,7 @@ COMMAND_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("People and facts", ("page", "pages", "alias", "merge", "who")),
     ("Feed it", ("ingest", "sources", "dream", "review", "schedule")),
     ("The gate", ("gatecheck", "senders", "mail", "top", "block")),
-    ("Set up and check", ("setup", "init", "openclaw", "doctor", "stats", "trace",
+    ("Set up and check", ("setup", "update", "init", "openclaw", "doctor", "stats", "trace",
                           "models", "ical", "reminders", "completion")),
 )
 
@@ -2294,6 +2298,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--api-key", help="API key for OpenRouter or OpenAI-compatible backend")
     s.add_argument("--base-url", help="OpenAI-compatible API base URL, such as https://host/v1")
     s.set_defaults(func=cmd_setup)
+
+    s = sub.add_parser("update", help="update this installation and refresh its launcher")
+    from . import update
+    s.set_defaults(func=lambda args: update.run())
 
     s = sub.add_parser("openclaw", help="install or inspect the OpenClaw integration")
     s.add_argument("action", nargs="?", default="status", choices=["status", "setup"],
@@ -2682,7 +2690,7 @@ def _expand_bare_handle(argv: list[str], choices) -> list[str]:
 #: it (and so cannot depend on it); the rest are bare invocations with no work to do.
 #: Every other subcommand re-execs through the bundle when one is built — including
 #: read-only ones, at the cost of one fork+exec — so there is one Calendar identity.
-_NO_APP_COMMANDS = {None, "schedule", "help", "completion"}
+_NO_APP_COMMANDS = {None, "schedule", "update", "help", "completion"}
 
 
 def _maybe_reexec_under_app(args, argv: list[str]) -> None:

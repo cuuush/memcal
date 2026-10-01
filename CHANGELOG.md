@@ -1,7 +1,15 @@
 ## [Unreleased]
 
+### Added
+
+- `memcal update` refreshes checkout or pip installations, repairs dependencies and
+  the checkout launcher, and verifies that the CLI loads. Checkout updates preserve
+  local changes and refuse divergent commits.
+
 ### Fixed
 
+- Checkout launchers use their configured source even when invoked from another
+  Memcal checkout.
 - Merging events with a shared conversation preserves the earliest review baseline.
 
 - Native iMessage ingestion now recognizes a chat with two other participants
@@ -19,6 +27,9 @@
 
 ### Changed
 
+- Setup marks the current provider and lets you keep or replace saved API URLs and
+  keys interactively. The installer stops on dependency failures instead of leaving
+  a broken command behind.
 - iMessage reads the local Messages database by default. Explicit BlueBubbles
   settings still select the server.
 - Rerunning `memcal setup` shows saved provider and model choices, keeps them

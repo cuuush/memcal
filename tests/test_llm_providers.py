@@ -500,6 +500,47 @@ class TestInteractiveProviderSetup(unittest.TestCase):
             status.assert_not_called()
 
 
+class TestSetupCanEditSavedApiCredentials(unittest.TestCase):
+    def test_enter_preserves_the_saved_endpoint_models_and_secret(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            path = home / ".env"
+            original = ("MEMCAL_LLM_PROVIDER=openai-compatible\n"
+                        "MEMCAL_OPENAI_BASE_URL=https://example.test/v1\n"
+                        "OPENAI_COMPAT_API_KEY=fixture-secret\n"
+                        "MEMCAL_PROPOSE_MODEL=test-model\n")
+            path.write_text(original)
+            args = argparse.Namespace(home=str(home), provider=None, model=None,
+                                      api_key=None, base_url=None)
+            with mock.patch("builtins.input", side_effect=["", "", "", ""]), \
+                    mock.patch("getpass.getpass", return_value="") as secret, \
+                    mock.patch("memcal.llm.provider_status", return_value=(True, "ready")):
+                self.assertEqual(cli.cmd_setup(args), 0)
+            self.assertIn("Enter to keep", secret.call_args.args[0])
+            saved = config.load(home)
+            self.assertEqual(saved.openai_base_url, "https://example.test/v1")
+            self.assertEqual(saved.openai_api_key, "fixture-secret")
+            self.assertEqual(saved.propose_model, "test-model")
+
+    def test_rerun_can_replace_the_endpoint_and_key_without_flags(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            (home / ".env").write_text(
+                "MEMCAL_LLM_PROVIDER=openai-compatible\n"
+                "MEMCAL_OPENAI_BASE_URL=https://old.example.test/v1\n"
+                "OPENAI_COMPAT_API_KEY=old-fixture-key\n"
+                "MEMCAL_PROPOSE_MODEL=test-model\n")
+            args = argparse.Namespace(home=str(home), provider=None, model=None,
+                                      api_key=None, base_url=None)
+            with mock.patch("builtins.input", side_effect=["", "", "https://new.example.test/v1", ""]), \
+                    mock.patch("getpass.getpass", return_value="new-fixture-key"), \
+                    mock.patch("memcal.llm.provider_status", return_value=(True, "ready")):
+                self.assertEqual(cli.cmd_setup(args), 0)
+            saved = config.load(home)
+            self.assertEqual(saved.openai_base_url, "https://new.example.test/v1")
+            self.assertEqual(saved.openai_api_key, "new-fixture-key")
+
+
 class TestACliBackendIsGivenTheSameDeadlineMemcalIsWaitingOut(unittest.TestCase):
     """`agy` runs its own five-minute clock and memcal was waiting fifteen.
 

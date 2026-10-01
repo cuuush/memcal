@@ -41,7 +41,7 @@ telegram = ["telethon>=1.36"]
 chat = ["slack_sdk>=3.27", "telethon>=1.36"]
 
 [project.scripts]
-memcal = "memcal.cli:main"
+memcal = "memcal.entrypoint:main"
 
 [build-system]
 requires = ["setuptools>=77"]
