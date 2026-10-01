@@ -3,8 +3,8 @@
 Every `MEMCAL_*` knob lives in `~/.memcal/.env` (one `key=value` per line) and is
 editable from the web UI's Settings tab, which writes that file, preserves
 hand-written lines, and applies immediately. Clearing a field restores the
-built-in default. `memcal setup` owns the provider/model subset; you own the
-rest.
+built-in default. `memcal setup` configures providers and sources; `--advanced`
+also exposes tuning settings.
 
 ## Precedence
 
@@ -16,8 +16,10 @@ the store.
 
 ## Settings
 
-`memcal setup` walks through these settings with saved defaults and one final change
-summary. Enter keeps a value, `?` shows its help, and `-` resets it. Use `--section`
+`memcal setup` asks for provider/model, iMessage connection, and disabled sources,
+with an optional credentials step. `--advanced` walks through all settings.
+Saved values are defaults and changes appear before saving; an unchanged rerun
+writes nothing. Enter keeps a value, `?` shows its help, and `-` resets it. Use `--section`
 to configure just `provider`, `imessage`, `brief`, `collect`, `dream`, `merge`,
 `publish`, or `credentials`. Source credentials are hidden while typing.
 

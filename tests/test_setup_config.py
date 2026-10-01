@@ -20,10 +20,10 @@ class TestSetupConfiguresMessagesAndOtherSettings(unittest.TestCase):
         self.home = Path(self.tmp.name)
         self.path = self.home / ".env"
 
-    def wizard(self, answers=None, *, section="all", password="fixture-password"):
+    def wizard(self, answers=None, *, section="all", password="fixture-password", advanced=False):
         answers = answers or {}
         args = argparse.Namespace(home=str(self.home), section=section, provider=None,
-                                  model=None, api_key=None, base_url=None)
+                                  model=None, api_key=None, base_url=None, advanced=advanced)
         prompts = []
 
         def answer(prompt):
@@ -46,7 +46,7 @@ class TestSetupConfiguresMessagesAndOtherSettings(unittest.TestCase):
         self.path.write_text("# personal\nSOME_SOURCE_TOKEN=keep-me\n")
         result, output, prompts = self.wizard({
             "Brief token cap [": "2500", "Disabled sources [": "slack,telegram",
-            "Bundles per request [": "8"})
+            "Bundles per request [": "8"}, advanced=True)
         cfg = config.load(self.home)
         self.assertEqual(result, 0)
         self.assertTrue(any(p.startswith("iMessage transport [") for p in prompts))
@@ -64,7 +64,7 @@ class TestSetupConfiguresMessagesAndOtherSettings(unittest.TestCase):
             "iMessage transport [": "2",
             "BlueBubbles server URL [": "https://messages.example.test",
             "Fall back to the local database [": "off",
-            "Where BlueBubbles runs [": "remote"}, section="imessage")
+            "Where BlueBubbles runs [": "remote"}, section="imessage", advanced=True)
         cfg = config.load(self.home)
         from memcal.sources.bluebubbles import BlueBubbles
         client = BlueBubbles(cfg)
@@ -101,7 +101,7 @@ class TestSetupConfiguresMessagesAndOtherSettings(unittest.TestCase):
     def test_declining_all_changes_preserves_the_file_byte_for_byte(self):
         original = "# personal\nMEMCAL_BRIEF_TOKEN_CAP=1800\n"
         self.path.write_text(original)
-        result, _, _ = self.wizard({"Brief token cap [": "2500", "Save?": "n"})
+        result, _, _ = self.wizard({"Brief token cap [": "2500", "Save?": "n"}, advanced=True)
         self.assertEqual(result, 0)
         self.assertEqual(self.path.read_text(), original)
 
@@ -141,6 +141,45 @@ class TestSetupConfiguresMessagesAndOtherSettings(unittest.TestCase):
         plan = settings.prepare(cfg, {"MEMCAL_BRIEF_TOKEN_CAP": "2500"})
         self.assertEqual(plan["MEMCAL_BRIEF_TOKEN_CAP"], ("2500", 2500))
         self.assertFalse(self.path.exists())
+
+
+class TestSetupEssentialsAndAccurateSummary(unittest.TestCase):
+    setUp = TestSetupConfiguresMessagesAndOtherSettings.setUp
+    wizard = TestSetupConfiguresMessagesAndOtherSettings.wizard
+    def test_default_wizard_has_only_essential_prompts(self):
+        result, output, prompts = self.wizard()
+        self.assertEqual(result, 0)
+        self.assertLessEqual(len(prompts), 5)
+        self.assertTrue(any(p.startswith("iMessage transport") for p in prompts))
+        self.assertTrue(any(p.startswith("Disabled sources") for p in prompts))
+        self.assertNotIn("Bundles per request", output)
+        self.assertNotIn("Brief token cap", output)
+        self.assertIn("None — no settings changed", output)
+
+    def test_enter_does_not_rewrite_saved_config_or_report_runtime_change(self):
+        original = "# saved\nMEMCAL_LLM_PROVIDER=codex\nSOME_SOURCE_TOKEN=keep\n"
+        self.path.write_text(original)
+        with mock.patch("memcal.cli.shutil.which", return_value="/fixture/bin/codex"):
+            _, output, _ = self.wizard()
+        self.assertEqual(self.path.read_text(), original)
+        self.assertNotIn("executable:", output)
+        self.assertIn("None — no settings changed", output)
+
+    def test_unchanged_credential_is_not_reported_as_updated(self):
+        original = "slack=same-fixture-token\n"
+        self.path.write_text(original)
+        _, output, _ = self.wizard(section="credentials", password=lambda p:
+                                   "same-fixture-token" if "SLACK_TOKEN" in p else "")
+        self.assertIn("None — no settings changed", output)
+        self.assertNotIn("updated", output)
+        self.assertEqual(self.path.read_text(), original)
+
+    def test_summary_reports_only_selected_source_change(self):
+        _, output, prompts = self.wizard({"Disabled sources [": "slack"})
+        summary = output.split("Changes:", 1)[1].split("saved", 1)[0]
+        self.assertIn("Disabled sources: (empty) → slack", summary)
+        self.assertNotIn("model:", summary)
+        self.assertEqual(sum(p.startswith("Save?") for p in prompts), 1)
 
 
 if __name__ == "__main__":
