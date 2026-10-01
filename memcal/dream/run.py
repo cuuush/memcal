@@ -10,6 +10,8 @@ from __future__ import annotations
 import contextlib
 import sqlite3
 import threading
+import sys
+import traceback
 from dataclasses import dataclass, field
 from datetime import timedelta
 
@@ -23,6 +25,7 @@ from . import live as live_stage
 from . import propose as propose_stage
 from . import merge as merge_stage
 from . import sweep as sweep_stage
+from . import diagnostics
 
 
 @dataclass
@@ -230,16 +233,62 @@ def dream(
 ) -> DreamResult:
     """Run one pass and record uncaught failures on its run row."""
     opened: list[int] = []
+    journal = diagnostics.Journal(cfg.home)
+    logging_errors: list[str] = []
+    outer_progress = progress
+    reported_errors: set[str] = set()
+
+    def report(event: str, data: dict) -> None:
+        if event == "error":
+            message = str(data.get("error") or "")
+            if message in reported_errors:
+                return
+            reported_errors.add(message)
+            print(f"dream {data.get('stage') or journal.stage}: {data.get('error')}",
+                  file=sys.stderr)
+        try:
+            journal.record(event, data, opened[0] if opened else None)
+        except OSError as exc:
+            message = f"dream logging failed: {journal.path}: {exc}"
+            if message not in logging_errors:
+                logging_errors.append(message)
+                if outer_progress:
+                    outer_progress("error", {"stage": journal.stage, "error": message})
+        if outer_progress:
+            outer_progress(event, data)
+
     try:
-        return _dream(conn, cfg, opened=opened, mode=mode, model=model, limit=limit,
+        result = _dream(conn, cfg, opened=opened, mode=mode, model=model, limit=limit,
                        dry_run=dry_run, skip_sweep=skip_sweep, redo=redo,
-                       progress=progress, replay=replay)
+                       progress=report, replay=replay)
+        for error in result.errors:
+            report("error", {"stage": diagnostics.error_stage(error) or journal.stage,
+                             "error": error})
+        for note in result.notes:
+            report("note", {"note": note})
+        report("finished", {"state": "failed" if result.errors or logging_errors else "done",
+                            "note": result.report()})
+        result.errors.extend(logging_errors)
+        if logging_errors and opened:
+            conn.execute("UPDATE runs SET error = ? WHERE id = ?",
+                         ("; ".join(result.errors), opened[0]))
+            conn.commit()
+        return result
     except BaseException as exc:
+        message = f"{journal.stage}: {type(exc).__name__}: {exc}"
+        print(f"dream failed — {message}\nDiagnostics: {journal.path}", file=sys.stderr)
+        report("error", {"stage": journal.stage, "error": message,
+                         "traceback": traceback.format_exc()})
         if opened:
             with contextlib.suppress(sqlite3.Error):
                 conn.rollback()
-            _finish(conn, opened[0], DreamResult(run_id=opened[0]),
-                    error=f"{type(exc).__name__}: {exc}"[:500])
+            try:
+                conn.execute("UPDATE runs SET finished_at = ?, error = ? WHERE id = ?",
+                             (db.now(), message, opened[0]))
+                conn.commit()
+            except sqlite3.Error as save_error:
+                print(f"dream logging failed: cannot close run #{opened[0]}: {save_error}",
+                      file=sys.stderr)
         raise
 
 
@@ -471,6 +520,8 @@ def _dream(
                  f"wave {index} of {waves} · {len(batch)} bundles", wave=index)
         got, problems, recovered = propose_stage.propose_all(
             client, conn, cfg, batch, run_id=run_id, progress=track, replay=replay)
+        for problem in problems:
+            progress("error", {"stage": "propose", "error": problem})
         if breaker.opened:
             # The provider is down, not slow: stop launching waves. This batch's
             # partial successes stay queued with the failures — re-read next pass

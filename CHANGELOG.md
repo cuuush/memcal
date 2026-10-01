@@ -2,11 +2,21 @@
 
 ### Added
 
+- Every dream saves stage progress, diagnostic errors, and crash tracebacks locally.
+  Open a run's Saved dream log in the web UI or use `memcal trace <run>` to inspect
+  failures after restart. Logging failures print the affected path and error.
+
 - `memcal update` refreshes checkout or pip installations, repairs dependencies and
   the checkout launcher, and verifies that the CLI loads. Checkout updates preserve
   local changes and refuse divergent commits.
 
 ### Fixed
+
+- Dream question review recovers a missing `q:` prefix only for an exact candidate
+  and version match, and reports the repair. A failed follow-up retains the initial
+  paid reply; truncated question repairs are rejected.
+- Dream validation errors with successful writes are shown as partial runs, and
+  question coverage errors are attributed to propose rather than sweep.
 
 - Setup no longer reports unchanged credentials or automatic executable discovery
   as edits. An unchanged rerun leaves the configuration file untouched.

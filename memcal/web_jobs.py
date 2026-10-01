@@ -5,6 +5,8 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
+import sys
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 
 from . import archive, db, identity, threads
@@ -186,14 +188,26 @@ def start_job(kind: str, work, cfg: Config) -> dict:
         _JOBS[job_id] = job
 
     def run() -> None:
-        conn = db.open_db(cfg.db_path)
+        conn = None
         try:
+            conn = db.open_db(cfg.db_path)
             job.result = work(conn, cfg, job) or {}
         except Exception as exc:
             job.error = f"{type(exc).__name__}: {exc}"
             job.say(f"failed: {job.error}")
+            print(f"{kind} job failed: {job.error}", file=sys.stderr)
+            if kind == "dream":
+                from .dream import diagnostics
+                journal = diagnostics.Journal(cfg.home)
+                try:
+                    journal.record("error", {"stage": "web job", "error": job.error,
+                                             "traceback": traceback.format_exc()})
+                    job.say(f"Saved failure diagnostics: {journal.path}")
+                except OSError as logging_error:
+                    job.say(f"Saving failure diagnostics failed: {journal.path}: {logging_error}")
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
             # Under the lock, and bumped — like every other mutator on `_Job`. Set bare,
             # it changed the flag without waking anybody, so `wait_for_change` returned
             # only on its 25-second timeout and the button stayed disabled and the bar
@@ -391,6 +405,9 @@ def dream_work(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
 
     def progress(event: str, data: dict) -> None:
         nonlocal request_count
+        if event == "error":
+            job.say(f"{data.get('stage') or 'dream'}: {data.get('error')}")
+            return
         if event == "stage":
             stage = data.get("stage", "")
             state = data.get("state", "")

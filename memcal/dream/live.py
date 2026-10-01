@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
+import sys
 from pathlib import Path
 
 from .. import db
@@ -48,12 +49,16 @@ class LiveFeed:
     def _write(self, fn) -> None:
         try:
             conn = _conn(self.db_path)
-        except Exception:
+        except Exception as exc:
+            print(f"dream live logging failed: {self.db_path}: {type(exc).__name__}: {exc}",
+                  file=sys.stderr)
             return
         try:
             fn(conn)
             conn.commit()
-        except Exception:
+        except Exception as exc:
+            print(f"dream live logging failed: run #{self.run_id}: {type(exc).__name__}: {exc}",
+                  file=sys.stderr)
             with contextlib.suppress(Exception):
                 conn.rollback()
         finally:
