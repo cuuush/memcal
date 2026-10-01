@@ -36,6 +36,7 @@ class TestCheckoutUpdates(unittest.TestCase):
         self.git(self.author, "add", ".")
         self.git(self.author, "commit", "-m", "initial")
         self.git(self.author, "push", "-u", "origin", "main")
+        self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")
         self.git(self.base, "clone", "--branch", "main", str(self.remote), str(self.checkout))
         self.git(self.checkout, "config", "user.name", "Fixture")
         self.git(self.checkout, "config", "user.email", "fixture@example.test")
@@ -95,6 +96,14 @@ class TestCheckoutUpdates(unittest.TestCase):
         with self.assertRaisesRegex(update.UpdateError, "no remote tracking branch"):
             self.refresh()
         self.assertEqual(self.git(self.checkout, "branch", "--show-current"), "local-topic")
+
+    def test_default_branch_without_upstream_reconnects_and_updates(self):
+        self.git(self.checkout, "branch", "--unset-upstream")
+        self.publish()
+        self.refresh()
+        self.assertEqual(self.git(self.checkout, "rev-parse", "--abbrev-ref",
+                                 "--symbolic-full-name", "@{upstream}"), "origin/main")
+        self.assertEqual((self.checkout / "memcal/cli.py").read_text(), "REVISION = 2\n")
 
     def test_detached_checkout_gets_an_actionable_error(self):
         self.git(self.checkout, "checkout", "--detach")
