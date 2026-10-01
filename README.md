@@ -36,7 +36,12 @@ memcal doctor
 memcal brief
 ```
 
-Run `memcal setup` again to switch providers or models. Enter keeps each saved
+Run `memcal update` to update your installation. A checkout follows its Git
+upstream and refreshes dependencies and its launcher; a pip installation upgrades
+to the latest published release. Local edits or unpublished commits stop a checkout
+update so you can resolve them first.
+
+Run `memcal setup` again to switch providers, models, API URLs, or API keys. Enter keeps each saved
 choice; the wizard shows a change summary before saving. On macOS, iMessage reads
 the local Messages database by default and needs Full Disk Access for the process
 running Memcal. See [iMessage setup](docs/sources/imessage.md) to use BlueBubbles.
