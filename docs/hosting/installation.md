@@ -53,7 +53,9 @@ memcal update
 For a checkout, this fetches its configured upstream, advances it with a fast-forward,
 and refreshes dependencies and the existing launcher with the same Python interpreter.
 Local edits, unpublished commits, or a development worktree stop the update with an
-explanation. It does not run ingestion or change your saved provider settings.
+explanation. A default branch missing its upstream is reconnected automatically;
+other branches require explicit tracking. It does not run ingestion or change your
+saved provider settings.
 
 For a pip installation, it upgrades Memcal to the latest published release using the
 Python that runs the command. Restart any running UI or agent sessions afterward.

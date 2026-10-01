@@ -53,18 +53,33 @@ def _source_update(root: Path) -> None:
                           "branch before updating") from exc
     tracking = git("for-each-ref", "--format=%(upstream:remotename) %(upstream:remoteref)",
                    f"refs/heads/{branch}").split()
-    if len(tracking) != 2 or tracking[0] == ".":
+    reconnect = not tracking
+    remotes = git("remote").splitlines() if reconnect else []
+    if reconnect and ("origin" in remotes or len(remotes) == 1):
+        remote = "origin" if "origin" in remotes else remotes[0]
+    elif len(tracking) == 2 and tracking[0] != ".":
+        remote = tracking[0]
+    else:
         raise UpdateError(f"{branch} has no remote tracking branch; configure its "
                           "upstream before updating")
-    remote = tracking[0]
     print(f"Fetching {remote}…", flush=True)
     git("fetch", "--", remote)
-    upstream = git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+    if reconnect:
+        git("remote", "set-head", remote, "--auto")
+        upstream = git("symbolic-ref", "--quiet", "--short", f"refs/remotes/{remote}/HEAD")
+        if upstream != f"{remote}/{branch}":
+            raise UpdateError(f"{branch} has no remote tracking branch and is not the "
+                              "remote default; configure its upstream before updating")
+    else:
+        upstream = git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
     ahead, behind = map(int, git("rev-list", "--left-right", "--count",
                                 f"HEAD...{upstream}").split())
     if ahead:
         raise UpdateError(f"{branch} has {ahead} local commit(s) not on {upstream}; "
                           "push or reconcile them before updating")
+    if reconnect:
+        git("branch", f"--set-upstream-to={upstream}", branch)
+        print(f"Tracking {upstream}", flush=True)
     old = git("rev-parse", "--short", "HEAD")
     if behind:
         git("merge", "--ff-only", upstream)
