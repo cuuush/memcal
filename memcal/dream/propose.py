@@ -666,6 +666,14 @@ def _question_gaps(payload: dict, reviews: dict[str, dict]) -> tuple[dict[str, l
             if not isinstance(action, dict):
                 continue
             key = str(action.get("key") or "")
+            canonical = "q:" + key
+            if (key not in expected and not key.startswith("q:") and canonical in expected
+                    and str(action.get("version") or "") == expected[canonical].version):
+                action["key"] = canonical
+                payload.setdefault("_coverage_notes", []).append(
+                    f"{bid} repaired question key {key!r} → {canonical!r} "
+                    "(exact candidate and version match)")
+                key = canonical
             if not key and action.get("action") == "ask":
                 kept.append(action)
                 continue
@@ -749,6 +757,9 @@ def _repair_question_coverage(client: CompletionClient, cfg: Config, prefix: str
                {"role": "user", "content": ask}],
     )
     repair_payload = repair.data if isinstance(repair.data, dict) else {}
+    if repair.truncated:
+        raise _truncated(cfg, group, min(6000, 700 + 500 * sum(map(len, missing.values()))),
+                         "question-repair", [Turn("question-repair", repair, repair_payload)])
     for entry in repair_payload.get("diffs") or []:
         if not isinstance(entry, dict):
             continue
@@ -1261,8 +1272,12 @@ def propose_group(client: CompletionClient, cfg: Config, prefix: str,
     payload = reply.data if isinstance(reply.data, dict) else {}
     if reply.truncated:
         raise _truncated(cfg, group, ceiling, "", [Turn("", reply, payload)])
-    payload, repair = _repair_question_coverage(
-        client, cfg, prefix, body, group, payload, reply, reviews or {})
+    try:
+        payload, repair = _repair_question_coverage(
+            client, cfg, prefix, body, group, payload, reply, reviews or {})
+    except Exception as exc:
+        exc.turns = [Turn("", reply, payload), *getattr(exc, "turns", [])]
+        raise
     turns = [Turn("", reply, payload)]
     if repair:
         turns.append(repair)
@@ -1330,8 +1345,12 @@ def _propose_staged(client: CompletionClient, cfg: Config, prefix: str, group: l
         merged["diffs"].extend(d for d in (payload.get("diffs") or [])
                                if isinstance(d, dict))
     if done:
-        merged, repair = _repair_question_coverage(
-            client, cfg, prefix, opening, group, merged, done[-1].reply, reviews)
+        try:
+            merged, repair = _repair_question_coverage(
+                client, cfg, prefix, opening, group, merged, done[-1].reply, reviews)
+        except Exception as exc:
+            exc.turns = [*done, *getattr(exc, "turns", [])]
+            raise
         if repair:
             done.append(repair)
         merged, name_repair = _repair_thread_names(
@@ -1704,6 +1723,7 @@ def propose_all(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
                 continue
             _absorb(conn, cfg, prefix, group, suffix, outcome, good, errors,
                     run_id=run_id)
+            notes.extend(outcome[1].pop("_coverage_notes", []))
         return again
 
     # A truncated packed request is not a failed conversation, it is a failed *batch* —

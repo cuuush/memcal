@@ -12,6 +12,7 @@ import json
 import os
 import sqlite3
 import tempfile
+import sys
 from pathlib import Path
 
 from . import db
@@ -95,7 +96,9 @@ def save(home: Path, *, reply, stage: str, run_id: int | None = None,
         target.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write(target, json.dumps(payload, indent=2, ensure_ascii=False,
                                          default=str))
-    except OSError:
+    except OSError as exc:
+        print(f"call logging failed: cannot save {target}: {type(exc).__name__}: {exc}",
+              file=sys.stderr)
         return None
     return target
 
@@ -132,7 +135,9 @@ def save_failure(home: Path, *, run_id: int | None, stage: str, label: str,
         target.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write(target, json.dumps(payload, indent=2, ensure_ascii=False,
                                          default=str))
-    except OSError:
+    except OSError as exc:
+        print(f"call logging failed: cannot save {target}: {type(exc).__name__}: {exc}",
+              file=sys.stderr)
         return None
     return target
 

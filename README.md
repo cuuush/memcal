@@ -51,6 +51,12 @@ Use `memcal setup --section imessage` (or `provider`, `brief`, `collect`, `dream
 the local Messages database by default and needs Full Disk Access for the process
 running Memcal. See [iMessage setup](docs/sources/imessage.md) to use BlueBubbles.
 
+Dream diagnostics persist for CLI, web, and scheduled runs. Open a run in the web
+UI and expand **Saved dream log** for stage progress and crash tracebacks; model
+calls retain their prompts and replies. `memcal trace <run>` also prints saved
+errors. Logs live under `~/.memcal/calls/run-XXXX/dream.jsonl`; a failure before
+the run opens is saved under `calls/live/` and prints its path.
+
 For a service with an OpenAI-compatible chat-completions endpoint, configure its
 base URL, model ID, and API key explicitly:
 

@@ -1558,8 +1558,15 @@ def cmd_trace(args) -> int:
     # for a run number, which is what doctor now points at.
     run_id = int(needle) if needle.isdigit() else None
     failures = calls.failures_for_run(cfg.home, run_id) if run_id is not None else []
+    from .dream import diagnostics
+    journal = diagnostics.read(cfg.home, run_id) if run_id is not None else []
+    for entry in journal:
+        if entry.get("error"):
+            print(f"{entry.get('at', '')} {entry.get('stage', 'dream')}: {entry['error']}")
+            if entry.get("traceback"):
+                print(entry["traceback"])
 
-    if not rows and not failures:
+    if not rows and not failures and not journal:
         print("no calls recorded yet — run `memcal dream` first")
         return 1
 

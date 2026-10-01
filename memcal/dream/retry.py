@@ -31,7 +31,10 @@ def outcome(row) -> str:
     if (row["diffs"] or 0) <= 0 and (row["bundles"] or 0) > 0 and row["error"]:
         return FAILED
     # NULL predates failed-call tracking and is not evidence of failure.
-    if (row["failed_calls"] or 0) > 0:
+    from . import diagnostics
+    validation_failed = any(diagnostics.error_stage(part) for part in
+                            str(row["error"] or "").split("; "))
+    if (row["failed_calls"] or 0) > 0 or validation_failed:
         return PARTIAL
     return OK
 
@@ -94,7 +97,13 @@ def resume_source(conn: sqlite3.Connection, home) -> dict | None:
     stages = [r[0] for r in conn.execute(
         "SELECT stage FROM generations WHERE run_id = ? ORDER BY id", (run_id,))]
     last = stages[-1] if stages else ""
-    if wrote:
+    from . import diagnostics
+    recorded_stage = next((e.get("stage") for e in diagnostics.read(home, run_id)
+                           if e.get("event") == "error" and e.get("stage")), "")
+    known_stage = recorded_stage or diagnostics.error_stage(str(row["error"] or ""))
+    if known_stage:
+        stage = known_stage
+    elif wrote:
         stage = "sweep or later"
     elif last == "sweep" or last == "wakes":
         stage = last
