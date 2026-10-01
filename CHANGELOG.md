@@ -27,6 +27,10 @@
 
 ### Changed
 
+- `memcal setup` now covers iMessage transport and BlueBubbles connections, source
+  controls and credentials, brief and dream settings, merge settings, and publishing.
+  Enter keeps saved values; `--section` jumps to one area. All changes are validated
+  and summarized before one confirmed save.
 - Setup marks the current provider and lets you keep or replace saved API URLs and
   keys interactively. The installer stops on dependency failures instead of leaving
   a broken command behind.

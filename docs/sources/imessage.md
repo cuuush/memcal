@@ -2,6 +2,11 @@
 
 iMessage can be read two ways. Pick one with `MEMCAL_IMESSAGE_BACKEND`:
 
+Run `memcal setup --section imessage` to choose the local database or BlueBubbles.
+Choosing BlueBubbles also prompts for its server URL, hidden password, fallback,
+server location, and automatic startup. Enter keeps saved values; all changes are
+confirmed together before saving.
+
 - **`bluebubbles`**: read through your [BlueBubbles](https://bluebubbles.app)
   server — groups, participants, attachments, and clean message text, and the server
   can run on another Mac. Set the password with `bluebubbles=` and, for a non-default

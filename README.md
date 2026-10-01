@@ -41,8 +41,11 @@ upstream and refreshes dependencies and its launcher; a pip installation upgrade
 to the latest published release. Local edits or unpublished commits stop a checkout
 update so you can resolve them first.
 
-Run `memcal setup` again to switch providers, models, API URLs, or API keys. Enter keeps each saved
-choice; the wizard shows a change summary before saving. On macOS, iMessage reads
+Run `memcal setup` to configure models, iMessage transport and BlueBubbles connections,
+source controls, brief and dream settings, and publishing. Enter keeps saved values;
+`?` explains a setting and `-` resets it. The wizard shows a change summary before saving.
+Use `memcal setup --section imessage` (or `provider`, `brief`, `collect`, `dream`,
+`merge`, `publish`, `credentials`) to jump to one section. On macOS, iMessage reads
 the local Messages database by default and needs Full Disk Access for the process
 running Memcal. See [iMessage setup](docs/sources/imessage.md) to use BlueBubbles.
 

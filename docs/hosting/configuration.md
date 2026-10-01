@@ -16,6 +16,11 @@ the store.
 
 ## Settings
 
+`memcal setup` walks through these settings with saved defaults and one final change
+summary. Enter keeps a value, `?` shows its help, and `-` resets it. Use `--section`
+to configure just `provider`, `imessage`, `brief`, `collect`, `dream`, `merge`,
+`publish`, or `credentials`. Source credentials are hidden while typing.
+
 ### Provider
 
 | Key | Default | Meaning |
