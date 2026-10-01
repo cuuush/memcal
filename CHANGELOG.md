@@ -8,6 +8,9 @@
 
 ### Fixed
 
+- Setup no longer reports unchanged credentials or automatic executable discovery
+  as edits. An unchanged rerun leaves the configuration file untouched.
+
 - Checkout launchers use their configured source even when invoked from another
   Memcal checkout.
 - Merging events with a shared conversation preserves the earliest review baseline.
@@ -27,8 +30,9 @@
 
 ### Changed
 
-- `memcal setup` now covers iMessage transport and BlueBubbles connections, source
-  controls and credentials, brief and dream settings, merge settings, and publishing.
+- `memcal setup` focuses on provider/model, iMessage transport and BlueBubbles
+  connections, and source selection, with optional credentials. `--advanced`
+  exposes model tuning, brief, dream, merge, and publishing settings.
   Enter keeps saved values; `--section` jumps to one area. All changes are validated
   and summarized before one confirmed save.
 - Setup marks the current provider and lets you keep or replace saved API URLs and

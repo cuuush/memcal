@@ -89,7 +89,7 @@ def _credential(cfg: Config, values: dict[str, str], names: tuple[str, ...], lab
         return
 
 
-def _imessage(cfg: Config, values: dict[str, str]) -> None:
+def _imessage(cfg: Config, values: dict[str, str], *, advanced: bool = False) -> None:
     print("\niMessage")
     provider = values.get("MEMCAL_LLM_PROVIDER", cfg.llm_provider)
     backend_setting = settings.BY_KEY[IMESSAGE_KEYS[0]]
@@ -114,25 +114,29 @@ def _imessage(cfg: Config, values: dict[str, str]) -> None:
             replace_value(cfg, values, URL_NAMES, url)
         break
     _credential(cfg, values, PASSWORD_NAMES, "BlueBubbles password", required=True)
-    for key in IMESSAGE_KEYS[1:]:
+    for key in IMESSAGE_KEYS[1:] if advanced else ():
         setting = settings.BY_KEY[key]
         value = prompt(setting, settings.current_text(cfg, setting), provider)
         if settings.coerce(setting, value, provider=provider)[1] != getattr(cfg, setting.attr):
             values[key] = value
 
 
-def collect(cfg: Config, section: str, values: dict[str, str]) -> None:
+def collect(cfg: Config, section: str, values: dict[str, str], *, advanced: bool = False) -> None:
     provider = values.get("MEMCAL_LLM_PROVIDER", cfg.llm_provider)
     backend = llm.PROVIDER_COMMANDS.get(provider)
     if section in {"all", "imessage", "collect"}:
-        _imessage(cfg, values)
+        _imessage(cfg, values, advanced=advanced)
     covered = {"MEMCAL_LLM_PROVIDER", "MEMCAL_PROPOSE_MODEL", "MEMCAL_OPENAI_BASE_URL"}
     for group in settings.GROUPS:
         if section != "all" and section != group.id:
             continue
+        if not advanced and ((section == "all" and group.id != "collect") or section == "provider"):
+            continue
         print(f"\n{group.title}")
         for setting in settings.SETTINGS:
             if setting.group != group.id or setting.key in covered or setting.key in IMESSAGE_KEYS:
+                continue
+            if section == "all" and not advanced and setting.key != "MEMCAL_DISABLED_SOURCES":
                 continue
             if setting.key.endswith("_COMMAND") and (not backend or setting.key != backend.env):
                 continue
@@ -174,12 +178,16 @@ def confirm(cfg: Config, values: dict[str, str]) -> dict[str, str] | None:
         if key in planned or (not value and _normalized(key) in aliases and
                              key not in CREDENTIAL_NAMES and key != URL_NAMES[0]):
             continue
+        names = CREDENTIAL_NAMES.get(key, URL_NAMES if key == URL_NAMES[0] else (key,))
+        if value == (cfg.secret(*names) or ""):
+            continue
         count += 1
         if key == URL_NAMES[0]:
             print(f"  BlueBubbles server URL: {cfg.secret(*URL_NAMES) or 'http://localhost:1234'} → {value}")
         else:
             print(f"  {key}: {'updated' if value else 'cleared'}")
     if not count:
-        print("  None")
+        print("  None — no settings changed.")
+        return {}
     answer = input("Save? [Y/n]: ").strip().lower()
     return normalized if answer in {"", "y", "yes"} else None

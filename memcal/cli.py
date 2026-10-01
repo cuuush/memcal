@@ -226,12 +226,13 @@ def _cmd_setup(args) -> int:
     from . import setup_config
     cfg = config.load(getattr(args, "home", None))
     section = getattr(args, "section", "all")
+    advanced = getattr(args, "advanced", False)
     if section not in {"all", "provider"}:
         if any(getattr(args, key, None) for key in ("provider", "model", "api_key", "base_url")):
             raise settings.SettingsError("provider flags require --section provider or all")
         print("Memcal setup — Enter keeps the value shown; '?' explains it; '-' resets it.")
         values = {}
-        setup_config.collect(cfg, section, values)
+        setup_config.collect(cfg, section, values, advanced=advanced)
         planned = setup_config.confirm(cfg, values)
         if planned is None:
             print("Setup canceled; nothing saved.")
@@ -267,7 +268,7 @@ def _cmd_setup(args) -> int:
     if backend:
         # launchd may not inherit the shell's PATH.
         resolved = shutil.which(backend.command(cfg))
-        if resolved:
+        if resolved and (not guided or provider != cfg.llm_provider):
             values[backend.env] = resolved
     if provider == "openrouter":
         key = args.api_key or cfg.api_key
@@ -295,10 +296,13 @@ def _cmd_setup(args) -> int:
         if key != cfg.openai_api_key or args.api_key:
             values["OPENAI_COMPAT_API_KEY"] = key
     if guided:
-        setup_config.collect(cfg, section, values)
+        setup_config.collect(cfg, section, values, advanced=advanced)
         values = setup_config.confirm(cfg, values)
         if values is None:
             print("Setup canceled; nothing saved.")
+            return 0
+        if not values:
+            print("No settings changed.")
             return 0
     else:
         planned = settings.prepare(cfg, {key: value for key, value in values.items()
@@ -2293,7 +2297,8 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("setup", help="configure providers, sources, and other settings")
     from .setup_config import SECTIONS
     s.add_argument("--section", choices=SECTIONS, default="all",
-                   help="configure just one section (default: all)")
+                   help="configure one section (default: essential setup)")
+    s.add_argument("--advanced", action="store_true", help="include tuning settings")
     s.add_argument("--provider", choices=tuple(llm.PROVIDER_DEFAULT_MODELS),
                    help="skip the provider prompt")
     s.add_argument("--model", help="provider-native model id")
