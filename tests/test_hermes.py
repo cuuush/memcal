@@ -142,7 +142,7 @@ class TestHermesProvider(unittest.TestCase):
             "status": "confirmed"})
         out = json.loads(provider.handle_tool_call(
             "memcal_update", {"which": "Montana", "until": "2026-08-23"}))
-        self.assertIn("until Sun Aug 23", out["row"])
+        self.assertIn("Aug 15–23", out["row"])
         self.assertIn("until: 2026-08-16 → 2026-08-23", out["changed"])
 
     def test_a_read_handle_targets_that_exact_duplicate_title_row(self):

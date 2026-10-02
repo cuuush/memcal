@@ -41,6 +41,7 @@ def dream_preview(conn: sqlite3.Connection, cfg: Config, *, limit: int = 0) -> d
     taken = sum(len(b.spool_ids) for b in bundles)
     return {
         "model": cfg.propose_model,
+        "provider": cfg.llm_provider,
         "prefix": {"text": prefix, "tokens": prefix_tok,
                    "cache_min": llm.CACHE_MIN.get(cfg.propose_model, 1024)},
         "bundles": [cards[b.entity] for b in bundles],

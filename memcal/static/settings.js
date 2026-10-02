@@ -375,6 +375,7 @@ function renderGroups() {
   let shown = 0;
   for (const group of page.groups) {
     const rows = group.settings.filter(s =>
+      !["MEMCAL_LLM_PROVIDER", "MEMCAL_PROPOSE_MODEL"].includes(s.key) &&
       (!onlyCustom || s.custom || pending.has(s.key))
       && (!q || `${s.label} ${s.key} ${s.help} ${s.attr}`.toLowerCase().includes(q)));
     if (!rows.length) continue;
@@ -415,9 +416,19 @@ function renderRuntime() {
   head.title = p.detail;
   detail.style.margin = "0";
   head.append(pill, detail);
-  if (p.default_model)
-    head.append(el("span", "setflag", `default model: ${p.default_model}`));
+
   pcard.append(head);
+  for (const key of ["MEMCAL_LLM_PROVIDER", "MEMCAL_PROPOSE_MODEL"]) {
+    const setting = rowFor(key);
+    if (setting) {
+      const row = settingRow(setting);
+      if (key === "MEMCAL_PROPOSE_MODEL") {
+        row.querySelector(".setlabel > span").textContent = "Dream model";
+        for (const input of row.querySelectorAll("input, select")) input.setAttribute("aria-label", "Dream model");
+      }
+      pcard.append(row);
+    }
+  }
   const m = page.models || {};
   if ((m.known || []).length) {
     pcard.append(el("p", "note", `${m.known.length} models available`));
@@ -440,8 +451,8 @@ function renderRuntime() {
     grid.append(el("div", "setpathk", k), el("div", "setpathv", v));
   }
   scard.append(grid);
-  wrap.append(pcard, scard);
-  box.append(wrap);
+  wrap.append(pcard);
+  box.append(wrap, scard);
   $("#setfile").textContent = page.env_file;
 }
 

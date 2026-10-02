@@ -81,10 +81,10 @@ function renderTiles(p) {
     : "";
   $("#dreamnote").textContent = p.cost.priced
     ? `Est. $${p.cost.input} input · up to $${p.cost.output_ceiling} output`
-    : "Uses model quota · price unavailable";
+    : p.provider === "codex" ? "Uses Codex usage" : `Uses ${p.provider || "model"} usage`;
   // The count line belongs to renderBundles now — it has to say how many the filter is
   // showing, and two writers of one element means whichever ran last wins.
-  $("#dream").disabled = !p.bundles.length;
+  $("#dream").disabled = passRunning;
 }
 
 async function retryTarget(p) {
@@ -177,17 +177,8 @@ function renderWarning(p) {
 
 function renderPrefix(p) {
   const card = $("#dprefix"); card.innerHTML = "";
-  const short = p.prefix.tokens < p.prefix.cache_min;
-  card.append(el("div", "note",
-    `Every request opens with this same ${nf(p.prefix.tokens)}-token preamble — today's date, `
-    + `the memcal window, open to-dos, the wiki index, and known identities. It is marked cacheable`
-    + (!p.cost.cache ? `, but this model endpoint does not support prompt caching.`
-      : short ? `, but it is under the ${nf(p.prefix.cache_min)}-token minimum, so it will not cache.`
-             : `, and the first ${p.cost.cache_misses} request(s) fire together against an empty `
-               + `cache, so each pays to write it (${p.cost.priced ? "$" + p.cost.prefix_now : "?"} `
-               + `rather than ${p.cost.priced ? "$" + p.cost.prefix_warmed : "?"} if one warmed it first).`)));
   const d = el("details");
-  d.append(el("summary", null, "read the preamble as the model gets it"));
+  d.append(el("summary", null, `Shared context · ${nf(p.prefix.tokens)} tokens`));
   const pre = el("pre"); pre.textContent = p.prefix.text;
   d.append(pre);
   card.append(d);
@@ -195,7 +186,7 @@ function renderPrefix(p) {
 
 function renderRequests(p) {
   const box = $("#dreqs"); box.innerHTML = "";
-  if (!p.requests.length) { box.innerHTML = '<div class="empty">nothing to send</div>'; return; }
+  if (!p.requests.length) { box.innerHTML = '<p class="note">No queued messages. Collect messages to prepare the next Dream.</p>'; return; }
   for (const r of p.requests) {
     const hot = p.budget.at.includes(r.max_tokens);
     const c = el("div", "req" + (hot ? " hot" : ""));

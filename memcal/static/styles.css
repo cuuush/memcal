@@ -988,3 +988,33 @@
 
   #tracebody .sourcerow { padding:12px 16px; font:14px/1.65 var(--sans); overflow-wrap:anywhere; }
   #tracebody .sourcewho { display:block; margin:0 0 4px; font-size:11px; }
+
+  .setruntime { display:block; }
+  .storage-details { margin:12px 0 24px; padding:12px 16px; }
+  #setruntime > .storage-details { margin-bottom:12px; }
+  .wiki-evidence { margin-top:10px; font-size:12px; }
+  .wiki-evidence > summary { cursor:pointer; color:var(--ink-3); }
+  .dream-actions { display:flex; flex-direction:column-reverse; gap:10px; }
+  .dream-actions > .card { padding:0; border:0; background:none; }
+  .dream-actions > .card:last-child .row { display:block; }
+  #dream { width:100%; padding:14px 20px; font-size:16px; border-radius:10px; text-align:left;
+    background:linear-gradient(115deg,var(--pass),#315da0); box-shadow:0 6px 24px rgb(49 93 160 / .15); }
+  #dream span { float:right; }
+  #dreamnote { display:block; margin:8px 2px; font-size:12px; }
+  #collect { padding:7px 12px; font-size:12px; background:none; border-color:var(--line-soft); }
+  #dream-preview { padding:14px 18px; }
+  #dream-preview > h3 { margin-top:16px !important; }
+  #dprefix { margin-top:16px; }
+  #dprefix summary { cursor:pointer; font-size:13px; }
+  .runs-table td:last-child .flag { display:none; }
+
+  .setruntime .setkey, .setruntime .sethelp, .setruntime .setmeta { display:none; }
+  .setruntime .setrow { grid-template-columns:140px minmax(0,1fr); padding:16px 0; }
+  @media(max-width:600px) { .setruntime .setrow { grid-template-columns:1fr; } }
+
+  #runs td, #view-runs th { padding:12px 10px; }
+  #runs td:nth-child(2), #runs td:nth-child(4) { white-space:nowrap; }
+
+  .setmain, .setctl { min-width:0; }
+  .setmeta { overflow-wrap:anywhere; }
+  @media(max-width:600px) { .setrow, .setruntime .setrow { grid-template-columns:minmax(0,1fr); } }

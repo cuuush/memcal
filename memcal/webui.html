@@ -114,7 +114,7 @@
       </div>
       <div class="card">
         <div class="row">
-          <button class="btn go" id="dream" disabled>Run Dream</button>
+          <button class="btn go" id="dream">Run Dream <span aria-hidden="true">→</span></button>
           <span class="note" id="dreamnote"></span>
         </div>
         <div class="prog" hidden></div>
@@ -126,11 +126,11 @@
     <div id="dwarn"></div>
 
 <details class="disclosure" id="dream-preview"><summary>Input preview</summary>
-    <h2>Context sent to the model</h2>
-    <div class="card" id="dprefix"></div>
+
+    <div id="dprefix"></div>
 
     <h3 style="font-size:13px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.07em;margin:22px 0 10px">
-      Requests</h3>
+      Planned requests</h3>
     <div class="reqs" id="dreqs"></div>
 
     <!-- Closed, and scrolling inside itself when open. A real pass is a hundred-odd
