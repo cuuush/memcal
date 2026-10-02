@@ -9,6 +9,19 @@ from datetime import date, timedelta
 
 from . import db
 
+def date_phrase(start: str, end: str | None = None) -> str:
+    """Compact calendar date or inclusive date range."""
+    first = db.parse_date(start)
+    if not end or end <= start:
+        return first.strftime("%a %b %-d")
+    last = db.parse_date(end)
+    if first.year != last.year:
+        return f"{first.strftime('%b %-d, %Y')}–{last.strftime('%b %-d, %Y')}"
+    if first.month == last.month:
+        return f"{first.strftime('%b %-d')}–{last.day}"
+    return f"{first.strftime('%b %-d')}–{last.strftime('%b %-d')}"
+
+
 KINDS = ("commitment", "availability", "opportunity", "observed")
 STATUSES = ("mentioned", "tentative", "confirmed", "declined", "happened")
 MATCH_WINDOW_DAYS = 10
@@ -177,7 +190,7 @@ class Event:
         """Render one row; overview mode omits location and notes for brevity."""
         bits = []
         if show_date:
-            bits.append(db.parse_date(self.date).strftime("%a %b %-d"))
+            bits.append(date_phrase(self.date, self.until))
         head = self.title
         platform = ""
         if overview:
@@ -192,7 +205,7 @@ class Event:
             stamp = friendly_time(self.time)
             if stamp and stamp.lower() not in head.lower():
                 head += f", {stamp}"
-        if self.until and self.until > self.date:
+        if not show_date and self.until and self.until > self.date:
             head += f" (until {db.parse_date(self.until).strftime('%a %b %-d')})"
         bits.append(head)
         tail = [word for word in (self.plain_state(),) if word]

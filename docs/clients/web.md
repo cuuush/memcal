@@ -4,18 +4,23 @@
 memcal ui
 ```
 
-Listens on `http://127.0.0.1:8765` (loopback only). Eight tabs:
+Listens on `http://127.0.0.1:8765` (loopback only). Opens on Memory.
 
-| Tab | Purpose |
+| Page | Purpose |
 |---|---|
-| Gate | Post-gate volume — waiting, already read, everything; by conversation or flat |
-| Chats | Per-conversation stats; muting keeps archive rows, stops model spend |
-| Dream | Collect (free) → preview bundles → run (spends money); retry failed runs |
-| Senders | Email gate table plus body backfill |
-| Memory | Clickable brief; event detail with why/provenance and trace panels |
-| Wiki | Pages with cited lines and encounters |
-| Runs | Pass history with requests, bundles, and outcomes; filter and retry |
-| Settings | Every `MEMCAL_*` setting with meaning, default, and file provenance |
+| Memory | Current brief; select a memory to inspect its sources |
+| Wiki | People, places, and projects; edit facts and review evidence |
+| Conversations | Review names and mute threads without removing their archive |
+| Inbox | Waiting, read, and archived messages; search and filter by source |
+| Dream | Collect messages, review input, and run Dream using model quota |
+| History | Past runs, outcomes, costs, and detailed requests; retry incomplete runs |
+| Email rules | Choose which senders are processed, archived, or ignored |
+| Settings | Model, sources, credentials, preferences, and nightly automation |
+
+Dream shows its actions and selection summary first. Open **Input preview** to
+inspect context, requests, and conversations. History keeps token metrics in run
+details. Settings groups expand individually; searching opens matching groups.
+The color theme persists in your browser, and navigation adapts to narrow screens.
 
 The **Settings tab** is the full list of what memcal can be told. Saving writes
 `~/.memcal/.env` — leaving hand-written lines alone — and applies to the running

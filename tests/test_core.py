@@ -3663,7 +3663,7 @@ class TestSpans(Base):
         self.assertEqual(events.window(self.conn, 3, 7), [])
 
     def test_the_end_is_rendered_rather_than_left_in_the_title(self):
-        self.assertIn("until", self._visit(-1, 3).one_line())
+        self.assertIn("–", self._visit(-1, 3).one_line())
 
     def test_a_running_span_is_not_marked_happened(self):
         self._visit(-2, 3, status="confirmed")
@@ -5827,8 +5827,7 @@ class TestALaterRowSaysHowManyDaysItEats(Base):
 
     def test_both_ends_are_named(self):
         line = brief._later_block(self.conn, self.cfg, db.today())
-        self.assertIn("Sat 15", line)
-        self.assertIn("Sun 23 Aug", line)
+        self.assertIn("Aug 15–23", line)
 
     def test_the_length_is_stated_rather_than_left_as_arithmetic(self):
         self.assertIn("9 days", brief._later_block(self.conn, self.cfg, db.today()))

@@ -44,6 +44,37 @@ def retryable(row) -> bool:
     return outcome(row) in (FAILED, PARTIAL) and (row["bundles"] or 0) > 0
 
 
+def resolved_runs(conn: sqlite3.Connection, home) -> dict[int, int]:
+    """Problem runs explicitly resumed by a later successful pass."""
+    import json
+    from .. import calls
+
+    def parents(run_id):
+        try:
+            data = json.loads((calls.shard(home, run_id) / "replay.json").read_text())
+            values = data.get("resumed_from") or []
+            if isinstance(values, int):
+                values = [values]
+            return [value for value in values if isinstance(value, int) and value < run_id]
+        except (OSError, ValueError, AttributeError, TypeError):
+            return []
+
+    resolved = {}
+    for run in conn.execute("SELECT * FROM runs ORDER BY id DESC"):
+        if outcome(run) != OK or not run["finished_at"]:
+            continue
+        pending = parents(run["id"])
+        seen = set()
+        while pending:
+            prior = pending.pop()
+            if prior in seen:
+                continue
+            seen.add(prior)
+            resolved.setdefault(prior, run["id"])
+            pending.extend(parents(prior))
+    return resolved
+
+
 def claimed(conn: sqlite3.Connection, run_id: int) -> int:
     """How many spooled lines this run marked as read."""
     return int(conn.execute(

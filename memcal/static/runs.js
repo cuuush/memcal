@@ -41,8 +41,8 @@ export async function loadRuns() {
 
 function renderRetryBanner() {
   const box = $("#runretry"); box.innerHTML = "";
-  const broken = allRuns.find(r => r.retryable);
-  if (!broken) return;
+  const broken = allRuns.find(r => r.mode !== "dry-run");
+  if (!broken?.retryable) return;
   const n = el("div", "banner");
   n.append(el("b", null, `Run #${broken.id} ${broken.outcome === "failed"
     ? "wrote nothing" : "only partly landed"} — ${broken.at}, ${broken.model}`));
@@ -72,7 +72,7 @@ function renderRuns() {
     ? `${nf(allRuns.length)} pass${allRuns.length === 1 ? "" : "es"}`
     : `${nf(shown.length)} of ${nf(allRuns.length)}`;
   if (!shown.length) {
-    body.innerHTML = `<tr><td colspan="13" class="empty">${
+    body.innerHTML = `<tr><td colspan="8" class="empty">${
       allRuns.length ? "no pass ended that way" : "no passes yet"}</td></tr>`;
     return;
   }
@@ -81,14 +81,14 @@ function renderRuns() {
     tr.setAttribute("aria-expanded", "false");
     const state_ = el("td");
     state_.append(el("span", "outcome " + r.outcome, r.outcome_label));
-    tr.append(el("td", "num", "#" + r.id), el("td", null, r.at), state_,
-              el("td", null, r.mode), el("td", null, r.model),
-              el("td", "num", nf(r.bundles)), el("td", "num", nf(r.items)), el("td", "num", nf(r.diffs)),
-              el("td", "num", nf(r.prompt)), el("td", "num", nf(r.cached)), el("td", "num", nf(r.completion)),
+    tr.append(el("td", "num", "#" + r.id), el("td", null, r.at.slice(5).replace("T", " ")), state_,
+              el("td", null, r.model),
+              el("td", "num", nf(r.items)), el("td", "num", nf(r.diffs)),
               el("td", "num", "$" + r.cost.toFixed(4)));
     const err = el("td");
-    if (r.error) err.append(el("div", "flag", r.error.slice(0, 80)));
-    if (r.retryable && !passRunning) err.append(retryLink(r, "retry on the Dream tab →"));
+    if (r.resolved_by) err.append(el("span", "note", `Resumed in #${r.resolved_by}`));
+    else if (r.error) err.append(el("span", "note", "View details"));
+
     tr.append(err);
     tr.onclick = () => {
       const open = tr.getAttribute("aria-expanded") === "true";
@@ -96,6 +96,12 @@ function renderRuns() {
       if (open) { $("#rundetail").innerHTML = ""; return; }
       tr.setAttribute("aria-expanded", "true");
       openRun(r.id);
+    };
+    tr.tabIndex = 0;
+    tr.setAttribute("aria-label", `Run ${r.id}: ${r.outcome_label}`);
+    tr.onkeydown = e => {
+      if (e.target !== tr || !["Enter", " "].includes(e.key)) return;
+      e.preventDefault(); tr.click();
     };
     body.append(tr);
   }
@@ -249,7 +255,7 @@ async function openRun(id) {
   state.callFlash = ""; state.callNeedle = "";
   h.scrollIntoView({behavior: "smooth", block: "start"});
 }
-/* Open one call on the Runs tab and scroll to a bundle inside it. The card is already
+/* Open one call on the History page and scroll to a bundle inside it. The card is already
    on the page — this is the same journey the "why" deep link makes, minus the reload. */
 export function openCallAndFind(gen, bid, label) {
   const card = document.getElementById("call-" + gen);

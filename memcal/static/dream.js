@@ -16,7 +16,7 @@ let preview = null;
 /* The server admits only one background job at a time. */
 let passRunning = false;
 
-/* Retry selection handed off from the Runs tab. */
+/* Retry selection handed off from the History page. */
 let pinned = 0;
 let pinnedIsNew = false;
 
@@ -62,32 +62,29 @@ function renderTiles(p) {
   box.append(
     tile("Last dream", p.last_dream.at ? p.last_dream.at.slice(5).replace("T", " ") : "never",
          p.last_dream.at
-           ? `${p.last_dream.model} · ${p.last_dream.outcome_label}`
-           : "no pass on record",
+           ? p.last_dream.outcome_label
+           : "",
          p.last_dream.outcome === "failed" || p.last_dream.outcome === "partial"),
-    tile("Waiting", nf(s.pending), `gated and unread · ${nf(s.entities)} conversations`),
+    tile("Waiting", nf(s.pending), `${nf(s.entities)} conversations`),
     // Selection is round-robin across conversations, capped per conversation, so the
     // interesting number is not "how many did not fit" but "whose tail got cut".
-    tile("This pass reads", nf(s.taken),
+    tile("Selected", nf(s.taken),
          s.left_behind || s.unreached
            ? `${nf(s.left_behind)} tails left · cap ${s.per_entity}/chat, budget ${nf(s.item_budget)}`
-           : "everything waiting",
+           : "",
          s.unreached > 0),
-    tile("Bundles", nf(p.bundles.length),
-         `${p.requests.length} request(s) of ≤${p.pack.bundles}, ${p.max_parallel} at a time`),
     tile("Model", (p.model || "").split("/").pop(),
-         p.cost.priced ? `~$${p.cost.input} in · up to $${p.cost.output_ceiling} out`
-                       : "no price on file"),
+         ""),
   );
   $("#collectnote").textContent = s.will_retire
     ? `${nf(s.will_retire)} waiting item(s) are older than ${s.horizon_days} days and will be retired unread`
     : "";
   $("#dreamnote").textContent = p.cost.priced
-    ? `input ~$${p.cost.input}; output up to $${p.cost.output_ceiling} if every request runs to its ceiling`
-    : "";
+    ? `Est. $${p.cost.input} input · up to $${p.cost.output_ceiling} output`
+    : p.provider === "codex" ? "Uses Codex usage" : `Uses ${p.provider || "model"} usage`;
   // The count line belongs to renderBundles now — it has to say how many the filter is
   // showing, and two writers of one element means whichever ran last wins.
-  $("#dream").disabled = !p.bundles.length;
+  $("#dream").disabled = passRunning;
 }
 
 async function retryTarget(p) {
@@ -180,17 +177,8 @@ function renderWarning(p) {
 
 function renderPrefix(p) {
   const card = $("#dprefix"); card.innerHTML = "";
-  const short = p.prefix.tokens < p.prefix.cache_min;
-  card.append(el("div", "note",
-    `Every request opens with this same ${nf(p.prefix.tokens)}-token preamble — today's date, `
-    + `the memcal window, open to-dos, the wiki index, and known identities. It is marked cacheable`
-    + (!p.cost.cache ? `, but this model endpoint does not support prompt caching.`
-      : short ? `, but it is under the ${nf(p.prefix.cache_min)}-token minimum, so it will not cache.`
-             : `, and the first ${p.cost.cache_misses} request(s) fire together against an empty `
-               + `cache, so each pays to write it (${p.cost.priced ? "$" + p.cost.prefix_now : "?"} `
-               + `rather than ${p.cost.priced ? "$" + p.cost.prefix_warmed : "?"} if one warmed it first).`)));
   const d = el("details");
-  d.append(el("summary", null, "read the preamble as the model gets it"));
+  d.append(el("summary", null, `Shared context · ${nf(p.prefix.tokens)} tokens`));
   const pre = el("pre"); pre.textContent = p.prefix.text;
   d.append(pre);
   card.append(d);
@@ -198,7 +186,7 @@ function renderPrefix(p) {
 
 function renderRequests(p) {
   const box = $("#dreqs"); box.innerHTML = "";
-  if (!p.requests.length) { box.innerHTML = '<div class="empty">nothing to send</div>'; return; }
+  if (!p.requests.length) { box.innerHTML = '<p class="note">No queued messages. Collect messages to prepare the next Dream.</p>'; return; }
   for (const r of p.requests) {
     const hot = p.budget.at.includes(r.max_tokens);
     const c = el("div", "req" + (hot ? " hot" : ""));
@@ -504,7 +492,7 @@ function renderLive(live) {
     `${quiet ? "Pass gone quiet" : "Dreaming now"} — run #${live.run.id} · `
     + `${live.run.mode} · ${live.run.model || "model?"}`);
   const sub = el("span", "note",
-    quiet ? `last progress ${ago(live.age_s)} — it may have stalled; the Runs tab still lists it`
+    quiet ? `last progress ${ago(live.age_s)} — it may have stalled; the History page still lists it`
     : live.propose.total ? `${nf(live.propose.done)}/${nf(live.propose.total)} bundles read`
     : `started ${live.run.started_at.slice(5, 16).replace("T", " ")} · ${nf(live.run.bundles)} bundles`);
   sub.style.margin = "0";
@@ -637,7 +625,7 @@ function renderOutput(r) {
   if (!r.diffs && r.bundles) {
     const n = el("div", "note");
     n.style.color = "var(--warn)";
-    n.textContent = `${r.bundles} bundles read and nothing written. Check the Runs tab for `
+    n.textContent = `${r.bundles} bundles read and nothing written. Check the History page for `
       + `output tokens: a completion that stopped on its ceiling was truncated, and a `
       + `truncated diff fails to parse silently.`;
     card.append(n);

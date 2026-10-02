@@ -506,14 +506,7 @@ def _committed(event: events.Event) -> bool:
 
 def _when_phrase(event: events.Event) -> str:
     """Formats the date range occupied by an event spanning across multiple days."""
-    start = db.parse_date(event.date)
-    if not (event.until and event.until > event.date):
-        return start.strftime("%a %-d %b")
-    end = db.parse_date(event.until)
-    # Omits the starting month if start and end share month and year.
-    head = start.strftime("%a %-d") if end.month == start.month and end.year == start.year \
-        else start.strftime("%a %-d %b")
-    return f"{head} – {end.strftime('%a %-d %b')}"
+    return events.date_phrase(event.date, event.until)
 
 
 def _duration(event: events.Event) -> str:

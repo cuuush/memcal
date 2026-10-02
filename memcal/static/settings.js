@@ -3,6 +3,7 @@ import { $, el, nf, api, toast, state } from "./core.js";
 /* ----------------------------------------------------------------- settings -- */
 
 let page = null;                      // the last /api/settings payload
+const expandedGroups = new Set();
 const pending = new Map();            // key -> the string to save; "" means unset
 
 function dirty() { return pending.size > 0; }
@@ -40,6 +41,7 @@ function jumpTo(key, retried = false) {
     renderGroups();
     return jumpTo(key, true);
   }
+  if (row.closest("details")) row.closest("details").open = true;
   row.scrollIntoView({behavior: "smooth", block: "center"});
   row.classList.remove("found");
   void row.offsetWidth;                       // restart the highlight on a repeat click
@@ -360,6 +362,8 @@ function settingRow(s) {
   }
   side.append(el("div", "setpending", pendingText(s)));
 
+  for (const control of side.querySelectorAll("input, select"))
+    control.setAttribute("aria-label", s.label);
   row.append(main, side);
   return row;
 }
@@ -368,29 +372,26 @@ function renderGroups() {
   const q = ($("#setq").value || "").trim().toLowerCase();
   const onlyCustom = $("#setcustom").checked;
   const box = $("#setgroups"); box.innerHTML = "";
-  const nav = $("#setnav"); nav.innerHTML = "";
   let shown = 0;
   for (const group of page.groups) {
     const rows = group.settings.filter(s =>
+      !["MEMCAL_LLM_PROVIDER", "MEMCAL_PROPOSE_MODEL"].includes(s.key) &&
       (!onlyCustom || s.custom || pending.has(s.key))
       && (!q || `${s.label} ${s.key} ${s.help} ${s.attr}`.toLowerCase().includes(q)));
     if (!rows.length) continue;
     shown += rows.length;
-    const card = el("div", "setgroup");
+    const card = el("details", "setgroup");
+    card.open = expandedGroups.has(group.id) || !!q || onlyCustom || group.settings.some(s => pending.has(s.key));
+    card.ontoggle = () => {
+      if (card.open) expandedGroups.add(group.id); else expandedGroups.delete(group.id);
+    };
     card.id = "setgroup-" + group.id;
-    card.append(el("h3", null, group.title), el("p", "note", group.note));
+    const summary = el("summary"); summary.append(el("h3", null, group.title));
+    card.append(summary, el("p", "note", group.note));
     for (const s of rows) card.append(settingRow(s));
     box.append(card);
 
-    // Six cards is more than one screen, so the section names double as the way there,
-    // each carrying the count of what it holds that is not on its default.
-    const jump = el("button", "chip");
-    jump.type = "button";
-    jump.append(el("span", null, group.title));
-    const changed = rows.filter(s => s.custom || pending.has(s.key)).length;
-    jump.append(el("span", "n", changed ? `${changed} changed` : String(rows.length)));
-    jump.onclick = () => card.scrollIntoView({behavior: "smooth", block: "start"});
-    nav.append(jump);
+
   }
   const total = page.groups.reduce((n, g) => n + g.settings.length, 0);
   $("#setcount").textContent = shown === total
@@ -406,27 +407,31 @@ function renderRuntime() {
   const box = $("#setruntime"); box.innerHTML = "";
   const wrap = el("div", "setruntime");
   const pcard = el("div", "card");
-  pcard.append(el("div", "setcardk", "model provider"));
 
   const head = el("div", "row");
   head.append(el("span", "bname", p.name));
   const pill = el("span", "pill " + (p.ok ? "process" : ""), p.ok ? "ready" : "not ready");
   if (!p.ok) pill.style.cssText = "border-color:var(--warn);color:var(--warn)";
-  const detail = el("span", "note", p.detail);
+  const detail = el("span", "note");
+  head.title = p.detail;
   detail.style.margin = "0";
   head.append(pill, detail);
-  if (p.default_model)
-    head.append(el("span", "setflag", `default model: ${p.default_model}`));
+
   pcard.append(head);
+  for (const key of ["MEMCAL_LLM_PROVIDER", "MEMCAL_PROPOSE_MODEL"]) {
+    const setting = rowFor(key);
+    if (setting) {
+      const row = settingRow(setting);
+      if (key === "MEMCAL_PROPOSE_MODEL") {
+        row.querySelector(".setlabel > span").textContent = "Dream model";
+        for (const input of row.querySelectorAll("input, select")) input.setAttribute("aria-label", "Dream model");
+      }
+      pcard.append(row);
+    }
+  }
   const m = page.models || {};
   if ((m.known || []).length) {
-    pcard.append(el("p", "note",
-      `${m.known.length} model${m.known.length === 1 ? "" : "s"} available here`
-      + (m.roster_source ? ` — from ${m.roster_source}` : "")
-      + (m.closed ? ". Models owned by another provider are rejected; unknown "
-                    + "names stay available for newer releases."
-                  : ". OpenRouter routes more than memcal prices, so anything you type "
-                    + "is still accepted.")));
+    pcard.append(el("p", "note", `${m.known.length} models available`));
   }
   if (!p.ok) {
     pcard.append(el("div", "setwarn", p.needs_key
@@ -436,8 +441,8 @@ function renderRuntime() {
         + "anyway."));
   }
 
-  const scard = el("div", "card");
-  scard.append(el("div", "setcardk", "storage"));
+  const scard = el("details", "card storage-details");
+  scard.append(el("summary", null, "Storage & files"));
   const grid = el("div", "setpaths");
   const rows = [["store", s.home], ["database", `${s.db}  ·  ${nf(Math.round(s.db_bytes / 1024))} KB`],
                 ["brief", s.brief], ["wiki", s.wiki], ["plugins", s.plugins],
@@ -446,8 +451,8 @@ function renderRuntime() {
     grid.append(el("div", "setpathk", k), el("div", "setpathv", v));
   }
   scard.append(grid);
-  wrap.append(pcard, scard);
-  box.append(wrap);
+  wrap.append(pcard);
+  box.append(wrap, scard);
   $("#setfile").textContent = page.env_file;
 }
 
@@ -484,6 +489,7 @@ function renderCredentials() {
     const side = el("div", "setctl");
     const input = el("input");
     input.type = "password";
+    input.setAttribute("aria-label", c.name);
     input.autocomplete = "off";
     input.placeholder = c.present ? "replace it" : "paste it here";
     // A pasted token is worth being able to look at once before committing it; what is
@@ -547,8 +553,7 @@ function paintSourceToggle(btn, on) {
   const switches = [...document.querySelectorAll("#setsources .switch")];
   if (note && switches.length) {
     const n = switches.filter(s => s.classList.contains("on")).length;
-    note.textContent = `${n} of ${switches.length} enabled — disabled sources are skipped by Collect, `
-      + `ingest all, due checks, and the nightly pull. An explicit ingest still runs them.`;
+    note.textContent = `${n} of ${switches.length} sources enabled`;
   }
 }
 
@@ -602,8 +607,7 @@ function renderProbe(probe) {
   const total = (probe.sources || []).length;
   const note = $("#setsrcnote");
   if (note) note.textContent = total
-    ? `${enabled} of ${total} enabled — disabled sources are skipped by Collect, `
-      + `ingest all, due checks, and the nightly pull. An explicit ingest still runs them.`
+    ? `${enabled} of ${total} sources enabled`
     : "What feeds memcal.";
   for (const s of probe.sources) {
     const on = s.enabled !== false;
@@ -624,12 +628,14 @@ function renderProbe(probe) {
     main.append(head, el("p", "sethelp", s.description));
     const meta = el("div", "setmeta");
     meta.append(el("span", null, s.detail));
-    if (s.secrets.length) meta.append(el("span", null, `needs ${s.secrets.join(", ")}`));
-    main.append(meta);
+    const details = el("details", "source-info");
+    details.append(el("summary", null, "Connection details"), meta);
+    main.append(details);
     if (!s.usable && (s.secrets || []).length) {
-      const fix = el("button", "retrylink", "add it under Credentials ↓");
+      const fix = el("button", "retrylink", "Set up credentials");
       fix.type = "button";
       fix.onclick = () => {
+        $("#credentials-section").open = true;
         const creds = $("#setcreds");
         if (creds) creds.scrollIntoView({behavior: "smooth", block: "start"});
       };
@@ -652,8 +658,9 @@ function renderProbe(probe) {
   }
   for (const problem of probe.load_errors || [])
     card.append(el("div", "setwarn", problem));
-  card.append(el("p", "note", `plugins: ${probe.plugin_dir} — drop a .py in there and `
-    + "it becomes a source"));
+  const plugins = el("details", "source-info");
+  plugins.append(el("summary", null, "Plugin directory"), el("code", "setpathv", probe.plugin_dir));
+  card.append(plugins);
   box.append(card);
 
   const st = probe.schedule || {};

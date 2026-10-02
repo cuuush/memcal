@@ -183,6 +183,9 @@ class Handler(BaseHTTPRequestHandler):
         row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
         if not row:
             return {"error": f"no run #{run_id}"}
+        resolved = dream_retry.resolved_runs(conn, self.cfg.home).get(run_id)
+        if resolved:
+            return {"error": f"run #{run_id} was resumed successfully by run #{resolved}"}
         if not dream_retry.retryable(row):
             state = dream_retry.OUTCOME_LABELS[dream_retry.outcome(row)]
             return {"error": f"run #{run_id} is {state}; there is nothing to retry"}
@@ -280,7 +283,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/memory":
             return web_memory.memory(conn, self.cfg)
         if path == "/api/runs":
-            return {"runs": web_memory.runs(conn, limit=int(query.get("limit", 30)))}
+            return {"runs": web_memory.runs(conn, limit=int(query.get("limit", 30)), cfg=self.cfg)}
         if path == "/api/collections":
             # What each ingest pass brought in, and — the part that had no home before —
             # what it *skipped*. A skipped item never enters the spool, so the queue view
