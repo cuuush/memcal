@@ -4,7 +4,26 @@ import { $, el, nf, api, jumpToBundle, state } from "./core.js";
 export async function loadMemory() {
   const m = await api("/api/memory");
   const box = $("#brief"); box.innerHTML = "";
+  if (m.error) { box.append(el("div", "empty", "Memory could not load. Refresh to try again.")); return; }
+  if (!(m.lines || []).some(row => {
+    const text = (row.text || "").trim();
+    return text && !text.startsWith("#") && !text.startsWith("[〔")
+      && !text.startsWith("[complete for") && text !== "(nothing known)";
+  })) {
+    const empty = el("div", "empty");
+    empty.append(el("strong", null, "Your memory starts here"),
+      el("div", null, "Connect a source, collect messages, then run Dream to build your first brief."));
+    const link = el("a", "btn", "Set up sources"); link.href = "#settings";
+    empty.append(link); box.append(empty); return;
+  }
   for (const row of (m.lines || [])) {
+    const text = (row.text || "").trim();
+    if (!text || text.startsWith("[〔")) continue;
+    if (text.startsWith("[complete for")) {
+      box.append(el("div", "brief-coverage", text.slice(1, -1).replace("complete for", "Coverage:")
+        .replace("; look up anything outside that", "; search for plans outside this window")));
+      continue;
+    }
     const token = (row.sources || [])[0];
     const target = token && (m.targets || {})[token];
     const change = (target || {}).last_dream_change || "";
@@ -12,7 +31,7 @@ export async function loadMemory() {
                     "briefline" + (target ? " click" : "")
                     + (change ? ` dream-${change}` : "")
                     + (String(row.text || "").startsWith("## ") ? " head" : ""),
-                    row.text || "\u00a0");
+                    (row.text || "\u00a0").replace(/^#{1,3} /, "").replace(/〔[ETQS]\d+〕\s*/g, ""));
     if (target) {
       line.title = `open ${token} source`;
       line.onclick = () => openWhy(target.kind, target.ref, row.text);
@@ -282,21 +301,7 @@ export function renderWikiProfile(page, holder, reload) {
       const top = el("div", "wikifacttop");
       top.append(el("span", "metak", fact.slot),
                  el("span", "wikifactval", fact.value || "—"));
-      // How well this one fact is backed, on the fact itself — the same three states
-      // the brief lines carry, because a value quoted from one message and a value
-      // guessed at from a whole conversation are not the same claim.
       const quoted = lines.filter(l => l.evidence);
-      if (quoted.length && cited) {
-        const chip = el("span", "cites", `${quoted.length} cited`);
-        chip.title = "the messages this fact was read from — click one to read around it";
-        top.append(chip);
-      } else if (lines.length) {
-        const chip = el("span", "cites wide", `${lines.length} lines, uncited`);
-        chip.title = "no message was pointed at — the whole conversation is attached";
-        top.append(chip);
-      } else if (fact.source) {
-        top.append(el("span", "cites none", fact.source));
-      }
       if (reload) {
         const edit = el("button", "whybtn", "edit");
         edit.title = "change this fact — your edit wins over older evidence";
@@ -304,6 +309,8 @@ export function renderWikiProfile(page, holder, reload) {
         top.append(edit);
       }
       box.append(top);
+      const evidence = el("details", "wiki-evidence");
+      evidence.append(el("summary", null, "Source"));
       // Where it came from, as something to go and look at: the bundle link opens
       // the Dream tab on the exact bundle, and each line opens its conversation.
       if (prov && (prov.bundle || prov.run)) {
@@ -320,7 +327,7 @@ export function renderWikiProfile(page, holder, reload) {
         const v = el("span", "timefromv", bits);
         v.title = prov.entity || "";
         from.append(v);
-        box.append(from);
+        evidence.append(from);
       }
       if (quoted.length && cited) {
         // The exact lines, on screen — no toggle to open, because one or two
@@ -328,14 +335,14 @@ export function renderWikiProfile(page, holder, reload) {
         // complaint that started this.
         const wrap = el("div", "timelines");
         for (const cite of quoted) wrap.append(citeRow(cite));
-        box.append(wrap);
+        evidence.append(wrap);
       } else if (lines.length) {
         // Old bundle-wide evidence: a capped preview plus the way out, not a
         // forty-line dump. The bundle link above names the conversation.
         const wrap = el("div", "timelines");
         const shown = lines.slice(0, WIDE_PREVIEW);
         for (const cite of shown) wrap.append(citeRow(cite));
-        box.append(wrap);
+        evidence.append(wrap);
         if (lines.length > shown.length) {
           const toggle = el("button", "timecites",
             `▸ show all ${lines.length} lines`);
@@ -343,9 +350,10 @@ export function renderWikiProfile(page, holder, reload) {
             for (const cite of lines.slice(shown.length)) wrap.append(citeRow(cite));
             toggle.remove();
           };
-          box.append(toggle);
+          evidence.append(toggle);
         }
       }
+      if (lines.length || prov) box.append(evidence);
       holder.append(box);
     }
   }
@@ -479,12 +487,11 @@ function renderEventDetail(detail, body) {
     links.append(b);
   }
   if (links.childNodes.length) {
-    top.append(el("div", "bname", "Wiki pages"), links);
+    top.append(links);
   }
 
-  top.append(el("div", "bname", "Timeline"), renderTimeline(detail.timeline || {}));
 
-  const meta = el("div", "eventmeta");
+  const meta = el("div", "event-facts");
   const related = el("div", "relatedbox"); related.hidden = true;
   const field = (name, value, wide) => {
     if (value === undefined || value === null || value === "") return;
@@ -495,7 +502,7 @@ function renderEventDetail(detail, body) {
     box.append(val); meta.append(box);
   };
   field("Date", eventRange(e));
-  field("Time", e.time || "not specified");
+  field("Time", e.time);
   field("State", e.state || e.status);
   const pill = (facet, value) => {
     const b = el("button", "metalink", value);
@@ -505,26 +512,31 @@ function renderEventDetail(detail, body) {
   };
   if (e.subject && e.subject !== "me") {
     field("Subject", pill("person", e.subject));
-  } else {
-    field("Subject", "me");
   }
 
   const attendeeWrap = el("span");
   if ((e.participants || []).length) {
     for (const person of e.participants) attendeeWrap.append(pill("person", person));
-  } else {
-    attendeeWrap.textContent = "none explicitly recorded";
   }
-  field("Attendees", attendeeWrap, true);
+  if ((e.participants || []).length) field("Attendees", attendeeWrap, true);
 
   if (e.location) field("Location", pill("location", e.location), true);
   if (e.series) field("Series", pill("series", e.series));
   field("Note", e.note, true);
-  field("Source", e.source);
-  field("Stable key", e.key, true);
-  field("Writer", `${e.written_by} · created ${e.created_at} · updated ${e.updated_at}`,
-        true);
-  top.append(el("div", "bname", "Event metadata"), meta, related);
+  top.append(meta, related);
+  const writes = detail.timeline?.writes || [];
+  if (writes.length) {
+    const history = el("details", "detail-section");
+    history.append(el("summary", null, `History · ${writes.length} ${writes.length === 1 ? "change" : "changes"}`), renderTimeline(detail.timeline));
+    top.append(history);
+  }
+  const record = el("details", "detail-section");
+  const info = el("dl", "record-info");
+  for (const [name, value] of [["Key", e.key], ["Writer", e.written_by], ["Created", e.created_at], ["Updated", e.updated_at], ["Source", e.source]]) {
+    if (value) info.append(el("dt", null, name), el("dd", null, value));
+  }
+  record.append(el("summary", null, "Record details"), info);
+  top.append(record);
   body.append(top);
 }
 
@@ -537,6 +549,7 @@ export async function openWhy(kind, ref, title) {
   const out = await api(`/api/why?kind=${encodeURIComponent(kind)}&ref=${encodeURIComponent(ref)}`);
   body.innerHTML = "";
   if (out.error) { body.append(el("div", "empty", out.error)); return; }
+  $("#tracetitle").textContent = out.detail?.event?.title || out.needle || title;
   renderEventDetail(out.detail, body);
   /* Lead with how well this is evidenced, before anything it claims. A row backed by
      two messages and a row backed by "it was in this group chat somewhere" read
@@ -551,7 +564,7 @@ export async function openWhy(kind, ref, title) {
   if (c.lines && !c.narrow)
     head.append(el("span", "citewarn",
       "nothing in this row points at a line — treat it as a summary, not a quote"));
-  body.append(head);
+  if (c.lines) body.append(head);
   if (out.source && out.source.length) {
     body.append(el("div", "bname", "Original source"));
     const source = el("div", "sourcebox");
@@ -561,22 +574,23 @@ export async function openWhy(kind, ref, title) {
       }
       const row = el("div", "sourcerow" + (s.evidence ? "" : " ctx"));
       row.append(el("span", "sourcewho",
-                    `${String(s.ts || "").slice(0,16).replace("T"," ")} · ${s.who}`));
+                    `#${s.id} · ${s.evidence ? (c.narrow ? "Cited" : "Source") : "Context"} · ${String(s.ts || "").slice(0,16).replace("T"," ")} · ${s.who}`));
       appendHighlighted(row, s.text || "", out.highlight_terms);
       source.append(row);
     }
     body.append(source);
   }
   if (!out.calls.length) {
-    const direct = (out.direct || [])[0];
-    const detail = direct
-      ? `${direct.verb || "written"} directly by ${direct.stage_label || direct.stage || "Automatic"}`
-      : "written directly by the user/agent, or predates call provenance";
-    body.append(el("div", "empty",
-      `No model call wrote this. It was ${detail}; the original source above is the `
-      + "useful record."));
+    if (!out.source?.length) {
+      const direct = (out.direct || [])[0];
+      body.append(el("p", "note detail-note", direct
+        ? `Added directly · ${direct.stage_label || direct.stage || "user"}`
+        : "No source recorded."));
+    }
     return;
   }
+  const activity = el("details", "detail-section model-activity");
+  activity.append(el("summary", null, `Model activity · ${out.calls.length} ${out.calls.length === 1 ? "call" : "calls"}`));
   for (const c of out.calls) {
     const row = el("div", "callrow");
     const head = el("div", "callhead");
@@ -623,7 +637,7 @@ export async function openWhy(kind, ref, title) {
       }
       const b = el("button", "btn", c.run && c.call
         ? `open the full call · run ${c.run} call ${c.call}` : "open the full call");
-      b.title = "open this exact call on the Runs tab";
+      b.title = "open this exact call on the History page";
       b.onclick = () => {
         panel.hidden = true;
         state.run = c.run;
@@ -635,6 +649,7 @@ export async function openWhy(kind, ref, title) {
     } else {
       row.append(el("div", "note", "no generation id — recorded before the id was kept"));
     }
-    body.append(row);
+    activity.append(row);
   }
+  body.append(activity);
 }

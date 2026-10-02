@@ -13,14 +13,13 @@ export async function loadChats() {
   const rows = data.threads || [];
   $("#ccount").textContent = `${nf(rows.length)} conversations`;
   const sel = $("#cstream"), had = sel.value;
-  sel.innerHTML = '<option value="">every channel</option>';
+  sel.innerHTML = '<option value="">All sources</option>';
   for (const s of [...new Set(rows.map(t => t.channel))].sort())
     sel.append(Object.assign(el("option", null, s), {value: s}));
   sel.value = had;
   box.innerHTML = "";
   if (!rows.length) { box.innerHTML = '<div class="empty">no conversations yet</div>'; return; }
-  const max = Math.max(...rows.map(t => t.n));
-  for (const t of rows) box.append(chatRow(t, max));
+  for (const t of rows) box.append(chatRow(t));
 }
 
 /* The ask-me queue. These are the ones nothing in the traffic can decide. */
@@ -31,13 +30,7 @@ function renderReview(data) {
   if (!rows.length) return;
   const n = el("div", "banner");
   n.append(el("b", null, `${rows.length} group chat${rows.length > 1 ? "s" : ""} worth a decision`));
-  n.append(el("p", null,
-    `You have never posted in these and you know nobody in them — no one in the chat turns `
-    + `up anywhere else you do speak. That describes a dev chat you cared about eight years `
-    + `ago and it equally describes your dog park, so group membership alone never names `
-    + `anyone. Reading one costs model calls on every pass; muting keeps it archived `
-    + `and searchable. A one-to-one thread from a bare number is different: dream may `
-    + `invent a short name for it, shown below as "maybe: …" until you confirm or correct it.`));
+  n.append(el("p", null, "Choose which unfamiliar group conversations Dream should read. Muted conversations remain searchable."));
   for (const t of rows) n.append(chatRow(t, Math.max(...rows.map(r => r.n)), true));
   box.append(n);
 }
@@ -47,61 +40,26 @@ function renderPlatformMute(data) {
   const n = data.platform_muted_count || 0;
   if (!n) return;
   const kept = data.platform_muted_with_mutuals || 0;
-  const words = {
-    show: "recorded and shown here, deciding nothing",
-    ask: "enough to raise a chat for review, even one you know people in",
-    mute: "taken as your answer — these are never read",
-  }[data.platform_mute] || data.platform_mute;
+  const policy = {show: "listed here", ask: "flagged for review", mute: "excluded from Dream"}[data.platform_mute] || data.platform_mute;
   const box = $("#creview");
-  const p = el("div", "note");
-  p.style.margin = "0 0 12px";
-  p.textContent = `${n} of these are muted in the app itself, and ${kept} of those `
-    + `are full of people you talk to elsewhere — so muting there looks like "stop `
-    + `buzzing my phone", not "I don't care". It is ${words}. `
-    + `Change it with platform_mute = show | ask | mute in ~/.memcal/config.`;
+  const p = el("div", "note", `${n} platform-muted conversations · ${policy}`);
+  p.title = `${kept} contain people you talk to elsewhere. Change platform mute behavior in Settings.`;
   box.append(p);
 }
 
 function chatRow(t, max, urgent) {
-  const d = el("details", "grp" + (t.decision === "mute" ? " muted" : ""));
+  const d = el("details", "grp chat-row" + (t.decision === "mute" ? " muted" : ""));
   const sum = el("summary");
-  const bar = el("span", "gbar");
-  const mine = el("i", "p"); mine.style.width = (100 * t.mine / max) + "%";
-  const theirs = el("i", "s"); theirs.style.width = (100 * (t.n - t.mine) / max) + "%";
-  bar.append(mine, theirs);
-  sum.append(bar, el("span", "gname", t.title || t.thread));
-  sum.append(el("span", "pill archive", t.channel));
-  if (t.guessed) {
-    const g = el("span", "pill");
-    g.style.cssText = "border-color:var(--warn);color:var(--warn)";
-    g.textContent = "dream's guess";
-    g.title = "Dream invented this name for an otherwise-nameless sender. It is the "
-      + "weakest evidence there is — a contact, a platform name, or confirming it here "
-      + "always wins. Confirming stops it reading as a guess.";
-    sum.append(g);
-  }
-  if (t.group) sum.append(el("span", "pill", `${t.members || "?"} people`));
-  if (t.collision) {
-    const c = el("span", "pill");
-    c.style.cssText = "border-color:var(--warn);color:var(--warn)";
-    c.textContent = "same name as another chat";
-    c.title = "Two conversations share this name. The people in them tell them apart.";
-    sum.append(c);
-  }
-  // memcal's decision and the platform's mute are both called "mute" and mean different
-  // things — one stops model calls, the other stops a phone buzzing. Say which is which.
-  if (t.platform_muted) {
-    const m = el("span", "pill");
-    m.textContent = t.platform_note || "muted on the platform";
-    m.title = "You silenced this chat in the app. That is not a decision here — most of "
-      + "your muted chats are full of people you talk to daily.";
-    sum.append(m);
-  }
-  if (t.decision) sum.append(el("span", "pill" + (t.decision === "read" ? " process" : ""),
-                               t.decision === "mute" ? "never read" : "read every pass"));
-  sum.append(el("span", "gnums",
-    `${nf(t.n)} lines · ${t.share}% you · ${t.known} known · ${t.mutuals} mutual`
-    + (t.queued ? ` · ${nf(t.queued)} queued` : "") + ` · last ${t.last}`));
+  const identity = el("div", "chat-identity");
+  identity.append(el("span", "gname", t.title || t.thread), el("span", "chat-source", t.channel));
+  sum.append(identity);
+  if (t.guessed) sum.append(el("span", "pill", "Unconfirmed name"));
+  if (t.collision) sum.append(el("span", "pill", "Shared name"));
+  if (t.decision === "mute") sum.append(el("span", "pill", "Muted"));
+  else if (t.queued) sum.append(el("span", "chat-queued", `${nf(t.queued)} waiting`));
+  const last = el("span", "chat-last", t.last);
+  last.title = "Last message";
+  sum.append(last, el("span", "chat-chevron", "›"));
   d.append(sum);
 
   const body = el("div", "gbody");
@@ -110,23 +68,21 @@ function chatRow(t, max, urgent) {
       "In it: " + t.speakers.join(", ")
       + (t.more_speakers ? ` and ${t.more_speakers} more` : "")));
   }
-  body.append(el("div", "note", t.mine
-    ? `You have written ${nf(t.mine)} of these ${nf(t.n)} lines.`
-    : "You have never written in this chat."));
-  if (!t.mutuals && t.group) {
-    body.append(el("div", "note",
-      "Nobody here turns up in any conversation you do speak in."));
+  const facts = el("div", "chat-stats");
+  const metrics = [["Messages", nf(t.n)], ["From you", `${t.share}%`],
+    ["Known people", nf(t.known)], ["Mutual contacts", nf(t.mutuals)]];
+  if (t.group) metrics.push(["Participants", t.members || "Unknown"]);
+  for (const [name, value] of metrics) {
+    const stat = el("div"); stat.append(el("span", "chat-stat-value", value), el("span", "chat-stat-label", name));
+    facts.append(stat);
   }
-  if (t.platform_muted) {
-    body.append(el("div", "note",
-      "You have this muted in the app. memcal does not read anything into that — most of "
-      + "your muted chats are ones you are clearly part of."));
-  }
+  body.append(facts);
+  if (t.platform_muted) body.append(el("div", "note", t.platform_note || "Muted in the source app"));
   const act = el("div", "gact");
-  const keep = el("button", "btn", t.decision === "read" ? "kept" : "Keep reading it");
+  const keep = el("button", "btn", t.decision === "read" ? "Reading enabled" : "Read in Dream");
   keep.disabled = t.decision === "read";
   keep.onclick = () => decideChat(t, "read");
-  const mute = el("button", "btn", t.decision === "mute" ? "not read" : "Never read it");
+  const mute = el("button", "btn", t.decision === "mute" ? "Muted" : "Mute");
   mute.disabled = t.decision === "mute";
   mute.onclick = () => decideChat(t, "mute");
   act.append(keep, mute);

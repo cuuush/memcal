@@ -336,7 +336,7 @@ class TestAnEndDateIsCorrectableAndNotOnlySettable(Base):
         server.call("memcal_add", {"title": "Montana trip", "when": "2026-08-15",
                                    "until": "2026-08-16", "status": "confirmed"})
         out = server.call("memcal_update", {"which": "Montana", "until": "2026-08-23"})
-        self.assertIn("until Sun Aug 23", out)
+        self.assertIn("Aug 15–23", out)
 
 
 class TestNoTestEverWritesToTheRealStore(Base):
