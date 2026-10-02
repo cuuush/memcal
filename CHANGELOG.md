@@ -43,7 +43,9 @@
 - Redesigned the web workspace with grouped navigation, a Memory landing page,
   responsive layouts, and a saved color theme. Dream controls appear before
   expandable previews; inbox filters and settings groups open on demand. Removed
-  repeated page introductions and moved token metrics into run details.
+  repeated page introductions and moved token metrics into run details. Memory
+  details show essential facts first, with history and diagnostics folded away;
+  conversation rows keep participation metrics inside their expanded details.
 
 
 - `memcal setup` focuses on provider/model, iMessage transport and BlueBubbles

@@ -564,7 +564,7 @@ class TestTheTabIsWiredIntoThePage(unittest.TestCase):
         source = web_server.frontend_source()
         for needle in ('data-view="settings"', 'id="view-settings"', "loadSettings",
                        "/api/settings", "/api/settings_probe", 'id="setbar"',
-                       'id="setnav"', "function combobox", "function stageChips"):
+                       'id="setq"', 'id="setgroups"', "function combobox", "function stageChips"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, source)
 

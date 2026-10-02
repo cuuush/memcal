@@ -12,7 +12,7 @@
 
 <a class="skip-link" href="#workspace">Skip to content</a>
 <aside class="sidebar">
-  <a class="brand" href="#memory"><span class="brand-mark" aria-hidden="true">m</span>memcal</a>
+  <a class="brand" href="#memory"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 28 28" fill="none"><rect x="5" y="8" width="16" height="16" rx="4" stroke="currentColor" stroke-width="1.8"/><path d="M10 4h9a5 5 0 0 1 5 5v9M5 13h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M10 17h2m3 0h2m-7 3h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>memcal</a>
   <nav aria-label="Main navigation">
     <button data-view="memory"><span aria-hidden="true">◈</span>Memory</button>
     <button data-view="wiki"><span aria-hidden="true">▤</span>Wiki</button>
@@ -293,13 +293,14 @@ Saved credentials are hidden. Replace or clear a credential below.
 </div>
 
 <!-- The trace panel: any row in Memory can open the model call that wrote it. -->
+<div id="tracebackdrop" hidden></div>
 <div id="tracepanel" role="dialog" aria-modal="true" aria-labelledby="tracetitle" tabindex="-1" hidden>
   <div class="thead">
     <div>
-      <div class="tkicker">Where this came from</div>
+      <div class="tkicker">Memory details</div>
       <div id="tracetitle"></div>
     </div>
-    <button class="btn" id="traceclose">close</button>
+    <button class="icon-btn" id="traceclose" aria-label="Close details" title="Close details">×</button>
   </div>
   <div id="tracebody"></div>
 </div>

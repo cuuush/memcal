@@ -31,9 +31,11 @@ let traceOpener;
 let traceOpen = false;
 function closeTrace() { tracePanel.hidden = true; }
 $("#traceclose").onclick = closeTrace;
+$("#tracebackdrop").onclick = closeTrace;
 new MutationObserver(() => {
   if (traceOpen === !tracePanel.hidden) return;
   traceOpen = !tracePanel.hidden;
+  $("#tracebackdrop").hidden = !traceOpen;
   if (traceOpen) {
     traceOpener = document.activeElement;
     $(".workspace").inert = true;
