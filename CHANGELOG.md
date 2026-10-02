@@ -17,6 +17,8 @@
   paid reply; truncated question repairs are rejected.
 - Dream validation errors with successful writes are shown as partial runs, and
   question coverage errors are attributed to propose rather than sweep.
+- The web server quietly closes disconnected browser requests instead of printing
+  broken-pipe tracebacks or attempting a second response.
 
 - Setup no longer reports unchanged credentials or automatic executable discovery
   as edits. An unchanged rerun leaves the configuration file untouched.
