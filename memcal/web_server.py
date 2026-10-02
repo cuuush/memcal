@@ -154,8 +154,12 @@ class Handler(BaseHTTPRequestHandler):
             "Set-Cookie",
             f"{CSRF_COOKIE}={self.csrf_token}; HttpOnly; Path=/; SameSite=Strict",
         )
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # A disconnected browser cannot receive an error response either.
+            self.close_connection = True
 
     def _send_static(self, name: str) -> None:
         ctype = STATIC_TYPES.get(Path(name).suffix)
@@ -194,9 +198,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-channel")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "close")
-        self.end_headers()
         version = -1
         try:
+            self.end_headers()
             while True:
                 snapshot = job.wait_for_change(version)
                 version = snapshot["version"]
@@ -206,7 +210,7 @@ class Handler(BaseHTTPRequestHandler):
                 if snapshot["done"]:
                     return
         except (BrokenPipeError, ConnectionResetError):
-            return               # the page navigated away; nothing to clean up
+            self.close_connection = True
 
     def do_GET(self) -> None:
         if not _has_expected_host(self.headers, self.origin):
