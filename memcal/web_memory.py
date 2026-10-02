@@ -575,8 +575,9 @@ def _pretty_json(text: str) -> str:
         return str(text)
 
 
-def runs(conn: sqlite3.Connection, limit: int = 30) -> list[dict]:
+def runs(conn: sqlite3.Connection, limit: int = 30, cfg: Config | None = None) -> list[dict]:
     rows = conn.execute("SELECT * FROM runs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    resolved = dream_retry.resolved_runs(conn, cfg.home) if cfg else {}
     return [{
         "id": r["id"], "at": str(r["started_at"])[:16], "mode": r["mode"],
         "model": (r["model"] or "").split("/")[-1], "bundles": r["bundles"],
@@ -590,7 +591,8 @@ def runs(conn: sqlite3.Connection, limit: int = 30) -> list[dict]:
         # Runs tab was already in.
         "outcome": dream_retry.outcome(r),
         "outcome_label": dream_retry.OUTCOME_LABELS[dream_retry.outcome(r)],
-        "retryable": dream_retry.retryable(r),
+        "retryable": dream_retry.retryable(r) and r["id"] not in resolved,
+        "resolved_by": resolved.get(r["id"]),
         "claimed": dream_retry.claimed(conn, r["id"]),
         "calls": conn.execute(
             "SELECT count(*) n FROM generations WHERE run_id = ?", (r["id"],)
@@ -659,7 +661,8 @@ def run_detail(conn: sqlite3.Connection, cfg: Config, run_id: int) -> dict:
                              if row["wait_seconds"] is not None else None),
             "outcome": dream_retry.outcome(row),
             "outcome_label": dream_retry.OUTCOME_LABELS[dream_retry.outcome(row)],
-            "retryable": dream_retry.retryable(row),
+            "retryable": dream_retry.retryable(row) and run_id not in dream_retry.resolved_runs(conn, cfg.home),
+            "resolved_by": dream_retry.resolved_runs(conn, cfg.home).get(run_id),
             # How many spooled lines a retry would have to put back. Zero is the usual
             # answer for a pass that was refused outright, and it means the traffic is
             # still queued — the retry is an ordinary dream and nothing is undone.

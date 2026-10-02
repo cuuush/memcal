@@ -301,21 +301,7 @@ export function renderWikiProfile(page, holder, reload) {
       const top = el("div", "wikifacttop");
       top.append(el("span", "metak", fact.slot),
                  el("span", "wikifactval", fact.value || "—"));
-      // How well this one fact is backed, on the fact itself — the same three states
-      // the brief lines carry, because a value quoted from one message and a value
-      // guessed at from a whole conversation are not the same claim.
       const quoted = lines.filter(l => l.evidence);
-      if (quoted.length && cited) {
-        const chip = el("span", "cites", `${quoted.length} cited`);
-        chip.title = "the messages this fact was read from — click one to read around it";
-        top.append(chip);
-      } else if (lines.length) {
-        const chip = el("span", "cites wide", `${lines.length} lines, uncited`);
-        chip.title = "no message was pointed at — the whole conversation is attached";
-        top.append(chip);
-      } else if (fact.source) {
-        top.append(el("span", "cites none", fact.source));
-      }
       if (reload) {
         const edit = el("button", "whybtn", "edit");
         edit.title = "change this fact — your edit wins over older evidence";
@@ -323,6 +309,8 @@ export function renderWikiProfile(page, holder, reload) {
         top.append(edit);
       }
       box.append(top);
+      const evidence = el("details", "wiki-evidence");
+      evidence.append(el("summary", null, "Source"));
       // Where it came from, as something to go and look at: the bundle link opens
       // the Dream tab on the exact bundle, and each line opens its conversation.
       if (prov && (prov.bundle || prov.run)) {
@@ -339,7 +327,7 @@ export function renderWikiProfile(page, holder, reload) {
         const v = el("span", "timefromv", bits);
         v.title = prov.entity || "";
         from.append(v);
-        box.append(from);
+        evidence.append(from);
       }
       if (quoted.length && cited) {
         // The exact lines, on screen — no toggle to open, because one or two
@@ -347,14 +335,14 @@ export function renderWikiProfile(page, holder, reload) {
         // complaint that started this.
         const wrap = el("div", "timelines");
         for (const cite of quoted) wrap.append(citeRow(cite));
-        box.append(wrap);
+        evidence.append(wrap);
       } else if (lines.length) {
         // Old bundle-wide evidence: a capped preview plus the way out, not a
         // forty-line dump. The bundle link above names the conversation.
         const wrap = el("div", "timelines");
         const shown = lines.slice(0, WIDE_PREVIEW);
         for (const cite of shown) wrap.append(citeRow(cite));
-        box.append(wrap);
+        evidence.append(wrap);
         if (lines.length > shown.length) {
           const toggle = el("button", "timecites",
             `▸ show all ${lines.length} lines`);
@@ -362,9 +350,10 @@ export function renderWikiProfile(page, holder, reload) {
             for (const cite of lines.slice(shown.length)) wrap.append(citeRow(cite));
             toggle.remove();
           };
-          box.append(toggle);
+          evidence.append(toggle);
         }
       }
+      if (lines.length || prov) box.append(evidence);
       holder.append(box);
     }
   }
@@ -585,7 +574,7 @@ export async function openWhy(kind, ref, title) {
       }
       const row = el("div", "sourcerow" + (s.evidence ? "" : " ctx"));
       row.append(el("span", "sourcewho",
-                    `${String(s.ts || "").slice(0,16).replace("T"," ")} · ${s.who}`));
+                    `#${s.id} · ${s.evidence ? (c.narrow ? "Cited" : "Source") : "Context"} · ${String(s.ts || "").slice(0,16).replace("T"," ")} · ${s.who}`));
       appendHighlighted(row, s.text || "", out.highlight_terms);
       source.append(row);
     }

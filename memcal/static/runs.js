@@ -41,8 +41,8 @@ export async function loadRuns() {
 
 function renderRetryBanner() {
   const box = $("#runretry"); box.innerHTML = "";
-  const broken = allRuns.find(r => r.retryable);
-  if (!broken) return;
+  const broken = allRuns.find(r => r.mode !== "dry-run");
+  if (!broken?.retryable) return;
   const n = el("div", "banner");
   n.append(el("b", null, `Run #${broken.id} ${broken.outcome === "failed"
     ? "wrote nothing" : "only partly landed"} — ${broken.at}, ${broken.model}`));
@@ -81,13 +81,14 @@ function renderRuns() {
     tr.setAttribute("aria-expanded", "false");
     const state_ = el("td");
     state_.append(el("span", "outcome " + r.outcome, r.outcome_label));
-    tr.append(el("td", "num", "#" + r.id), el("td", null, r.at), state_,
+    tr.append(el("td", "num", "#" + r.id), el("td", null, r.at.slice(5).replace("T", " ")), state_,
               el("td", null, r.model),
               el("td", "num", nf(r.items)), el("td", "num", nf(r.diffs)),
               el("td", "num", "$" + r.cost.toFixed(4)));
     const err = el("td");
-    if (r.error) err.append(el("div", "flag", r.error.slice(0, 80)));
-    if (r.retryable && !passRunning) err.append(retryLink(r, "retry on the Dream tab →"));
+    if (r.resolved_by) err.append(el("span", "note", `Resumed in #${r.resolved_by}`));
+    else if (r.error) err.append(el("span", "note", "View details"));
+
     tr.append(err);
     tr.onclick = () => {
       const open = tr.getAttribute("aria-expanded") === "true";
