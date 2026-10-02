@@ -40,6 +40,12 @@
 
 ### Changed
 
+- Redesigned the web workspace with grouped navigation, a Memory landing page,
+  responsive layouts, and a saved color theme. Dream controls appear before
+  expandable previews; inbox filters and settings groups open on demand. Removed
+  repeated page introductions and moved token metrics into run details.
+
+
 - `memcal setup` focuses on provider/model, iMessage transport and BlueBubbles
   connections, and source selection, with optional credentials. `--advanced`
   exposes model tuning, brief, dream, merge, and publishing settings.

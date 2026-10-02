@@ -79,7 +79,7 @@ function rollupRow(g, max) {
     gp.style.cssText = "border-color:var(--warn);color:var(--warn)";
     gp.textContent = "dream's guess";
     gp.title = "Dream invented this name for an otherwise-nameless sender. Confirm or "
-      + "correct it on the Chats tab — until then it reads as a guess everywhere, "
+      + "correct it on the Conversations page — until then it reads as a guess everywhere, "
       + "including the brief.";
     sum.append(gp);
   }
@@ -128,7 +128,7 @@ function itemRow(it) {
   const who = el("div", "who", it.who);
   if (it.guessed) {
     who.title = "Dream invented this name for an otherwise-nameless sender — "
-      + "a guess until confirmed on the Chats tab.";
+      + "a guess until confirmed on the Conversations page.";
     who.append(el("span", "pill",
       "guess"));
     who.lastChild.style.cssText =
@@ -251,12 +251,9 @@ $("#queue").onclick = e => {
 
 function queueNote() {
   $("#queuenote").textContent = {
-    queued: "Everything the next dream pass will look at — passed the gate, in the spool, "
-          + "no pass has taken it yet. The day window does not apply here: a three-week-old "
-          + "line that is still queued is still going to be read.",
-    read: "Lines a pass actually consumed. Open a run to see which bundle each went into.",
-    "": "Everything ever collected, gated or not. Nothing is ever deleted, so this is the "
-      + "long record — most of it is archived, searchable, and will never cost a call.",
+    queued: "Messages waiting for Dream. The time-range filter is disabled while viewing the queue.",
+    read: "Messages already read. Open History to inspect the dream that processed them.",
+    "": "All collected messages, including archived and skipped items.",
   }[state.queue] || "";
 }
 

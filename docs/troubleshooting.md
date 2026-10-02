@@ -29,7 +29,7 @@ produces ([Slack](sources/slack.md), [Telegram](sources/telegram.md),
 7. **Watermarks never rewind.** A partial round cannot skip past messages, but a
    re-run resumes forward — nothing replays. If traffic looks missing, search the
    archive before assuming collection failed.
-8. **Dream failed or partial?** The Runs tab (or `memcal dream --retry RUN`)
+8. **Dream failed or partial?** The History page (or `memcal dream --retry RUN`)
    requeues readable lines under the current provider and model. Lines beyond the
    model horizon stay read.
 9. **Stale brief?** `memcal schedule status` shows the last pass and whether one
