@@ -105,5 +105,5 @@ One watermark-driven program with `--mode nightly|ondemand|realtime`
 collection without consolidation runs between passes. `--rounds` repeats until the spool drains; `--redo`
 un-claims processed items for reprocessing (merge-on-key, so corrections are not
 duplicated); `--retry RUN` requeues a failed or partial run's readable lines.
-The Runs view shows whether each pass was ok, partial, failed, running, or priced
+The History page shows whether each pass was ok, partial, failed, running, or priced
 only. See [Dream runs](../api/dream.md).

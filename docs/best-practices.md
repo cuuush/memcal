@@ -23,7 +23,7 @@
 - **Schedule the night job.** `memcal schedule install` makes freshness and dream
   automatic: catch-up collection on wake, the full pass when owed, cheap checks
   otherwise.
-- **Review weekly.** `memcal review` plus the Runs tab: what it wrote, what it
+- **Review weekly.** `memcal review` plus the History page: what it wrote, what it
   asks, what it could not resolve. Ten minutes here prevents zombie to-dos and
   stale pages.
 - **Measure plumbing free, quality deliberately.** The integration benchmark runs

@@ -4,7 +4,26 @@ import { $, el, nf, api, jumpToBundle, state } from "./core.js";
 export async function loadMemory() {
   const m = await api("/api/memory");
   const box = $("#brief"); box.innerHTML = "";
+  if (m.error) { box.append(el("div", "empty", "Memory could not load. Refresh to try again.")); return; }
+  if (!(m.lines || []).some(row => {
+    const text = (row.text || "").trim();
+    return text && !text.startsWith("#") && !text.startsWith("[〔")
+      && !text.startsWith("[complete for") && text !== "(nothing known)";
+  })) {
+    const empty = el("div", "empty");
+    empty.append(el("strong", null, "Your memory starts here"),
+      el("div", null, "Connect a source, collect messages, then run Dream to build your first brief."));
+    const link = el("a", "btn", "Set up sources"); link.href = "#settings";
+    empty.append(link); box.append(empty); return;
+  }
   for (const row of (m.lines || [])) {
+    const text = (row.text || "").trim();
+    if (!text || text.startsWith("[〔")) continue;
+    if (text.startsWith("[complete for")) {
+      box.append(el("div", "brief-coverage", text.slice(1, -1).replace("complete for", "Coverage:")
+        .replace("; look up anything outside that", "; search for plans outside this window")));
+      continue;
+    }
     const token = (row.sources || [])[0];
     const target = token && (m.targets || {})[token];
     const change = (target || {}).last_dream_change || "";
@@ -12,7 +31,7 @@ export async function loadMemory() {
                     "briefline" + (target ? " click" : "")
                     + (change ? ` dream-${change}` : "")
                     + (String(row.text || "").startsWith("## ") ? " head" : ""),
-                    row.text || "\u00a0");
+                    (row.text || "\u00a0").replace(/^#{1,3} /, "").replace(/〔[ETQS]\d+〕\s*/g, ""));
     if (target) {
       line.title = `open ${token} source`;
       line.onclick = () => openWhy(target.kind, target.ref, row.text);
@@ -623,7 +642,7 @@ export async function openWhy(kind, ref, title) {
       }
       const b = el("button", "btn", c.run && c.call
         ? `open the full call · run ${c.run} call ${c.call}` : "open the full call");
-      b.title = "open this exact call on the Runs tab";
+      b.title = "open this exact call on the History page";
       b.onclick = () => {
         panel.hidden = true;
         state.run = c.run;

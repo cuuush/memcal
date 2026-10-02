@@ -46,7 +46,7 @@ function card(page, isSelf) {
   const top = el("div", "wikicardtop");
   top.append(el("span", "wikicardname", page.title));
   if (isSelf) top.append(el("span", "youbadge", "you"));
-  top.append(el("span", "wikisection", page.section));
+  if (state.wq) top.append(el("span", "wikisection", page.section));
   card.append(top);
   // What the page is for, not just its name — the same slot list the brief indexes.
   if (page.answers && page.answers.length)

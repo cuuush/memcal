@@ -3,71 +3,81 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>memcal — what the gate did</title>
+<title>Memory · Memcal</title>
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="apple-touch-icon" href="/static/icon.png">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
 
-<header>
-  <div class="bar">
-    <div class="brand">memcal <span id="sub">loading…</span></div>
-    <nav>
-      <button data-view="gate" aria-current="true">Gate</button>
-      <button data-view="chats">Chats</button>
-      <button data-view="dream">Dream</button>
-      <button data-view="senders">Senders</button>
-      <button data-view="memory">Memory</button>
-      <button data-view="wiki">Wiki</button>
-      <button data-view="runs">Runs</button>
-      <button data-view="settings">Settings</button>
-    </nav>
-    <button class="icon-btn" id="theme" title="light / dark">◐</button>
-    <button class="icon-btn" id="reload" title="reload">↻</button>
+<a class="skip-link" href="#workspace">Skip to content</a>
+<aside class="sidebar">
+  <a class="brand" href="#memory"><span class="brand-mark" aria-hidden="true">m</span>memcal</a>
+  <nav aria-label="Main navigation">
+    <button data-view="memory"><span aria-hidden="true">◈</span>Memory</button>
+    <button data-view="wiki"><span aria-hidden="true">▤</span>Wiki</button>
+    <button data-view="chats"><span aria-hidden="true">◎</span>Conversations</button>
+    <div class="nav-divider" aria-hidden="true"></div>
+    <button data-view="gate"><span aria-hidden="true">≋</span>Inbox</button>
+    <button data-view="dream"><span aria-hidden="true">✧</span>Dream</button>
+    <button data-view="runs"><span aria-hidden="true">↺</span>History</button>
+    <div class="nav-divider" aria-hidden="true"></div>
+    <button data-view="senders"><span aria-hidden="true">＠</span>Email rules</button>
+    <button data-view="settings"><span aria-hidden="true">⚙</span>Settings</button>
+  </nav>
+</aside>
+<div class="workspace">
+<main id="workspace" tabindex="-1">
+  <div class="page-heading">
+    <h1 id="page-title">Memory</h1>
+    <div class="header-actions">
+      <a class="btn page-action" id="page-action" href="#dream">Open Dream</a>
+      <button class="icon-btn" id="theme" aria-label="Toggle color theme" title="Toggle color theme">◐</button>
+      <button class="icon-btn" id="reload" aria-label="Refresh current page" title="Refresh current page">↻</button>
+    </div>
   </div>
-</header>
-
-<main>
   <!-- ------------------------------------------------------------- gate -->
   <section class="view" id="view-gate">
     <div class="tiles" id="tiles"></div>
 
-    <h2>Post-gate volume</h2>
+    <details class="disclosure source-volume"><summary>Source activity</summary>
     <div class="streams" id="streams"></div>
     <div class="legend">
-      <span><b style="background:var(--pass)"></b>picked up — the model reads it</span>
-      <span><b style="background:var(--good)"></b>structured — written directly, no model needed</span>
-      <span><b style="background:var(--skip)"></b>skipped — archived and searchable, never costs a token</span>
+      <span><b style="background:var(--pass)"></b>Picked up</span>
+      <span><b style="background:var(--good)"></b>Written directly</span>
+      <span><b style="background:var(--skip)"></b>Archived</span>
     </div>
 
-    <h2>What the gate did</h2>
+    </details>
+
     <p class="note" id="queuenote"></p>
     <div class="filters">
       <div class="seg" id="queue">
-        <button data-q="queued" aria-pressed="true">Waiting for the next dream</button>
+        <button data-q="queued" aria-pressed="true">Waiting</button>
         <button data-q="read">Already read</button>
-        <button data-q="">Everything ever collected</button>
+        <button data-q="">All collected</button>
       </div>
+      <input type="search" id="q" placeholder="Search messages or people" aria-label="Search inbox">
+      <details class="filter-options"><summary>Filters &amp; display</summary><div class="filter-options-body">
       <div class="seg" id="verdict">
         <button data-v="" aria-pressed="true">All</button>
         <button data-v="passed">Picked up</button>
         <button data-v="structured">Structured</button>
         <button data-v="skipped">Skipped</button>
       </div>
-      <select id="channel"><option value="">every channel</option></select>
-      <select id="days">
+      <select id="channel" aria-label="Source"><option value="">All sources</option></select>
+      <select id="days" aria-label="Time range">
         <option value="0">all time</option>
         <option value="3">3 days</option>
         <option value="7">7 days</option>
         <option value="14" selected>14 days</option>
         <option value="30">30 days</option>
       </select>
-      <input type="search" id="q" placeholder="search text, sender, person   (/)">
       <div class="seg" id="shape">
         <button data-s="grouped" aria-pressed="true">By conversation</button>
-        <button data-s="flat">Every line</button>
+        <button data-s="flat">Messages</button>
       </div>
+      </div></details>
       <span class="note" style="margin:0" id="count"></span>
     </div>
     <div class="chips" id="chips"></div>
@@ -78,17 +88,10 @@
 
   <!-- ------------------------------------------------------------ chats -->
   <section class="view" id="view-chats" hidden>
-    <p class="note">
-      Every conversation, and what memcal can tell about it without a model: how much of
-      it is you, how many people in it you already know, and how many of those turn up
-      elsewhere in your world. Muting one keeps it archived and searchable — it just
-      stops costing model calls. A one-to-one thread dream named itself shows as
-      “maybe: …” with a dream's-guess pill until you confirm or correct it here.
-    </p>
     <div id="creview"></div>
     <div class="filters">
-      <select id="cstream"><option value="">every channel</option></select>
-      <input type="search" id="cq" placeholder="search chat name">
+      <select id="cstream" aria-label="Conversation source"><option value="">All sources</option></select>
+      <input type="search" id="cq" placeholder="search chat name" aria-label="Search conversations">
       <span class="note" style="margin:0" id="ccount"></span>
     </div>
     <div class="rollup" id="chats"></div>
@@ -100,34 +103,34 @@
          which stage it is in, how far through the bundles it is, and which ones
          are being read right now, clickable into the preview list below. -->
     <div id="dlive"></div>
-    <p class="note">
-      A dream pass reads only what has arrived since the last one, grouped by the person
-      or thread it is about. This is that grouping before any of it is sent — the same
-      text the model will get, in the same requests it will travel in.
-    </p>
-    <div class="tiles" id="dtiles"></div>
+    <div class="dream-actions">
+      <div class="card">
+        <div class="row">
+          <button class="btn" id="collect" title="Fetch messages from enabled sources. No model calls.">Collect messages</button>
+          <span class="note" id="collectnote"></span>
+        </div>
+        <div class="prog" hidden></div>
+        <pre class="log" id="collectlog" hidden></pre>
+      </div>
+      <div class="card">
+        <div class="row">
+          <button class="btn go" id="dream" disabled>Run Dream</button>
+          <span class="note" id="dreamnote"></span>
+        </div>
+        <div class="prog" hidden></div>
+        <pre class="log" id="dreamlog" hidden></pre>
+      </div>
+    </div>
+    <div class="dream-summary" id="dtiles"></div>
     <div id="dretry"></div>
     <div id="dwarn"></div>
 
-    <h2>1 · Collect</h2>
-    <p class="note">
-      Pulls every usable source to exhaustion and gates what it finds. Costs nothing —
-      no model runs here. What passes the gate is what the next dream will read.
-    </p>
-    <div class="card">
-      <div class="row">
-        <button class="btn go" id="collect">Collect from all sources</button>
-        <span class="note" style="margin:0" id="collectnote"></span>
-      </div>
-      <div class="prog" hidden></div>
-      <pre class="log" id="collectlog" hidden></pre>
-    </div>
-
-    <h2>2 · What the agent will see</h2>
+<details class="disclosure" id="dream-preview"><summary>Input preview</summary>
+    <h2>Context sent to the model</h2>
     <div class="card" id="dprefix"></div>
 
     <h3 style="font-size:13px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.07em;margin:22px 0 10px">
-      The requests it travels in</h3>
+      Requests</h3>
     <div class="reqs" id="dreqs"></div>
 
     <!-- Closed, and scrolling inside itself when open. A real pass is a hundred-odd
@@ -136,20 +139,20 @@
          page, so the control you came here for was the hardest thing on it to find. -->
     <details class="bundlebox" id="dbundlebox">
       <summary>
-        <span class="bundleboxtitle">The bundles</span>
+        <span class="bundleboxtitle">Conversations</span>
         <span id="dbcount" class="note" style="margin:0"></span>
       </summary>
       <div class="row" style="margin:10px 0;gap:8px;flex-wrap:wrap">
         <input type="search" id="bq" placeholder="search a name, a handle, or what was said"
-               style="flex:1;min-width:220px">
-        <select id="bstream"><option value="">every channel</option></select>
-        <select id="bkind">
+               style="flex:1;min-width:220px" aria-label="Search bundles">
+        <select id="bstream" aria-label="Bundle source"><option value="">All sources</option></select>
+        <select id="bkind" aria-label="Bundle type">
           <option value="">every kind</option>
           <option value="person">people</option>
           <option value="group">group chats</option>
           <option value="thread">threads</option>
         </select>
-        <select id="bflag">
+        <select id="bflag" aria-label="Bundle status">
           <option value="">everything</option>
           <option value="waiting">has lines left over</option>
           <option value="monologue">your words only</option>
@@ -160,29 +163,14 @@
       <div id="dbundles" class="bundlescroll"></div>
     </details>
 
-    <h2>3 · Dream</h2>
-    <div class="card">
-      <div class="row">
-        <button class="btn spend" id="dream">Dream — spends money</button>
-        <span class="note" style="margin:0" id="dreamnote"></span>
-      </div>
-      <div class="prog" hidden></div>
-      <pre class="log" id="dreamlog" hidden></pre>
-    </div>
+</details>
 
-    <h2>New memories</h2>
-    <div class="card" id="doutput"><div class="empty">nothing yet — dream to see what it writes</div></div>
+    <h2>Changes</h2>
+    <div class="card" id="doutput"><div class="empty">No changes from this session.</div></div>
   </section>
 
   <!-- ---------------------------------------------------------- senders -->
   <section class="view" id="view-senders" hidden>
-    <h2>The email gate table</h2>
-    <p class="note">
-      Email is a sender problem, not a content problem — “AWS re:Invent night is tomorrow”
-      and “poker is tomorrow” are lexically identical. Flip a row and it is a hash lookup
-      forever after. <b>process</b> = the model reads it · <b>archive</b> = kept and searchable,
-      never read · <b>ignore</b> = same, and it was obvious junk.
-    </p>
     <div class="filters">
       <div class="seg" id="sdec">
         <button data-v="" aria-pressed="true">All</button>
@@ -190,7 +178,7 @@
         <button data-v="archive">Archived</button>
         <button data-v="ignore">Ignored</button>
       </div>
-      <input type="search" id="sq" placeholder="search address">
+      <input type="search" id="sq" placeholder="search address" aria-label="Search email senders">
       <label class="note" style="margin:0">
         <input type="checkbox" id="backfill"> also queue their past mail (subjects only)
       </label>
@@ -206,41 +194,25 @@
 
   <!-- ----------------------------------------------------------- memory -->
   <section class="view" id="view-memory" hidden>
-    <h2>The brief — this is what is in context</h2>
-    <p class="note">Every sourced line is clickable. It opens the original messages and
-      the relevant pieces of the model call first; the full call stays one click deeper.</p>
     <div class="card briefcard" id="brief"></div>
   </section>
 
   <!-- ------------------------------------------------------------- wiki -->
   <section class="view" id="view-wiki" hidden>
-    <h2>The wiki</h2>
-    <p class="note">
-      What memcal knows about the people, places and projects in your world, kept as
-      markdown files you can edit here or by hand. Your own page sits at the top, marked
-      you. Open a page to see each fact beside the exact line it was read from — with
-      the bundle it came out of one click away — and to correct a fact in place.
-    </p>
     <div class="filters">
-      <input type="search" id="wq" placeholder="search a name or alias">
+      <input type="search" id="wq" placeholder="search a name or alias" aria-label="Search wiki pages">
       <span class="note" style="margin:0" id="wcount"></span>
     </div>
     <div class="wikilayout">
       <div class="wikilist" id="wikilist"></div>
       <div class="wikidetail" id="wikidetail">
-        <div class="empty">pick a page to open it</div>
+        <div class="empty">Select a page</div>
       </div>
     </div>
   </section>
 
   <!-- ------------------------------------------------------------- runs -->
   <section class="view" id="view-runs" hidden>
-    <h2>Dream passes</h2>
-    <p class="note">
-      Click a pass to open it: every request it made, every bundle inside each request,
-      what the model thought, what it answered, and which of those answers actually
-      landed in the store.
-    </p>
     <div class="filters">
       <div class="seg" id="routcome">
         <button data-v="" aria-pressed="true">All</button>
@@ -253,10 +225,9 @@
     <div id="runretry"></div>
     <div class="wrap"><table>
       <thead><tr>
-        <th>#</th><th>When</th><th>How it ended</th><th>Mode</th><th>Model</th>
-        <th class="num">Bundles</th><th class="num">Items</th><th class="num">Writes</th>
-        <th class="num">In</th><th class="num">Cached</th><th class="num">Out</th>
-        <th class="num">Cost</th><th></th>
+        <th>Run</th><th>When</th><th>Outcome</th><th>Model</th>
+        <th class="num">Messages</th><th class="num">Writes</th>
+        <th class="num">Cost</th><th>Actions</th>
       </tr></thead>
       <tbody id="runs"></tbody>
     </table></div>
@@ -265,22 +236,17 @@
 
   <!-- --------------------------------------------------------- settings -->
   <section class="view" id="view-settings" hidden>
-    <h2>Runtime</h2>
-    <p class="note">
-      The model provider this store runs against, and the files on disk behind it.
-    </p>
+    <h2>Model</h2>
     <div id="setruntime"></div>
 
-    <h2>Settings</h2>
-    <p class="note">
-      Every <code>MEMCAL_*</code> variable memcal reads, with what it does and where its
-      current value came from. Saving writes <span id="setfile" class="mono"></span> and
-      applies to this process immediately; the nightly pass picks it up on its next run.
-      An empty field means “unset” — the key is blanked and the built-in default comes
-      back.
-    </p>
+    <h2>Sources</h2>
+    <p class="note" id="setsrcnote">Enabled sources are collected automatically.</p>
+    <div id="setsources"><div class="empty">checking…</div></div>
+
+    <h2>Preferences</h2>
+    <p class="note">Changes apply when saved. Empty fields restore defaults.<span id="setfile" hidden></span></p>
     <div class="filters">
-      <input type="search" id="setq" placeholder="search a setting, or its variable   (/)">
+      <input type="search" id="setq" placeholder="search a setting, or its variable   (/)" aria-label="Search settings">
       <label class="note" style="margin:0">
         <input type="checkbox" id="setcustom"> only changed
         <span id="setcustomn" class="setkeys"></span>
@@ -288,39 +254,29 @@
       <span class="note" style="margin:0" id="setcount"></span>
       <span class="note setkeys" style="margin:0">⌘S saves</span>
     </div>
-    <div class="chips" id="setnav"></div>
     <div id="setgroups"></div>
 
-    <h2>Sources</h2>
-    <p class="note" id="setsrcnote">
-      What feeds memcal. Flip a source off and Collect, <code>ingest all</code>, due
-      checks, and the nightly pull skip it — an explicit
-      <code>memcal ingest &lt;name&gt;</code> still runs it.
-    </p>
-    <div id="setsources"><div class="empty">checking…</div></div>
-
-    <h2>Credentials</h2>
+<details class="disclosure" id="credentials-section"><summary>Source credentials</summary>
     <p class="note">
-      What each source asks for. memcal never sends a saved value back to the page —
-      it only says whether one is set, and lets you replace or clear it.
+Saved credentials are hidden. Replace or clear a credential below.
     </p>
     <div id="setcreds"></div>
 
-    <h2>Configuration files</h2>
+</details>
+
+<details class="disclosure"><summary>Configuration files &amp; precedence</summary>
     <p class="note">
-      The <code>.env</code> files memcal reads, highest precedence first. Only the
-      store file is ever written — the rest are shown so a value coming from
-      somewhere unexpected stops being a mystery.
+      Highest precedence first. Only the store file is writable.
     </p>
     <div id="setfiles"></div>
 
+</details>
+
     <h2>Nightly automation</h2>
-    <p class="note">
-      The background pass that collects and dreams while you sleep.
-    </p>
     <div id="setschedule"><div class="empty">checking…</div></div>
   </section>
 </main>
+</div>
 
 <!-- Nothing on the settings tab saves as you type: a knob that changes what a pass
      costs should take a deliberate press. -->
@@ -337,7 +293,7 @@
 </div>
 
 <!-- The trace panel: any row in Memory can open the model call that wrote it. -->
-<div id="tracepanel" hidden>
+<div id="tracepanel" role="dialog" aria-modal="true" aria-labelledby="tracetitle" tabindex="-1" hidden>
   <div class="thead">
     <div>
       <div class="tkicker">Where this came from</div>
@@ -348,7 +304,7 @@
   <div id="tracebody"></div>
 </div>
 
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script type="module" src="/static/app.js"></script>
 </body>

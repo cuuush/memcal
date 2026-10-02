@@ -15,7 +15,7 @@ reprocessing (merge-on-key, so corrections are not duplicated).
 
 ## Retry a pass that failed
 
-The Runs view shows whether each pass was ok, partial, failed, running, or priced
+The History page shows whether each pass was ok, partial, failed, running, or priced
 only. Retrying releases the lines that pass claimed and runs them with the
 provider and model configured now:
 
@@ -46,4 +46,4 @@ memcal schedule due      # just the answer
 ```
 
 See [Scheduling](../hosting/scheduling.md) for the launchd layout and
-[Monitoring](../hosting/monitoring.md) for the Runs view.
+[Monitoring](../hosting/monitoring.md) for the History page.

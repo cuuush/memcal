@@ -16,7 +16,7 @@ let preview = null;
 /* The server admits only one background job at a time. */
 let passRunning = false;
 
-/* Retry selection handed off from the Runs tab. */
+/* Retry selection handed off from the History page. */
 let pinned = 0;
 let pinnedIsNew = false;
 
@@ -62,29 +62,26 @@ function renderTiles(p) {
   box.append(
     tile("Last dream", p.last_dream.at ? p.last_dream.at.slice(5).replace("T", " ") : "never",
          p.last_dream.at
-           ? `${p.last_dream.model} · ${p.last_dream.outcome_label}`
-           : "no pass on record",
+           ? p.last_dream.outcome_label
+           : "",
          p.last_dream.outcome === "failed" || p.last_dream.outcome === "partial"),
-    tile("Waiting", nf(s.pending), `gated and unread · ${nf(s.entities)} conversations`),
+    tile("Waiting", nf(s.pending), `${nf(s.entities)} conversations`),
     // Selection is round-robin across conversations, capped per conversation, so the
     // interesting number is not "how many did not fit" but "whose tail got cut".
-    tile("This pass reads", nf(s.taken),
+    tile("Selected", nf(s.taken),
          s.left_behind || s.unreached
            ? `${nf(s.left_behind)} tails left · cap ${s.per_entity}/chat, budget ${nf(s.item_budget)}`
-           : "everything waiting",
+           : "",
          s.unreached > 0),
-    tile("Bundles", nf(p.bundles.length),
-         `${p.requests.length} request(s) of ≤${p.pack.bundles}, ${p.max_parallel} at a time`),
     tile("Model", (p.model || "").split("/").pop(),
-         p.cost.priced ? `~$${p.cost.input} in · up to $${p.cost.output_ceiling} out`
-                       : "no price on file"),
+         ""),
   );
   $("#collectnote").textContent = s.will_retire
     ? `${nf(s.will_retire)} waiting item(s) are older than ${s.horizon_days} days and will be retired unread`
     : "";
   $("#dreamnote").textContent = p.cost.priced
-    ? `input ~$${p.cost.input}; output up to $${p.cost.output_ceiling} if every request runs to its ceiling`
-    : "";
+    ? `Est. $${p.cost.input} input · up to $${p.cost.output_ceiling} output`
+    : "Uses model quota · price unavailable";
   // The count line belongs to renderBundles now — it has to say how many the filter is
   // showing, and two writers of one element means whichever ran last wins.
   $("#dream").disabled = !p.bundles.length;
@@ -504,7 +501,7 @@ function renderLive(live) {
     `${quiet ? "Pass gone quiet" : "Dreaming now"} — run #${live.run.id} · `
     + `${live.run.mode} · ${live.run.model || "model?"}`);
   const sub = el("span", "note",
-    quiet ? `last progress ${ago(live.age_s)} — it may have stalled; the Runs tab still lists it`
+    quiet ? `last progress ${ago(live.age_s)} — it may have stalled; the History page still lists it`
     : live.propose.total ? `${nf(live.propose.done)}/${nf(live.propose.total)} bundles read`
     : `started ${live.run.started_at.slice(5, 16).replace("T", " ")} · ${nf(live.run.bundles)} bundles`);
   sub.style.margin = "0";
@@ -637,7 +634,7 @@ function renderOutput(r) {
   if (!r.diffs && r.bundles) {
     const n = el("div", "note");
     n.style.color = "var(--warn)";
-    n.textContent = `${r.bundles} bundles read and nothing written. Check the Runs tab for `
+    n.textContent = `${r.bundles} bundles read and nothing written. Check the History page for `
       + `output tokens: a completion that stopped on its ceiling was truncated, and a `
       + `truncated diff fails to parse silently.`;
     card.append(n);
