@@ -142,6 +142,17 @@ async function openRun(id) {
     `${nf(d.run.diffs)} writes`, `$${d.run.cost.toFixed(4)}`, d.run.outcome_label,
   ].filter(Boolean).join(" · ");
   box.append(meta);
+  if (d.diagnostics?.length) {
+    const logs = el("details");
+    logs.append(el("summary", null, "Saved dream log"));
+    const text = d.diagnostics.map(e => {
+      const detail = e.error || e.note || e.label || e.state || "";
+      return `${e.at || ""} ${e.stage || ""} ${e.event}: ${detail}`
+        + (e.traceback ? `\n${e.traceback}` : "");
+    }).join("\n");
+    logs.append(el("pre", null, text));
+    box.append(logs);
+  }
   if (d.run.error) {
     const w = el("div", "banner");
     w.append(el("b", null, `This pass ${d.run.outcome_label}`),

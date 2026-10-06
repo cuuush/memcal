@@ -1,10 +1,31 @@
 ## [Unreleased]
 
+### Added
+
+- Every dream saves stage progress, diagnostic errors, and crash tracebacks locally.
+  Open a run's Saved dream log in the web UI or use `memcal trace <run>` to inspect
+  failures after restart. Logging failures print the affected path and error.
+
+- `memcal update` refreshes checkout or pip installations, repairs dependencies and
+  the checkout launcher, and verifies that the CLI loads. Checkout updates preserve
+  local changes and refuse divergent commits.
+
 ### Fixed
 
 - Pinned clocks preserve explicit timezone offsets. Naive pins use the local
   timezone on the pinned date, so Eastern daylight-saving changes are respected.
 
+- Dream question review recovers a missing `q:` prefix only for an exact candidate
+  and version match, and reports the repair. A failed follow-up retains the initial
+  paid reply; truncated question repairs are rejected.
+- Dream validation errors with successful writes are shown as partial runs, and
+  question coverage errors are attributed to propose rather than sweep.
+
+- Setup no longer reports unchanged credentials or automatic executable discovery
+  as edits. An unchanged rerun leaves the configuration file untouched.
+
+- Checkout launchers use their configured source even when invoked from another
+  Memcal checkout.
 - Merging events with a shared conversation preserves the earliest review baseline.
 
 - Native iMessage ingestion now recognizes a chat with two other participants
@@ -22,6 +43,14 @@
 
 ### Changed
 
+- `memcal setup` focuses on provider/model, iMessage transport and BlueBubbles
+  connections, and source selection, with optional credentials. `--advanced`
+  exposes model tuning, brief, dream, merge, and publishing settings.
+  Enter keeps saved values; `--section` jumps to one area. All changes are validated
+  and summarized before one confirmed save.
+- Setup marks the current provider and lets you keep or replace saved API URLs and
+  keys interactively. The installer stops on dependency failures instead of leaving
+  a broken command behind.
 - iMessage reads the local Messages database by default. Explicit BlueBubbles
   settings still select the server.
 - Rerunning `memcal setup` shows saved provider and model choices, keeps them
