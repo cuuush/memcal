@@ -2,6 +2,9 @@
 
 ### Fixed
 
+- Pinned clocks preserve explicit timezone offsets. Naive pins use the local
+  timezone on the pinned date, so Eastern daylight-saving changes are respected.
+
 - Merging events with a shared conversation preserves the earliest review baseline.
 
 - Native iMessage ingestion now recognizes a chat with two other participants
