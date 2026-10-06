@@ -199,35 +199,58 @@ def _provider_choice(current: str = "codex") -> str:
                ("6", "openai-compatible", "OpenAI-compatible API"))
     print("LLM provider:")
     for number, _value, label in choices:
-        print(f"  {number}. {label}")
+        print(f"  {number}. {label}" + (" (current)" if _value == current else ""))
     by_input = {number: value for number, value, _label in choices}
     by_input.update({value: value for _number, value, _label in choices})
     default = next((number for number, value, _ in choices if value == current), "1")
-    try:
-        answer = input(f"Choose [{default}]: ").strip() or default
-    except EOFError as exc:
-        raise SystemExit("no interactive input; pass --provider") from exc
-    if answer not in by_input:
-        numbers = ", ".join(number for number, _value, _label in choices)
-        names = ", ".join(value for _number, value, _label in choices)
-        raise SystemExit(f"choose {numbers}, or one of {names}")
-    return by_input[answer]
+    while True:
+        answer = input(f"Provider [{default}: {by_input[default]}]: ").strip() or default
+        if answer in by_input:
+            return by_input[answer]
+        print("Enter the provider's number or name; Enter keeps the current provider.")
 
 
 def cmd_setup(args) -> int:
-    """Guided provider choice, persisted in memcal's existing .env boundary."""
+    """Configure Memcal with saved values as defaults and one final confirmation."""
+    try:
+        return _cmd_setup(args)
+    except EOFError:
+        print("Setup canceled; nothing saved.")
+        return 0
+    except settings.SettingsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _cmd_setup(args) -> int:
+    from . import setup_config
     cfg = config.load(getattr(args, "home", None))
-    cfg.ensure_dirs()
+    section = getattr(args, "section", "all")
+    advanced = getattr(args, "advanced", False)
+    if section not in {"all", "provider"}:
+        if any(getattr(args, key, None) for key in ("provider", "model", "api_key", "base_url")):
+            raise settings.SettingsError("provider flags require --section provider or all")
+        print("Memcal setup — Enter keeps the value shown; '?' explains it; '-' resets it.")
+        values = {}
+        setup_config.collect(cfg, section, values, advanced=advanced)
+        planned = setup_config.confirm(cfg, values)
+        if planned is None:
+            print("Setup canceled; nothing saved.")
+        elif planned:
+            _write_env(cfg.home / ".env", planned)
+            print(f"saved     {cfg.home / '.env'}")
+        else:
+            print("No settings changed.")
+        return 0
     guided = not args.provider
+    if guided:
+        print("Memcal setup — Enter keeps the value shown; '?' explains it; '-' resets it.")
     provider = args.provider or _provider_choice(cfg.llm_provider)
     default_model = llm.PROVIDER_DEFAULT_MODELS[provider]
     model = args.model
     if guided and not model:
         shown_model = cfg.propose_model if provider == cfg.llm_provider else default_model
-        try:
-            model = input(f"Model [{shown_model or 'required'}]: ").strip() or shown_model
-        except EOFError:
-            model = shown_model
+        model = setup_config.prompt(settings.BY_KEY["MEMCAL_PROPOSE_MODEL"], shown_model, provider)
     model = model or default_model
     if not model:
         print("error: this endpoint needs --model", file=sys.stderr)
@@ -245,66 +268,50 @@ def cmd_setup(args) -> int:
     if backend:
         # launchd may not inherit the shell's PATH.
         resolved = shutil.which(backend.command(cfg))
-        if resolved:
+        if resolved and (not guided or provider != cfg.llm_provider):
             values[backend.env] = resolved
     if provider == "openrouter":
         key = args.api_key or cfg.api_key
-        if not key and guided:
-            key = getpass.getpass("OpenRouter API key: ").strip()
+        if guided and not args.api_key:
+            hint = " [configured; Enter to keep]" if key else ""
+            key = getpass.getpass(f"OpenRouter API key{hint}: ").strip() or key
         if not key:
             print("error: OpenRouter needs --api-key or OPENROUTER_API_KEY", file=sys.stderr)
             return 1
-        if args.api_key or not cfg.api_key:
-            values["OPENROUTER_API_KEY"] = key
+        if key != cfg.api_key or args.api_key:
+            setup_config.replace_value(cfg, values, ("OPENROUTER_API_KEY", "openrouter"), key)
     if provider == "openai-compatible":
         base_url = args.base_url or cfg.openai_base_url
-        if not base_url and guided:
-            base_url = input("API base URL (https://host/v1): ").strip()
+        if guided and not getattr(args, "base_url", None):
+            base_url = input(f"API base URL [{base_url or 'https://host/v1'}]: ").strip() or base_url
         key = args.api_key or cfg.openai_api_key
-        if not key and guided:
-            key = getpass.getpass("API key: ").strip()
+        if guided and not args.api_key:
+            hint = " [configured; Enter to keep]" if key else ""
+            key = getpass.getpass(f"API key{hint}: ").strip() or key
         if not base_url or not key:
             print("error: OpenAI-compatible API needs --base-url and --api-key",
                   file=sys.stderr)
             return 1
         values["MEMCAL_OPENAI_BASE_URL"] = base_url
-        if args.api_key or not cfg.openai_api_key:
+        if key != cfg.openai_api_key or args.api_key:
             values["OPENAI_COMPAT_API_KEY"] = key
     if guided:
-        before = {
-            "MEMCAL_LLM_PROVIDER": cfg.llm_provider,
-            "MEMCAL_PROPOSE_MODEL": cfg.propose_model,
-            "MEMCAL_SWEEP_MODEL": cfg.sweep_model,
-            "MEMCAL_MATCH_MODEL": cfg.match_model,
-            "MEMCAL_OPENAI_BASE_URL": cfg.openai_base_url,
-        }
-        if backend:
-            before[backend.env] = getattr(cfg, backend.env.removeprefix("MEMCAL_").lower(), "")
-        labels = {
-            "MEMCAL_LLM_PROVIDER": "Provider", "MEMCAL_PROPOSE_MODEL": "Propose model",
-            "MEMCAL_SWEEP_MODEL": "Sweep model", "MEMCAL_MATCH_MODEL": "Match model",
-            "MEMCAL_OPENAI_BASE_URL": "API base URL",
-        }
-        if backend:
-            labels[backend.env] = "Runtime command"
-        print("\nChanges:")
-        changed = [(key, value) for key, value in values.items()
-                   if key in before and value != before[key]]
-        for key, value in changed:
-            print(f"  {labels[key]}: {before[key] or '(unset)'} → {value}")
-        if any(key in values for key in ("OPENROUTER_API_KEY", "OPENAI_COMPAT_API_KEY")):
-            print("  API key: updated")
-        if not changed and not any(key in values for key in (
-                "OPENROUTER_API_KEY", "OPENAI_COMPAT_API_KEY")):
-            print("  None")
-        try:
-            answer = input("Save? [Y/n]: ").strip().lower()
-        except EOFError:
-            answer = "n"
-        if answer not in ("", "y", "yes"):
-            print("Setup canceled.")
+        setup_config.collect(cfg, section, values, advanced=advanced)
+        values = setup_config.confirm(cfg, values)
+        if values is None:
+            print("Setup canceled; nothing saved.")
             return 0
+        if not values:
+            print("No settings changed.")
+            return 0
+    else:
+        planned = settings.prepare(cfg, {key: value for key, value in values.items()
+                                         if key in settings.BY_KEY})
+        values.update({key: text for key, (text, _) in planned.items()})
+        values = {key: settings.check_text(value, limit=settings.MAX_SECRET_CHARS)
+                  for key, value in values.items()}
     _write_env(cfg.home / ".env", values)
+    cfg.ensure_dirs()
 
     ready = config.load(cfg.home)
     ok, detail = llm.provider_status(ready)
@@ -1551,8 +1558,15 @@ def cmd_trace(args) -> int:
     # for a run number, which is what doctor now points at.
     run_id = int(needle) if needle.isdigit() else None
     failures = calls.failures_for_run(cfg.home, run_id) if run_id is not None else []
+    from .dream import diagnostics
+    journal = diagnostics.read(cfg.home, run_id) if run_id is not None else []
+    for entry in journal:
+        if entry.get("error"):
+            print(f"{entry.get('at', '')} {entry.get('stage', 'dream')}: {entry['error']}")
+            if entry.get("traceback"):
+                print(entry["traceback"])
 
-    if not rows and not failures:
+    if not rows and not failures and not journal:
         print("no calls recorded yet — run `memcal dream` first")
         return 1
 
@@ -2209,7 +2223,7 @@ COMMAND_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("People and facts", ("page", "pages", "alias", "merge", "who")),
     ("Feed it", ("ingest", "sources", "dream", "review", "schedule")),
     ("The gate", ("gatecheck", "senders", "mail", "top", "block")),
-    ("Set up and check", ("setup", "init", "openclaw", "doctor", "stats", "trace",
+    ("Set up and check", ("setup", "update", "init", "openclaw", "doctor", "stats", "trace",
                           "models", "ical", "reminders", "completion")),
 )
 
@@ -2287,13 +2301,21 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("init", help="set up the db, import contacts, write the brief")
     s.set_defaults(func=cmd_init)
 
-    s = sub.add_parser("setup", help="interactively choose the LLM provider and model")
+    s = sub.add_parser("setup", help="configure providers, sources, and other settings")
+    from .setup_config import SECTIONS
+    s.add_argument("--section", choices=SECTIONS, default="all",
+                   help="configure one section (default: essential setup)")
+    s.add_argument("--advanced", action="store_true", help="include tuning settings")
     s.add_argument("--provider", choices=tuple(llm.PROVIDER_DEFAULT_MODELS),
                    help="skip the provider prompt")
     s.add_argument("--model", help="provider-native model id")
     s.add_argument("--api-key", help="API key for OpenRouter or OpenAI-compatible backend")
     s.add_argument("--base-url", help="OpenAI-compatible API base URL, such as https://host/v1")
     s.set_defaults(func=cmd_setup)
+
+    s = sub.add_parser("update", help="update this installation and refresh its launcher")
+    from . import update
+    s.set_defaults(func=lambda args: update.run())
 
     s = sub.add_parser("openclaw", help="install or inspect the OpenClaw integration")
     s.add_argument("action", nargs="?", default="status", choices=["status", "setup"],
@@ -2682,7 +2704,7 @@ def _expand_bare_handle(argv: list[str], choices) -> list[str]:
 #: it (and so cannot depend on it); the rest are bare invocations with no work to do.
 #: Every other subcommand re-execs through the bundle when one is built — including
 #: read-only ones, at the cost of one fork+exec — so there is one Calendar identity.
-_NO_APP_COMMANDS = {None, "schedule", "help", "completion"}
+_NO_APP_COMMANDS = {None, "schedule", "update", "help", "completion"}
 
 
 def _maybe_reexec_under_app(args, argv: list[str]) -> None:

@@ -639,7 +639,8 @@ def run_detail(conn: sqlite3.Connection, cfg: Config, run_id: int) -> dict:
     writes = conn.execute(
         """SELECT p.*, g.label FROM provenance p
              LEFT JOIN generations g ON g.generation_id = p.generation_id
-            WHERE p.run_id = ? ORDER BY p.id""", (run_id,)).fetchall()
+             WHERE p.run_id = ? ORDER BY p.id""", (run_id,)).fetchall()
+    from .dream import diagnostics
     return {
         "run": {
             "id": row["id"], "at": str(row["started_at"])[:19],
@@ -665,6 +666,7 @@ def run_detail(conn: sqlite3.Connection, cfg: Config, run_id: int) -> dict:
             "claimed": dream_retry.claimed(conn, run_id),
         },
         "calls": every,
+        "diagnostics": diagnostics.read(cfg.home, run_id),
         # Requests that produced no reply, so there is no `generations` row and they
         # cannot appear above. This is where run 3's six connection resets went.
         "failures": [{"stage": f.get("stage") or "",

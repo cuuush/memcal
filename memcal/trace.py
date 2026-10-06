@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -31,9 +32,17 @@ def record(conn: sqlite3.Connection, *, run_id: int | None, stage: str, label: s
     if not generation_id:
         return
     if home is not None:
-        calls.save(home, reply=reply, stage=stage, run_id=run_id, label=label,
+        saved = calls.save(home, reply=reply, stage=stage, run_id=run_id, label=label,
                    model=getattr(reply, "model", ""), prefix=prefix, suffix=suffix,
                    max_tokens=max_tokens, bundles=bundles)
+        if saved is None:
+            from .dream import diagnostics
+            message = f"call logging failed: run #{run_id}, {stage}, generation {generation_id}"
+            _note_ledger_failure(conn, generation_id, OSError(message))
+            try:
+                diagnostics.Journal(home).record("error", {"stage": stage, "error": message}, run_id)
+            except OSError:
+                pass  # Journal prints the failed path and OS error.
     usage = getattr(reply, "usage", None)
     try:
         conn.execute(
@@ -58,6 +67,8 @@ LEDGER_ERROR_KEY = "trace.ledger_error"
 def _note_ledger_failure(conn: sqlite3.Connection, generation_id: str,
                          exc: Exception) -> None:
     """Record a ledger failure without masking the model result."""
+    print(f"trace ledger failed: generation {generation_id}: {type(exc).__name__}: {exc}",
+          file=sys.stderr)
     try:
         db.set_meta(conn, LEDGER_ERROR_KEY,
                     f"{db.now()} {generation_id}: {exc}"[:500])

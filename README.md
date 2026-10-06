@@ -36,10 +36,26 @@ memcal doctor
 memcal brief
 ```
 
-Run `memcal setup` again to switch providers or models. Enter keeps each saved
-choice; the wizard shows a change summary before saving. On macOS, iMessage reads
+Run `memcal update` to update your installation. A checkout follows its Git
+upstream and refreshes dependencies and its launcher; a pip installation upgrades
+to the latest published release. Local edits or unpublished commits stop a checkout
+update so you can resolve them first.
+
+Run `memcal setup` to choose your model provider, iMessage transport and BlueBubbles
+connection, and disabled sources. Other source credentials are optional.
+Use `memcal setup --advanced` for model tuning, brief, dream, and publishing settings.
+Enter keeps saved values;
+`?` explains a setting and `-` resets it. The wizard shows a change summary before saving.
+Use `memcal setup --section imessage` (or `provider`, `brief`, `collect`, `dream`,
+`merge`, `publish`, `credentials`) to jump to one section. On macOS, iMessage reads
 the local Messages database by default and needs Full Disk Access for the process
 running Memcal. See [iMessage setup](docs/sources/imessage.md) to use BlueBubbles.
+
+Dream diagnostics persist for CLI, web, and scheduled runs. Open a run in the web
+UI and expand **Saved dream log** for stage progress and crash tracebacks; model
+calls retain their prompts and replies. `memcal trace <run>` also prints saved
+errors. Logs live under `~/.memcal/calls/run-XXXX/dream.jsonl`; a failure before
+the run opens is saved under `calls/live/` and prints its path.
 
 For a service with an OpenAI-compatible chat-completions endpoint, configure its
 base URL, model ID, and API key explicitly:

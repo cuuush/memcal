@@ -13,6 +13,7 @@
 #   ./install.sh                 # ~/.local/bin/memcal, and `memcal init` if this is new
 #   ./install.sh --nightly       # ...and schedule the dream pass for 3am
 #   ./install.sh --bin DIR       # somewhere else on your PATH
+#   ./install.sh --python PATH   # use a particular Python 3.11+ interpreter
 #   ./install.sh --uninstall     # remove the launcher (never your data)
 #
 set -eu
@@ -22,11 +23,14 @@ BIN="${HOME}/.local/bin"
 DO_INIT=1
 DO_NIGHTLY=0
 UNINSTALL=0
+REQUESTED_PY=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --bin)       BIN="${2:?--bin needs a directory}"; shift 2 ;;
         --bin=*)     BIN="${1#*=}"; shift ;;
+        --python)    REQUESTED_PY="${2:?--python needs an interpreter}"; shift 2 ;;
+        --python=*)  REQUESTED_PY="${1#*=}"; shift ;;
         --no-init)   DO_INIT=0; shift ;;
         --nightly)   DO_NIGHTLY=1; shift ;;
         --uninstall) UNINSTALL=1; shift ;;
@@ -71,9 +75,13 @@ py_ok() {
 }
 
 PY=""
-for candidate in python3 python3.14 python3.13 python3.12 python3.11; do
-    if py_ok "$candidate"; then PY=$(command -v "$candidate"); break; fi
-done
+if [ -n "$REQUESTED_PY" ]; then
+    if py_ok "$REQUESTED_PY"; then PY=$(command -v "$REQUESTED_PY"); fi
+else
+    for candidate in python3 python3.14 python3.13 python3.12 python3.11; do
+        if py_ok "$candidate"; then PY=$(command -v "$candidate"); break; fi
+    done
+fi
 
 if [ -z "$PY" ]; then
     say "memcal needs Python 3.11 or newer, and I could not find one."
@@ -127,6 +135,7 @@ if [ -n "$DEPS" ]; then
         printf '%s\n' "$DEPS" | sed 's/^/    /' >&2
         # shellcheck disable=SC2086
         warn "install them by hand:  $PY -m pip install --user --break-system-packages $(printf '%s ' $DEPS)"
+        exit 1
     fi
 else
     step "none"
@@ -157,7 +166,7 @@ if [ ! -x "\$PY" ]; then
     PY=\$(command -v python3) || { echo "memcal: no python3 on PATH" >&2; exit 1; }
 fi
 
-exec env PYTHONPATH="\$MEMCAL_ROOT\${PYTHONPATH:+:\$PYTHONPATH}" "\$PY" -m memcal "\$@"
+exec env MEMCAL_LAUNCHER="$TARGET" PYTHONPATH="\$MEMCAL_ROOT\${PYTHONPATH:+:\$PYTHONPATH}" "\$PY" -P -m memcal "\$@"
 EOF
 chmod 755 "$TARGET"
 step "launcher $TARGET"
@@ -213,13 +222,9 @@ fi
 # ------------------------------------------------------------------- what next --
 
 say ""
-if [ ! -f "$ROOT/.env" ] && [ -z "${OPENROUTER_API_KEY:-}" ]; then
-    warn "no OpenRouter key — the gate, the CLI and the brief all work without one,"
-    warn "but the dream pass cannot run. Put a sk-or-... line in $ROOT/.env"
-    say ""
-fi
-
 say "try:"
+say "  memcal setup                 choose or switch your model provider"
+say "  memcal update                update this installation"
 say "  memcal brief                 what your agent sees"
 say "  memcal ingest all            pull the streams"
 say "  memcal web                   what the gate did, in a browser"
