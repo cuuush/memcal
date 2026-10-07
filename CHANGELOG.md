@@ -15,6 +15,9 @@
 - Codex reconnect errors no longer discard a later successful completion. Terminal
   failures count toward run usage, and dream logs show partial runs when writes landed.
 
+- Pinned clocks preserve explicit timezone offsets. Naive pins use the local
+  timezone on the pinned date, so Eastern daylight-saving changes are respected.
+
 - Dream question review recovers a missing `q:` prefix only for an exact candidate
   and version match, and reports the repair. A failed follow-up retains the initial
   paid reply; truncated question repairs are rejected.

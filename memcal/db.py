@@ -395,11 +395,12 @@ def now_dt() -> datetime:
     clock = _FAKE_CLOCK if _FAKE_TODAY else _env_pin()[1]
     if not day:
         return stamp
-    stamp = stamp.replace(year=day.year, month=day.month, day=day.day)
     if clock is None:
-        return stamp
-    return stamp.replace(hour=clock.hour, minute=clock.minute,
-                         second=clock.second, microsecond=0)
+        return datetime.combine(day, stamp.time()).astimezone()
+    pinned = datetime.combine(day, clock.replace(microsecond=0))
+    # An explicit offset belongs to the pin, not the machine's real clock.
+    # Naive pins use local time on the pinned date, including its DST offset.
+    return pinned if pinned.tzinfo is not None else pinned.astimezone()
 
 
 def parse_date(value: str | date) -> date:
