@@ -248,6 +248,60 @@ class TestCodexProgrammaticContract(unittest.TestCase):
                     model="gpt-5.6-luna", prefix="p", suffix="s")
 
 
+class TestCodexReconnectRecovery(unittest.TestCase):
+    def complete(self, events, returncode=0):
+        proc = subprocess.CompletedProcess(
+            [], returncode, "\n".join(json.dumps(e) for e in events), "")
+        with tempfile.TemporaryDirectory() as root, mock.patch(
+                "memcal.llm.subprocess.run", return_value=proc):
+            self.client = llm.Codex("codex", cwd=Path(root))
+            return self.client.complete(model="gpt-5.6-luna", prefix="p", suffix="s")
+
+    def test_reconnect_then_completed_turn_keeps_answer_and_usage(self):
+        reply = self.complete([
+            {"type": "error", "message": "Reconnecting... 2/5 (unexpected status 503)"},
+            {"type": "item.completed", "item": {
+                "type": "agent_message", "text": '{"ok":true}'}},
+            {"type": "turn.completed", "usage": {"input_tokens": 12, "output_tokens": 3}},
+        ])
+        self.assertEqual(reply.data, {"ok": True})
+        self.assertEqual(self.client.usage.calls, 1)
+        self.assertEqual(self.client.usage.failed, 0)
+        self.assertEqual(self.client.usage.prompt_tokens, 12)
+
+    def test_terminal_failure_after_reconnect_counts_failed_request(self):
+        with self.assertRaisesRegex(llm.LLMError, "503 exhausted"):
+            self.complete([
+                {"type": "error", "message": "Reconnecting... 2/5"},
+                {"type": "turn.failed", "error": {"message": "503 exhausted"}},
+            ], returncode=1)
+        self.assertEqual(self.client.usage.failed, 1)
+        self.assertEqual(self.client.usage.requests, 1)
+        self.assertEqual(self.client.usage.calls, 0)
+
+    def test_successful_earlier_turn_does_not_mask_later_failure(self):
+        with self.assertRaisesRegex(llm.LLMError, "503 exhausted"):
+            self.complete([
+                {"type": "turn.completed", "usage": {}},
+                {"type": "turn.failed", "error": {"message": "503 exhausted"}},
+            ])
+
+    def test_reconnect_without_completion_remains_a_failure(self):
+        with self.assertRaisesRegex(llm.LLMError, "Reconnecting"):
+            self.complete([{"type": "error", "message": "Reconnecting... 2/5"}])
+
+    def test_error_after_completion_remains_a_failure(self):
+        with self.assertRaisesRegex(llm.LLMError, "503 exhausted"):
+            self.complete([
+                {"type": "turn.completed", "usage": {}},
+                {"type": "error", "message": "503 exhausted"},
+            ])
+
+    def test_nonzero_exit_rejects_even_a_completed_turn(self):
+        with self.assertRaises(llm.LLMError):
+            self.complete([{"type": "turn.completed", "usage": {}}], returncode=1)
+
+
 class TestAntigravityProgrammaticContract(unittest.TestCase):
     def test_print_mode_returns_a_normal_completion_reply(self):
         raw = {

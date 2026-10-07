@@ -889,13 +889,16 @@ class Codex(ProgrammaticClient):
             raise self._failure(proc, f"Codex returned invalid JSONL: {exc}") from exc
         failures = [event for event in events
                     if event.get("type") in ("error", "turn.failed")]
-        if proc.returncode or failures:
+        terminal = next((event.get("type") for event in reversed(events)
+                         if event.get("type") in ("turn.completed", "turn.failed", "error")), "")
+        if proc.returncode or (failures and terminal != "turn.completed"):
             # The event carries a human message inside `error.message` (or `message`);
             # raising the whole `{"type": "turn.failed", ...}` dict is what put that
             # unreadable blob in front of the user and in `runs.error`.
             detail = failures[-1] if failures else {}
             message = (((detail.get("error") or {}).get("message"))
                        or detail.get("message") or str(detail or ""))
+            self._charge(Usage(requests=1, failed=1))
             raise self._failure(proc, message)
         thread_id = next((event.get("thread_id") for event in events
                           if event.get("type") == "thread.started"), "")
