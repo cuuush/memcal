@@ -266,7 +266,8 @@ def dream(
                              "error": error})
         for note in result.notes:
             report("note", {"note": note})
-        report("finished", {"state": "failed" if result.errors or logging_errors else "done",
+        report("finished", {"state": ("partial" if result.diffs else "failed")
+                            if result.errors or logging_errors else "done",
                             "note": result.report()})
         result.errors.extend(logging_errors)
         if logging_errors and opened:

@@ -14,6 +14,7 @@ import contextlib
 import io
 import json
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -29,6 +30,7 @@ from memcal.dream import bundle as bundle_stage  # noqa: E402
 from memcal.dream import propose as propose_stage  # noqa: E402
 from memcal.dream import retry as retry_stage  # noqa: E402
 from memcal.dream import run as dream_run  # noqa: E402
+from memcal.dream import diagnostics  # noqa: E402
 
 
 class _AnswerEmpty:
@@ -504,6 +506,55 @@ class TestResumePrompt(ResumeBase):
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(0, cli.cmd_dream(args))
         self.assertIsNone(seen.get("replay"))
+
+
+class TestCodex503QueueRecovery(ResumeBase):
+    def test_failed_bundle_stays_queued_and_clean_empty_retry_drains_it(self):
+        self._spool(self.PEOPLE[:2])
+        client = llm.Codex("codex", cwd=self.cfg.home)
+        count = 0
+
+        def execute(args, prompt):
+            nonlocal count
+            count += 1
+            if count == 2:
+                events = [{"type": "turn.failed", "error": {"message": "503 exhausted"}}]
+                return subprocess.CompletedProcess([], 1, json.dumps(events[0]), "")
+            ids = list(dict.fromkeys(re.findall(r"BUNDLE ID ([0-9a-f]{6})", prompt)))
+            payload = {"reviewed": ids, "diffs": []}
+            if count == 1:
+                payload["diffs"] = [{"bundle": ids[0], "todos": [
+                    {"text": "Book dinner", "key": "book-dinner"}]}]
+            events = [
+                {"type": "error", "message": "Reconnecting... 2/5 (unexpected status 503)"},
+                {"type": "item.completed", "item": {
+                    "type": "agent_message", "text": json.dumps(payload)}},
+                {"type": "turn.completed", "usage": {}},
+            ]
+            return subprocess.CompletedProcess([], 0, "\n".join(map(json.dumps, events)), "")
+
+        with mock.patch.object(client, "_run", side_effect=execute), \
+                mock.patch.object(dream_run.llm, "client_for", return_value=client):
+            first = dream_run.dream(self.conn, self.cfg, skip_sweep=True)
+        row = self.conn.execute("SELECT * FROM runs WHERE id = ?", (first.run_id,)).fetchone()
+        self.assertEqual(row["diffs"], 1)
+        self.assertEqual(row["failed_calls"], 1)
+        self.assertEqual(retry_stage.outcome(row), retry_stage.PARTIAL)
+        self.assertEqual(diagnostics.read(self.cfg.home, first.run_id)[-1]["state"], "partial")
+        self.assertEqual(self.conn.execute(
+            "SELECT count(*) FROM spool WHERE processed_at IS NULL").fetchone()[0], 1)
+
+        second_client = llm.Codex("codex", cwd=self.cfg.home)
+        with mock.patch.object(second_client, "_run", side_effect=execute), \
+                mock.patch.object(dream_run.llm, "client_for", return_value=second_client):
+            second = dream_run.dream(self.conn, self.cfg, skip_sweep=True)
+        self.assertEqual(second.bundles, 1)
+        self.assertEqual(second.diffs, 0)
+        self.assertFalse(second.errors)
+        self.assertEqual(self.conn.execute(
+            "SELECT count(*) FROM spool WHERE processed_at IS NULL").fetchone()[0], 0)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM todos").fetchone()[0], 1)
+        self.assertEqual(diagnostics.read(self.cfg.home, second.run_id)[-1]["state"], "done")
 
 
 class TestResumeEndToEnd(ResumeBase):
