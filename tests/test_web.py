@@ -1171,7 +1171,7 @@ class TestMemoryIsTheBrief(Base):
         standing, _ = todos.set_standing(self.conn, "identity", "Robbie hosts poker")
 
         out = web.memory(self.conn, self.cfg)
-        self.assertEqual(set(out), {"brief", "lines", "targets"})
+        self.assertEqual(set(out), {"brief", "lines", "targets", "days_forward"})
         self.assertEqual(
             "\n".join(line["text"] for line in out["lines"]) + "\n", out["brief"])
         for token, kind, ref in (

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from importlib import metadata
 import os
 import shutil
 import subprocess
@@ -12,6 +13,20 @@ from pathlib import Path
 
 class UpdateError(RuntimeError):
     pass
+
+
+GITHUB_SOURCE = "git+https://github.com/cuuush/memcal.git"
+
+
+def _chat_extras() -> list[str]:
+    extras = []
+    for extra, distribution in (("slack", "slack_sdk"), ("telegram", "telethon")):
+        try:
+            metadata.version(distribution)
+        except metadata.PackageNotFoundError:
+            continue
+        extras.append(extra)
+    return extras
 
 
 def _run(command: list[str], *, cwd: Path | None = None,
@@ -90,7 +105,7 @@ def _source_update(root: Path) -> None:
     bin_dir = Path(launcher).absolute().parent if launcher else Path.home() / ".local/bin"
     print("Refreshing dependencies and launcher…", flush=True)
     try:
-        _run(["sh", str(root / "install.sh"), "--no-init", "--python", sys.executable,
+        _run(["sh", str(root / "install.sh"), "--no-init", "--upgrade", "--python", sys.executable,
               "--bin", str(bin_dir)], cwd=root)
         _verify(root)
     except UpdateError as exc:
@@ -99,9 +114,12 @@ def _source_update(root: Path) -> None:
 
 
 def _package_update() -> None:
-    print(f"Updating the package with {sys.executable}…", flush=True)
+    print(f"Updating from GitHub with {sys.executable}…", flush=True)
+    extras = _chat_extras()
+    requirement = "memcal" + (f"[{','.join(extras)}]" if extras else "")
     command = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
-               "--upgrade", "memcal"]
+               "--upgrade", "--force-reinstall", "--upgrade-strategy", "eager",
+               f"{requirement} @ {GITHUB_SOURCE}"]
     try:
         _run(command)
     except UpdateError as exc:
@@ -111,7 +129,47 @@ def _package_update() -> None:
     _verify()
 
 
-def run() -> int:
+def refresh() -> None:
+    """Run in the newly installed code, after dependencies have been repaired."""
+    from . import brief, config, db, schedule
+
+    cfg = config.load()
+    if cfg.db_path.exists():
+        print(f"Migrating store: {cfg.home}", flush=True)
+        conn = db.open_db(cfg.db_path)
+        try:
+            brief.write(conn, cfg)
+        finally:
+            conn.close()
+        print("Store and saved brief refreshed.", flush=True)
+    if schedule._is_macos() and schedule.plist_path().exists():
+        hour, minute = schedule.scheduled_time(cfg)
+        print("Refreshing installed scheduler and app wrapper…", flush=True)
+        for line in schedule.install(cfg, hour=hour, minute=minute):
+            print(line, flush=True)
+            if line.startswith("FAILED"):
+                raise UpdateError(line)
+        if not schedule.status(cfg)["loaded"]:
+            raise UpdateError("scheduler was refreshed but launchd did not load it")
+
+
+def _refresh_installed(root: Path | None, home: str | None) -> None:
+    env = dict(os.environ)
+    if home is not None:
+        env["MEMCAL_HOME"] = str(Path(home).expanduser().absolute())
+    if root:
+        env["PYTHONPATH"] = str(root)
+    else:
+        env.pop("PYTHONPATH", None)
+    print("Refreshing installed components…", flush=True)
+    output = _run([sys.executable, "-P", "-c",
+                   "from memcal.update import refresh; refresh()"],
+                  cwd=root or Path.home(), env=env)
+    if output:
+        print(output, flush=True)
+
+
+def run(home: str | None = None) -> int:
     root = Path(__file__).resolve().parent.parent
     try:
         if (root / ".git").exists():
@@ -122,6 +180,8 @@ def run() -> int:
                 raise UpdateError(f"{root} is a source copy without Git history; "
                                   "use a Git clone to receive checkout updates")
             _package_update()
+            root = None
+        _refresh_installed(root, home)
     except UpdateError as exc:
         print(f"Update failed: {exc}", file=sys.stderr)
         return 1
@@ -135,5 +195,5 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--home")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("update", help="update this installation and refresh its launcher")
-    parser.parse_args(argv)
-    return run()
+    args = parser.parse_args(argv)
+    return run(home=args.home) if args.home is not None else run()

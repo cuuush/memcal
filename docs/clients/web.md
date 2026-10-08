@@ -8,7 +8,7 @@ Listens on `http://127.0.0.1:8765` (loopback only). Opens on Memory.
 
 | Page | Purpose |
 |---|---|
-| Memory | Current brief; select a memory to inspect its sources |
+| Memory | Next 30 days, full upcoming list, or all events; select a memory to inspect its sources |
 | Wiki | People, places, and projects; edit facts and review evidence |
 | Conversations | Review names and mute threads without removing their archive |
 | Inbox | Waiting, read, and archived messages; search and filter by source |

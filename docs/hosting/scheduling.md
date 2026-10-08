@@ -30,9 +30,9 @@ shutdown during the pass leaves a pending marker, so the next check or login
 tries again. A successful pass clears it and prevents another extraction pass
 for the same night. `memcal schedule status` reports when a retry is owed.
 
-After updating scheduler code, run `memcal schedule install` from your normal
-installation to regenerate the job script and reload launchd. An existing
-pending pass remains owed through reinstall.
+`memcal update` regenerates an installed job script and reloads launchd. To repair
+it separately, run `memcal schedule install` from your normal installation. An
+existing pending pass remains owed through update or reinstall.
 
 Daytime collection between passes is model-free; dream stays nightly. See
 [Daytime freshness](../architecture/freshness.md) and [Dream](../architecture/dream.md).
