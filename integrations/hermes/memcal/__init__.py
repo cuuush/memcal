@@ -121,7 +121,9 @@ LIST_DAYS = {
         "'anything the weekend after next'. Takes the words they used: 'saturday', "
         "'next tuesday', 'this weekend', or yyyy-mm-dd. Prefer it over "
         "memcal_list_month when the question is about a particular day — a month of "
-        "rows reads as a busy calendar when the day itself may be empty."),
+        "rows reads as a busy calendar when the day itself may be empty. "
+        "For an entire year, use when='YYYY-01-01' and days=365 "
+        "(366 in a leap year)."),
     "parameters": {
         "type": "object",
         "properties": {
@@ -137,7 +139,7 @@ LIST_MONTH = {
     "description": (
         "Everything memcal knows for a month. This is the memory calendar — optimistic "
         "and private, separate from the user's real calendar. Use it when the question "
-        "reaches past the week already in the brief, and is not about one particular "
+        "needs a full calendar month or reaches past the brief's date range, and is not about one particular "
         "day — for a single day or a weekend use memcal_list_days."),
     "parameters": {
         "type": "object",
@@ -865,7 +867,7 @@ class MemcalMemoryProvider(MemoryProvider):
         """
         return (
             "# Memcal\n\n"
-            "Memcal drops a `MEMCAL SNAPSHOT` of the user's week into the conversation and "
+            "Memcal drops a `MEMCAL SNAPSHOT` covering the next 30 days by default into the conversation and "
             "refreshes it whenever it changes. An unchanged turn carries `MEMCAL CURRENT` "
             "with the matching snapshot id. Use prepared memory as current only when this "
             "turn contains a snapshot or that matching confirmation. If neither arrived, "
@@ -1266,7 +1268,7 @@ class MemcalMemoryProvider(MemoryProvider):
             start, span = db.parse_when(args.get("when", ""))
             span = max(1, int(args.get("days") or span))
             end = start + timedelta(days=span - 1)
-            rows = events.between(conn, start.isoformat(), end.isoformat())
+            rows = events.overlapping(conn, start.isoformat(), end.isoformat())
             # The resolved date goes back with the answer: "saturday" is a guess about
             # which Saturday, and the reply is what lets the user catch a wrong one.
             return json.dumps({
@@ -1280,7 +1282,7 @@ class MemcalMemoryProvider(MemoryProvider):
             month = args.get("month")
             start = db.parse_date(month + "-01") if month else db.today().replace(day=1)
             end = (start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-            rows = events.between(conn, start.isoformat(), end.isoformat())
+            rows = events.overlapping(conn, start.isoformat(), end.isoformat())
             return json.dumps({"month": start.strftime("%Y-%m"), "rows": _sourced(rows)})
 
         if tool_name == "memcal_search_archive":

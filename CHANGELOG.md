@@ -12,6 +12,11 @@
 
 ### Fixed
 
+- The brief's Later entries retain participants, tentative status, and time, so
+  visits and shared plans keep their people visible beyond the weekly window.
+- Day and month calendar lookups include ongoing visits and trips that began
+  before the requested date range.
+
 - Codex reconnect errors no longer discard a later successful completion. Terminal
   failures count toward run usage, and dream logs show partial runs when writes landed.
 
@@ -47,6 +52,10 @@
   event or to-do handle.
 
 ### Changed
+
+- The brief covers the next 30 days by default, labels its date bounds with years,
+  and suggests full-month and full-year lookups. Custom date windows still apply.
+  If the token budget omits known events, the brief reports incomplete coverage.
 
 - Redesigned the web workspace with grouped navigation, a Memory landing page,
   responsive layouts, and a saved color theme. Dream controls appear before

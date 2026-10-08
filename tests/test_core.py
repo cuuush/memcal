@@ -419,7 +419,7 @@ class TestBrief(Base):
         todos.open_todo(self.conn, "Return Rowan's EZ-Pass")
         todos.ask(self.conn, "Did Tuesday dinner happen?")
         text = brief.render(self.conn, self.cfg)
-        for header in ("## This week", "## Open", "## Ask about", "## People and facts"):
+        for header in ("## Upcoming", "## Open", "## Ask about", "## People and facts"):
             self.assertIn(header, text)
         # The address is detail and lives behind the handle. What the brief owes the
         # reader here is that the row is *named* and that its handle opens.
@@ -433,7 +433,7 @@ class TestBrief(Base):
         self.cfg.brief_token_cap = 120
         text = brief.render(self.conn, self.cfg)
         self.assertLessEqual(textclean.estimate_tokens(text), 120)
-        self.assertIn("## This week", text)
+        self.assertIn("## Upcoming", text)
 
 
 class TestWiki(Base):
@@ -4124,7 +4124,7 @@ class TestTypingMemcal(unittest.TestCase):
             self.assertTrue((home / "memcal.db").is_file())
             self.assertTrue((home / "wiki").is_dir())
             self.assertTrue((home / "brief.md").is_file())
-            self.assertIn("## This week", (home / "brief.md").read_text(encoding="utf-8"))
+            self.assertIn("## Upcoming", (home / "brief.md").read_text(encoding="utf-8"))
 
 
 
@@ -5759,6 +5759,7 @@ class TestTheLaterBlockIsAboutThingsHeIsDoing(Base):
 
     def setUp(self):
         super().setUp()
+        self.cfg.days_forward = 7
         db.set_today(date(2026, 8, 2))
 
     def tearDown(self):
@@ -5816,6 +5817,7 @@ class TestALaterRowSaysHowManyDaysItEats(Base):
 
     def setUp(self):
         super().setUp()
+        self.cfg.days_forward = 7
         db.set_today(date(2026, 8, 2))
         events.upsert(self.conn, {"title": "Montana trip", "date": "2026-08-15",
                                   "until": "2026-08-23", "kind": "commitment",

@@ -50,7 +50,7 @@ class Config:
 
     # Temporal window and token budget for the brief context.
     days_back: int = 3
-    days_forward: int = 7
+    days_forward: int = 30
     brief_token_cap: int = 1500
 
     # Model ingestion horizon in days; older items remain archived and searchable.

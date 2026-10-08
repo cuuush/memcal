@@ -210,7 +210,7 @@ class TestOldSessionsGetToday(_HermesBase):
         self.provider.on_turn_start(1, "hi")
         self.provider.prefetch("hi")
         out = json.loads(self.provider.handle_tool_call("memcal_refresh", {}))
-        self.assertIn("## This week", out["snapshot"])
+        self.assertIn("## Upcoming", out["snapshot"])
 
 
 class TestCitedWritesThroughHermes(_HermesBase):
