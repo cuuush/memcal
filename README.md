@@ -15,6 +15,10 @@ With Memcal, you can ask an agent, “What’s my weekend looking like?” and i
 
 Instant answers: Memcal pre-renders a brief of your next 30 days into the prompt, so Hermes can answer without firing off a long, expensive lookup first. For a full calendar month, use `memcal_list_month(month="2026-10")`; for a year, use `memcal_list_days(when="2026-01-01", days=365)` (366 for a leap year). The brief reports when its token budget leaves events out.
 
+The default backend is Codex with `gpt-6-luna`; OpenRouter uses `openai/gpt-6-luna`.
+Explicitly saved model choices still apply. See [Configuration](docs/hosting/configuration.md)
+for the other backends and stage-model settings.
+
 ## Under the hood
 
 - **Write-time recency** — updates move old values to history; read time isn’t a relevance fight ([memcal vs retrieval](https://cuuush.github.io/memcal/architecture/memcal-vs-rag/))

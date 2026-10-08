@@ -4,7 +4,7 @@
 
 - Python 3.11 or newer.
 - SQLite with FTS5.
-- One model backend: Codex (the default), Claude Code, Antigravity, Grok, or OpenRouter.
+- One model backend: Codex (the default), Claude Code, Antigravity, Grok, OpenRouter, or an OpenAI-compatible API.
 - macOS for the local Messages, WhatsApp, Calendar, and Reminders integrations.
 
 ## Install
@@ -36,6 +36,9 @@ memcal setup
 
 The setup flow asks for the provider and model, then saves only the owned settings in
 `~/.memcal/.env`. Existing source credentials and hand-written settings are preserved.
+Codex defaults to `gpt-6-luna`; OpenRouter defaults to `openai/gpt-6-luna`. An
+explicit saved model remains selected. See [Configuration](hosting/configuration.md)
+for other providers, source setup, and advanced settings.
 
 Check the result:
 

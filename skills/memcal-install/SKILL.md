@@ -21,7 +21,7 @@ Install MemCal for a personal-assistant agent **without a product tour**. Prefer
 copy-paste blocks below. Ground truth: repo `AGENTS.md` (Install section) and
 https://cuuush.github.io/memcal/integrations/ · https://cuuush.github.io/memcal/clients/mcp/.
 
-**Counts:** MCP **22** tools (+ `memcal://brief`); Hermes **21** tools. Host agents
+**Counts:** MCP **23** tools (+ `memcal://brief`); Hermes **21** tools. Host agents
 required for Hermes/OpenClaw — do not claim memcal installs them. Stdio MCP only
 (no hosted HTTP / Smithery URL).
 
@@ -90,7 +90,7 @@ hermes memory setup
 
 Symlink the **package directory** `integrations/hermes/memcal`, not the parent.
 Set `MEMCAL_SRC` to this checkout if import fails (Hermes may default to
-`~/code/memcal`). 21 not 22 because prefetch replaces `memcal_brief`.
+`~/code/memcal`). Hermes uses prefetch instead of `memcal_brief` and does not expose `memcal_name`.
 Done when: `MEMCAL SNAPSHOT` / `MEMCAL CURRENT` inject and **21** tools list.
 
 ## OpenClaw
@@ -121,7 +121,7 @@ it writes nothing and prints cron lines (nightly `memcal schedule run`, optional
 ## Verification checklist
 
 - [ ] `memcal doctor` / `memcal brief` run
-- [ ] Harness shows injection and/or tools (MCP 22 or Hermes 21)
+- [ ] Harness shows injection and/or tools (MCP 23 or Hermes 21)
 - [ ] No secrets committed; store under `MEMCAL_HOME`
 
 ## Out of scope

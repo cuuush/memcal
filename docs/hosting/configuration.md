@@ -27,7 +27,8 @@ to configure just `provider`, `imessage`, `brief`, `collect`, `dream`, `merge`,
 
 | Key | Default | Meaning |
 |---|---|---|
-| `MEMCAL_LLM_PROVIDER` | `codex` | `codex`, `claude-code`, `antigravity`, `grok`, or `openrouter` |
+| `MEMCAL_LLM_PROVIDER` | `codex` | `codex`, `claude-code`, `antigravity`, `grok`, `openrouter`, or `openai-compatible` |
+| `MEMCAL_OPENAI_BASE_URL` | empty | API base URL for `openai-compatible`, such as `https://host/v1` |
 | `MEMCAL_PROPOSE_MODEL` | provider native | Night-traffic proposer — the main cost |
 | `MEMCAL_SWEEP_MODEL` | provider native | Stale-row and question revisitor |
 | `MEMCAL_MATCH_MODEL` | provider native | Merge arbitrator for real conflicts |
@@ -36,13 +37,22 @@ to configure just `provider`, `imessage`, `brief`, `collect`, `dream`, `merge`,
 | `MEMCAL_LLM_COMMAND_TIMEOUT` | `900` (30–7200s) | CLI-provider timeout |
 | `MEMCAL_CODEX_COMMAND` / `MEMCAL_CLAUDE_COMMAND` / `MEMCAL_AGY_COMMAND` / `MEMCAL_GROK_COMMAND` | `codex` / `claude` / `agy` / `grok` | Absolute path safest under launchd |
 
-Provider natives: Codex → `gpt-5.6-luna`, Claude Code → `claude-sonnet-5`,
+Provider natives: Codex → `gpt-6-luna`, Claude Code → `claude-sonnet-5`,
 Antigravity → `gemini-3.8-flash-high`, Grok → `grok-4.5`. Authenticate the
 selected CLI first (`codex login`, `claude auth login`, a signed-in `agy`
 session, `grok` signed in to your xAI account); OpenRouter needs
 `OPENROUTER_API_KEY`. Memcal checks that the command exists; the CLI itself
 reports authentication trouble on the first real completion. Unknown model names stay valid — catalogs change faster
 than validation lists.
+
+OpenRouter defaults to `openai/gpt-6-luna`. Propose, sweep, and merge use the
+provider default only when their model settings are unset; saved choices keep
+working. See [OpenAI's GPT-6 Luna model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna).
+
+For `openai-compatible`, set `MEMCAL_OPENAI_BASE_URL`, `OPENAI_COMPAT_API_KEY`, and
+an explicit model ID. This backend sends standard chat-completion requests with
+the requested JSON schema, without OpenRouter routing or cache fields. HTTPS is
+required except for local development endpoints on localhost.
 
 Grok Build is installed with `npm i -g @xai-official/grok` (or the installer at
 `https://x.ai/cli/install.sh`); `grok --oauth` signs in through the browser. Avoid
@@ -115,6 +125,7 @@ memcal setup --provider codex
 memcal setup --provider claude-code
 memcal setup --provider antigravity
 memcal setup --provider grok
-memcal setup --provider codex --model gpt-5.6-luna
+memcal setup --provider codex --model gpt-6-luna
 memcal setup --provider openrouter --api-key "sk-or-..."
+memcal setup --provider openai-compatible --model YOUR_MODEL --base-url https://host/v1
 ```

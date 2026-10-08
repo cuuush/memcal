@@ -22,8 +22,10 @@ Alex free Monday becomes "you should introduce them."
 
 `mentioned` / `tentative` / `confirmed` / `declined` / `happened`. Optimistic
 capture means most rows start at `mentioned` and never go further, and that is
-fine. The brief shows 7 days forward and 3 back; everything else stays in the
-database behind `memcal_list_month` and search.
+fine. The brief shows 30 days forward and 3 back by default; everything else stays
+in the database behind `memcal_list_month`, `memcal_list_days`, and search.
+Day and month reads include any event overlapping the requested range, so a visit
+that began yesterday still appears today.
 
 The backward window is the reconciliation surface: Tuesday's optimistic dinner row
 sits there Wednesday, the agent asks, you answer, the row resolves.

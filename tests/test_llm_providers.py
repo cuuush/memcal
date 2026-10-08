@@ -67,8 +67,8 @@ class TestProviderNativeDefaults(unittest.TestCase):
             (home / ".env").write_text(
                 "MEMCAL_LLM_PROVIDER=codex\nMEMCAL_MATCH_MODEL=my-match-model\n")
             cfg = config.load(home)
-        self.assertEqual(cfg.propose_model, "gpt-5.6-luna")
-        self.assertEqual(cfg.sweep_model, "gpt-5.6-luna")
+        self.assertEqual(cfg.propose_model, "gpt-6-luna")
+        self.assertEqual(cfg.sweep_model, "gpt-6-luna")
         self.assertEqual(cfg.match_model, "my-match-model")
 
 
@@ -706,6 +706,54 @@ class TestASpentSubscriptionIsNotWorthRetrying(unittest.TestCase):
     def test_the_reset_window_survives_into_the_message(self):
         failure = self._fail("Individual quota reached. Resets in 166h33m20s.")
         self.assertIn("166h33m20s", str(failure))
+
+
+class TestGPTSixLunaDefaults(unittest.TestCase):
+    def test_fresh_provider_defaults_and_saved_stage_overrides(self):
+        for provider, model in (("codex", "gpt-6-luna"),
+                                ("openrouter", "openai/gpt-6-luna")):
+            with self.subTest(provider=provider), tempfile.TemporaryDirectory() as root:
+                home = Path(root)
+                with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+                        config, "PROJECT_ROOT", home), mock.patch.object(
+                        config.Path, "cwd", return_value=home):
+                    (home / ".env").write_text(f"MEMCAL_LLM_PROVIDER={provider}\n")
+                    cfg = config.load(home)
+                    self.assertEqual((cfg.propose_model, cfg.sweep_model, cfg.match_model),
+                                     (model, model, model))
+                    self.assertEqual(llm.PROVIDER_DEFAULT_MODELS[provider], model)
+                    (home / ".env").write_text(
+                        f"MEMCAL_LLM_PROVIDER={provider}\nMEMCAL_SWEEP_MODEL=saved-model\n")
+                    cfg = config.load(home)
+                    self.assertEqual(cfg.sweep_model, "saved-model")
+                    self.assertEqual(cfg.propose_model, model)
+                    self.assertEqual(cfg.match_model, model)
+
+    def test_new_model_is_available_in_native_and_router_catalogs(self):
+        self.assertIn(("gpt-6-luna", "openai/gpt-6-luna"), llm.catalog("codex"))
+        self.assertIn(("openai/gpt-6-luna", "openai/gpt-6-luna"), llm.catalog("openrouter"))
+        self.assertTrue(llm.serves("codex", "gpt-6-luna"))
+        self.assertEqual(llm.PRICES["openai/gpt-6-luna"], (0.10, 0.50))
+        self.assertEqual(llm.rates("openai/gpt-6-luna"), (0.05, 0.25))
+
+    def test_codex_uses_the_native_id_medium_effort_and_structured_output(self):
+        response = [
+            {"type": "item.completed", "item": {
+                "type": "agent_message", "text": '{"ok":true}'}},
+            {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 5}},
+        ]
+        completed = subprocess.CompletedProcess(
+            [], 0, "\n".join(json.dumps(event) for event in response), "")
+        with tempfile.TemporaryDirectory() as root, mock.patch(
+                "memcal.llm.subprocess.run", return_value=completed) as run:
+            reply = llm.Codex("codex", cwd=Path(root)).complete(
+                model="openai/gpt-6-luna", prefix="rules", suffix="bundle", schema=SCHEMA)
+            args = run.call_args.args[0]
+            self.assertIn("gpt-6-luna", args)
+            self.assertIn('model_reasoning_effort="medium"', args)
+            self.assertIn("--output-schema", args)
+        self.assertEqual(reply.data, {"ok": True})
+        self.assertEqual(reply.model, "gpt-6-luna")
 
 
 if __name__ == "__main__":

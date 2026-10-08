@@ -87,9 +87,9 @@ class Config:
 
     # Default model identifiers for propose, sweep, and match operations. `match_model`
     # arbitrates whether two proposed rows are one occasion.
-    propose_model: str = "openai/gpt-5.6-luna"
-    sweep_model: str = "openai/gpt-5.6-luna"
-    match_model: str = "openai/gpt-5.6-luna"
+    propose_model: str = "openai/gpt-6-luna"
+    sweep_model: str = "openai/gpt-6-luna"
+    match_model: str = "openai/gpt-6-luna"
 
     #: Override for model reasoning effort ('low', 'medium', 'high'). Empty string defaults
     #: to the model configuration in llm.ENDPOINTS.
@@ -307,7 +307,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
     defaults = {
         "openai-compatible": "",
         "claude-code": "claude-sonnet-5",
-        "codex": "gpt-5.6-luna",
+        "codex": "gpt-6-luna",
         "antigravity": "gemini-3.8-flash-high",
         "grok": "grok-4.5",
     }

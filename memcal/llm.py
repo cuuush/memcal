@@ -74,6 +74,7 @@ PRICES: dict[str, tuple[float, float]] = {
     # its endpoint requests the flex tier. Rates above 272k prompt tokens
     # are not modelled.
     "openai/gpt-5.6-luna": (0.10, 0.60),          # openai (first-party)
+    "openai/gpt-6-luna": (0.10, 0.50),
     # The capable end of the same family. Both pin `openai` and both ask for flex, so
     # what they actually bill is FLEX_PRICES below; these are the standard rates, kept
     # so a run with the tier unavailable still prices instead of going silent.
@@ -85,6 +86,7 @@ PRICES: dict[str, tuple[float, float]] = {
 #: table rather than a multiplier because flex pricing may differ per direction.
 FLEX_PRICES: dict[str, tuple[float, float]] = {
     "openai/gpt-5.6-luna": (0.05, 0.30),
+    "openai/gpt-6-luna": (0.05, 0.25),
     "openai/gpt-5.6-terra": (0.50, 3.00),
     "openai/gpt-5.6-sol": (2.50, 15.00),
 }
@@ -130,6 +132,8 @@ ENDPOINTS: dict[str, Endpoint] = {
     # Reasoning floors are measured API tokens per bundle, not visible summary text.
     "openai/gpt-5.6-luna": Endpoint(("openai",), "schema", "medium", 1.0, 1_500,
                                     service_tier="flex"),
+    "openai/gpt-6-luna": Endpoint(("openai",), "schema", "medium", 1.0, 1_500,
+                                  service_tier="flex"),
     "openai/gpt-5.6-terra": Endpoint(("openai",), "schema", "medium", 1.0, 6_000,
                                      service_tier="flex"),
     "openai/gpt-5.6-sol": Endpoint(("openai",), "schema", "high", 1.0, 8_000,
@@ -1128,10 +1132,10 @@ class Grok(ProgrammaticClient):
 
 
 PROVIDER_DEFAULT_MODELS = {
-    "openrouter": "openai/gpt-5.6-luna",
+    "openrouter": "openai/gpt-6-luna",
     "openai-compatible": "",
     "claude-code": "claude-sonnet-5",
-    "codex": "gpt-5.6-luna",
+    "codex": "gpt-6-luna",
     "antigravity": "gemini-3.8-flash-high",
     "grok": "grok-4.5",
 }

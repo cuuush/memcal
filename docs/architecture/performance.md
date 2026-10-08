@@ -13,7 +13,7 @@ where judgment is genuinely needed.
 - **Daytime collection and brief rendering** make zero model calls. Freshness hints
   are deterministic; only requested evidence interpretation spends.
 - **Prompt caching** does real work: the shared prefix (event window, to-dos,
-  standing) is identical across every bundle call in a run.
+  wiki facts) is identical across every bundle call in a run.
 
 ## Where it does go
 
@@ -43,11 +43,18 @@ answer and an immediate correct answer are never confused. See
 
 | Backend | Default model | Authentication |
 |---|---|---|
-| Codex programmatic mode (default) | `gpt-5.6-luna` | Existing Codex login |
+| Codex programmatic mode (default) | `gpt-6-luna` | Existing Codex login |
 | Claude Code programmatic mode | `claude-sonnet-5` | Existing Claude Code login |
 | Antigravity programmatic mode | `gemini-3.8-flash-high` | Existing Antigravity login |
 | Grok programmatic mode | `grok-4.5` | Existing Grok Build login |
-| OpenRouter | `openai/gpt-5.6-luna` | OpenRouter API key |
+| OpenRouter | `openai/gpt-6-luna` | OpenRouter API key |
+| OpenAI-compatible API | Explicit model required | `OPENAI_COMPAT_API_KEY` and API base URL |
+
+Explicitly saved stage models override these defaults. GPT-6 Luna uses medium
+reasoning by default in Memcal. The OpenRouter route requests Flex; its recorded
+price estimate uses $0.05 input / $0.25 output per million tokens. The catalog also
+records standard rates of $0.10 / $0.50. See
+[OpenAI's model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna).
 
 The four CLI backends run as one-shot structured completions. Claude Code uses
 print mode without persistent sessions or tools. Codex uses ephemeral `exec`

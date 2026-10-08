@@ -22,9 +22,15 @@ wrong, and what to type about it.
 ## Traces and review
 
 - `memcal trace` — the prompt, reasoning, and reply of a real model call.
+- `memcal trace RUN` — that run's saved progress, stage errors, crash traceback,
+  and model calls, including failures before a completion was recorded.
 - `memcal review` — what the last pass wrote, what it wants to know, what it
   could not resolve.
 - `calls/` keeps every prompt, reply, usage record, and trace on disk for audit.
+
+Each real pass writes `calls/run-XXXX/dream.jsonl`. Open **Saved dream log** in
+the run details to read it. Successful resumes clear the earlier retry alert,
+retain the original failure, and identify the replacement run.
 
 ## Schedule
 

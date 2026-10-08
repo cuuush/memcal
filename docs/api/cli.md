@@ -8,8 +8,8 @@
 
 | Command | Purpose |
 |---|---|
-| `brief` | Print `brief.md` |
-| `week` | The event window |
+| `brief` | Render and print the current snapshot; next 30 days by default |
+| `week` | The configured event window (`--back`, `--forward`) |
 | `month [yyyy-mm]` | Everything for a month |
 | `todos` | Open to-dos |
 | `open <E/T/Q>` | Everything about one handle |

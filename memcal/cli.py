@@ -2239,7 +2239,7 @@ HIDDEN_COMMANDS = frozenset({"web", "standing", "forget"})
 USAGE_EXAMPLE = """\
 start here:
 
-  memcal brief               today and the week around it — every line starts with a handle
+  memcal brief               the next 30 days by default — open event handles for detail
   memcal E286                open that handle: the address, the link, the messages it came from
   memcal week                the same window, one row per line
   memcal todos               what is open
@@ -2690,7 +2690,7 @@ def _unknown_command(argv: list[str], choices) -> tuple[str, list[str]] | None:
 def _expand_bare_handle(argv: list[str], choices) -> list[str]:
     """`memcal E286` means `memcal open E286`.
 
-    You type `memcal brief`, you get the week, and every line of it starts with a handle.
+    You type `memcal brief`, you get the next 30 days by default, with event handles.
     Making that handle a command in its own right is the shortest path from reading to
     acting, and it is unambiguous: no memcal command is spelled like `E286`, and the
     check is exact rather than a prefix, so a future `export` command is unaffected.
