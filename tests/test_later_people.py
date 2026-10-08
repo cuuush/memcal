@@ -3,7 +3,7 @@
 import unittest
 from datetime import date
 
-from _support import Base
+from tests._support import Base
 from memcal import brief, db, events, mcp_server, web_memory
 
 

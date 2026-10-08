@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Fixed
+
+- Brief trimming removes ended events and distant plans before upcoming plans,
+  preserving their people and freshness warnings. Omitted known events are
+  disclosed even when an input-coverage warning is already present.
+
 ## [0.8.2] - 2026-10-08
 
 ### Added
