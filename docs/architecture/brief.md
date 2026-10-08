@@ -10,9 +10,9 @@ memcal brief
 ## Shape
 
 ```markdown
-## This week
-〔E12〕 Fri Aug 7  Dentist appointment, 2pm — confirmed · Beacon Dental
-〔E18〕 Sat Aug 8  Community garden member day — opportunity
+## Upcoming  (today is Thursday 8 October 2026)
+〔E12〕 Fri Oct 9  "Dentist appointment", 2pm — confirmed
+〔E18〕 Fri Oct 16  "Weekend visit" — maybe · with Rowan Vale
 
 ## Open
 〔T7〕 Send the cabin deposit — due Friday
@@ -24,11 +24,20 @@ memcal brief
 Pages: jordan (address, birthday) · beacon-dental (phone)
 ```
 
-The blocks: **Now** (due reminders), **This week** (3 days back, 7 forward, with
+The blocks: **Now** (due reminders), **Upcoming** (3 days back, 30 forward, with
 its coverage stamp), **Later** (committed plans further out), **Regularly**
 (recurring rules), **Open** (to-dos with ages), **Ask about** (unattached
 uncertainty), and **People and facts** (the wiki title list, so the agent knows
 which pages exist to open).
+
+The date window rolls forward from today; it is not a calendar month. Its coverage
+stamp includes full ISO dates and years. Custom `MEMCAL_DAYS_BACK` and
+`MEMCAL_DAYS_FORWARD` values still apply. Upcoming and Later entries both show
+participants, status, and time; location and notes remain behind the handle.
+
+The brief suggests `memcal_list_month(month="2026-10")` for a full calendar month
+and `memcal_list_days(when="2026-01-01", days=365)` for a full year (366 in a leap
+year). These reads include visits already in progress at the start of the range.
 
 The handles — `E12`, `T7`, `Q4` — open the full row, evidence, and history:
 
@@ -47,7 +56,7 @@ is omitted, the brief says so.
 
 ## Coverage is qualified
 
-The week block carries its coverage stamp — what period it is complete for — and
+The Upcoming block carries its coverage stamp — what period it is complete for — and
 flagged items carry activity warnings beside the last-confirmed plan. Prepared
 facts are the fast path when coverage supports them; for a flagged item, the
 assistant inspects the indicated activity before claiming current details. If
@@ -63,3 +72,6 @@ uncollected input not shown]` line takes its place. Backlog coverage is judged
 against the events the brief actually renders — not date-range membership — so a
 thread linked only to an unconfirmed opportunity or an event past the Later cap
 still surfaces. See [Daytime freshness](freshness.md).
+
+If trimming removes a known event, the completeness stamp is also removed. The
+brief reports incomplete coverage and points to the calendar tools for full rows.

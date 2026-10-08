@@ -22,6 +22,13 @@ inspect context, requests, and conversations. History keeps token metrics in run
 details. Settings groups expand individually; searching opens matching groups.
 The color theme persists in your browser, and navigation adapts to narrow screens.
 
+Memory shows the next 30 days by default, with participants and tentative status
+on each plan. Details show facts first; history and diagnostics are expandable.
+Wiki facts open their cited message IDs on demand, and an existing wiki page can
+be edited as Markdown. Dream shows the live pass's stage and progress even when
+it was started elsewhere. History includes **Saved dream log** and links successful
+resumes to the earlier failed run.
+
 The **Settings tab** is the full list of what memcal can be told. Saving writes
 `~/.memcal/.env` — leaving hand-written lines alone — and applies to the running
 process immediately. Clearing a field unsets the key and restores the built-in

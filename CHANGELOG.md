@@ -53,6 +53,12 @@
 
 ### Changed
 
+- Codex and OpenRouter default to GPT-6 Luna for propose, sweep, and merge.
+  Explicit stage-model settings remain unchanged. The model catalog and pricing
+  estimates include the new Luna model.
+- Documentation reflects current calendar windows, provider setup, recovery,
+  diagnostics, wiki behavior, and the MCP/Hermes tool surfaces.
+
 - The brief covers the next 30 days by default, labels its date bounds with years,
   and suggests full-month and full-year lookups. Custom date windows still apply.
   If the token budget omits known events, the brief reports incomplete coverage.

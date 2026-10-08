@@ -1,5 +1,9 @@
 # Runner
 
+The comparative runner lives in the standalone PACBench project. This page records
+its isolation and evaluation contract; use Memcal's [deterministic checks](deterministic.md)
+for the free harness included in this repository.
+
 Five responsibilities stay separate: corpus loading and validation; Hermes
 provisioning and control; provider setup, import, readiness, and isolation;
 grading; artifact and report generation.

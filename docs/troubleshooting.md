@@ -31,7 +31,9 @@ produces ([Slack](sources/slack.md), [Telegram](sources/telegram.md),
    archive before assuming collection failed.
 8. **Dream failed or partial?** The History page (or `memcal dream --retry RUN`)
    requeues readable lines under the current provider and model. Lines beyond the
-   model horizon stay read.
+   model horizon stay read. A plain `memcal dream` first offers to resume from saved
+   propose calls; non-interactive runs accept automatically. Use `memcal trace RUN`
+   or the run's **Saved dream log** to inspect the failure stage and traceback.
 9. **Stale brief?** `memcal schedule status` shows the last pass and whether one
    is owed; `memcal brief` re-renders from current state. In an agent session, a
    freshness-unavailable warning means prefetch failed — say so, do not trust an

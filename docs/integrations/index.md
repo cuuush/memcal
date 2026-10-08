@@ -4,7 +4,7 @@
 |---|---|---|
 | [Hermes](hermes.md) | Native memory provider: snapshot injection, turn archival, **21 tools** | Link the plugin, `hermes memory setup` |
 | [OpenClaw](openclaw.md) | Plugin + stdio MCP: prompt injection, turn archival | `memcal openclaw setup` |
-| [Any MCP harness](../clients/mcp.md) | Generic: brief + stdio tools (**22 tools**) | `python3 -m memcal.mcp_server` |
+| [Any MCP harness](../clients/mcp.md) | Generic: brief + stdio tools (**23 tools**) | `python3 -m memcal.mcp_server` |
 | [Custom sources](custom.md) | New transports as plugins | `~/.memcal/plugins/` or entry points |
 
 Coding agents: follow the Install section in [`AGENTS.md`](https://github.com/cuuush/memcal/blob/main/AGENTS.md) or load [`skills/memcal-install`](https://github.com/cuuush/memcal/tree/main/skills/memcal-install) (`npx skills add https://github.com/cuuush/memcal --skill memcal-install`).

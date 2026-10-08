@@ -35,10 +35,10 @@ create three memories from them.
 
 **2. Propose (model, parallel, packed).** Each call takes up to
 `MEMCAL_PACK_BUNDLES` (default 6) bundles and sees their content
-plus current state — the event window, open to-dos, standing, and the wiki pages
+plus current state — the event window, open to-dos, questions, and the wiki pages
 for its entities. That state is identical across calls, so it caches. Each returns
 a **typed, keyed diff**: event inserts and updates, to-do opens and closes, wiki
-slot fills, standing edits, questions to ask. Never free-form memories — only
+slot fills, questions to ask. Never free-form memories — only
 diffs against keys, which is what makes deduplication automatic.
 
 Within a call, propose can be split into **ordered field passes** —

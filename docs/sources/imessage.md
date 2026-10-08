@@ -22,6 +22,10 @@ everything else. Verify with `memcal sources`, then `memcal ingest imessage --li
 Inbound handles resolve through Contacts at ingest, so phone numbers arrive already
 attached to people. See [Identity](../architecture/identity.md).
 
+For local `chatdb` ingestion, a sent message in a direct chat is associated with
+that chat's sole counterpart even when its own sender handle is absent. A chat
+with two other participants is treated as a group, preserving conversation routing.
+
 ## Choosing and tuning the backend
 
 | Setting | Values | Default | What it does |

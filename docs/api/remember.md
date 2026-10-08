@@ -14,7 +14,7 @@ memcal add "Game night" saturday --time "8pm" --who Jordan
 memcal todo "Send the reservation deposit" --due friday
 memcal ask "Is dinner with Jordan Saturday or Sunday?"
 memcal note jordan birthday "May 3"
-memcal page travel "preferred flight time" "morning" --section preferences
+memcal note me "preferred flight time" "morning"
 ```
 
 | Command | Writes |

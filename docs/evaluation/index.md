@@ -1,5 +1,10 @@
 # Evaluation overview
 
+The comparative corpus and runner moved to the standalone PACBench project.
+The corpus, runner, and grading pages describe that experiment contract; they are
+not an executable comparison bundled with this checkout. Memcal's local
+[deterministic checks](deterministic.md) remain available here.
+
 LifeTrace measures how well a memory system supports a personal assistant through
 a realistic seven-day life: correct current answers, useful suggestions, and
 remembered context — delivered quickly and affordably.

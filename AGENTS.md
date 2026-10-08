@@ -11,8 +11,8 @@ Canonical docs: https://cuuush.github.io/memcal/ · skill pack: [`skills/memcal-
 Mac-first product path. Coding agents: follow this section (or load
 [`skills/memcal-install`](skills/memcal-install/SKILL.md)) — no product tour.
 
-Honest tool counts: **MCP 22** (+ `memcal://brief` resource); **Hermes 21**
-(prefetch replaces `memcal_brief`). Host agents are required for Hermes/OpenClaw —
+Honest tool counts: **MCP 23** (+ `memcal://brief` resource); **Hermes 21**
+(prefetch replaces `memcal_brief`; `memcal_name` is MCP-only). Host agents are required for Hermes/OpenClaw —
 memcal does not install them.
 
 ### 0. Preconditions
@@ -57,7 +57,7 @@ Chat extras: `pip install "memcal[slack]"` or `"memcal[chat]"`.
 Smoke:
 
 ```bash
-python3 -m memcal.mcp_server   # stdio JSON-RPC; 22 tools + memcal://brief
+python3 -m memcal.mcp_server   # stdio JSON-RPC; 23 tools + memcal://brief
 ```
 
 **Cursor** — `~/.cursor/mcp.json` or project `.cursor/mcp.json`:
@@ -144,7 +144,7 @@ writes nothing and prints cron lines instead — use those verbatim (nightly
 ### 7. Done when
 
 - `memcal doctor` / `memcal brief` run
-- Chosen harness shows memcal tools / injection (MCP 22 or Hermes 21)
+- Chosen harness shows memcal tools / injection (MCP 23 or Hermes 21)
 - Privacy: user has seen https://cuuush.github.io/memcal/privacy/ before connecting real accounts
 
 ---

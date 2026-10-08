@@ -6,9 +6,9 @@ Everything lives under `~/.memcal/` by default (`MEMCAL_HOME` moves it):
 ~/.memcal/
 ├── memcal.db       typed state, archive, provenance, full-text search
 ├── brief.md        the compact snapshot an agent sees
-├── calls/          prompts, replies, usage, model-call traces
+├── calls/          prompts, replies, usage, model-call traces, dream diagnostics
 ├── plugins/        optional custom source plugins
-└── wiki/           readable pages for people, places, projects, preferences
+└── wiki/           readable pages for people, places, projects
 ```
 
 Two substrates, chosen for different reasons. **SQLite** holds everything

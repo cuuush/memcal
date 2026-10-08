@@ -26,10 +26,14 @@ hermes memory setup
   `memcal_activity`, `memcal_refresh`) and typed writes (`memcal_add`,
   `memcal_update`, `memcal_schedule`, `memcal_move_once`, `memcal_merge`,
   `memcal_drop`, `memcal_todo`, `memcal_answer`, `memcal_note`, `memcal_alias`,
-  `memcal_reviewed`, `memcal_name`), executed as code with same-transaction evidence.
+  `memcal_reviewed`), executed as code with same-transaction evidence.
 - **Session end** — the brief rewrites, so the next session starts current.
 
 `MEMCAL_HOME` (default `~/.memcal`) and `MEMCAL_SRC` select the store and
 checkout. Freshness hints travel on the prefetch path, so long-running sessions
 receive current context — including next-day turns, resumes, and compression —
 without a second injection copy. See [Daytime freshness](../architecture/freshness.md).
+
+The default snapshot reaches 30 days ahead and includes month/year lookup guidance.
+To confirm a guessed sender name, use the Conversations page or the CLI; Hermes
+does not currently expose the MCP-only `memcal_name` tool.

@@ -5,7 +5,7 @@ in `pyproject.toml` and update `install.sh` so a normal install remains sufficie
 
 ```bash
 git clone https://github.com/cuuush/memcal && cd memcal
-python3 -m unittest discover -s tests
+python3 -m unittest discover -b -s tests
 ```
 
 ## Core rules
@@ -29,7 +29,7 @@ Key requirements:
 - Run the smallest relevant unittest modules while iterating, then the full suite before handoff.
 - The full suite runs fastest through `python3 tools/run_tests.py`, which fans the modules
   across cores in separate processes (roughly 5x quicker than `unittest discover`, and stricter
-  isolation). `python3 -m unittest discover -s tests` remains the equivalent single-process run.
+  isolation). `python3 -m unittest discover -b -s tests` remains the equivalent single-process run.
   Pass module names to either to scope a run: `python3 tools/run_tests.py test_core test_web`.
 - Run `python3 tools/benchmark_temporal.py --layer integration` when a change affects behavior
   exercised by the multi-day ingest, Merge, storage, dream, or brief scenarios.
@@ -39,6 +39,8 @@ Key requirements:
   rather than appended methods. Distinct class names prevent class shadowing within module namespaces.
 - **Tests pin temporal state explicitly.** Date and time values derive from `db.today()`, `db.now_dt()`,
   or explicit `db.set_today` bindings released during teardown. Tests never query the system clock directly.
+  Pins with explicit timezone offsets retain them; naive pins use the local offset
+  on the pinned date, including daylight-saving transitions.
   `tools/clock_sweep.py` verifies behavior across dates, hours, and time zones ranging from UTC-5 to UTC+14;
   `--cross` is the cheap shape and the one to reach for, `--zones` the full grid.
 - **Entry points reside at the end of test modules.** Test files place `if __name__ == "__main__": unittest.main()`

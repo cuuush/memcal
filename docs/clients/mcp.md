@@ -9,8 +9,8 @@ python3 -m memcal.mcp_server   # stdio MCP server
 
 - Read `brief.md` for the snapshot; `MEMCAL_HOME` selects the store.
 - `memcal://brief` exposes the same snapshot as a resource.
-- **22 tools** on this server (see [MCP server](../api/mcp.md)). Hermes exposes
-  **21** of the same surface via prefetch instead of `memcal_brief`.
+- **23 tools** on this server (see [MCP server](../api/mcp.md)). Hermes exposes
+  **21** tools: prefetch replaces `memcal_brief`, and `memcal_name` is MCP-only.
 - Reads (`memcal_brief`, `memcal_open`, `memcal_search_archive`,
   `memcal_conversation`, …) expand depth; typed writes (`memcal_add`,
   `memcal_update`, `memcal_todo`, `memcal_answer`, …) run as code, no model.

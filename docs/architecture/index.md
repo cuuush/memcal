@@ -25,15 +25,14 @@ streams ──▶ observe ──▶ gate ──▶ spool ──▶ dream (nightl
 ## Design theses
 
 1. **Breadth in context, depth on demand.** A small always-present block carries the
-   current week; everything older is fetched deliberately. Thirty relevant lines
-   produce lateral connections; two hundred thousand tokens produce mush.
+   next 30 days by default; tools fetch dates and details outside that window.
 2. **One world model, many streams.** A text, an email, a group message, and
    something said to the agent resolve to the same row. Bundling by entity across
    streams makes cross-platform deduplication structural.
 3. **Recency is resolved when writing, not when reading.** The old address moves to
    history at write time. Reads never weigh timestamps against relevance scores.
 4. **Extraction is filling known slots.** The model proposes diffs against keys —
-   event inserts/updates, to-do opens/closes, wiki slot fills, standing edits,
+   event inserts/updates, to-do opens/closes, wiki slot fills,
    questions. Never free-form memories.
 5. **Dictionary lookup before model call.** Contacts, sender policy, nicknames, and
    thread links are hash lookups. The model only sees what genuinely needs judgment.
