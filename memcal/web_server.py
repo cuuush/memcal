@@ -279,7 +279,9 @@ class Handler(BaseHTTPRequestHandler):
                               location=query.get("location", ""),
                               series=query.get("series", ""),
                               exclude=query.get("exclude", ""),
-                              limit=min(int(query.get("limit", 200)), 500))
+                              limit=min(int(query.get("limit", 200)), 500),
+                              offset=max(0, int(query.get("offset", 0))),
+                              scope=query.get("scope", "all"))
         if path == "/api/memory":
             return web_memory.memory(conn, self.cfg)
         if path == "/api/runs":

@@ -154,6 +154,7 @@ def memory(conn: sqlite3.Connection, cfg: Config) -> dict:
         }
     return {
         "brief": text,
+        "days_forward": cfg.days_forward,
         "lines": lines,
         "targets": targets,
     }
@@ -218,6 +219,7 @@ def _event_summary(row: sqlite3.Row) -> dict:
         "until": row["until"] or "", "time": row["time"] or "",
         "location": row["location"] or "", "status": row["status"],
         "kind": row["kind"],
+        "participants": json.loads(row["participants"] or "[]"),
     }
 
 
@@ -310,7 +312,7 @@ def _related_events(conn: sqlite3.Connection, cfg: Config, *, facet: str, value:
 
 def event_list(conn: sqlite3.Connection, cfg: Config, *, person: str = "",
                location: str = "", series: str = "", exclude: str = "",
-               limit: int = 200) -> dict:
+               limit: int = 200, offset: int = 0, scope: str = "all") -> dict:
     """The calendar, or the slice of it sharing one facet with a row the user is reading.
 
     One facet at a time on purpose: the caller is a pill naming a person, a place or a
@@ -320,16 +322,31 @@ def event_list(conn: sqlite3.Connection, cfg: Config, *, person: str = "",
              (("person", person), ("location", location), ("series", series)) if value}
     if len(asked) > 1:
         return {"error": "one facet at a time: person, location or series"}
+    if scope not in {"all", "upcoming"}:
+        return {"error": "scope must be all or upcoming"}
+    limit, offset = max(1, min(limit, 500)), max(0, offset)
     if not asked:
-        total = conn.execute("SELECT count(*) AS n FROM events").fetchone()["n"]
+        where, params = "", []
+        order = "date DESC, id DESC"
+        if scope == "upcoming":
+            lo = db.today().isoformat()
+            hi = (db.today() + timedelta(days=cfg.days_forward)).isoformat()
+            where = " WHERE date <= ? AND COALESCE(NULLIF(until, ''), date) >= ?"
+            params = [hi, lo]
+            order = "date ASC, id ASC"
+        total = conn.execute("SELECT count(*) AS n FROM events" + where,
+                             params).fetchone()["n"]
         rows = conn.execute(
-            "SELECT * FROM events ORDER BY date DESC, id DESC LIMIT ?", (limit,))
+            f"SELECT * FROM events{where} ORDER BY {order} LIMIT ? OFFSET ?",
+            [*params, limit, offset])
         return {"events": [_event_summary(row) for row in rows], "total": total,
-                "facet": "", "value": ""}
+                "facet": "", "value": "", "offset": offset,
+                "next_offset": offset + limit if offset + limit < total else None}
     facet, value = next(iter(asked.items()))
     found = _related_events(conn, cfg, facet=facet, value=value, exclude=exclude)
-    return {"events": found[:limit], "total": len(found), "facet": facet,
-            "value": value}
+    return {"events": found[offset:offset + limit], "total": len(found), "facet": facet,
+            "value": value, "offset": offset,
+            "next_offset": offset + limit if offset + limit < len(found) else None}
 
 
 def _event_detail(conn: sqlite3.Connection, cfg: Config, ref: str) -> dict:

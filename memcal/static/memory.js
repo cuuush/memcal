@@ -2,8 +2,21 @@ import { $, el, nf, api, jumpToBundle, state } from "./core.js";
 
 /* -------------------------------------------------------------- memory -- */
 export async function loadMemory() {
+  calendarRequest++;
   const m = await api("/api/memory");
   const box = $("#brief"); box.innerHTML = "";
+  const days = m.days_forward || 30;
+  $("#memory-brief").textContent = `Brief · next ${days} days`;
+  $("#memory-upcoming").textContent = `Next ${days} days · all entries`;
+  const calendar = $("#memory-events");
+  box.hidden = false; calendar.hidden = true;
+  selectCalendarView("brief");
+  $("#memory-brief").onclick = () => {
+    calendarRequest++; selectCalendarView("brief");
+    box.hidden = false; calendar.hidden = true;
+  };
+  $("#memory-upcoming").onclick = () => loadCalendar("upcoming");
+  $("#memory-all").onclick = () => loadCalendar("all");
   if (m.error) { box.append(el("div", "empty", "Memory could not load. Refresh to try again.")); return; }
   if (!(m.lines || []).some(row => {
     const text = (row.text || "").trim();
@@ -18,7 +31,7 @@ export async function loadMemory() {
   }
   for (const row of (m.lines || [])) {
     const text = (row.text || "").trim();
-    if (!text || text.startsWith("[〔")) continue;
+    if (!text || text.startsWith("[〔") || text.startsWith("[calendar:")) continue;
     if (text.startsWith("[complete for")) {
       box.append(el("div", "brief-coverage", text.slice(1, -1).replace("complete for", "Coverage:")
         .replace("; look up anything outside that", "; search for plans outside this window")));
@@ -31,7 +44,9 @@ export async function loadMemory() {
                     "briefline" + (target ? " click" : "")
                     + (change ? ` dream-${change}` : "")
                     + (String(row.text || "").startsWith("## ") ? " head" : ""),
-                    (row.text || "\u00a0").replace(/^#{1,3} /, "").replace(/〔[ETQS]\d+〕\s*/g, ""));
+                    (row.text || "\u00a0").replace(/^## Upcoming/, `## Next ${days} days`)
+                      .replace(/^## Later$/, `## Beyond the next ${days} days`)
+                      .replace(/^#{1,3} /, "").replace(/〔[ETQS]\d+〕\s*/g, ""));
     if (target) {
       line.title = `open ${token} source`;
       line.onclick = () => openWhy(target.kind, target.ref, row.text);
@@ -41,6 +56,45 @@ export async function loadMemory() {
     }
     box.append(line);
   }
+}
+
+let calendarRequest = 0;
+function selectCalendarView(view) {
+  for (const name of ["brief", "upcoming", "all"]) {
+    $(`#memory-${name}`).setAttribute("aria-pressed", String(name === view));
+  }
+}
+async function loadCalendar(scope) {
+  selectCalendarView(scope);
+  const request = ++calendarRequest;
+  const box = $("#memory-events");
+  $("#brief").hidden = true; box.hidden = false; box.innerHTML = "";
+  box.append(el("div", "bname", scope === "all" ? "All events" : "Upcoming events"));
+  const list = el("div"); box.append(list);
+  let offset = 0, shown = 0;
+  const more = el("button", "btn", "Load more events");
+  const count = el("div", "note"); count.setAttribute("aria-live", "polite");
+  box.append(count, more);
+  async function page() {
+    more.disabled = true; count.textContent = "Loading events…";
+    const out = await api(`/api/events?scope=${scope}&offset=${offset}`);
+    if (request !== calendarRequest) return;
+    if (out.error) { count.textContent = out.error; more.disabled = false; return; }
+    for (const e of out.events || []) {
+      const row = el("button", "relatedrow");
+      row.append(el("strong", null, e.title), el("small", null,
+        [eventRange(e), e.time, e.participants?.join(", "), e.location, e.status]
+          .filter(Boolean).join(" · ")));
+      row.onclick = () => openWhy("event", e.key, e.title);
+      list.append(row);
+    }
+    shown += (out.events || []).length;
+    count.textContent = `${nf(shown)} of ${nf(out.total)} events`;
+    offset = out.next_offset;
+    more.hidden = offset == null; more.disabled = false;
+  }
+  more.onclick = page;
+  await page();
 }
 
 /* One chip saying how well a line is backed up. Three states, because they mean three

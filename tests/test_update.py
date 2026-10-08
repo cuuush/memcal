@@ -60,7 +60,7 @@ class TestCheckoutUpdates(unittest.TestCase):
         self.refresh()
         self.assertEqual((self.checkout / "memcal/cli.py").read_text(), "REVISION = 2\n")
         args = (self.checkout / "install-args.txt").read_text().splitlines()
-        self.assertEqual(args, ["--no-init", "--python", sys.executable,
+        self.assertEqual(args, ["--no-init", "--upgrade", "--python", sys.executable,
                                 "--bin", str(self.base / "bin")])
         self.refresh()
         self.assertEqual(self.git(self.checkout, "status", "--porcelain"), "")
@@ -73,6 +73,19 @@ class TestCheckoutUpdates(unittest.TestCase):
             self.refresh()
         self.assertEqual(local.read_text(), "local work\n")
         self.assertFalse((self.checkout / "install-args.txt").exists())
+
+    def test_component_refresh_executes_the_code_just_pulled(self):
+        (self.author / "memcal/update.py").write_text(
+            "import os\nfrom pathlib import Path\n"
+            "def refresh():\n"
+            "    Path(os.environ['MEMCAL_HOME']).write_text('new refresh code')\n")
+        self.git(self.author, "add", "memcal/update.py")
+        self.git(self.author, "commit", "-m", "new component refresh")
+        self.git(self.author, "push")
+        self.refresh()
+        marker = self.base / "refreshed"
+        update._refresh_installed(self.checkout, str(marker))
+        self.assertEqual(marker.read_text(), "new refresh code")
 
     def test_divergent_local_commits_are_preserved(self):
         self.publish()
@@ -155,7 +168,7 @@ class TestPackageUpdates(unittest.TestCase):
     def test_dispatch_works_without_importing_the_application(self):
         with mock.patch("memcal.update.run", return_value=0) as run:
             self.assertEqual(entrypoint.main(["--home", "/unused", "update"]), 0)
-        run.assert_called_once_with()
+        run.assert_called_once_with(home="/unused")
 
     def test_missing_application_dependencies_do_not_prevent_update_dispatch(self):
         script = """\

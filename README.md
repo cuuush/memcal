@@ -40,10 +40,12 @@ memcal doctor
 memcal brief
 ```
 
-Run `memcal update` to update your installation. A checkout follows its Git
-upstream and refreshes dependencies and its launcher; a pip installation upgrades
-to the latest published release. Local edits or unpublished commits stop a checkout
-update so you can resolve them first.
+Run `memcal update` to pull the latest code from GitHub. A checkout fast-forwards
+its Git upstream; a pip installation installs from the GitHub repository. Both
+upgrade dependencies, migrate the existing store, refresh its saved brief, and
+rebuild an installed scheduler and app wrapper. Checkout updates also repair the
+launcher. Local edits or unpublished commits stop the update so you can resolve
+them first. Restart running UI and agent sessions afterward.
 
 Run `memcal setup` to choose your model provider, iMessage transport and BlueBubbles
 connection, and disabled sources. Other source credentials are optional.

@@ -2,6 +2,8 @@
 
 ### Added
 
+- The web Memory page offers the next 30 days and a paginated all-events view,
+  including past events and distant future plans.
 - Every dream saves stage progress, diagnostic errors, and crash tracebacks locally.
   Open a run's Saved dream log in the web UI or use `memcal trace <run>` to inspect
   failures after restart. Logging failures print the affected path and error.
@@ -55,6 +57,9 @@
 
 ### Changed
 
+- `memcal update` pulls GitHub code, upgrades installed dependencies and chat
+  extras, migrates the selected store, refreshes its brief, and regenerates an
+  installed scheduler and app wrapper while preserving the scheduled time.
 - Codex and OpenRouter default to GPT-6 Luna for propose, sweep, and merge.
   Explicit stage-model settings remain unchanged. The model catalog and pricing
   estimates include the new Luna model.

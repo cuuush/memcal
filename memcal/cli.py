@@ -2315,7 +2315,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("update", help="update this installation and refresh its launcher")
     from . import update
-    s.set_defaults(func=lambda args: update.run())
+    s.set_defaults(func=lambda args: update.run(home=args.home) if args.home else update.run())
 
     s = sub.add_parser("openclaw", help="install or inspect the OpenClaw integration")
     s.add_argument("action", nargs="?", default="status", choices=["status", "setup"],

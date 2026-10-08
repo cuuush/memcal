@@ -1,3 +1,7 @@
+  .filters .btn[aria-pressed="true"] {
+    border-color: var(--pass);
+    color: var(--pass);
+  }
   :root {
     color-scheme: light;
     --surface-0: #f5f6f8;

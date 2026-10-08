@@ -51,14 +51,25 @@ memcal update
 ```
 
 For a checkout, this fetches its configured upstream, advances it with a fast-forward,
-and refreshes dependencies and the existing launcher with the same Python interpreter.
+and upgrades dependencies and the existing launcher with the same Python interpreter.
 Local edits, unpublished commits, or a development worktree stop the update with an
 explanation. A default branch missing its upstream is reconnected automatically;
 other branches require explicit tracking. It does not run ingestion or change your
 saved provider settings.
 
-For a pip installation, it upgrades Memcal to the latest published release using the
-Python that runs the command. Restart any running UI or agent sessions afterward.
+For a pip installation, it installs the latest code directly from
+`https://github.com/cuuush/memcal` using the Python that runs the command; Git must
+be on PATH. Existing Slack and Telegram extras are upgraded too.
+
+Both paths run the newly installed code to migrate the existing store and refresh
+its saved brief. On macOS, an installed scheduler is regenerated and reloaded,
+including the app wrapper, while preserving its scheduled time and pending retry.
+An update does not enable scheduling on a store that did not have it. Use
+`memcal --home /path/to/store update` to select the store to refresh.
+
+Linked Hermes and OpenClaw plugins and MCP servers use the updated code on their
+next start. Restart running UI or agent sessions afterward; for OpenClaw, run
+`openclaw gateway restart`.
 The update command can repair missing application dependencies because it loads
 before the rest of Memcal.
 

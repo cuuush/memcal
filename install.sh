@@ -24,6 +24,7 @@ DO_INIT=1
 DO_NIGHTLY=0
 UNINSTALL=0
 REQUESTED_PY=""
+UPGRADE_ARG=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -32,6 +33,7 @@ while [ $# -gt 0 ]; do
         --python)    REQUESTED_PY="${2:?--python needs an interpreter}"; shift 2 ;;
         --python=*)  REQUESTED_PY="${1#*=}"; shift ;;
         --no-init)   DO_INIT=0; shift ;;
+        --upgrade)   UPGRADE_ARG="--upgrade"; shift ;;
         --nightly)   DO_NIGHTLY=1; shift ;;
         --uninstall) UNINSTALL=1; shift ;;
         -h|--help)   sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -106,10 +108,20 @@ fi
 # The list is read from pyproject.toml so this stays in step with it automatically.
 say ""
 say "dependencies"
-DEPS=$("$PY" - "$ROOT" <<'PYEOF'
-import pathlib, sys, tomllib
+DEPS=$("$PY" - "$ROOT" "$UPGRADE_ARG" <<'PYEOF'
+import importlib.metadata, pathlib, re, sys, tomllib
 data = tomllib.loads((pathlib.Path(sys.argv[1]) / "pyproject.toml").read_text())
-print("\n".join(data["project"].get("dependencies", [])))
+deps = list(data["project"].get("dependencies", []))
+if sys.argv[2]:
+    for requirements in data["project"].get("optional-dependencies", {}).values():
+        try:
+            for requirement in requirements:
+                name = re.match(r"[A-Za-z0-9_.-]+", requirement).group()
+                importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+        deps.extend(requirements)
+print("\n".join(dict.fromkeys(deps)))
 PYEOF
 )
 if [ -n "$DEPS" ]; then
@@ -122,7 +134,7 @@ if [ -n "$DEPS" ]; then
     pip_ok=0
     for extra in "" "--user --break-system-packages"; do
         # shellcheck disable=SC2086
-        if out=$("$PY" -m pip install --disable-pip-version-check $extra -r "$REQ" 2>&1); then
+        if out=$("$PY" -m pip install --disable-pip-version-check $UPGRADE_ARG $extra -r "$REQ" 2>&1); then
             pip_ok=1; break
         fi
     done
