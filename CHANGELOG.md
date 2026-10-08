@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-08
+
 ### Added
 
 - The web Memory page offers the next 30 days and a paginated all-events view,
