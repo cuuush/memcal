@@ -948,7 +948,7 @@ class Server:
             return _ok(request_id, {
                 "protocolVersion": params.get("protocolVersion", PROTOCOL_VERSION),
                 "capabilities": {"tools": {}, "resources": {}},
-                "serverInfo": {"name": "memcal", "version": "0.8.1"},
+                "serverInfo": {"name": "memcal", "version": "0.8.2"},
             })
         if method in ("notifications/initialized", "notifications/cancelled"):
             return None
