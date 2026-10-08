@@ -555,7 +555,7 @@ def cmd_month(args) -> int:
     cfg, conn = open_ctx(args)
     ref = db.parse_date(args.month + "-01") if args.month else db.today().replace(day=1)
     nxt = (ref.replace(day=28) + timedelta(days=4)).replace(day=1)
-    rows = events.between(conn, ref.isoformat(), (nxt - timedelta(days=1)).isoformat())
+    rows = events.overlapping(conn, ref.isoformat(), (nxt - timedelta(days=1)).isoformat())
     if args.json:
         return emit_json([event_json(ev) for ev in rows])
     print(f"# memcal {ref.strftime('%B %Y')} ({len(rows)} rows)")

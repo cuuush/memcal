@@ -149,7 +149,7 @@ SETTINGS: tuple[Setting, ...] = (
             "How far behind today the brief still reports on.",
             "brief", kind="int", minimum=0, maximum=90, unit="days"),
     Setting("MEMCAL_DAYS_FORWARD", "days_forward", "Days forward",
-            "How far ahead the brief reaches. This is the window, not the store — "
+            "How far ahead the brief reaches (30 days by default). This is the window, not the store — "
             "everything else stays one question away.",
             "brief", kind="int", minimum=1, maximum=365, unit="days"),
     Setting("MEMCAL_BRIEF_TOKEN_CAP", "brief_token_cap", "Brief token cap",

@@ -261,6 +261,8 @@ narratives here.
 - Pushing a `vX.Y.Z` tag triggers `.github/workflows/publish.yml`, which builds the
   sdist/wheel and uploads to PyPI via Trusted Publishing (OIDC, no stored token). The
   tag must match `pyproject.toml` or PyPI rejects the upload.
-- Never read or write the live `~/.memcal` store during development; tests use tmp dirs,
-  benchmarks use scratch homes. Keep secrets, `calls/`, `tools/bench_output/`,
+- Never write the live `~/.memcal` store during development. Read-only diagnosis of
+  live data is allowed when the user explicitly requests it; use SQLite read-only
+  connections and do not run migrations. Tests use tmp dirs, benchmarks use scratch
+  homes. Keep secrets, `calls/`, `tools/bench_output/`,
   `transcripts/`, and `*.db` out of version control (see `.gitignore`).

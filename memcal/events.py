@@ -984,6 +984,11 @@ def upsert(
 def window(conn: sqlite3.Connection, days_back: int, days_forward: int, ref: date | None = None) -> list[Event]:
     """Return every event that overlaps the requested date window."""
     lo, hi = db.window_bounds(days_back, days_forward, ref)
+    return overlapping(conn, lo, hi)
+
+
+def overlapping(conn: sqlite3.Connection, lo: str, hi: str) -> list[Event]:
+    """Return events occurring anywhere in an inclusive range, including ongoing spans."""
     rows = conn.execute(
         "SELECT * FROM events WHERE date <= ? AND coalesce(nullif(until,''), date) >= ?"
         " ORDER BY date, coalesce(time,''), id",

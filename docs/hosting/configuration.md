@@ -59,7 +59,7 @@ the output schema is passed inline as the `--json-schema` literal.
 | Key | Default | Meaning |
 |---|---|---|
 | `MEMCAL_DAYS_BACK` | `3` (0–90) | Backward window |
-| `MEMCAL_DAYS_FORWARD` | `7` (1–365) | Forward window |
+| `MEMCAL_DAYS_FORWARD` | `30` (1–365) | Forward window from today |
 | `MEMCAL_BRIEF_TOKEN_CAP` | `1500` (200–20000) | Whole-brief budget |
 
 ### Collection

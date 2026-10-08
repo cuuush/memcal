@@ -1291,14 +1291,15 @@ class TestASixDayWindowOfSomebodyElsesTimeReadAsHisOwn(Base):
     def test_the_later_block_answers_the_question_the_same_way(self):
         """Two rules for one question is how "Laura away (Laura)" appears on one
         surface and not the other, and a reader who sees both trusts neither."""
+        self.cfg.days_forward = 7
         self._window(title="Laura away", subject="Laura", date=self.d(30),
                      until=self.d(34))
         self._window(title="League or CS2 gaming", subject="Cameron Ortiz",
                      date=self.d(30), until=self.d(34))
         text = brief.render(self.conn, self.cfg)
         later = text.split("## Later")[1]
-        self.assertIn("(Cameron Ortiz)", later)
-        self.assertNotIn("(Laura)", later)
+        self.assertIn('Cameron Ortiz: "League or CS2 gaming"', later)
+        self.assertNotIn('Laura: "Laura away"', later)
 
     def test_detail_still_separates_who_from_whose(self):
         """What the line gives up is one handle away, which is why it may give it up."""
@@ -3424,6 +3425,10 @@ class TestMailIsIncludedByDefaultAndRankedNotDropped(Base):
     have overturned the verdict was the one thing never read, and a message the user could
     see in their mail app was not in memcal at all.
     """
+
+    def setUp(self):
+        super().setUp()
+        db.set_today(date(2026, 9, 8))
 
     class Mailbox:
         def __init__(self, bodies=None, fail=False):

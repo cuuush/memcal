@@ -391,6 +391,7 @@ class TestBacklogDisclosesUnrepresentedThreads(_Base):
         self.assertTrue(saw_trimmed, "no cap dropped the representing hint")
 
     def test_an_unconfirmed_later_opportunity_does_not_cover_its_thread(self):
+        self.cfg.days_forward = 7
         # October 1 is inside the Later date range but an unconfirmed opportunity
         # is never rendered, so it suppresses nothing.
         self._event_with_thread_evidence("2026-10-01", "friends", "maybe a thing?",

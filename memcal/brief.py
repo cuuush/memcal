@@ -59,7 +59,7 @@ def render(conn: sqlite3.Connection, cfg: Config, ref: date | None = None,
     ref = ref or db.today()
     # Retain audit rows while removing obligations whose linked event is no longer live.
     todos.expire_event_links(conn)
-    # The two window scans (the week range, and the wider Later range) are the
+    # The two window scans (the active range, and the wider Later range) are the
     # expensive part of a render. Run each once here and thread the results
     # through the blocks and the post-trim reconciliation, so nothing re-queries.
     window = events.window(conn, cfg.days_back, cfg.days_forward, ref)
@@ -402,7 +402,7 @@ def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date, *,
     rows = window if window is not None \
         else events.window(conn, cfg.days_back, cfg.days_forward, ref)
     # Anchors the reference date explicitly to prevent incorrect date inference.
-    lines = [f"## This week  (today is {ref.strftime('%A %-d %B %Y')})"]
+    lines = [f"## Upcoming  (today is {ref.strftime('%A %-d %B %Y')})"]
     if not rows:
         lines.append("(nothing known)")
     else:
@@ -426,9 +426,12 @@ def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date, *,
             lines.extend(_question_lines(asked.get(ev.id, [])))
             lines.extend(_child_lines(conn, ev, asked, state))
     # Explicit date bounds signal completeness to avoid unnecessary range lookups.
-    first = (ref - timedelta(days=cfg.days_back)).strftime("%a %-d %b")
-    last = (ref + timedelta(days=cfg.days_forward)).strftime("%a %-d %b")
+    first = (ref - timedelta(days=cfg.days_back)).isoformat()
+    last = (ref + timedelta(days=cfg.days_forward)).isoformat()
     lines.append(f"[complete for {first} – {last}; look up anything outside that]")
+    year_days = (date(ref.year + 1, 1, 1) - date(ref.year, 1, 1)).days
+    lines.append(f"[calendar: memcal_list_month(month='{ref:%Y-%m}'); "
+                 f"year: memcal_list_days(when='{ref.year}-01-01', days={year_days})]")
     # Distinguishes an empty schedule from stale ingestion streams.
     stale = archive.stale_streams(conn, cfg=cfg)
     if stale:
@@ -470,19 +473,9 @@ def _later_block(conn: sqlite3.Connection, cfg: Config, ref: date, *,
     lines = ["## Later"]
     state = _block_hints(conn, cfg, shown)
     for ev in shown:
-        who = f" ({ev.subject})" if ev.needs_subject() else ""
-        invite = [ev.plain_state(), f"invite: {events._short_url(ev.rsvp_url)}"] \
-            if ev.rsvp_url else []
-        act = [f"join: {ev.join_url}"] if ev.join_url else []
-        title, platform = events.split_platform(ev.title)
-        home = [f"via {platform}"] if platform else []
-        hosts = ev.visible_hosts()
-        hosted = ["hosted by " + ", ".join(hosts[:3])
-                  + (f" +{len(hosts) - 3}" if len(hosts) > 3 else "")] if hosts else []
-        tail = [t for t in (*invite, *act, *home, *hosted,
-                            _duration(ev), via.get(ev.key, "")) if t]
-        lines.append(f"{source_tag('event', ev.id)} {_when_phrase(ev)}  \"{title}\"{who}"
-                     + (" — " + " · ".join(tail) if tail else ""))
+        lines.append(f"{source_tag('event', ev.id)} "
+                     + ev.one_line(overview=True,
+                                   extra=[_duration(ev), via.get(ev.key, "")]))
         _hint_after(lines, ev, state)
         lines.extend(_question_lines(asked.get(ev.id, [])))
     if total > LATER_LIMIT:
@@ -502,11 +495,6 @@ def _committed(event: events.Event) -> bool:
     return (event.kind in ("commitment", "availability")
             or (event.kind == "opportunity" and event.status == "confirmed")
             or bool(event.rsvp_url))
-
-
-def _when_phrase(event: events.Event) -> str:
-    """Formats the date range occupied by an event spanning across multiple days."""
-    return events.date_phrase(event.date, event.until)
 
 
 def _duration(event: events.Event) -> str:
@@ -813,11 +801,11 @@ def _is_coverage(line: str) -> bool:
 
 
 def _dropped_index(lines: list[str]) -> tuple[int, int] | None:
-    prefer = ("## People and facts", "## Ask about", "## Open", "## This week")
+    prefer = ("## People and facts", "## Ask about", "## Open", "## Upcoming", "## This week")
     for header in prefer:
-        try:
-            start = lines.index(header)
-        except ValueError:
+        start = next((i for i, line in enumerate(lines)
+                      if line == header or line.startswith(header + "  ")), None)
+        if start is None:
             continue
         end = start + 1
         while end < len(lines) and not lines[end].startswith("## "):
@@ -926,13 +914,18 @@ def _reconcile_coverage(conn: sqlite3.Connection, text: str, token_cap: int, *,
     """
     surviving = _surviving_event_keys(conn, text, id_to_key)
     uncovered = activity.unlinked_backlog(conn, represented=surviving)
-    if not uncovered:
+    omitted = bool(id_to_key and set(id_to_key.values()) - surviving)
+    if not uncovered and not omitted:
         return text
     lines = text.splitlines()
-    if any("coverage incomplete" in line for line in lines):
+    disclosed = any("coverage incomplete" in line for line in lines)
+    if disclosed and not omitted:
         return text                         # already disclosed (non-PII)
     lines = [line for line in lines if not line.lstrip().startswith(_COMPLETE_PREFIX)]
-    lines.append(_COVERAGE_TRIMMED)
+    if not disclosed:
+        lines.append("[coverage incomplete — some known events omitted; use "
+                     "memcal_list_month or memcal_list_days]" if omitted
+                     else _COVERAGE_TRIMMED)
     return _trim("\n".join(lines).rstrip() + "\n", token_cap)
 
 

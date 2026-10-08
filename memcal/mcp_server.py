@@ -22,7 +22,7 @@ PROTOCOL_VERSION = "2025-06-18"
 TOOLS = [
     {
         "name": "memcal_brief",
-        "description": ("The always-in-context block: this week's memcal, open to-dos, "
+        "description": ("The always-in-context block: the next 30 days by default, open to-dos, "
                         "questions to ask, and identity aliases. Read this first; most "
                         "questions about the user's life are answerable from it alone."),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
@@ -97,7 +97,9 @@ TOOLS = [
                         "over memcal_list_month for any question about a specific day; "
                         "a month of rows buries the one day that was asked about. Each "
                         "row ends in an E# handle; pass that exact handle to "
-                        "memcal_update, memcal_move_once, memcal_merge, or memcal_drop."),
+                        "memcal_update, memcal_move_once, memcal_merge, or memcal_drop. "
+                        "For an entire year, use when='YYYY-01-01' and days=365 "
+                        "(366 in a leap year)."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -722,9 +724,9 @@ class Server:
             start, span = db.parse_when(args.get("when", ""))
             span = max(1, int(args.get("days") or span))
             end = start + timedelta(days=span - 1)
-            rows = events.between(self.conn, start.isoformat(), end.isoformat())
-            label = (start.strftime("%A %b %-d") if span == 1
-                     else f"{start.strftime('%a %b %-d')} – {end.strftime('%a %b %-d')}")
+            rows = events.overlapping(self.conn, start.isoformat(), end.isoformat())
+            label = (start.strftime("%A %b %-d, %Y") if span == 1
+                     else f"{start.isoformat()} – {end.isoformat()}")
             if not rows:
                 # "(nothing)" reads as a failed lookup. The answer to "am I free
                 # Saturday" is the whole point of the tool, so say it plainly.
@@ -737,7 +739,7 @@ class Server:
             month = args.get("month")
             start = db.parse_date(month + "-01") if month else db.today().replace(day=1)
             end = (start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-            rows = events.between(self.conn, start.isoformat(), end.isoformat())
+            rows = events.overlapping(self.conn, start.isoformat(), end.isoformat())
             head = f"memcal {start.strftime('%B %Y')} ({len(rows)} rows)"
             return ("\n".join([head] + [f"{r.one_line()}  {brief.source_tag('event', r.id)}"
                                            for r in rows]) if rows else head + "\n(nothing)")
@@ -958,7 +960,7 @@ class Server:
             return _ok(request_id, {"resources": [{
                 "uri": "memcal://brief",
                 "name": "memcal brief",
-                "description": "This week, open to-dos, questions, and identity aliases.",
+                "description": "Upcoming month by default, open to-dos, questions, and identity aliases.",
                 "mimeType": "text/markdown",
             }]})
         if method == "resources/read":

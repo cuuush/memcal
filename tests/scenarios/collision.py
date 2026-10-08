@@ -386,8 +386,9 @@ def _f3_stale_reinstatement() -> Scenario:
                   lambda c: (len(c.rows("Bowery")) == 1,
                              f"{[(e.date, e.status) for e in c.rows('Bowery')]}")),
             check("f3.brief-does-not-offer-it", "after-pass", "brief",
-                  lambda c: ("Bowery" not in c.brief(),
-                             "brief still lists it" if "Bowery" in c.brief() else "clean")),
+                  lambda c: (not any("Bowery" in line and "not going" not in line
+                                     for line in c.brief().splitlines()),
+                             "cancelled plan must be absent or explicitly not going")),
         ],
     )
 
