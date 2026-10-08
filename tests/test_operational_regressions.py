@@ -3388,8 +3388,8 @@ class TestANightTheMachineWasAsleepIsNotSimplySkipped(unittest.TestCase):
         self.assertIn("memcal dream", nightly)
 
     def test_the_agent_wakes_with_the_machine(self):
-        """`StartCalendarInterval` is the hour that was already missed; an elapsed
-        `StartInterval` is what launchd fires on wake, and `RunAtLoad` covers being off."""
+        """Calendar triggers catch up on wake; RunAtLoad covers login after power-off.
+        StartInterval checks for unfinished passes while the machine is awake."""
         plist = schedule.render_plist(self.cfg)
         self.assertTrue(plist["RunAtLoad"])
         self.assertEqual(300, plist["StartInterval"])

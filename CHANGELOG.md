@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Scheduled dreams retry failed or interrupted passes at the next check or
+  login, preserving catch-up after the device was asleep or powered off.
 - The brief's Later entries retain participants, tentative status, and time, so
   visits and shared plans keep their people visible beyond the weekly window.
 - Day and month calendar lookups include ongoing visits and trips that began

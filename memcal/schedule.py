@@ -386,6 +386,11 @@ def stamp_path(cfg: Config) -> Path:
     return cfg.home / "nightly.last-start"
 
 
+def pending_path(cfg: Config) -> Path:
+    """A scheduled pass that has not finished successfully."""
+    return cfg.home / "nightly.pending"
+
+
 def log_path(cfg: Config) -> Path:
     return cfg.home / "nightly.log"
 
@@ -520,6 +525,7 @@ export MEMCAL_HOME="{cfg.home}"
 PY="{python}"
 LOG="{log_path(cfg)}"
 STAMP="{stamp_path(cfg)}"
+PENDING="{pending_path(cfg)}"
 
 # Fall back when the interpreter recorded at installation has moved.
 if [ ! -x "$PY" ]; then
@@ -566,8 +572,10 @@ case "$VERDICT" in
         ;;
 esac
 
-# Record the start before ingest so later triggers do not duplicate this pass.
-: > "$STAMP"
+# Keep an unfinished pass owed after failure or shutdown. launchd runs one
+# instance of this job at a time; its next trigger can retry the pending pass.
+: > "$PENDING" || exit 1
+: > "$STAMP" || exit 1
 
 echo "=== $(date '+%Y-%m-%d %H:%M:%S')  nightly ==="
 
@@ -576,12 +584,17 @@ echo "=== $(date '+%Y-%m-%d %H:%M:%S')  nightly ==="
 "$PY" -m memcal ingest all
 INGEST=$?
 
-# Frontier model, whole window. Nightly may overwrite what a cheaper pass wrote
-# today; anything older than today is frozen unless new traffic references it.
+# Dream reads the newly collected traffic.
 "$PY" -m memcal dream --mode nightly
 DREAM=$?
 
 echo "=== $(date '+%Y-%m-%d %H:%M:%S')  done (ingest $INGEST, dream $DREAM) ==="
+
+# A failed collection also leaves the pass pending so its missing traffic can
+# be collected and processed on the next trigger.
+if [ "$INGEST" -eq 0 ] && [ "$DREAM" -eq 0 ]; then
+    rm -f "$PENDING" || exit 1
+fi
 
 # Report dream failure first, otherwise the ingest result.
 [ "$DREAM" -ne 0 ] && exit "$DREAM"
@@ -829,6 +842,8 @@ def owed(cfg: Config, *, now: datetime | None = None) -> tuple[datetime | None, 
                       f"`memcal schedule install` regenerates it")
     hour, minute = scheduled_time(cfg)
     due = last_due(now, hour, minute)
+    if pending_path(cfg).exists():
+        return due, "the last scheduled pass did not finish successfully — retry owed"
     started = last_started(cfg)
     if started is None:
         # Only reachable if the stamp was deleted, since `install` writes one. Owed is
