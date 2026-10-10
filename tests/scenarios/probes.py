@@ -601,7 +601,7 @@ def clock_checks(home: Path) -> list[dict]:
     def advance(day: str) -> None:
         """One day passing, as the nightly pass sees it. `run.py:362-376`."""
         db.set_today(date.fromisoformat(day))
-        events.mark_past_happened(conn)
+        events.restore_inferred_occurrence(conn)
         todos.relink_questions(conn)
         todos.expire_questions(conn)
         todos.expire_event_links(conn)          # `brief.render` does this on every read

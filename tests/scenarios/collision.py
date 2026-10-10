@@ -1081,7 +1081,7 @@ def _deterministic_pass(conn, cfg, ctx: Ctx, table: dict, *, tag: str) -> str:
         todos.ask(conn, f"{todo.text} — {todo.wake_condition} now looks true. Still open?",
                   key=f"q:wake:{todo.key}", about_todo=todo.id, written_by="dream")
     wiki.prune_empty(cfg.wiki_dir)
-    events.mark_past_happened(conn)
+    events.restore_inferred_occurrence(conn)
     pending.retry(conn, ask=lambda text, key: todos.ask(
         conn, text, key=key, written_by="dream"))
     events.link_contained(conn)
