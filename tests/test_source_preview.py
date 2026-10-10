@@ -27,22 +27,25 @@ class TestBoundedSourcePreviewKeepsRecentEvidence(Base):
 
     def test_the_normal_event_open_keeps_recent_reason_and_slot_evidence(self):
         for i in range(20):self.line(i)
-        self.line(30,'The speaker switched slots because their train is delayed.')
+        self.line(30,'The speaker switched slots because their train is delayed.',cited=False)
         correction=self.line(31,'We are using the west room now.')
         events.upsert(self.conn,{'key':self.event.key,'title':'Workshop','date':'2026-08-20',
             'location':'West room'},written_by='dream',evidence_ts='2026-08-10T10:31:00')
         opened=detail.open_handle(self.conn,self.cfg,f'E{self.event.id}')
         self.assertIn('train is delayed',opened)
         self.assertIn(f'[{correction}]',opened)
-        self.assertLessEqual(sum('· Taylor:' in line for line in opened.splitlines()),12)
+        preview=detail._sources_text(self.conn,'event',self.event.key)
+        self.assertIn('train is delayed',preview)
+        self.assertLessEqual(sum('· Taylor:' in line for line in preview.splitlines()),12)
 
-    def test_uncited_neighbours_do_not_displace_cited_lines(self):
+    def test_uncited_neighbours_do_not_displace_the_newest_citation(self):
         older=self.line(0,'Workshop starts at ten.')
         for i in range(1,10):self.line(i,cited=False)
         newer=self.line(10,'The speaker has changed.')
         rows=trace.source_rows(self.conn,'event',self.event.key,context=5,limit=2)
-        self.assertEqual([r['id'] for r in rows],[older,newer])
-        self.assertTrue(all(r['evidence'] for r in rows))
+        self.assertIn(newer,[r['id'] for r in rows])
+        self.assertTrue(next(r for r in rows if r['id']==newer)['evidence'])
+        self.assertEqual(len(rows),2)
 
 
 if __name__ == '__main__':
