@@ -622,7 +622,7 @@ def _dream(
     else:
         emit("sweep", "skipped", "disabled")
 
-    events.mark_past_happened(conn)
+    events.restore_inferred_occurrence(conn)
     # An observation still waiting for a target. Retried here rather than at the moment
     # it arrived, because the evidence that places it is usually the traffic of the
     # following days — and the bundle that produced it was marked read at the time, so

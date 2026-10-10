@@ -3665,16 +3665,16 @@ class TestSpans(Base):
     def test_the_end_is_rendered_rather_than_left_in_the_title(self):
         self.assertIn("–", self._visit(-1, 3).one_line())
 
-    def test_a_running_span_is_not_marked_happened(self):
+    def test_a_running_span_keeps_its_confirmed_status(self):
         self._visit(-2, 3, status="confirmed")
-        events.mark_past_happened(self.conn)
+        events.restore_inferred_occurrence(self.conn)
         self.assertEqual(events.window(self.conn, 3, 7)[0].status, "confirmed")
 
-    def test_a_finished_span_is_marked_happened(self):
+    def test_a_finished_span_retains_its_plan_without_attendance_evidence(self):
         self._visit(-9, -2, status="confirmed")
-        events.mark_past_happened(self.conn)
+        events.restore_inferred_occurrence(self.conn)
         row = self.conn.execute("SELECT status FROM events").fetchone()
-        self.assertEqual(row["status"], "happened")
+        self.assertEqual(row["status"], "confirmed")
 
     def test_covers_answers_whether_a_row_is_live(self):
         ev = self._visit(-2, 3)

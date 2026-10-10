@@ -107,3 +107,8 @@ Full guides: **https://cuuush.github.io/memcal/**
 - [Evaluation](https://cuuush.github.io/memcal/evaluation/) — how memory quality is measured
 
 Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Notable changes: [CHANGELOG.md](CHANGELOG.md).
+
+Elapsed plans retain their agreed status: a past confirmed or tentative appointment
+is not proof of attendance. Event details say attendance is unconfirmed until there
+is evidence it happened. The nightly pass repairs older clock-only `code:past`
+status changes when no later status evidence supersedes them.

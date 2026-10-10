@@ -407,7 +407,7 @@ def apply_day(conn: sqlite3.Connection, cfg: Config, day: int) -> str:
     # outside this process, and no benchmark may enable it.
     from memcal import events, pending                              # noqa: PLC0415
     from memcal.dream import sweep as sweep_stage                    # noqa: PLC0415
-    events.mark_past_happened(conn)
+    events.restore_inferred_occurrence(conn)
     pending.retry(conn, ask=lambda text, key: todos.ask(
         conn, text, key=key, written_by="dream"))
     events.link_contained(conn)

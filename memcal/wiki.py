@@ -1098,14 +1098,14 @@ def is_material(page: Page) -> bool:
 
 
 def encounter_summary(conn, page: Page, *, limit: int = 6) -> dict:
-    """Past in-person rows for this page, projected from events."""
+    """Evidenced past encounters for this page; elapsed plans are not attendance."""
     names = {db.slugify(page.slug), db.slugify(page.title)}
     names |= {db.slugify(alias) for alias in page.aliases}
     matched = []
     for row in conn.execute(
         """SELECT * FROM events
-            WHERE status != 'declined' AND (status = 'happened' OR date < ?)
-            ORDER BY date DESC, id DESC""", (db.today().isoformat(),)
+            WHERE status != 'declined' AND (status = 'happened' OR kind = 'observed')
+            ORDER BY date DESC, id DESC"""
     ):
         people = db.jload(row["participants"], [])
         people.append(row["subject"])

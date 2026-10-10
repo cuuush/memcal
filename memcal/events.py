@@ -273,6 +273,8 @@ class Event:
         if self.rsvp_url and self.status in ("mentioned", "tentative"):
             # Distinguish unanswered invitations ("not replied") from open mentions.
             return "not replied"
+        if self.last_day < db.today().isoformat() and self.kind in ("commitment", "opportunity") and self.status in ("confirmed", "tentative"):
+            return "was planned; attendance unknown"
         if self.kind == "opportunity":
             # A settled status overrides kind: the decision outranks how the occasion
             # arose. Mentioned opportunities still read "could go".
@@ -293,6 +295,8 @@ class Event:
             return "You're not going" if self.subject == "me" else "Not happening"
         if self.status == "happened" or self.kind == "observed":
             return "Already happened"
+        if self.last_day < db.today().isoformat() and self.kind in ("commitment", "opportunity") and self.status in ("confirmed", "tentative"):
+            return "Was planned; attendance unconfirmed"
         if self.kind == "availability":
             who = self.subject if self.subject and self.subject != "me" else "You"
             return f"{who} may be available" if self.status == "tentative" else f"{who} is available"
@@ -1598,18 +1602,34 @@ def children_of(conn: sqlite3.Connection, event_id: int) -> list["Event"]:
         (event_id,))]
 
 
-def mark_past_happened(conn: sqlite3.Connection, *,
-                       written_by: str = "code:past") -> int:
-    """Mark settled past rows happened and record their prior status."""
-    stamp, cutoff = db.now(), db.today().isoformat()
-    where = (" WHERE coalesce(nullif(until,''), date) < ?"
-             " AND status IN ('confirmed','tentative')")
-    conn.execute(
-        "INSERT INTO event_history(event_id, field, old_value, new_value, changed_at,"
-        " written_by) SELECT id, 'status', status, 'happened', ?, ? FROM events" + where,
-        (stamp, written_by, cutoff),
-    )
-    cur = conn.execute(
-        "UPDATE events SET status = 'happened', updated_at = ?" + where, (stamp, cutoff))
-    conn.commit()
-    return cur.rowcount
+def restore_inferred_occurrence(conn: sqlite3.Connection) -> int:
+    """Undo the retired clock-only inference, preserving actual occurrence evidence.
+
+    Only the latest status claim authored by the old ``code:past`` pass qualifies.
+    Unknown legacy rows and later source/user confirmations stay untouched. The
+    repair is auditable and idempotent; elapsed plans retain their agreed status.
+    """
+    rows = conn.execute(
+        "SELECT e.id, e.evidence_ts, e.created_at, h.id AS history_id, h.old_value "
+        "FROM events e JOIN event_history h ON h.event_id=e.id "
+        "WHERE e.status='happened' AND e.kind!='observed' "
+        "AND h.field='status' AND h.written_by='code:past' "
+        "AND h.new_value='happened' AND h.old_value IN ('confirmed','tentative') "
+        "AND h.id=(SELECT max(id) FROM event_history "
+        "WHERE event_id=e.id AND field='status')").fetchall()
+    for row in rows:
+        previous = conn.execute(
+            "SELECT coalesce(evidence_ts, changed_at) AS stamp FROM event_history "
+            "WHERE event_id=? AND field='status' AND id<? ORDER BY id DESC LIMIT 1",
+            (row["id"], row["history_id"])).fetchone()
+        evidence = previous["stamp"] if previous else row["evidence_ts"] or row["created_at"]
+        stamp = db.now()
+        conn.execute("UPDATE events SET status=?, updated_at=? WHERE id=?",
+                     (row["old_value"], stamp, row["id"]))
+        conn.execute(
+            "INSERT INTO event_history(event_id, field, old_value, new_value, changed_at, "
+            "evidence_ts, written_by) VALUES(?, 'status', 'happened', ?, ?, ?, 'code:restore-plan')",
+            (row["id"], row["old_value"], stamp, evidence))
+    if rows:
+        conn.commit()
+    return len(rows)
