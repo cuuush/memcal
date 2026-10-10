@@ -575,7 +575,7 @@ def _line_times(bundle: Bundle, row: dict | None = None) -> dict[int, str]:
     return out
 
 
-def _evidence_by_field(bundle: Bundle, cited, row: dict) -> dict[str, str] | None:
+def _evidence_by_field(bundle: Bundle, cited, row: dict) -> dict[str, str] | str | None:
     """One timestamp per field, from the lines the reader said support *that field*.
 
     Code cannot work this out from the text: matching a value against the lines picks up
@@ -598,8 +598,9 @@ def _evidence_by_field(bundle: Bundle, cited, row: dict) -> dict[str, str] | Non
     # answer, not a reason to fall back to the row's own timestamp and let it through.
     claimed = row.get("field_cite_ids") if isinstance(row, dict) else None
     if not isinstance(claimed, dict):
-        return {name: occasion for name in _DATED_FIELDS
-                if row.get(name) not in (None, "", []) and occasion}
+        # A row-level timestamp is not per-field attribution. Preserve that
+        # weaker contract rather than declaring every field separately cited.
+        return occasion
 
     out: dict[str, str] = {}
     for name in _DATED_FIELDS:
