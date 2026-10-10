@@ -266,10 +266,12 @@ def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
             for neighbour in neighbours:
                 expanded.setdefault(neighbour["id"], neighbour)
 
-    # Apply the bound to useful evidence before chronological presentation.
-    # Old citations and their neighbours must not crowd out a newer correction.
-    selected = sorted(expanded.values(), key=lambda r:
-                      (r["id"] in ids, str(r["ts"]), r["id"]), reverse=True)[:limit]
+    # Keep a recent, coherent excerpt, not old citations with all their context.
+    # The newest citation is mandatory even when its later neighbours fill a
+    # tiny window. Nearby explanations may be context rather than cited fields.
+    newest = max(linked, key=lambda r: (str(r["ts"]), r["id"]))
+    recent = sorted(expanded.values(), key=lambda r: (str(r["ts"]), r["id"]), reverse=True)
+    selected = [newest, *(r for r in recent if r["id"] != newest["id"])][:limit]
     rows = [{
         "id": row["id"],
         "ts": str(row["ts"]),
