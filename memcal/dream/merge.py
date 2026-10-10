@@ -188,6 +188,15 @@ def same_event(a: Mention, b: Mention, cfg: Config | None = None,
     if reciprocal_subject:
         return True
 
+    # A deterministic title match rejected conflicting occasion details. Let
+    # Merge inspect the existing row and its source evidence rather than making
+    # either a silent overwrite or an automatic duplicate. This only nominates
+    # a stored row; the normal conflict judge still decides the association.
+    if (a.existing != b.existing and apart == 0 and
+            db.slugify(str(a.row.get("title") or "")) ==
+            db.slugify(str(b.row.get("title") or ""))):
+        return True
+
     # Two of the same people, on the same evening, is stronger evidence than any
     # wording — and it is the only thing that survives the wording changing. The live
     # case that motivated this stage was "Bier gardens with Quinn and Jamie" against
@@ -827,7 +836,8 @@ def _stored_near(conn, mentions: list[Mention], *, include_claimed: bool = False
                 series=m.row.get("series"),
                 participants=[p for p in (m.row.get("participants") or [])
                               if isinstance(p, str)],
-                subject=str(m.row.get("subject") or "me"))
+                subject=str(m.row.get("subject") or "me"),
+                time=m.row.get("time"), location=m.row.get("location"))
             if hit is not None:
                 claimed.add(hit.key)
     out: list[Mention] = []

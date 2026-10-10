@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Fixed
+
+- Separate same-day plans with the same title retain their own guests, times,
+  and venues instead of being silently combined during dream application.
+
 ## [0.8.2] - 2026-10-08
 
 ### Added
