@@ -318,7 +318,9 @@ def _mark_source_shifts(conn: sqlite3.Connection, rows: list[dict]) -> list[dict
             if previous is not None:
                 days = (stamp.date() - previous[1].date()).days
                 if days:
-                    gap = f" · {days} day{'s' if days != 1 else ''} later"
+                    distance = abs(days)
+                    direction = "later" if days > 0 else "earlier"
+                    gap = f" · {distance} day{'s' if distance != 1 else ''} {direction}"
             when = f"{stamp:%a %b} {stamp.day}, {stamp:%Y %H:%M}"
             row["source_heading"] = f"{when} · {channel}{gap}"
         previous = (key, stamp)

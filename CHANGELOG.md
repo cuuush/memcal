@@ -2,6 +2,9 @@
 
 ### Fixed
 
+- Source headings correctly label older context as days earlier when current
+  evidence is displayed first.
+
 - Bounded memory-page source previews keep the newest citation and its recent
   context ahead of old citation history, without increasing their twelve-line payload.
 
