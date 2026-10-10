@@ -979,7 +979,8 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
     if status == "declined" and not key and not row.get("_allow_declined_insert") \
             and not events.find_match(
             conn, title=title, on=date_value, series=fields.get("series"),
-            participants=participants, subject=subject):
+            participants=participants, subject=subject,
+            time=fields.get("time"), location=fields.get("location")):
         # A brand-new row whose only content is that it is off. Nobody can act on a
         # cancelled plan the store never held, and writing one is how "we're not doing
         # that" becomes an entry on the calendar. Hold the observation instead.

@@ -360,10 +360,13 @@ def find_match(
     series: str | None = None,
     participants: list[str] | None = None,
     subject: str = "me",
+    time: str | None = None,
+    location: str | None = None,
 ) -> Event | None:
     """Deterministic match. Returns the row a new mention should update, or None."""
     scored = find_match_scored(conn, title=title, on=on, series=series,
-                               participants=participants, subject=subject)
+                               participants=participants, subject=subject,
+                               time=time, location=location)
     return scored[0] if scored else None
 
 
@@ -396,6 +399,8 @@ def find_match_scored(
     series: str | None = None,
     participants: list[str] | None = None,
     subject: str = "me",
+    time: str | None = None,
+    location: str | None = None,
 ) -> tuple[Event, int] | None:
     """Return the best deterministic match and its confidence tier."""
     target = db.parse_date(on)
@@ -416,6 +421,20 @@ def find_match_scored(
         except ValueError:
             continue
         if not (lo <= ordinal <= hi):
+            continue
+
+        # A shared name/day cannot override evidence of separate occasions.
+        # Partial rosters can legitimately grow across a DM and a group; an
+        # explicit key or series identifies corrections even when guests change.
+        incoming_people = {str(p).strip().casefold() for p in participants if str(p).strip()}
+        stored_people = {str(p).strip().casefold() for p in ev.participants if str(p).strip()}
+        disjoint = incoming_people and stored_people and not incoming_people & stored_people
+        different_time = time and ev.time and time != ev.time
+        different_place = (location and ev.location and
+                           " ".join(location.casefold().split()) !=
+                           " ".join(ev.location.casefold().split()))
+        if (ordinal == target.toordinal() and disjoint and different_time and different_place
+                and not (series and ev.series == series)):
             continue
 
         tier = 0
@@ -697,6 +716,8 @@ def upsert(
             series=fields.get("series"),
             participants=fields.get("participants") or [],
             subject=subject,
+            time=fields.get("time"),
+            location=fields.get("location"),
         )
         if scored:
             existing, confidence = scored
