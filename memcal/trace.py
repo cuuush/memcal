@@ -216,7 +216,7 @@ def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
         """SELECT DISTINCT a.* FROM evidence e
              JOIN archive a ON a.id = e.archive_id
             WHERE e.kind = ? AND e.ref = ?
-            ORDER BY a.ts LIMIT ?""", (kind, ref, limit)
+            ORDER BY a.ts DESC, a.id DESC LIMIT ?""", (kind, ref, limit)
     ).fetchall()
     if not linked:
         history_rows = conn.execute(
@@ -229,7 +229,7 @@ def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
         for stamp in history_rows:
             rows = conn.execute(
                 """SELECT a.* FROM spool s JOIN archive a ON a.id = s.archive_id
-                    WHERE s.run_id = ? AND s.entity = ? ORDER BY a.ts LIMIT ?""",
+                    WHERE s.run_id = ? AND s.entity = ? ORDER BY a.ts DESC, a.id DESC LIMIT ?""",
                 (stamp["run_id"], stamp["entity"], limit),
             ).fetchall()
             for row in rows:
@@ -266,6 +266,10 @@ def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
             for neighbour in neighbours:
                 expanded.setdefault(neighbour["id"], neighbour)
 
+    # Apply the bound to useful evidence before chronological presentation.
+    # Old citations and their neighbours must not crowd out a newer correction.
+    selected = sorted(expanded.values(), key=lambda r:
+                      (r["id"] in ids, str(r["ts"]), r["id"]), reverse=True)[:limit]
     rows = [{
         "id": row["id"],
         "ts": str(row["ts"]),
@@ -274,7 +278,7 @@ def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
         "who": "me" if row["from_me"] else (row["person"] or row["handle"] or "?"),
         "text": row["text"] or "",
         "evidence": row["id"] in ids,
-    } for row in sorted(expanded.values(), key=lambda r: (str(r["ts"]), r["id"]))]
+    } for row in sorted(selected, key=lambda r: (str(r["ts"]), r["id"]))]
     if kind == "event":
         current = conn.execute(
             """SELECT h.evidence_ts FROM event_history h

@@ -323,7 +323,7 @@ def _sources_text(conn: sqlite3.Connection, kind: str, ref: str) -> str:
 
     Truncated here; `memcal_source` returns them whole.
     """
-    rows = trace.source_rows(conn, kind=kind, ref=ref)
+    rows = trace.source_rows(conn, kind=kind, ref=ref, limit=12)
     if not rows:
         return ("\nsources: none recorded — this row was written directly rather than "
                 "read out of a message")
@@ -333,7 +333,7 @@ def _sources_text(conn: sqlite3.Connection, kind: str, ref: str) -> str:
         out.append("  (!) no line-level citation — these are the conversation it came "
                    "out of, not the lines it was built from")
     names = threads.titles(conn)
-    for row in rows[:12]:
+    for row in rows:
         if row.get("source_heading"):
             out.append(f"  — {row['source_heading']} —")
         mark = "*" if row.get("evidence") else " "
@@ -344,9 +344,11 @@ def _sources_text(conn: sqlite3.Connection, kind: str, ref: str) -> str:
         own = " (your own earlier turn)" if presentation.self_written(row["channel"]) else ""
         out.append(f" {mark} [{row['id']}] {where}{own} · {dates.said_on(row['ts'])} · "
                    f"{row['who']}: {text}")
-    if len(rows) > 12:
-        out.append(f"  … {len(rows) - 12} more; memcal_conversation reads around any "
-                   "[n] above")
+    total_cited = conn.execute(
+        "SELECT count(DISTINCT archive_id) FROM evidence WHERE kind=? AND ref=?",
+        (kind, ref)).fetchone()[0]
+    if total_cited > sum(bool(row.get("evidence")) for row in rows):
+        out.append("  … older cited lines omitted; memcal_open_source reads a larger evidence window")
     return "\n".join(out)
 
 

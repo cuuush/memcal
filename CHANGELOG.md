@@ -2,6 +2,9 @@
 
 ### Fixed
 
+- Bounded memory-page source previews keep recent cited statements ahead of old
+  citations and surrounding chatter, without increasing their twelve-line payload.
+
 - Nightly updates now enforce per-field source evidence against other nightly
   updates, so an uncited or older venue cannot undo a newer location decision.
 
