@@ -2,6 +2,9 @@
 
 ### Fixed
 
+- Nightly updates now enforce per-field source evidence against other nightly
+  updates, so an uncited or older venue cannot undo a newer location decision.
+
 - Separate same-day plans with the same title retain their own guests, times,
   and venues instead of being silently combined during dream application.
 

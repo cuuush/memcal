@@ -472,8 +472,12 @@ def _links(group: list[Mention]) -> list[dict]:
     return out
 
 
-def _field_cites(group: list[Mention], merged: dict) -> dict[str, list[int]]:
+def _field_cites(group: list[Mention], merged: dict) -> dict[str, list[int]] | None:
     """Carry citations only from fragments agreeing with the selected field value."""
+    if not any(isinstance(m.row.get('field_cite_ids'),dict) or m.row.get('cite_ids') for m in group):
+        # Unattributed connector diffs keep their row-level contract. An empty
+        # mapping would falsely assert that every field was checked and uncited.
+        return None
     out: dict[str, list[int]] = {}
     for field in ("date", "until", "time", "title", "location", "kind", "status",
                   "participants", "note"):
@@ -966,7 +970,7 @@ def merge_all(client: CompletionClient, cfg: Config, proposals: list,
         merged["field_cite_ids"] = _answer_citations(conn, group, answer, merged)
         merged["cite_ids"] = list(dict.fromkeys([
             *merged["cite_ids"],
-            *(archive_id for ids in merged["field_cite_ids"].values() for archive_id in ids)]))
+            *(archive_id for ids in (merged["field_cite_ids"] or {}).values() for archive_id in ids)]))
         merged["_evidence_times"] = _evidence_times(group, conn)
         _apply_pending_targets(conn, group, answer, merged=merged)
         _apply_observation_targets(group, answer, merged=merged)

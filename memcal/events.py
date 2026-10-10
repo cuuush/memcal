@@ -753,13 +753,12 @@ def upsert(
                 written_by, stamp, stamp, str(born) if born else None,
             ),
         )
-        # For a user-authored (live) creation, record per-field provenance for
+        # For a user-authored creation or explicit per-field source evidence, record provenance for
         # the values the row is born holding, so a later correction is judged
         # against when each value was established — not an empty floor (which any
-        # old source clears) nor the run time (which is not evidence). Cheaper
-        # writers keep their existing behaviour: they record nothing at creation
-        # and stay floored by their stored evidence stamp.
-        if written_by == "live":
+        # old source clears) nor the run time (which is not evidence). Writers
+        # with only row-level evidence stay floored by that stored stamp.
+        if written_by == "live" or isinstance(evidence_ts, dict):
             _record_creation(conn, cur.lastrowid, fields, evidence_ts, stamp,
                              written_by)
         if commit:
@@ -802,9 +801,9 @@ def upsert(
         return here <= version
 
     guarded = precedence(written_by) < precedence(existing.written_by)
-    # An empty mapping claims no line supports these fields; never fall back to the day.
-    dated = (per_field or bool(evidence_ts)) and (
-        guarded or (per_field and written_by == "live"))
+    # Explicit field evidence orders peer writes too. An empty mapping claims
+    # no line supports these fields; never fall back to the day.
+    dated = per_field or (bool(evidence_ts) and guarded)
     # A cited typed correction carries its messages' evidence time into the same
     # per-field guards dream writes go through: without this a live write always
     # outranks on writer precedence and its execution time becomes the decision's
