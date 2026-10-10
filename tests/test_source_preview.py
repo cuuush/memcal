@@ -48,5 +48,15 @@ class TestBoundedSourcePreviewKeepsRecentEvidence(Base):
         self.assertEqual(len(rows),2)
 
 
+class TestSourceHeadingsFollowDisplayedTime(Base):
+    def test_promoted_current_evidence_labels_older_context_as_earlier(self):
+        rows=[{'ts':ts,'channel':'imessage','thread':'workshop'} for ts in (
+            '2026-08-12T10:00:00','2026-08-11T10:00:00','2026-08-13T10:00:00')]
+        marked=trace._mark_source_shifts(self.conn,rows)
+        self.assertIn('1 day earlier',marked[1]['source_heading'])
+        self.assertIn('2 days later',marked[2]['source_heading'])
+        self.assertNotIn('-1',marked[1]['source_heading'])
+
+
 if __name__ == '__main__':
     unittest.main()
