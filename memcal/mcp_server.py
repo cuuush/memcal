@@ -437,7 +437,7 @@ TOOLS = [
     {
         "name": "memcal_name",
         "description": ("Confirm or correct a guessed sender's name — the ones shown as "
-                        "'maybe: <name>'. When a freshness hint says a name is a guess, "
+                        "'\"<name>\" (inferred from messages)'. When a freshness hint says a name is a guess, "
                         "check it with the user, then call this: `guess` is the guessed "
                         "name as shown; give `correct` only if the user says it is "
                         "someone else. Confirming stops it reading as a guess; a real "

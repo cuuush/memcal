@@ -567,7 +567,7 @@ class TestFreshnessCorrectness81(_Base):
         self.assertNotIn("unknown number", text)
         self.assertIn("unknown sender", text)
 
-    def test_a_guessed_sender_shows_as_maybe_not_a_number(self):
+    def test_an_inferred_sender_name_is_annotated_without_qualifying_the_plan(self):
         from memcal import identity
         phone = "+15557654321"
         m1 = self.collect("imessage", "m1", "your appointment is confirmed", phone,
@@ -586,7 +586,7 @@ class TestFreshnessCorrectness81(_Base):
         text = brief.render(self.conn, self.cfg)
         self.assertIn("New activity:", text)
         self.assertNotIn(phone, text)
-        self.assertIn("maybe: Tire shop scheduling", text)
+        self.assertIn('"Tire shop scheduling" (inferred from messages)', text)
 
     def test_a_persistent_guess_earns_a_confirm_nudge_a_quiet_one_does_not(self):
         from memcal import identity
@@ -608,7 +608,7 @@ class TestFreshnessCorrectness81(_Base):
         # Four distinct active days ≥ threshold: the guess has earned a check.
         self.cfg.freshness_guess_nudge_days = 3
         text = brief.render(self.conn, self.cfg)
-        self.assertIn("maybe: Tire shop", text)
+        self.assertIn('"Tire shop" (inferred from messages)', text)
         self.assertIn("memcal_name", text)
         # A higher bar (or 0) leaves the same guess un-nudged — quiet guesses age out.
         self.cfg.freshness_guess_nudge_days = 0
