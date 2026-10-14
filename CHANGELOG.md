@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Added
+
+- Setup lists Codex's signed-in model catalog and accepts a model number or ID,
+  preserving saved choices on Enter and allowing manual entry if discovery fails.
+
+### Changed
+
+- The Codex provider is labeled "Codex via OAuth" in setup and settings.
+
 ### Fixed
 
 - Source headings correctly label older context as days earlier when current
