@@ -375,7 +375,8 @@ def settle_guess(conn: sqlite3.Connection, guess: str,
     later scan cannot revise it); on correction it is renamed to the supplied name at
     the same authority. Returns a one-line result.
     """
-    guess = (guess or "").strip()
+    from . import presentation
+    guess = presentation.raw_name(guess)
     if not guess:
         return "name the guessed sender to settle"
     handles = [row["handle"] for row in conn.execute(

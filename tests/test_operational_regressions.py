@@ -2173,7 +2173,7 @@ class TestHalfAnAnswerCouldStillDeleteRows(Base):
         class Whole:
             def complete(self, **kwargs):
                 return llm.Reply(text="{}", data={
-                    "drop_events": [{"key": event.key, "reason": "duplicate"}],
+                    "drop_events": [{"key": event.key, "keep_key": None, "reason": "junk"}],
                     "drop_todos": [], "questions": [],
                 }, model=kwargs.get("model", ""))
 

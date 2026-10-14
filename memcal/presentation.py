@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 
 CHANGE_LABELS = {"new": "New", "edited": "Updated"}
 
@@ -20,13 +22,36 @@ STAGE_LABELS = {
 #: A name dream invented for an otherwise-nameless sender is shown as a guess until a
 #: real source confirms it. Marked, never hidden — the reader sees both the guess and
 #: that it is one.
-GUESS_PREFIX = "maybe: "
+GUESS_PREFIX = "maybe: "  # Legacy display text; never written onto an identity.
+INFERRED_NAME = " (inferred from messages)"
+CALENDAR_INFERRED_NAME = " (name inferred)"
 
 
-def as_guess(name: str) -> str:
-    """Mark a name as a guess, unless it already carries the marker."""
+def raw_name(name: str) -> str:
+    """Recover an identity from display text, including older saved annotations."""
     text = (name or "").strip()
-    return text if not text or text.startswith(GUESS_PREFIX) else GUESS_PREFIX + text
+    if text.startswith(GUESS_PREFIX):
+        return text[len(GUESS_PREFIX):]
+    if text.endswith(INFERRED_NAME):
+        value = text[:-len(INFERRED_NAME)]
+        try:
+            decoded = json.loads(value)
+        except ValueError:
+            return value
+        return decoded if isinstance(decoded, str) else value
+    if text.endswith(CALENDAR_INFERRED_NAME):
+        return text[:-len(CALENDAR_INFERRED_NAME)]
+    return text
+
+
+def as_guess(name: str, *, audience: str = "agent") -> str:
+    """Annotate the inferred name, independently of the plan's acceptance status."""
+    text = raw_name(name)
+    if not text:
+        return ""
+    if audience == "calendar":
+        return text + CALENDAR_INFERRED_NAME
+    return json.dumps(text, ensure_ascii=False) + INFERRED_NAME
 
 
 #: Agent turns are user-authored context, not independent evidence.

@@ -12,7 +12,7 @@ import sqlite3
 from collections import Counter
 from datetime import timedelta
 
-from .. import (dates, db, events, identity, pending, questions,
+from .. import (dates, db, events, identity, pending, presentation, questions,
                 series as series_mod, todos, trace, wiki)
 from ..config import Config
 from .bundle import Bundle
@@ -800,7 +800,7 @@ def _apply_thread_names(conn, cfg: Config, bundle, diff: dict, *,
         if identity.guess_name(conn, handle, name, channel=channel,
                                why=str(entry.get("why") or ""), commit=False):
             counts["name:guessed"] += 1
-            log.append(f"label     {handle} → {name} (guessed sender label)")
+            log.append(f"label     {handle} → {presentation.as_guess(name)}")
 
 
 def _named_only_by_thread(bundle, row) -> bool:

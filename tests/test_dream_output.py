@@ -115,6 +115,12 @@ class TestCompactDreamTerminal(unittest.TestCase):
 
 
 class TestCompactDreamReport(unittest.TestCase):
+    def test_calendar_failures_remain_visible_without_verbose(self):
+        result = dream_run.DreamResult(run_id=1, log=[
+            "calendar  could not publish Lucy daycare: access denied"])
+        self.assertIn("warning: calendar  could not publish Lucy daycare: access denied",
+                      result.report(verbose=False))
+
     def test_empty_run_still_shows_a_logging_failure(self):
         result = dream_run.DreamResult(run_id=2, nothing_new=True,
                                       errors=["dream logging failed: disk full"])
@@ -240,7 +246,7 @@ class TestBookingStatusIsSeparateFromSenderLabel(unittest.TestCase):
                 {"channel": "imessage", "thread": handle, "name": "Lucy doggy daycare"}]}
             _counts, log = apply_stage.apply_diffs(conn, cfg, [(bundle, diff)],
                                                  written_by="dream:ondemand")
-            self.assertIn(f"label     {handle} → Lucy doggy daycare (guessed sender label)", log)
+            self.assertIn(f'label     {handle} → "Lucy doggy daycare" (inferred from messages)', log)
             self.assertFalse(any("maybe Lucy" in line for line in log))
             event = conn.execute("SELECT * FROM events").fetchone()
             self.assertEqual(event["status"], "confirmed")

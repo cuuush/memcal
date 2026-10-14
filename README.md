@@ -61,6 +61,9 @@ running Memcal. See [iMessage setup](docs/sources/imessage.md) to use BlueBubble
 `memcal review` to see recent changes, or `memcal dream --verbose` for source
 notes, individual requests, and detailed changes. Errors remain visible in both modes.
 `memcal dream --dry-run` keeps the cost estimate visible without making model calls.
+Inferred sender names appear to agents as `"Name" (inferred from messages)`.
+That annotation describes the name, independently of whether a booking is confirmed.
+Calendar event titles stay plain; inferred participant names are qualified in the notes.
 
 Dream diagnostics persist for CLI, web, and scheduled runs. Open a run in the web
 UI and expand **Saved dream log** for stage progress and crash tracebacks; model

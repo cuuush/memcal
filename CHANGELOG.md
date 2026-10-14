@@ -2,11 +2,20 @@
 
 ### Changed
 
+- Agent-facing inferred names use `"Name" (inferred from messages)`; calendar
+  and chat views qualify the name separately from the booking's status.
+
 - `memcal dream` shows compact source results, major steps, and a short final
   summary. `--verbose` shows source notes, individual requests, and all changes;
   failures and dry-run cost estimates remain visible by default.
 
 ### Fixed
+
+- Dream cleanup merges duplicate events with their evidence and calendar links,
+  retaining a confirmed booking when the other row records its arrival. Completed
+  bookings retain their published calendar entries.
+- Calendar notes refresh when participants, notes, or inferred-name status change,
+  and compact Dream output keeps calendar publishing failures visible.
 
 - Dream progress counts actual writes rather than diagnostic log entries, reports
   how many bundles were actually reviewed, and treats a successful pass with no

@@ -106,7 +106,8 @@ async function decideChat(t, decision) {
    it to a judgement so it stops reading as a guess; correcting renames it at
    the same authority. Same verb as memcal_name. */
 function guessRow(t) {
-  const guess = (t.title || "").replace(/^maybe:\s*/, "");
+  const guess = t.raw_title || (t.title || "").replace(/^maybe:\s*/, "")
+    .replace(/ \(name inferred\)$/, "");
   const box = el("div", "gact");
   box.style.marginTop = "8px";
   const note = el("div", "note",

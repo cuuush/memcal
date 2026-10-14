@@ -67,6 +67,8 @@ class DreamResult:
                 lines.append(f"  {len(self.questions)} question(s) need your review")
             if self.woken:
                 lines.append(f"  {len(self.woken)} to-do(s) ready to revisit")
+            lines.extend(f"  warning: {line.strip()}" for line in self.log
+                         if line.startswith("calendar  could not"))
             lines.extend(f"  error: {error}" for error in self.errors)
             lines.append(f"  Changes: memcal review · Details: memcal trace {self.run_id}")
             return "\n".join(lines)
