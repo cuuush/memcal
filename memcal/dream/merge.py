@@ -796,7 +796,7 @@ def _apply_observation_targets(group: list[Mention], answer: dict,
         row = merged if merged is not None else destination.row
         row.setdefault("_resolved_observations", []).append({
             "observation": source.row.get("title") or source.row.get("note"),
-            "observed_at": max(stamps),
+            "observed_at": max(stamps, key=lambda value: db.parse_ts(value, strict=True)),
             "entity": source.bundle.entity,
         })
         if merged is None:

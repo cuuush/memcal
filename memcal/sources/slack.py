@@ -209,6 +209,11 @@ class SlackSource(PolledSource):
         response = getattr(exc, "response", None)
         return getattr(response, "status_code", None) == 429
 
+    def is_inaccessible(self, exc: Exception) -> bool:
+        response = getattr(exc, "response", None)
+        return response is not None and response.get("error") in {
+            "not_in_channel", "channel_not_found", "is_archived"}
+
     # ------------------------------------------------------------------ shape --
     def _load_users(self, client) -> dict[str, str]:
         """Fetch every display name once, instead of a users.info per message author."""

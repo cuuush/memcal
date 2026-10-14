@@ -307,7 +307,7 @@ class TestSubjectGate(Base):
         self.assertTrue(quiet.low)
 
     def test_a_list_posting_outranks_any_subject(self):
-        """Found by tools/benchmark_temporal.py, 2026-07-28.
+        """Correctness regression.
 
         "Reminder: AWS Summit NYC networking night is tomorrow" passed on `reminder:`
         before `Precedence: bulk` was ever consulted, and the model duly put a

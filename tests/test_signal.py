@@ -44,7 +44,8 @@ class TestSignalEnvelopes(unittest.TestCase):
             "source": "+15551112222", "sourceName": "Ada", "timestamp": 1712345678000,
             "dataMessage": {"timestamp": 1712345678000, "message": "who is in?",
                             "groupInfo": {"groupId": "gid-1"}}}})
-        self.assertEqual(chat.name, "Board Games")
+        self.assertEqual(chat.name, "id:group:gid-1")
+        self.assertEqual(chat.label, "Board Games")
         self.assertTrue(chat.is_group)
 
     def test_an_unknown_group_is_still_readable_rather_than_a_raw_blob(self):
@@ -52,7 +53,7 @@ class TestSignalEnvelopes(unittest.TestCase):
             "source": "+1", "timestamp": 1, "dataMessage": {
                 "timestamp": 1, "message": "hi",
                 "groupInfo": {"groupId": "unlisted-group-id"}}}})
-        self.assertTrue(chat.name.startswith("Signal group"))
+        self.assertTrue(chat.label.startswith("Signal group"))
 
     def test_a_message_i_sent_elsewhere_is_mine_and_keyed_on_the_recipient(self):
         # The sent envelope carries *my* sourceName; the thread must still key on the

@@ -2153,7 +2153,7 @@ class TestHalfAnAnswerCouldStillDeleteRows(Base):
         class CutOff:
             def complete(self, **kwargs):
                 return llm.Reply(text="{", data={
-                    "drop_events": [{"key": event.key, "reason": "duplicate"}],
+                    "drop_events": [{"key": event.key, "reason": "junk", "keep": ""}],
                     "drop_todos": [{"key": key, "reason": "done"}],
                     "questions": ["Which Casey?"],
                 }, model=kwargs.get("model", ""), finish_reason="length")
@@ -2173,7 +2173,7 @@ class TestHalfAnAnswerCouldStillDeleteRows(Base):
         class Whole:
             def complete(self, **kwargs):
                 return llm.Reply(text="{}", data={
-                    "drop_events": [{"key": event.key, "reason": "duplicate"}],
+                    "drop_events": [{"key": event.key, "reason": "junk", "keep": ""}],
                     "drop_todos": [], "questions": [],
                 }, model=kwargs.get("model", ""))
 

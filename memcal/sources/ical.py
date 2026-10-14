@@ -2368,6 +2368,7 @@ def publish_pending(conn: sqlite3.Connection, cfg, *, keys=None,
     """
     if not (getattr(cfg, "publish_calendar", "") or "").strip():
         return []
+    log = retract_unpublishable(conn, cfg, dry_run=False, runner=runner)
     if keys is None:
         rows = conn.execute(
             "SELECT * FROM events WHERE status = 'confirmed' AND date >= ?",
@@ -2377,7 +2378,6 @@ def publish_pending(conn: sqlite3.Connection, cfg, *, keys=None,
         rows = conn.execute(
             f"SELECT * FROM events WHERE key IN ({marks})", list(keys)).fetchall()
     contested = _contested(conn)
-    log = []
     for row in rows:
         event = events.Event.from_row(row)
         if not publishable(event):
@@ -2425,7 +2425,8 @@ def retract_unpublishable(conn: sqlite3.Connection, cfg, *, dry_run: bool = True
         return log
     for row in conn.execute(
         """SELECT c.event_key, c.event_uid, c.identity FROM calendar_items c
-            WHERE c.published = 1 AND c.calendar_name = ? AND c.event_uid != ''""",
+            WHERE c.published = 1 AND c.calendar_name = ? AND c.event_uid != ''
+              AND c.event_key NOT LIKE 'series:%'""",
         (name,),
     ).fetchall():
         event = events.get(conn, row["event_key"])

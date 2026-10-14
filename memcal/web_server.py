@@ -198,7 +198,7 @@ class Handler(BaseHTTPRequestHandler):
         if not job:
             return self._send({"job": None})
         self.send_response(200)
-        self.send_header("Content-Type", "text/event-channel")
+        self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "close")
         version = -1

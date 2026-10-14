@@ -16,7 +16,8 @@ SWEEP_INSTRUCTIONS = """\
 You are reviewing the state of a personal memory system right after a batch of writes.
 You are not adding anything new. You are looking for damage:
 
-  duplicate    two rows that are plainly the same event -> drop the worse-worded one
+  duplicate    two rows that are plainly the same event -> merge key into keep
+               (keep is the surviving event key; junk has keep="")
   junk         a row or fact that should never have been stored (banter, affection,
                newsletter events, facts about software, other people's opinions)
   contradiction  two rows that cannot both be true -> raise a question
@@ -52,9 +53,10 @@ SWEEP_SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["key", "reason"],
+                "required": ["key", "reason", "keep"],
                 "properties": {
                     "key": {"type": "string"},
+                    "keep": {"type": "string"},
                     "reason": {"type": "string", "enum": ["duplicate", "junk"]},
                 },
             },
@@ -111,6 +113,7 @@ def sweep_ceiling(snapshot: str, model: str = "") -> int:
 def sweep(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
           diff_log: list[str], *, run_id: int | None = None) -> tuple[dict, list[str]]:
     """Execute the sweep stage, returning (result_dict, actions_taken)."""
+    versions = {e.key: dict(conn.execute("SELECT * FROM events WHERE key = ?", (e.key,)).fetchone()) for e in events.window(conn, cfg.days_back, cfg.days_forward)}
     snapshot = state_snapshot(conn, cfg, diff_log)
     ceiling = sweep_ceiling(snapshot, cfg.sweep_model)
     if cfg.llm_provider == "openai-compatible":
@@ -133,22 +136,35 @@ def sweep(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
         raise LLMError(f"reply cut off at the {ceiling}-token ceiling; "
                        "state was not fully reviewed")
 
-    for row in result.get("drop_events") or []:
-        key = (row or {}).get("key")
-        if key and events.delete(conn, key):
-            actions.append(f"dropped event {key} ({row.get('reason')})")
-    for row in result.get("drop_todos") or []:
-        key = (row or {}).get("key")
-        if key and todos.close(conn, key, status="dropped"):
-            actions.append(f"dropped todo {key} ({row.get('reason')})")
-    for question in result.get("questions") or []:
-        if isinstance(question, str) and question.strip():
-            key = todos.ask(conn, question.strip(), written_by="sweep")
-            # Record trace provenance stamp for sweep-generated questions.
-            trace.stamp(conn, kind="question", ref=key, verb="asked",
-                        entity="sweep:state-review", stage="sweep", run_id=run_id)
-            actions.append(f"asked: {question.strip()}")
-    conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    with conn:
+        def unchanged(key):
+            current = conn.execute("SELECT * FROM events WHERE key = ?", (key,)).fetchone()
+            return key in versions and current is not None and dict(current) == versions[key]
+
+        for row in result.get("drop_events") or []:
+            if not isinstance(row, dict):
+                continue
+            key, keep = row.get("key"), row.get("keep")
+            if not key or not unchanged(key):
+                continue
+            if row.get("reason") == "duplicate":
+                if keep and keep != key and unchanged(keep):
+                    events.merge(conn, keep, key, written_by="sweep", commit=False)
+                    actions.append(f"merged event {key} into {keep}")
+            elif row.get("reason") == "junk" and events.delete(conn, key, commit=False):
+                actions.append(f"dropped event {key} (junk)")
+        for row in result.get("drop_todos") or []:
+            key = (row or {}).get("key")
+            if key and todos.close(conn, key, status="dropped", commit=False):
+                actions.append(f"dropped todo {key} ({row.get('reason')})")
+        for question in result.get("questions") or []:
+            if isinstance(question, str) and question.strip():
+                key = todos.ask(conn, question.strip(), written_by="sweep", commit=False)
+                # Record trace provenance stamp for sweep-generated questions.
+                trace.stamp(conn, kind="question", ref=key, verb="asked",
+                            entity="sweep:state-review", stage="sweep", run_id=run_id)
+                actions.append(f"asked: {question.strip()}")
     return result, actions
 
 

@@ -544,7 +544,8 @@ def recoverable(conn: sqlite3.Connection, *, limit: int = 0) -> list[sqlite3.Row
         # written down at the time.
         "SELECT * FROM archive WHERE channel = 'email'"
         " AND coalesce(gate_reason, '') NOT LIKE 'blocked:%' ORDER BY ts DESC")
-        if _needs_body(db.jload(row["meta"], {}))]
+        if not identity.sender_blocked(conn, row["handle"] or "")
+        and _needs_body(db.jload(row["meta"], {}))]
     return rows[:limit] if limit else rows
 
 
@@ -578,6 +579,8 @@ def backfill_bodies(conn: sqlite3.Connection, cfg: Config, *, limit: int = 200,
     with Bridge(cfg) as bridge:
         current, validity = "", ""
         for row in pending:
+            if identity.sender_blocked(conn, row["handle"] or ""):
+                continue
             meta = db.jload(row["meta"], {})
             folder = str(meta.get("folder") or "INBOX")
             if folder != current:

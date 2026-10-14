@@ -197,7 +197,7 @@ class TestGroupMeInitialLoad(unittest.TestCase):
         self.assertEqual({group_id for group_id, _since in calls}, {"recent", "boundary"})
         self.assertEqual(
             {row["thread"] for row in archive.search(self.conn, "poker")},
-            {"group recent", "group boundary"},
+            {"id:group:recent", "id:group:boundary"},
         )
         self.assertTrue(any("1 dormant groups skipped" in note for note in report.notes))
 

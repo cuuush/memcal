@@ -55,8 +55,65 @@ def record(conn: sqlite3.Connection, channel: str, thread: str | None, *,
          None if platform_muted is None else int(bool(platform_muted)), platform_note,
          db.now(), roster, None if platform_muted is None else 1),
     )
+    if thread.startswith("id:") and label:
+        legacy = conn.execute("SELECT decision, decided_by FROM threads WHERE channel = ? AND thread = ?", (channel, label)).fetchone()
+        if legacy and legacy["decision"] == "mute" and legacy["decided_by"] != "auto":
+            conn.execute("UPDATE threads SET decision = ?, decided_by = ? WHERE channel = ? AND thread = ? AND decided_by = 'auto'", (legacy["decision"], legacy["decided_by"], channel, thread))
     if participants:
         record_members(conn, channel, thread, [(handle, None) for handle in participants])
+
+
+def adopt_key(conn: sqlite3.Connection, channel: str, stable: str, legacy: str) -> None:
+    """Move an unambiguous legacy display-name scope to its platform identity."""
+    if not legacy or legacy == stable:
+        return
+    old = conn.execute("SELECT * FROM threads WHERE channel = ? AND thread = ?", (channel, legacy)).fetchone()
+    other = conn.execute("SELECT 1 FROM threads WHERE channel = ? AND label = ? AND thread LIKE 'id:%' AND thread != ?", (channel, legacy, stable)).fetchone()
+    if other:
+        return
+    target = conn.execute("SELECT 1 FROM threads WHERE channel = ? AND thread = ?", (channel, stable)).fetchone()
+    if target and old is not None:
+        if old["decided_by"] != "auto":
+            conn.execute("UPDATE threads SET decision = ?, decided_by = ? WHERE channel = ? AND thread = ? AND decided_by = 'auto'", (old["decision"], old["decided_by"], channel, stable))
+        conn.execute("DELETE FROM threads WHERE channel = ? AND thread = ?", (channel, legacy))
+    else:
+        conn.execute("UPDATE threads SET thread = ? WHERE channel = ? AND thread = ?", (stable, channel, legacy))
+    conn.execute("UPDATE archive SET thread = ? WHERE channel = ? AND thread = ?", (stable, channel, legacy))
+    old_entity, new_entity = f"thread:{channel}:{legacy}", f"thread:{channel}:{stable}"
+    for table in ("spool", "evidence", "provenance"):
+        conn.execute(f"UPDATE {table} SET entity = ? WHERE entity = ?", (new_entity, old_entity))
+    for table in ("events", "todos", "series"):
+        conn.execute(f"UPDATE {table} SET source = ? WHERE source = ?", (new_entity, old_entity))
+    conn.execute(
+        """INSERT INTO thread_members(channel, thread, handle, seen_name, first_seen, last_seen)
+           SELECT channel, ?, handle, seen_name, first_seen, last_seen
+             FROM thread_members WHERE channel = ? AND thread = ?
+           ON CONFLICT(channel, thread, handle) DO UPDATE SET
+             seen_name = CASE WHEN excluded.last_seen >= thread_members.last_seen
+                              THEN coalesce(excluded.seen_name, thread_members.seen_name)
+                              ELSE thread_members.seen_name END,
+             first_seen = min(thread_members.first_seen, excluded.first_seen),
+             last_seen = max(thread_members.last_seen, excluded.last_seen)""",
+        (stable, channel, legacy))
+    conn.execute(
+        """INSERT INTO thread_member_names(channel, thread, handle, name, first_seen, last_seen, seen_count)
+           SELECT channel, ?, handle, name, first_seen, last_seen, seen_count
+             FROM thread_member_names WHERE channel = ? AND thread = ?
+           ON CONFLICT(channel, thread, handle, name) DO UPDATE SET
+             first_seen = min(thread_member_names.first_seen, excluded.first_seen),
+             last_seen = max(thread_member_names.last_seen, excluded.last_seen),
+             seen_count = thread_member_names.seen_count + excluded.seen_count""",
+        (stable, channel, legacy))
+    conn.execute(
+        """INSERT INTO review_baselines(kind, ref, channel, thread, family, baseline_id, created_at)
+           SELECT kind, ref, channel, ?, family, baseline_id, created_at
+             FROM review_baselines WHERE channel = ? AND thread = ?
+           ON CONFLICT(kind, ref, channel, thread, family) DO UPDATE SET
+             baseline_id = min(review_baselines.baseline_id, excluded.baseline_id),
+             created_at = min(review_baselines.created_at, excluded.created_at)""",
+        (stable, channel, legacy))
+    for table in ("thread_members", "thread_member_names", "review_baselines"):
+        conn.execute(f"DELETE FROM {table} WHERE channel = ? AND thread = ?", (channel, legacy))
 
 
 def record_members(conn: sqlite3.Connection, channel: str, thread: str | None,
@@ -533,6 +590,8 @@ def aliases(conn: sqlite3.Connection) -> dict[tuple, str]:
     buckets: dict[tuple, list[tuple]] = {}
     for key in counts:
         channel, thread = key
+        if thread.startswith("id:"):
+            continue
         label = labels.get(key) or thread
         roster = frozenset(s["person"] or s["handle"] for s in speakers.get(key, []))
         if _opaque(label) or key in one_sided:

@@ -45,7 +45,6 @@ you confirm with `memcal done`. See [To-dos](architecture/todos.md).
 It becomes a [question](architecture/questions.md): kept with its evidence,
 retried as traffic arrives, asked about instead of guessed.
 
-**Do benchmarks cost money?**
-`--layer integration` is free (~1s). `--layer model` spends real calls — only
-for deliberate extraction evaluation. The full seven-day experiment is
-budget-bounded with resumable progress. See [Evaluation](evaluation/index.md).
+**How is Memcal evaluated?**
+Correctness regressions run as isolated unittests. Comparative memory-system
+benchmarking lives in the separate PACBench project.

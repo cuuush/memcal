@@ -31,10 +31,9 @@ Key requirements:
   across cores in separate processes (roughly 5x quicker than `unittest discover`, and stricter
   isolation). `python3 -m unittest discover -b -s tests` remains the equivalent single-process run.
   Pass module names to either to scope a run: `python3 tools/run_tests.py test_core test_web`.
-- Run `python3 tools/benchmark_temporal.py --layer integration` when a change affects behavior
-  exercised by the multi-day ingest, Merge, storage, dream, or brief scenarios.
-- Run the live model layer only to evaluate extraction or prompt behavior with a usable provider.
-- Benchmark runs report current results without changing tracked files.
+- Comparative memory-system evaluation lives in the separate PACBench project.
+- Live provider checks use synthetic data in temporary stores; run them only when
+  evaluating model behavior with an authorized provider.
 - **Test class names describe the behavior under test.** New failure modes require dedicated test classes
   rather than appended methods. Distinct class names prevent class shadowing within module namespaces.
 - **Tests pin temporal state explicitly.** Date and time values derive from `db.today()`, `db.now_dt()`,

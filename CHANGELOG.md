@@ -1,6 +1,26 @@
 ## [Unreleased]
 
+### Removed
+
+- The internal benchmark runner, corpus, scoring tools, evaluation pages and
+  benchmark-only tests. Memory-system benchmarking now lives in PACBench.
+
 ### Fixed
+
+- Delayed evidence can no longer undo newer wiki or recurring-schedule corrections;
+  event evidence compares timestamps across timezone offsets correctly.
+- Source conversation identities survive renames and distinguish equally named chats,
+  preserving unambiguous legacy history and explicit mutes. BlueBubbles retains
+  tied boundary messages and reports partially read pages correctly.
+- Email body recovery respects newly blocked senders, and failed history reads no
+  longer report a successful collection.
+- Concurrent Dream passes refuse overlapping ownership, wiki publication preserves
+  concurrent staged edits, and Dream/retry use the configured archive horizon.
+- Duplicate cleanup transfers event relationships, deleted operations cannot replay
+  into new events, and explicit dates and attendance corrections are respected.
+- Ended schedules remove generated future occurrences, normal calendar write paths
+  retract withdrawn publications, and web job streams use the EventSource MIME type.
+
 
 - Source headings correctly label older context as days earlier when current
   evidence is displayed first.

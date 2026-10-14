@@ -190,10 +190,12 @@ class EventWriteOutcome:
 
 def _refresh(conn: sqlite3.Connection, cfg: Config, *keys: str) -> None:
     brief.write(conn, cfg)
-    # Publish confirmed commitments; failures log and retry on the next pass.
+    # Reconcile withdrawals even when the deleted row no longer has a key.
+    from .sources import ical
     if keys:
-        from .sources import ical                                   # noqa: PLC0415
         ical.publish_pending(conn, cfg, keys=[k for k in keys if k])
+    else:
+        ical.retract_unpublishable(conn, cfg, dry_run=False)
 
 
 def find_event(conn: sqlite3.Connection, needle: str) -> events.Event:
@@ -667,7 +669,7 @@ def add_event(conn: sqlite3.Connection, cfg: Config, *, title: str, when: str,
     title = (title or "").strip()
     if not title:
         raise LiveError("an event needs a title")
-    start, _span = db.parse_when(when)
+    start, _span = db.parse_when(when, strict=True)
     # Pop attribution kwargs that must not land in the event payload.
     raw_fs = field_sources
     raw_ctx = context_source_ids
@@ -676,7 +678,7 @@ def add_event(conn: sqlite3.Connection, cfg: Config, *, title: str, when: str,
                and v not in (None, "", [])}
     payload.update(title=title, date=start.isoformat())
     if payload.get("until"):
-        payload["until"] = db.parse_when(str(payload["until"]))[0].isoformat()
+        payload["until"] = db.parse_when(str(payload["until"]), strict=True)[0].isoformat()
 
     flat_cited = bool(origin.cited)
     fs = _normalize_field_sources(raw_fs)
@@ -720,8 +722,10 @@ def add_event(conn: sqlite3.Connection, cfg: Config, *, title: str, when: str,
                       verb="inserted", origin=origin, request=request, at=db.now())
     with _atomic(conn):
         if actions.seen(conn, op):
-            existing = events.find_match(conn, title=title, on=payload["date"],
-                                         participants=payload.get("participants") or [])
+            action = actions.get(conn, op)
+            existing = events.get(conn, action.ref) if action else None
+            if existing is None:
+                raise LiveError("this completed operation targets an event that was deleted")
             if existing is not None:
                 replayed = _replay_outcome(conn, op, existing, compat="verb")
                 if replayed is not None:
@@ -769,9 +773,9 @@ def update_event(conn: sqlite3.Connection, cfg: Config, which: str, *,
     wipe = tuple(name for name, value in changes.items()
                  if value == "" and name in events.CLEARABLE)
     if payload.get("when"):
-        payload["date"] = db.parse_when(str(payload.pop("when")))[0].isoformat()
+        payload["date"] = db.parse_when(str(payload.pop("when")), strict=True)[0].isoformat()
     if payload.get("until"):
-        payload["until"] = db.parse_when(str(payload["until"]))[0].isoformat()
+        payload["until"] = db.parse_when(str(payload["until"]), strict=True)[0].isoformat()
     if payload.get("status") and payload["status"] not in events.STATUSES:
         raise LiveError(f"status must be one of {', '.join(events.STATUSES)}")
     if payload.get("kind") and payload["kind"] not in events.KINDS:
@@ -1019,6 +1023,9 @@ def set_schedule(conn: sqlite3.Connection, cfg: Config, which: str, *,
             _stamp_live(conn, "series", slug, "ended", origin=origin,
                         fields={"status": ["active", "ended"]}, based_on=based_on,
                         commit=False)
+        series.roll_forward(conn, slug=slug)
+        from .sources import ical
+        ical.publish_schedules(conn, cfg, slugs=[slug])
         _refresh(conn, cfg)
         return rule, [f"{title} is no longer recurring"]
 
@@ -1035,7 +1042,7 @@ def set_schedule(conn: sqlite3.Connection, cfg: Config, which: str, *,
               "join_url": join_url, "source": _origin_pointer(conn, origin)}
     fields = {k: v for k, v in fields.items() if v not in (None, "")}
     if starting:
-        fields["effective_on"] = db.parse_when(str(starting))[0].isoformat()
+        fields["effective_on"] = db.parse_when(str(starting), strict=True)[0].isoformat()
     elif known is None or cadence or weekday is not None or day_of_month is not None:
         # New or reshaped rules take effect today; restating a link never moves the anchor.
         fields.setdefault("effective_on", db.today().isoformat())
@@ -1074,7 +1081,7 @@ def move_one_occurrence(conn: sqlite3.Connection, cfg: Config, which: str, *,
                         row=event.one_line())
     rule = series.get(conn, event.series)
     replaced = series.slot_for(rule, event.date, event.instead_of) if rule else None
-    payload = {"key": event.key, "date": db.parse_when(to)[0].isoformat(),
+    payload = {"key": event.key, "date": db.parse_when(to, strict=True)[0].isoformat(),
                "instead_of": replaced or event.instead_of or event.date}
     if time:
         payload["time"] = time
@@ -1150,7 +1157,7 @@ def open_todo(conn: sqlite3.Connection, cfg: Config, text: str, *, due: str | No
     if not text:
         raise LiveError("a to-do needs text")
     linked = find_event(conn, event) if (event or "").strip() else None
-    when_due = db.parse_when(due)[0].isoformat() if due else None
+    when_due = db.parse_when(due, strict=True)[0].isoformat() if due else None
     remind_at = None
     if isinstance(remind, str) and remind.strip():
         remind_at = remind.strip()
