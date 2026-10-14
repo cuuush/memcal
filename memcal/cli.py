@@ -191,7 +191,7 @@ _write_env = settings.write_env
 
 
 def _provider_choice(current: str = "codex") -> str:
-    choices = (("1", "codex", "Codex programmatic mode"),
+    choices = (("1", "codex", "Codex via OAuth"),
                ("2", "claude-code", "Claude Code programmatic mode"),
                ("3", "antigravity", "Antigravity programmatic mode"),
                ("4", "grok", "Grok programmatic mode"),
@@ -248,9 +248,13 @@ def _cmd_setup(args) -> int:
     provider = args.provider or _provider_choice(cfg.llm_provider)
     default_model = llm.PROVIDER_DEFAULT_MODELS[provider]
     model = args.model
+    models = None
     if guided and not model:
         shown_model = cfg.propose_model if provider == cfg.llm_provider else default_model
-        model = setup_config.prompt(settings.BY_KEY["MEMCAL_PROPOSE_MODEL"], shown_model, provider)
+        if provider == "codex":
+            models = setup_config.codex_models(cfg)
+        model = setup_config.prompt(settings.BY_KEY["MEMCAL_PROPOSE_MODEL"], shown_model,
+                                    provider, models=models)
     model = model or default_model
     if not model:
         print("error: this endpoint needs --model", file=sys.stderr)
@@ -296,7 +300,7 @@ def _cmd_setup(args) -> int:
         if key != cfg.openai_api_key or args.api_key:
             values["OPENAI_COMPAT_API_KEY"] = key
     if guided:
-        setup_config.collect(cfg, section, values, advanced=advanced)
+        setup_config.collect(cfg, section, values, advanced=advanced, models=models)
         values = setup_config.confirm(cfg, values)
         if values is None:
             print("Setup canceled; nothing saved.")

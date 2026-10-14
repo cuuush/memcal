@@ -36,11 +36,17 @@ def replace_value(cfg: Config, values: dict[str, str], names: tuple[str, ...], v
             values[key] = ""
 
 
-def prompt(setting: settings.Setting, current: str, provider: str) -> str:
-    if setting.choices:
+def prompt(setting: settings.Setting, current: str, provider: str,
+           *, models: list[str] | None = None) -> str:
+    choices = (tuple((model, model) for model in models)
+               if models is not None and setting.attr in settings._PROVIDER_MODEL_ATTRS
+               else setting.choices)
+    if choices:
         print(f"\n{setting.label}:")
-        for index, (value, label) in enumerate(setting.choices, 1):
+        for index, (value, label) in enumerate(choices, 1):
             print(f"  {index}. {label}" + (" (current)" if value == current else ""))
+        if models is not None:
+            print("  Enter a number or model ID; Enter keeps the value shown.")
     suffix = f" {setting.unit}" if setting.unit else ""
     while True:
         answer = input(f"{setting.label} [{current or '(empty)'}{suffix}]: ").strip()
@@ -49,11 +55,13 @@ def prompt(setting: settings.Setting, current: str, provider: str) -> str:
         if answer == "?":
             print(setting.help)
             continue
-        if setting.choices and answer.isdigit() and 1 <= int(answer) <= len(setting.choices):
-            answer = setting.choices[int(answer) - 1][0]
+        if choices and answer.isdigit() and 1 <= int(answer) <= len(choices):
+            answer = choices[int(answer) - 1][0]
         elif answer == "-":
             answer = ""
         try:
+            if models is not None and answer.isdigit():
+                raise settings.SettingsError("choose a listed number or enter a model ID")
             text, _ = settings.coerce(setting, answer, provider=provider)
             if setting.attr in settings._PROVIDER_MODEL_ATTRS:
                 owner = llm.belongs_elsewhere(provider, text)
@@ -121,7 +129,8 @@ def _imessage(cfg: Config, values: dict[str, str], *, advanced: bool = False) ->
             values[key] = value
 
 
-def collect(cfg: Config, section: str, values: dict[str, str], *, advanced: bool = False) -> None:
+def collect(cfg: Config, section: str, values: dict[str, str], *, advanced: bool = False,
+            models: list[str] | None = None) -> None:
     provider = values.get("MEMCAL_LLM_PROVIDER", cfg.llm_provider)
     backend = llm.PROVIDER_COMMANDS.get(provider)
     if section in {"all", "imessage", "collect"}:
@@ -141,7 +150,10 @@ def collect(cfg: Config, section: str, values: dict[str, str], *, advanced: bool
             if setting.key.endswith("_COMMAND") and (not backend or setting.key != backend.env):
                 continue
             current = values.get(setting.key, settings.current_text(cfg, setting))
-            value = prompt(setting, current, provider)
+            if setting.attr in settings._PROVIDER_MODEL_ATTRS and provider == "codex" and models is None:
+                models = codex_models(cfg)
+            value = prompt(setting, current, provider, models=models
+                           if setting.attr in settings._PROVIDER_MODEL_ATTRS else None)
             if value != current:
                 values[setting.key] = value
     if section == "credentials" or (section == "all" and input(
@@ -154,6 +166,14 @@ def collect(cfg: Config, section: str, values: dict[str, str], *, advanced: bool
                 continue
             _credential(cfg, values, CREDENTIAL_NAMES.get(name, (name,)),
                         f"{', '.join(row['used_by'])}: {name}")
+
+
+def codex_models(cfg: Config) -> list[str]:
+    """Fetch the OAuth picker once per setup, preserving manual entry on failure."""
+    models, source = llm.list_models(cfg, "codex")
+    if not models:
+        print(f"\n{source}. You can enter a model ID manually.")
+    return models
 
 
 def confirm(cfg: Config, values: dict[str, str]) -> dict[str, str] | None:

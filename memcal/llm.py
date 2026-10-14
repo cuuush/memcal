@@ -11,6 +11,7 @@ import json
 import os
 import random
 import re
+import selectors
 import shutil
 import subprocess
 import tempfile
@@ -675,6 +676,17 @@ def list_models(cfg, provider: str) -> tuple[list[str], str]:
     """List provider models, using a CLI roster when one is available."""
     provider = str(provider or "").strip().lower()
     known = [native for native, _priced in catalog(provider)]
+    if provider == "codex":
+        try:
+            return _codex_models(cfg.codex_command), "Codex via OAuth model catalog"
+        except (OSError, subprocess.SubprocessError, LLMError) as exc:
+            if isinstance(exc, FileNotFoundError):
+                why = "Codex is not installed; install Codex and run `codex login`"
+            elif isinstance(exc, LLMError):
+                why = str(exc)
+            else:
+                why = "Codex model discovery failed; check the Codex login and try again"
+            return [], why
     if provider != "antigravity":
         return known, "memcal's own table"
     backend = PROVIDER_COMMANDS.get(provider)
@@ -696,6 +708,96 @@ def list_models(cfg, provider: str) -> tuple[list[str], str]:
             found.append(name)
     return (found, "`agy models`") if found else (
         known, "memcal's own table — `agy models` listed nothing")
+
+
+def _codex_models(command: str, *, timeout: float = 15.0) -> list[str]:
+    """Read the signed-in Codex model picker over stdio, without an inference turn."""
+    from . import __version__
+
+    with tempfile.TemporaryDirectory(prefix="memcal-codex-models-") as cwd:
+        proc = subprocess.Popen([command, "app-server", "--listen", "stdio://"],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, cwd=cwd)
+        selector = selectors.DefaultSelector()
+        pending = b""
+        deadline = time.monotonic() + timeout
+        request_id = 0
+
+        def send(message: dict) -> None:
+            proc.stdin.write((json.dumps(message) + "\n").encode())
+            proc.stdin.flush()
+
+        def call(method: str, params: dict) -> dict:
+            nonlocal pending, request_id
+            request_id += 1
+            send({"id": request_id, "method": method, "params": params})
+            while time.monotonic() < deadline:
+                while b"\n" in pending:
+                    line, pending = pending.split(b"\n", 1)
+                    try:
+                        message = json.loads(line)
+                    except (ValueError, UnicodeError) as exc:
+                        raise LLMError("Codex returned an unreadable model catalog") from exc
+                    if not isinstance(message, dict) or message.get("id") != request_id:
+                        continue
+                    if "error" in message:
+                        raise LLMError(f"Codex rejected {method}; update Codex and check `codex login status`")
+                    result = message.get("result")
+                    if not isinstance(result, dict):
+                        raise LLMError("Codex returned an unreadable model catalog")
+                    return result
+                if not selector.select(max(0, deadline - time.monotonic())):
+                    break
+                chunk = os.read(proc.stdout.fileno(), 65536)
+                if not chunk:
+                    raise LLMError("Codex stopped before listing models; check `codex login status`")
+                pending += chunk
+            raise LLMError("Codex model discovery timed out; enter a model ID or try again")
+
+        try:
+            selector.register(proc.stdout, selectors.EVENT_READ)
+            call("initialize", {"clientInfo": {"name": "memcal", "title": "Memcal",
+                                                "version": __version__}})
+            send({"method": "initialized", "params": {}})
+            account = call("account/read", {"refreshToken": False}).get("account")
+            if not isinstance(account, dict) or account.get("type") != "chatgpt":
+                raise LLMError("Codex via OAuth needs a ChatGPT login; run `codex login`")
+            found: list[str] = []
+            cursor = None
+            seen_cursors = set()
+            while True:
+                params = {"limit": 100, "includeHidden": False}
+                if cursor:
+                    params["cursor"] = cursor
+                page = call("model/list", params)
+                data = page.get("data")
+                if not isinstance(data, list):
+                    raise LLMError("Codex returned an unreadable model catalog")
+                for row in data:
+                    if not isinstance(row, dict) or row.get("hidden"):
+                        continue
+                    name = row.get("model")
+                    if isinstance(name, str) and name.strip() and name not in found:
+                        found.append(name)
+                cursor = page.get("nextCursor")
+                if not cursor:
+                    break
+                if not isinstance(cursor, str) or cursor in seen_cursors:
+                    raise LLMError("Codex returned an unreadable model catalog")
+                seen_cursors.add(cursor)
+            if not found:
+                raise LLMError("Codex listed no models; check `codex login status`")
+            return found
+        finally:
+            selector.close()
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            proc.stdin.close()
+            proc.stdout.close()
 
 
 def serves(provider: str, model: str) -> bool | None:

@@ -38,6 +38,7 @@ class TestSetupConfiguresMessagesAndOtherSettings(unittest.TestCase):
                 mock.patch("getpass.getpass", **({"side_effect": password} if callable(password)
                                                 else {"return_value": password})), \
                 mock.patch("memcal.llm.provider_status", return_value=(True, "ready")), \
+                mock.patch("memcal.llm.list_models", return_value=(["gpt-6-luna"], "fixture catalog")), \
                 redirect_stdout(output):
             result = cli.cmd_setup(args)
         return result, output.getvalue(), prompts

@@ -49,6 +49,9 @@ them first. Restart running UI and agent sessions afterward.
 
 Run `memcal setup` to choose your model provider, iMessage transport and BlueBubbles
 connection, and disabled sources. Other source credentials are optional.
+Selecting **Codex via OAuth** lists the models offered by your signed-in Codex
+session. Pick a number or type a model ID; Enter keeps the saved model.
+Sign in through `codex login` first. Setup lists models without making an inference call.
 Use `memcal setup --advanced` for model tuning, brief, dream, and publishing settings.
 Enter keeps saved values;
 `?` explains a setting and `-` resets it. The wizard shows a change summary before saving.
