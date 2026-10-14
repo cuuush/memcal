@@ -734,7 +734,7 @@ def upsert(
         )
         stamp = db.now()
         # `born` floors the per-field guard below for fields nothing has revised yet.
-        born = (max((str(v) for v in evidence_ts.values() if v), default=None)
+        born = (max((str(v) for v in evidence_ts.values() if v), key=lambda v: db.parse_ts(v, strict=True), default=None)
                 if isinstance(evidence_ts, dict) else evidence_ts)
         cur = conn.execute(
             """INSERT INTO events(key, date, until, time, kind, subject, title, location, status,
@@ -793,6 +793,8 @@ def upsert(
         # already turned the identical retry into a no-op before this point.
         version = version or ""
         here = str(here)
+        if not version:
+            return False
         if per_field and written_by == "live":
             if day:
                 # A value floored only by when its row was created is known to
@@ -801,8 +803,8 @@ def upsert(
                 # stale. A cheaper writer keeps full precision below, so genuinely
                 # newer evidence — even later the same day — can still revise it.
                 return here[:10] < version[:10]
-            return here < version
-        return here <= version
+            return db.parse_ts(here, strict=True) < db.parse_ts(version, strict=True)
+        return db.parse_ts(here, strict=True) <= db.parse_ts(version, strict=True)
 
     guarded = precedence(written_by) < precedence(existing.written_by)
     # Explicit field evidence orders peer writes too. An empty mapping claims
@@ -892,7 +894,7 @@ def upsert(
                 here = evidence_for(name)
                 floor, day = _floor(name, existing.participants)
                 if dated and here and floor:
-                    newer = (here[:10] > floor[:10]) if day else (here > floor)
+                    newer = (here[:10] > floor[:10]) if day else (db.parse_ts(here, strict=True) > db.parse_ts(floor, strict=True))
                     if newer and not _stale(here, floor, day):
                         advanced.append(name)
                         advance_rows.append(
@@ -914,7 +916,7 @@ def upsert(
                 here = evidence_for(name)
                 floor, day = _floor(name, existing.hosts)
                 if dated and here and floor:
-                    newer = (here[:10] > floor[:10]) if day else (here > floor)
+                    newer = (here[:10] > floor[:10]) if day else (db.parse_ts(here, strict=True) > db.parse_ts(floor, strict=True))
                     if newer and not _stale(here, floor, day):
                         advanced.append(name)
                         advance_rows.append(
@@ -931,12 +933,12 @@ def upsert(
             here = evidence_for(name)
             floor, day = _floor(name, old)
             if dated and here and floor:
-                newer = (here[:10] > floor[:10]) if day else (here > floor)
+                newer = (here[:10] > floor[:10]) if day else (db.parse_ts(here, strict=True) > db.parse_ts(floor, strict=True))
                 if newer and not _stale(here, floor, day):
                     advanced.append(name)
                     advance_rows.append((name, str(old), str(new), str(here)))
             continue
-        if name == "status" and STATUSES.index(new) < STATUSES.index(old) and old == "confirmed":
+        if name == "status" and STATUSES.index(new) < STATUSES.index(old) and old == "confirmed" and written_by != "live":
             continue  # don't walk a confirmed row backwards to 'mentioned'
         if (name == "kind" and old == "commitment" and new == "observed"
                 and existing.status in ("confirmed", "happened")

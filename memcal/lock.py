@@ -7,9 +7,9 @@ an advisory file lock on `flock`: the kernel owns it, a second process gets a
 clean refusal instead of a guess, and process exit releases it with the file
 descriptor — no cleanup pass, no timeout that can delete a live owner's lock.
 
-The lock covers one collection only (cursors plus outcome rows). It is never
-held across a model call: dream runs as a separate step after collection
-releases it.
+Collection and Dream use separate lock files. The collection lock covers
+cursors and outcomes; the Dream lock spans model calls and application so
+one pass cannot abandon or duplicate another active pass.
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ class Busy(RuntimeError):
     """Another process holds this store's collection lock right now."""
 
 
-def lock_path(cfg: Config) -> Path:
-    return cfg.home / LOCK_NAME
+def lock_path(cfg: Config, name: str = LOCK_NAME) -> Path:
+    return cfg.home / name
 
 
 def _lock(fd: int) -> None:
@@ -77,16 +77,21 @@ def _unlock(fd: int) -> None:
 
 
 @contextlib.contextmanager
-def held(cfg: Config):
+def held(cfg: Config, *, name: str = LOCK_NAME):
     """Hold this store's collection lock, or raise `Busy`.
 
     The descriptor stays open for the whole `with` block; closing it releases
     the lock even if the process dies first.
     """
     cfg.home.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(lock_path(cfg)), os.O_RDWR | os.O_CREAT, 0o600)
+    fd = os.open(str(lock_path(cfg, name)), os.O_RDWR | os.O_CREAT, 0o600)
     try:
         _lock(fd)
+    except Busy as exc:
+        os.close(fd)
+        if name == "dream.lock":
+            raise Busy("another Dream pass is already running on this store") from exc
+        raise
     except BaseException:
         os.close(fd)
         raise

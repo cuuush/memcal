@@ -13,7 +13,7 @@ as a real message; watermarks, paging, budget and rate-limit handling live here.
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta, timezone
 from typing import Any, Iterable
 
@@ -173,6 +173,10 @@ class PolledSource(_Budgeted, Source):
         """
         raise NotImplementedError
 
+    def is_inaccessible(self, exc: Exception) -> bool:
+        """A known permission/removal response, rather than a failed transport."""
+        return False
+
     # -------------------------------------------------------------------- loop --
     def fetch(self, conn: sqlite3.Connection, cfg: Config, report: base.IngestReport,
               limit: int) -> None:
@@ -191,11 +195,18 @@ class PolledSource(_Budgeted, Source):
 
         pending: list[tuple[Conversation, str | None]] = []
         dormant = 0
+        from collections import Counter
+        labels = Counter(c.name for c in found)
         for index, conversation in enumerate(found, start=1):
             if not conversation.id:
                 continue
+            old_name = conversation.name
+            conversation = replace(conversation, name=f"id:{conversation.id}",
+                                   label=conversation.label or old_name)
+            if labels[old_name] == 1:
+                threads.adopt_key(conn, self.name, conversation.name, old_name)
             threads.record(conn, self.name, conversation.name,
-                           label=conversation.label or conversation.name,
+                           label=conversation.label or old_name,
                            is_group=conversation.is_group,
                            platform_muted=conversation.muted or None,
                            platform_note=conversation.muted_note or None)
@@ -236,6 +247,9 @@ class PolledSource(_Budgeted, Source):
                     break
                 # An unreadable chat (no access, removed mid-run) is normal; skip it.
                 report.notes.append(f"{conversation.name}: {str(exc)[:80]}")
+                if not self.is_inaccessible(exc):
+                    report.error = report.error or f"{conversation.name}: {str(exc)[:200]}"
+                    report.more = True
                 continue
             finally:
                 if progress:

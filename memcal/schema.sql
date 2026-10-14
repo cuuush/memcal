@@ -618,6 +618,7 @@ CREATE TABLE IF NOT EXISTS slot_history (
     old_value  TEXT,                 -- NULL when the slot was empty, i.e. first write
     new_value  TEXT,
     source     TEXT,                 -- the bundle entity, or 'cli' / 'agent'
+    evidence_ts TEXT,
     changed_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS slot_history_page_idx ON slot_history(page, slot);
@@ -642,7 +643,7 @@ CREATE TABLE IF NOT EXISTS actions (
     kind        TEXT NOT NULL,          -- event | todo | series | wiki
     ref         TEXT NOT NULL,          -- the stable target key. Survives title/date changes
     verb        TEXT NOT NULL,          -- inserted | updated | opened | closed | dropped | …
-    surface     TEXT NOT NULL,          -- mcp | hermes | openclaw | cli | benchmark | unknown
+    surface     TEXT NOT NULL,          -- mcp | hermes | openclaw | cli | unknown
     session     TEXT,                   -- the caller's session, when it has one
     fields      TEXT NOT NULL DEFAULT '{}',   -- {field: [old, new]} — what actually changed
     source_ids  TEXT NOT NULL DEFAULT '[]',   -- archive ids of the turn that caused it

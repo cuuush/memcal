@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the unittest suite in parallel, one module per process.
 
-`python3 -m unittest discover -s tests` runs all ~2200 tests in a single process,
+`python3 -m unittest discover -b -s tests` runs the suite in a single process,
 which is CPU-bound and serial. This runner hands each `tests/test_*.py` module to
 its own interpreter and fans them across cores, cutting wall time roughly in line
 with core count. Separate processes are also stricter isolation than discover gives
@@ -10,7 +10,7 @@ sys.path edit) into the next — so a green run here is at least as trustworthy.
 
 Behaviour matches `python -m unittest`: exit status is non-zero if any module fails,
 and each failing module's full output is printed. It is an accelerator, not a
-replacement; the documented `python3 -m unittest discover -s tests` still works.
+replacement; the documented `python3 -m unittest discover -b -s tests` still works.
 
     python3 tools/run_tests.py                 # whole suite, one proc per core
     python3 tools/run_tests.py -j 4            # cap parallelism
@@ -59,7 +59,7 @@ _ENV = dict(os.environ, PYTHONPATH=os.pathsep.join(
 def _run_one(module: str) -> tuple[str, int, str]:
     """Run one module in a fresh interpreter; return (module, returncode, output)."""
     proc = subprocess.run(
-        [sys.executable, "-m", "unittest", f"tests.{module}"],
+        [sys.executable, "-m", "unittest", "-b", f"tests.{module}"],
         cwd=str(ROOT), env=_ENV, capture_output=True, text=True)
     # unittest writes its dots and summary to stderr; keep stdout too for stray prints.
     return module, proc.returncode, (proc.stderr or "") + (proc.stdout or "")

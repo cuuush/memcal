@@ -206,9 +206,11 @@ def chat_of(message: dict) -> tuple[str, bool, list[str], str]:
     chat = chats[0] if chats else {}
     participants = [p.get("address") for p in (chat.get("participants") or []) if p.get("address")]
     name = " ".join((chat.get("displayName") or "").split())
-    key = (name or chat.get("chatIdentifier")
+    key = (chat.get("chatIdentifier") or chat.get("guid") or name
            or (message.get("handle") or {}).get("address") or "unknown")
     is_group = len(participants) > 2 or bool(name)
+    if chat.get("chatIdentifier") or chat.get("guid"):
+        key = f"id:{key}"
     return key, is_group, participants, name
 
 
@@ -232,19 +234,36 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 1000) -> base.
                     * 86400 * 1000)
         report.notes.append("first run — starting 30 days back")
 
+    # Old versions stored newest + 1. Re-read that boundary during migration.
+    if db.get_meta(conn, "bluebubbles.cursor_version") != "2":
+        after -= 1
     tier = identity.top_tier(conn)
     newest = after
     fetched = 0
     offset = 0
+    boundary_ids = set(db.jload(db.get_meta(conn, "bluebubbles.boundary_ids", "[]"), []))
     while fetched < limit:
         try:
-            page = client.messages(after, limit=min(PAGE_SIZE, limit - fetched), offset=offset)
+            want = min(PAGE_SIZE, limit - fetched)
+            page = client.messages(after - 1, limit=want, offset=offset)
         except base.HttpError as exc:
             report.error = str(exc)
             break
         if not page:
             break
         for message in page:
+            created = int(message.get("dateCreated") or message.get("dateDelivered") or 0)
+            external_id = message.get("guid") or f"bb:{message.get('originalROWID')}"
+            if created < after:
+                continue
+            already_read = (created == newest and external_id in boundary_ids) or conn.execute(
+                "SELECT 1 FROM archive WHERE channel = 'imessage' AND external_id = ?",
+                (external_id,)).fetchone()
+            if created > newest:
+                newest, boundary_ids = created, set()
+            boundary_ids.add(external_id)
+            if already_read:
+                continue
             fetched += 1
             text = message_text(message)
             if not text:
@@ -256,12 +275,10 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 1000) -> base.
             handle_obj = message.get("handle") or {}
             handle = handle_obj.get("address")
             from_me = bool(message.get("isFromMe"))
-            created = message.get("dateCreated") or message.get("dateDelivered")
-            newest = max(newest, int(created or 0))
             base.deliver(
                 conn, report,
                 channel="imessage",
-                external_id=message.get("guid") or f"bb:{message.get('originalROWID')}",
+                external_id=external_id,
                 ts=to_iso(created),
                 text=text,
                 thread=thread,
@@ -273,16 +290,20 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 1000) -> base.
                 meta={"source": "bluebubbles", "group": is_group,
                       "service": handle_obj.get("service")},
             )
-        if len(page) < PAGE_SIZE:
+        if len(page) < want:
             break
         offset += len(page)
     else:
         # Reached fetch limit before source exhaustion; mark more records available.
         report.more = True
 
+    if fetched:
+        conn.executemany(
+            "INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [("bluebubbles.after", str(newest)),
+             ("bluebubbles.boundary_ids", db.jdump(sorted(boundary_ids))),
+             ("bluebubbles.cursor_version", "2")])
     conn.commit()
-    if newest > after:
-        base.set_watermark(conn, "bluebubbles.after", newest + 1)
     return report
 
 

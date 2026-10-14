@@ -504,30 +504,26 @@ def recover(conn, wiki_dir: Path) -> list[Path]:
     # Legacy `preferences/` files move to `people/` first, so a staged write
     # below reads the migrated page rather than forking a second file.
     migrate_preferences(wiki_dir, conn=conn)
-    rows = conn.execute(
-        "SELECT id, path, content, expected_hash"
-        " FROM wiki_pending_writes ORDER BY id").fetchall()
     published: list[Path] = []
-    for row in rows:
-        stored = Path(row["path"])
-        path = stored if stored.is_absolute() else wiki_dir / stored
-        if not path.resolve().is_relative_to(wiki_dir.resolve()):
-            raise ValueError(f"pending wiki path escapes wiki directory: {stored}")
-        actual = _file_hash(path)
-        desired = _text_hash(row["content"])
-        if actual != desired:
-            if actual != row["expected_hash"]:
-                raise WikiWriteConflict(
-                    f"wiki page changed while publication was pending: {stored}")
-            _write_rendered(path, row["content"])
-        conn.execute("BEGIN")
-        try:
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        rows = conn.execute("SELECT id, path, content, expected_hash FROM wiki_pending_writes ORDER BY id").fetchall()
+        for row in rows:
+            stored = Path(row["path"])
+            path = stored if stored.is_absolute() else wiki_dir / stored
+            if not path.resolve().is_relative_to(wiki_dir.resolve()):
+                raise ValueError(f"pending wiki path escapes wiki directory: {stored}")
+            actual, desired = _file_hash(path), _text_hash(row["content"])
+            if actual != desired:
+                if actual != row["expected_hash"]:
+                    raise WikiWriteConflict(f"wiki page changed while publication was pending: {stored}")
+                _write_rendered(path, row["content"])
             conn.execute("DELETE FROM wiki_pending_writes WHERE id = ?", (row["id"],))
-            conn.commit()
-        except BaseException:
-            conn.rollback()
-            raise
-        published.append(path)
+            published.append(path)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
     if published:
         _ALIAS_CACHE.pop(wiki_dir, None)
     return published
@@ -605,7 +601,8 @@ def ensure(wiki_dir: Path, slug: str, *, title: str | None = None, section: str 
 def set_slot(wiki_dir: Path, slug: str, slot: str, value: str, *,
              source: str | None = None, section: str = "people",
              conn=None, inferred: bool = False, commit: bool = True,
-             archive_ids: list[int] | None = None) -> Page:
+             archive_ids: list[int] | None = None,
+             evidence_ts: str | None = None) -> Page:
     """Fill a named slot.
 
     `archive_ids` are the exact archive lines the value was read from. They are
@@ -649,8 +646,13 @@ def set_slot(wiki_dir: Path, slug: str, slot: str, value: str, *,
                 old_path.unlink(missing_ok=True)
             _ALIAS_CACHE.pop(wiki_dir, None)
         elif (previous or "") != value.strip():
-            record_slot_change(conn, page.slug, name, previous, value.strip(), source=source)
+            record_slot_change(conn, page.slug, name, previous, value.strip(), source=source, evidence_ts=evidence_ts)
             _stage_page(conn, wiki_dir, page)
+        elif not inferred:
+            latest = conn.execute("SELECT id, evidence_ts, changed_at FROM slot_history WHERE page = ? AND slot = ? ORDER BY id DESC LIMIT 1", (page.slug, name)).fetchone()
+            stamp = evidence_ts or db.now()
+            if latest and db.parse_ts(stamp, strict=True) > db.parse_ts(latest["evidence_ts"] or latest["changed_at"], strict=True):
+                conn.execute("UPDATE slot_history SET evidence_ts = ? WHERE id = ?", (stamp, latest["id"]))
         return page
 
 
@@ -665,10 +667,10 @@ def slot_claimed_by_another(conn, page: str, slot: str, source: str | None) -> b
 
 
 def record_slot_change(conn, page: str, slot: str, old: str | None, new: str | None,
-                       *, source: str | None = None) -> None:
+                       *, source: str | None = None, evidence_ts: str | None = None) -> None:
     conn.execute(
-        "INSERT INTO slot_history(page, slot, old_value, new_value, source, changed_at)"
-        " VALUES(?,?,?,?,?,?)", (page, slot, old, new, source, db.now()))
+        "INSERT INTO slot_history(page, slot, old_value, new_value, source, evidence_ts, changed_at)"
+        " VALUES(?,?,?,?,?,?,?)", (page, slot, old, new, source, evidence_ts or db.now(), db.now()))
 
 
 def slot_history(conn, page: str, slot: str | None = None) -> list:

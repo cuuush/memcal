@@ -15,7 +15,7 @@ Memcal is built for personal data, so its defaults are deliberately conservative
   itself; test fixtures use fictional people.
 
 Still treat the store as sensitive: `~/.memcal`, `.env` files, model-call traces
-(`calls/`), and benchmark output stay out of version control under normal
+(`calls/`) stay out of version control under normal
 filesystem access controls. Local Messages and calendar connectors may require
 Full Disk Access or macOS Calendar and Reminders permissions. Memcal reads
 sensitive personal data and sends selected source text to the model provider you

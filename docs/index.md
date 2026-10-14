@@ -114,11 +114,9 @@ integrations; anything MCP-speaking works through the generic server.
 - [**Correct**](api/correct.md) — deterministic fixes that survive the night.
 - [**MCP server**](api/mcp.md) — the tool surface agents use.
 
-### Deploy & evaluate
+### Deploy
 
 - [**Hosting**](hosting/installation.md) — install, configure, schedule, publish.
-- [**Evaluation**](evaluation/index.md) — how memory quality is measured, from
-  deterministic checks to full seven-day lives.
 
 ## Status
 

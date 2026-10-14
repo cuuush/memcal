@@ -16,66 +16,6 @@ A probe that is
 the *only* check on a code path the unit tests deliberately stub is an instrument, and
 stays however long ago it was written.
 
-## The benchmark
-
-- `benchmark_temporal.py` — the gap-finding benchmark, and the thing that actually
-  catches regressions. `core` is the native-source **four-day** scenario; `contract`,
-  `boundaries`, `clock` and `hermes` probe hostile saved replies, calendar/timezone
-  edges, what only elapsed time shows, and the multi-turn memory lifecycle. Use
-  `--suite`, `--case`, `--repeat`, `--model`, `--prompt-version`, `--pack`, `--format`,
-  or `--dry-run`. Frontier failures are deliberate unmet expectations, not xfails.
-
-  `collision` is the odd one out: it is an ordered sequence of *timed operations* — a
-  message arriving, a typed tool call, a nightly pass, a retry — pinned through `db`, and
-  it grades the store at checkpoints along the way rather than only at the end. A message
-  distinguishes when it was written from when it arrived. Findings are reported by
-  category (duplicate, false merge, lost correction, missed cancellation, missing
-  evidence) rather than blended into one number, and `--variants N` retells every scenario
-  N more times — reworded, with distractor traffic, delivered twice, or out of order —
-  printing the seed and first failing checkpoint of anything that breaks. Default 1, and
-  0 under `--layer model` where each retelling costs real calls.
-
-  Full notes — layers, every suite, the collision families, pricing a model run before
-  making it, and how to read the output — are in [BENCHMARK.md](BENCHMARK.md). `--case` limits what *runs* on this suite, not just
-  what is graded.
-
-  Its `integration` layer injects hand-written oracle diffs, so it tests the
-  production-shaped multi-day Merge/apply/render/store lifecycle but deliberately
-  does **not** test extraction or whether the prompt contained enough context. The unit
-  suite owns narrow deterministic checks such as candidate-event retrieval; the
-  `model` layer tests those candidates and the prompt through an actual model.
-  Deprecated `replay`/`live` CLI aliases remain accepted for old scripts.
-
-- `bench_reset.py` — build a scratch store that replays a cold start. Excludes the
-  `agent` channel by default, because it is the user correcting the model *after* the
-  run being replayed, and leaving it in grades the model on a corpus containing the
-  answers. That is not hypothetical: it turned a 1/7 replay into a 6/7 one.
-- `bench_outcomes.py` — score a store against known-defect outcomes
-  whose right answer is already known. Outcomes, not unit tests: a model is allowed to
-  be right in a way the file did not anticipate, so a FAIL is a prompt to look rather
-  than proof of a bug. Anything that reproduces deterministically should graduate into
-  `tests/`.
-- `bench_audit.py` — re-derive claims a row makes from the lines it cited, over a whole
-  store.
-- `clock_sweep.py` — run the unit suite as of other days, and with `--hours` at other
-  times of day, and report what only passes now. An instrument rather than a one-shot,
-  because the failure it finds is created fresh every time somebody types a date into a
-  test: a weekday assumed, or a literal picked relative to the afternoon it was written.
-  `python3 -m unittest discover` cannot see either — it is green that afternoon. Eight
-  tests were found this way on 2026-08-13, one of them red that morning.
-  `--zones` multiplies the day and zone axes: 30 full runs of the suite. `--cross`
-  sweeps them separately instead — the day walk in the first zone, one day in each of
-  the others, and each zone's DST transitions derived from the span — for 14 runs that
-  find strictly more. Measured with synthetic probes: the grid misses a bug needing a
-  particular day *and* zone, because its day set never lands on a transition; the cross
-  catches it.
-
-  **`MEMCAL_TODAY` now takes an optional time** (`2026-08-20T19:00`), and the hour is a
-  real axis: one test asserted a reminder lands before its due date, which is true until
-  19:00 and false after it, so it was red five hours a night on every commit and this
-  tool could not see it — it swept days while taking the hour from whenever it ran.
-  See the testing rules in [AGENTS.md](../AGENTS.md).
-
 ## Reading what happened
 
 - `read_calls.py`, `dump_generation.py` — inspect saved model calls and backfill old
@@ -88,7 +28,6 @@ stays however long ago it was written.
   only, never message text, which is what makes a private corpus checkable in a public
   repository. Run it after a run adds calls: the estimate must stay above the real
   count, and the guard test in `tests/test_core.py` is what fails when it drifts.
-- `probe_corpus.py` — what is actually in the archive, by channel and by shape.
 - `probe_page.py` — what `memcal_open_page` actually returns for one slug, and how many
   tokens of it. Read-only against the live store. "The page read is too bare / too
   noisy" is a claim with a number attached, and this is where the number comes from:
@@ -165,9 +104,9 @@ stays however long ago it was written.
 
 - `resweep.py` — re-run the sweep over an existing store. Dry-run first.
 
-## Output
+## Verification
 
-`bench_output/` is gitignored, because a run carries the corpus out with it — real
-message text, in a store shaped like the owner's. A benchmark prints its deterministic
-score and detailed checks for that run; the repository keeps the scenarios, not a score
-ledger.
+- `run_tests.py` runs buffered unittest modules in separate processes; use `-j` to
+  limit concurrency or pass module names for focused checks.
+- `clock_sweep.py` checks the unit suite across dates and timezones (`--cross`
+  for separate axes, `--zones` for the full grid).

@@ -1,6 +1,6 @@
 site_name: memcal
 site_url: https://cuuush.github.io/memcal/
-site_description: Memory + Calendar for AI agents — architecture, tools, sources, and evaluation.
+site_description: Memory + Calendar for AI agents — architecture, tools, and sources.
 repo_url: https://github.com/cuuush/memcal
 
 theme:
@@ -67,12 +67,6 @@ nav:
       - Scheduling: hosting/scheduling.md
       - Publishing: hosting/publishing.md
       - Monitoring: hosting/monitoring.md
-  - Evaluation:
-      - Overview: evaluation/index.md
-      - Corpus: evaluation/corpus.md
-      - Runner: evaluation/runner.md
-      - Grading: evaluation/grading.md
-      - Deterministic checks: evaluation/deterministic.md
   - Resources:
       - FAQ: faq.md
       - Troubleshooting: troubleshooting.md

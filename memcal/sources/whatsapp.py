@@ -325,6 +325,8 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 2000,
         report.error = f"unexpected WhatsApp schema ({exc}) — the app may have updated"
         return report
 
+    for chat in src.execute("SELECT ZCONTACTJID, ZPARTNERNAME FROM ZWACHATSESSION WHERE ZCONTACTJID IS NOT NULL AND (ZPARTNERNAME IS NULL OR ZPARTNERNAME = '' OR (SELECT count(*) FROM ZWACHATSESSION s2 WHERE s2.ZPARTNERNAME = ZWACHATSESSION.ZPARTNERNAME) = 1)"):
+        threads.adopt_key(conn, "whatsapp", f"id:{chat['ZCONTACTJID']}", chat["ZPARTNERNAME"] or chat["ZCONTACTJID"])
     for row in rows:
         highest = max(highest, int(row["rowid"]))
         if int(row["kind"] or 0) != TEXT_MESSAGE:
@@ -337,7 +339,7 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 2000,
         # In a group the sender is the group member; in a DM it is the chat itself.
         sender_jid = row["member_jid"] if group else (row["from_jid"] or row["chat_jid"])
         handle = handle_of(sender_jid)
-        thread = row["chat_name"] or row["chat_jid"] or "whatsapp"
+        thread = f"id:{row['chat_jid']}" if row["chat_jid"] else "whatsapp"
         counterpart = None if group else handle_of(row["chat_jid"])
         # In a DM the session's partner name is the address-book name, which is the one
         # with a chance of matching Contacts; in a group there is no per-member name at

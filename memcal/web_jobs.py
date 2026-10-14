@@ -384,13 +384,13 @@ def retry_work(run_id: int):
     def work(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
         from .dream import retry as retry_stage
 
-        released, kept = retry_stage.requeue(conn, run_id)
+        released, kept = retry_stage.requeue(conn, run_id, horizon_days=cfg.spool_horizon_days, cfg=cfg)
         job.say(f"retrying run #{run_id}: "
                 + (f"put {released} line(s) back in the queue"
                    if released else "nothing had to be released"))
         if kept:
             job.say(f"  {kept} line(s) this run read are older than "
-                    f"{archive.SPOOL_HORIZON_DAYS} days and stay marked as read")
+                    f"{cfg.spool_horizon_days} days and stay marked as read")
         out = dream_work(conn, cfg, job)
         return {**out, "retry_of": run_id, "requeued": released, "too_old": kept}
     return work

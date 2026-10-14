@@ -1531,12 +1531,12 @@ def cmd_dream(args) -> int:
             state = retry_stage.OUTCOME_LABELS[retry_stage.outcome(row)]
             print(f"run #{args.retry} is {state}; there is nothing to retry")
             return 1
-        released, kept = retry_stage.requeue(conn, args.retry)
+        released, kept = retry_stage.requeue(conn, args.retry, horizon_days=cfg.spool_horizon_days, cfg=cfg)
         print(f"retrying run #{args.retry}: "
               + (f"released {released} previously-read item(s)" if released
                  else "nothing to release; its traffic is still queued"))
         if kept:
-            print(f"  {kept} item(s) it read are past the {archive.SPOOL_HORIZON_DAYS}"
+            print(f"  {kept} item(s) it read are past the {cfg.spool_horizon_days}"
                   f"-day model horizon and stay marked as read — releasing them would "
                   f"retire them unread rather than re-read them")
     failed = False
@@ -2803,7 +2803,7 @@ def main(argv: list[str] | None = None) -> int:
         return args.func(args)
     except KeyboardInterrupt:
         return 130
-    except LLMError as exc:
+    except (LLMError, lock.Busy) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     finally:
