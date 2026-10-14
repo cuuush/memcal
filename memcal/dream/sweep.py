@@ -16,7 +16,7 @@ SWEEP_INSTRUCTIONS = """\
 You are reviewing the state of a personal memory system right after a batch of writes.
 You are not adding anything new. You are looking for damage:
 
-  duplicate    two rows that are plainly the same event -> drop the worse-worded one
+  duplicate    two rows that are plainly the same event -> name both keys so code can merge them
   junk         a row or fact that should never have been stored (banter, affection,
                newsletter events, facts about software, other people's opinions)
   contradiction  two rows that cannot both be true -> raise a question
@@ -24,6 +24,10 @@ You are not adding anything new. You are looking for damage:
 A booking that was really made and then called off is a `declined` row, not a duplicate
 or junk. Both rows stay. This summary has no source evidence, so it cannot authorize a
 status correction. Leave corrections to Merge and Apply, which can compare source lines.
+For a duplicate, `key` is the redundant row and `keep_key` is the other row for the
+same occasion. Code retains booking identity, calendar links, and source evidence.
+An arrival observation can duplicate a confirmed booking; the booking still belongs
+on the real calendar. For junk, `keep_key` is null. Never guess a missing survivor.
 
 KEYS ARE OPAQUE
 A row's key is an identifier, not data. It is minted once from the title and the date
@@ -52,9 +56,10 @@ SWEEP_SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["key", "reason"],
+                "required": ["key", "keep_key", "reason"],
                 "properties": {
                     "key": {"type": "string"},
+                    "keep_key": {"type": ["string", "null"]},
                     "reason": {"type": "string", "enum": ["duplicate", "junk"]},
                 },
             },
@@ -134,9 +139,39 @@ def sweep(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
                        "state was not fully reviewed")
 
     for row in result.get("drop_events") or []:
+        if not isinstance(row, dict):
+            continue
         key = (row or {}).get("key")
-        if key and events.delete(conn, key):
-            actions.append(f"dropped event {key} ({row.get('reason')})")
+        if row.get("reason") == "duplicate":
+            keep = events.get(conn, row.get("keep_key") or "")
+            drop = events.get(conn, key or "")
+            if (keep is None or drop is None or keep.id == drop.id
+                    or keep.date != drop.date or keep.subject != drop.subject
+                    or "declined" in (keep.status, drop.status)
+                    or any(getattr(keep, field) and getattr(drop, field)
+                           and getattr(keep, field) != getattr(drop, field)
+                           for field in ("time", "until", "location"))):
+                actions.append(f"kept event {key}: duplicate needs a valid survivor for the same occasion")
+                continue
+            # Preserve a calendar-backed identity first, then the actual booking.
+            # The model judges equivalence; it cannot discard the booking in favor
+            # of a same-day observation that the calendar publisher will reject.
+            def rank(event):
+                on_calendar = str(event.origin or "").startswith(events.OBSERVED_ORIGINS) or bool(
+                    conn.execute("SELECT 1 FROM calendar_items WHERE event_key=? AND published=1",
+                                 (event.key,)).fetchone())
+                booked = event.kind == "commitment" and event.status == "confirmed"
+                return on_calendar, booked
+
+            if rank(drop) > rank(keep):
+                keep, drop = drop, keep
+            merged = events.merge(conn, keep.key, drop.key, written_by="sweep", commit=False)
+            if merged:
+                actions.append(f"merged duplicate {drop.key} into {keep.key}")
+                trace.stamp(conn, kind="event", ref=keep.key, verb="merged",
+                            entity="sweep:state-review", stage="sweep", run_id=run_id)
+        elif row.get("reason") == "junk" and key and events.delete(conn, key):
+            actions.append(f"dropped event {key} (junk)")
     for row in result.get("drop_todos") or []:
         key = (row or {}).get("key")
         if key and todos.close(conn, key, status="dropped"):

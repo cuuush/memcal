@@ -14,7 +14,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, time as clock_time, timedelta
 
-from .. import archive, db, events, gate, series, todos, trace
+from .. import archive, db, events, gate, presentation, series, threads, todos, trace
 from . import base, providers, register
 from .spec import Source, SourceError
 
@@ -2062,6 +2062,7 @@ def publish(conn: sqlite3.Connection, cfg, event, *, runner=subprocess.run) -> d
         raise PublishError("macOS osascript is unavailable")
 
     start, end, all_day = _event_window(event)
+    inferred_names = threads.guessed_persons(conn)
     existing = conn.execute(
         """SELECT identity, event_uid FROM calendar_items
             WHERE event_key = ? AND published = 1 ORDER BY updated_at DESC LIMIT 1""",
@@ -2078,7 +2079,7 @@ def publish(conn: sqlite3.Connection, cfg, event, *, runner=subprocess.run) -> d
         "location": publish_location(event.location, event.join_url),
         # Whose idea this was, in the one field a calendar entry has for saying so. On a
         # phone at the door this is the difference between a mystery and a plan.
-        "description": _published_note(event),
+        "description": _published_note(event, inferred_names=inferred_names),
     }
     written = _write_event(name, spec, runner=runner)
     if written.get("missing"):
@@ -2113,7 +2114,8 @@ def publish(conn: sqlite3.Connection, cfg, event, *, runner=subprocess.run) -> d
         (identity, written.get("calendar_uid", ""), written.get("calendar", name),
          # `start` is what Calendar.app was *handed* — naive local, because that is what
          # `PUBLISH_JXA`'s `new Date()` wants. What goes in the column is the instant.
-         written.get("uid", ""), event.key, db.utc_stamp(start), _published_state(event),
+         written.get("uid", ""), event.key, db.utc_stamp(start),
+         _published_state(event, inferred_names=inferred_names),
          stamp, stamp))
     conn.commit()
     return {"calendar": written.get("calendar", name), "uid": written.get("uid", ""),
@@ -2314,7 +2316,7 @@ def published_series_uids(conn: sqlite3.Connection) -> set[str]:
         "  WHERE published = 1 AND event_key LIKE 'series:%' AND event_uid <> ''")}
 
 
-def _published_state(event) -> str:
+def _published_state(event, *, inferred_names=()) -> str:
     """What memcal published, so a later run can tell "already there" from "has moved".
 
     Only the fields memcal writes. It cannot be compared against the calendar copy
@@ -2329,13 +2331,16 @@ def _published_state(event) -> str:
     return "|".join(
         [" ".join(str(getattr(event, name, "") or "").split()) for name in fields]
         + [publish_location(getattr(event, "location", ""),
-                            getattr(event, "join_url", ""))])
+                            getattr(event, "join_url", "")),
+           hashlib.sha256(_published_note(event, inferred_names=inferred_names).encode()).hexdigest()])
 
 
-def _published_note(event) -> str:
+def _published_note(event, *, inferred_names=()) -> str:
     bits = ["Added by memcal."]
     if event.participants:
-        bits.append("With " + ", ".join(event.participants) + ".")
+        names = [presentation.as_guess(name, audience="calendar")
+                 if name in inferred_names else name for name in event.participants]
+        bits.append("With " + ", ".join(names) + ".")
     if event.note:
         bits.append(event.note)
     # No `Join:` line. The link goes in `location` now, which is the field the Join
@@ -2370,13 +2375,14 @@ def publish_pending(conn: sqlite3.Connection, cfg, *, keys=None,
         return []
     if keys is None:
         rows = conn.execute(
-            "SELECT * FROM events WHERE status = 'confirmed' AND date >= ?",
+            "SELECT * FROM events WHERE status IN ('confirmed','happened') AND date >= ?",
             ((db.today() - timedelta(days=1)).isoformat(),)).fetchall()
     else:
         marks = ",".join("?" * len(keys)) or "''"
         rows = conn.execute(
             f"SELECT * FROM events WHERE key IN ({marks})", list(keys)).fetchall()
     contested = _contested(conn)
+    inferred_names = threads.guessed_persons(conn)
     log = []
     for row in rows:
         event = events.Event.from_row(row)
@@ -2401,7 +2407,7 @@ def publish_pending(conn: sqlite3.Connection, cfg, *, keys=None,
         known = conn.execute(
             "SELECT identity, published_state FROM calendar_items"
             "  WHERE event_key = ? AND published = 1", (event.key,)).fetchone()
-        if known and known["published_state"] == _published_state(event):
+        if known and known["published_state"] == _published_state(event, inferred_names=inferred_names):
             continue
         try:
             written = publish(conn, cfg, event, runner=runner)
@@ -2429,7 +2435,8 @@ def retract_unpublishable(conn: sqlite3.Connection, cfg, *, dry_run: bool = True
         (name,),
     ).fetchall():
         event = events.get(conn, row["event_key"])
-        if event is not None and publishable(event):
+        if event is not None and (publishable(event) or event.status == "happened"):
+            # Finishing a real booking does not erase its entry from Calendar history.
             continue
         why = ("no memcal row answers to it any more" if event is None
                else f"{event.kind}/{event.status}, not a confirmed commitment")
@@ -2460,11 +2467,10 @@ def retract_unpublishable(conn: sqlite3.Connection, cfg, *, dry_run: bool = True
 def publishable(event) -> bool:
     """Is this a thing the user has actually committed to?
 
-    `confirmed` is the store's word for "the user said yes, or it is booked" — the only status
-    that means a person expects them somewhere. Everything else on the memcal calendar is
-    optimistic by design, and optimism does not belong on a real calendar.
+    Confirmed commitments are booked. A commitment that has happened remains
+    calendar history; observations without a booking never become calendar plans.
     """
-    return (getattr(event, "status", "") == "confirmed"
+    return (getattr(event, "status", "") in ("confirmed", "happened")
             and getattr(event, "kind", "") == "commitment"
             # A row that came *from* a calendar is already on one.
             and not str(getattr(event, "origin", "") or "").startswith(
