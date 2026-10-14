@@ -49,6 +49,10 @@ memcal_open        # the same read over MCP
 ## Budget
 
 The whole brief has a hard token cap (`MEMCAL_BRIEF_TOKEN_CAP`, default 1500).
+When it needs space, ended events give way to ongoing and upcoming plans;
+distant Later plans are trimmed before the active window. An event's activity
+warning stays with its row. Missing known events are disclosed even when there
+is already a warning about unreviewed input.
 Junk in the archive costs nothing; junk in the brief costs on every single turn
 forever, so rendering trims to fit and freshness metadata stays beside its event
 when trimming happens. A general backlog notice survives truncation: when activity
