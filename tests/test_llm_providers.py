@@ -490,6 +490,11 @@ class TestProviderFactory(unittest.TestCase):
                 self.assertTrue(detail)
 
 class TestInteractiveProviderSetup(unittest.TestCase):
+    def setUp(self):
+        catalog = mock.patch("memcal.llm.list_models", return_value=(["gpt-6-luna"], "fixture catalog"))
+        catalog.start()
+        self.addCleanup(catalog.stop)
+
     def test_guided_setup_preserves_unowned_env_and_saves_all_stage_models(self):
         with tempfile.TemporaryDirectory() as root:
             home = Path(root)
