@@ -84,7 +84,7 @@ GROUPS: tuple[Group, ...] = (
 #: Short labels; the group note explains each provider.
 _PROVIDERS = (
     ("openai-compatible", "OpenAI-compatible API"),
-    ("codex", "Codex"),
+    ("codex", "Codex via OAuth"),
     ("claude-code", "Claude Code"),
     ("antigravity", "Antigravity"),
     ("grok", "Grok"),
