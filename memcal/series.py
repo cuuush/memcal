@@ -122,7 +122,7 @@ def _clean(fields: dict) -> dict:
 
 
 def upsert(conn: sqlite3.Connection, fields: dict, *, written_by: str = "cli",
-           commit: bool = True) -> tuple[Series, str]:
+           commit: bool = True, evidence_ts: str | None = None) -> tuple[Series, str]:
     """Insert or change one rule."""
     fields = _clean({k: v for k, v in fields.items()
                      if k in MUTABLE or k in ("slug", "origin")})
@@ -147,6 +147,10 @@ def upsert(conn: sqlite3.Connection, fields: dict, *, written_by: str = "cli",
              fields.get("origin") or fields.get("source"),
              written_by, stamp, stamp),
         )
+        for name in MUTABLE:
+            value = fields.get(name)
+            if value is not None:
+                conn.execute("INSERT INTO series_history(slug, field, old_value, new_value, changed_at, evidence_ts, written_by) VALUES(?,?,NULL,?,?,?,?)", (slug, name, str(value), stamp, evidence_ts or stamp, written_by))
         if commit:
             conn.commit()
         return get(conn, slug), "inserted"  # type: ignore[return-value]
@@ -158,6 +162,10 @@ def upsert(conn: sqlite3.Connection, fields: dict, *, written_by: str = "cli",
         before, after = getattr(existing, name), fields[name]
         if after is None or str(before or "") == str(after or ""):
             continue
+        version = conn.execute("SELECT evidence_ts, changed_at FROM series_history WHERE slug = ? AND field = ? ORDER BY id DESC LIMIT 1", (slug, name)).fetchone()
+        floor = (version["evidence_ts"] or version["changed_at"]) if version else existing.created_at
+        if evidence_ts and db.parse_ts(evidence_ts, strict=True) <= db.parse_ts(floor, strict=True):
+            continue
         changes.append((name, before, after))
     if not changes:
         return existing, "unchanged"
@@ -165,10 +173,10 @@ def upsert(conn: sqlite3.Connection, fields: dict, *, written_by: str = "cli",
         conn.execute(f"UPDATE series SET {name} = ? WHERE slug = ?", (after, slug))
         conn.execute(
             """INSERT INTO series_history(slug, field, old_value, new_value,
-                                          changed_at, written_by)
-               VALUES(?,?,?,?,?,?)""",
+                                          changed_at, evidence_ts, written_by)
+               VALUES(?,?,?,?,?,?,?)""",
             (slug, name, None if before is None else str(before), str(after),
-             stamp, written_by),
+             stamp, evidence_ts or stamp, written_by),
         )
     conn.execute("UPDATE series SET updated_at = ?, written_by = ? WHERE slug = ?",
                  (stamp, written_by, slug))
@@ -178,13 +186,14 @@ def upsert(conn: sqlite3.Connection, fields: dict, *, written_by: str = "cli",
 
 
 def end(conn: sqlite3.Connection, slug: str, *, on: str | None = None,
-        written_by: str = "cli", commit: bool = True) -> Series | None:
+        written_by: str = "cli", commit: bool = True,
+        evidence_ts: str | None = None) -> Series | None:
     """The user has stopped going. The rule stops applying; nothing is removed."""
     if get(conn, slug) is None:
         return None
     updated, _ = upsert(conn, {"slug": slug, "status": "ended",
                                "ends_on": on or db.today().isoformat()},
-                        written_by=written_by, commit=commit)
+                        written_by=written_by, evidence_ts=evidence_ts, commit=commit)
     return updated
 
 
@@ -281,9 +290,12 @@ def roll_forward(conn: sqlite3.Connection, *, slug: str | None = None,
     from . import events, todos  # circular at module scope: events inherits from series
 
     log: list[str] = []
-    rules = [get(conn, slug)] if slug else all_active(conn)
+    rules = [get(conn, slug)] if slug else [
+        Series.from_row(row) for row in conn.execute("SELECT * FROM series ORDER BY slug")]
     for rule in [r for r in rules if r is not None]:
         if not rule.projectable:
+            for row in conn.execute("SELECT key FROM events WHERE series = ? AND date >= ? AND written_by = ?", (rule.slug, db.today().isoformat(), WRITER)).fetchall():
+                events.delete(conn, row["key"])
             continue
         start = db.today()
         if rule.effective_on:

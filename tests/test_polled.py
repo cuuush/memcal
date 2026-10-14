@@ -22,6 +22,10 @@ class Boom(Exception):
     """A platform failure that is not a rate limit."""
 
 
+class Inaccessible(Boom):
+    """A platform permission response."""
+
+
 class Throttled(Exception):
     """A platform failure that is."""
 
@@ -76,6 +80,9 @@ class FakeChat(PolledSource):
 
     def is_rate_limit(self, exc):
         return isinstance(exc, Throttled)
+
+    def is_inaccessible(self, exc):
+        return isinstance(exc, Inaccessible)
 
 
 def chat(chat_id: str, *, days_ago: int = 1, newest: str = "", group: bool = False):
@@ -206,7 +213,7 @@ class TestTheBudgetIsSpentOnLiveConversation(PolledCase):
 class TestOneBadChatCannotStopTheRun(PolledCase):
     def test_an_unreadable_chat_is_noted_and_the_rest_are_read(self):
         source = FakeChat([chat("bad", days_ago=1), chat("good", days_ago=2)],
-                          {"bad": [Boom("403 no access")], "good": [{"id": "5"}]})
+                          {"bad": [Inaccessible("403 no access")], "good": [{"id": "5"}]})
         report = self.run_source(source)
         self.assertIsNone(report.error)
         self.assertEqual(self.archived_ids(), ["good:5"])
@@ -239,8 +246,9 @@ class TestWhatTheRestOfMemcalSees(PolledCase):
         source = FakeChat([chat("a", group=True)], {"a": [{"id": "1"}]})
         self.run_source(source)
         row = self.conn.execute(
-            "SELECT thread, is_group FROM threads WHERE channel = 'faketalk'").fetchone()
-        self.assertEqual(row["thread"], "Chat a")
+            "SELECT thread, label, is_group FROM threads WHERE channel = 'faketalk'").fetchone()
+        self.assertEqual(row["thread"], "id:a")
+        self.assertEqual(row["label"], "Chat a")
         self.assertEqual(row["is_group"], 1)
 
     def test_a_thread_is_recorded_even_when_it_has_nothing_new(self):

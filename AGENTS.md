@@ -156,8 +156,9 @@ deps in `pyproject.toml`. `./install.sh` puts a `memcal` launcher on PATH via
 `PYTHONPATH` — code edits take effect immediately. Never run `./install.sh` from
 a worktree (see Worktrees).
 
-No lint, typecheck, formatter, or CI beyond publish. Verification is unittest plus
-the temporal benchmark. User-facing operation belongs in `README.md`; contributor
+No lint, typecheck, formatter, or CI beyond publish. Verification uses isolated
+unittests; comparative evaluation lives in the separate PACBench project.
+User-facing operation belongs in `README.md`; contributor
 workflow in `CONTRIBUTING.md`; harness install belongs above — do not add dated
 narratives here.
 
@@ -228,15 +229,6 @@ narratives here.
   (`--buffer`): setup wizards (Slack/Telegram token provisioning) print
   real user-facing prose that is correct in production but pure noise under a
   test run — buffering hides it and still surfaces it for any test that fails.
-- When touching ingest, merge, typed storage, dream application, or brief rendering, also run
-  `python3 tools/benchmark_temporal.py --layer integration` (free, ~1s; oracle answers, so a
-  green run says nothing about model accuracy). A before/after pair helps ambiguous
-  regressions. `--layer model` costs money/quota — only for deliberate extraction/prompt
-  evaluation. A capacity/auth void is diagnostic, not a release signal.
-- Benchmarks never touch `~/.memcal` (scratch stores only) and never mutate tracked files;
-  output belongs in ignored `tools/bench_output/` or CI artifacts. Keep benchmark
-  expectations out of model input; report retrieval, semantic, and application failures
-  separately.
 - Matching/write-precedence changes need lifecycle tests spanning typed tool calls, source
   ingestion, dream, and replay — covering both duplicate prevention and false merges.
 - Tests pin time through `db` (`set_today`/`today()`/`now_dt()`), never the machine clock;
@@ -263,6 +255,5 @@ narratives here.
   tag must match `pyproject.toml` or PyPI rejects the upload.
 - Never write the live `~/.memcal` store during development. Read-only diagnosis of
   live data is allowed when the user explicitly requests it; use SQLite read-only
-  connections and do not run migrations. Tests use tmp dirs, benchmarks use scratch
-  homes. Keep secrets, `calls/`, `tools/bench_output/`,
+  connections and do not run migrations. Tests use tmp dirs. Keep secrets, `calls/`,
   `transcripts/`, and `*.db` out of version control (see `.gitignore`).

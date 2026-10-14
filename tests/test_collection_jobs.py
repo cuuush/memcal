@@ -812,8 +812,8 @@ class TestASourceThatFilledItsPageSaysSo(unittest.TestCase):
             " ON a.id = s.archive_id ORDER BY a.id").fetchall()
         self.assertEqual([(r["external_id"], r["entity"]) for r in rows], [
             ("pizza-1", "person:Devon"), ("pizza-2", "person:Devon"),
-            ("ducks-1", "thread:imessage:ducks-side"),
-            ("ducks-2", "thread:imessage:ducks-side"),
+            ("ducks-1", "thread:imessage:id:ducks-side"),
+            ("ducks-2", "thread:imessage:id:ducks-side"),
         ])
 
     def test_a_source_that_ran_dry_does_not_ask_for_another_round(self):

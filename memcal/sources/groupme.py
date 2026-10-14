@@ -303,7 +303,7 @@ def _cache_group_profiles(conn: sqlite3.Connection, summary: dict, detail: dict,
                           *, my_id: str) -> int:
     """Cache group member profiles and update derived person identities on archived messages."""
     group_id = str(summary.get("id") or detail.get("id") or "")
-    thread = detail.get("name") or summary.get("name") or group_id
+    thread = f"id:group:{group_id}"
     stamp = db.now()
     members = detail.get("members") or []
     roster = group_members(detail)
@@ -363,10 +363,10 @@ def _refresh_profiles(conn: sqlite3.Connection, client: GroupMe, groups: list[di
         group for group in groups
         if (
             _included_group(
-                conn, group.get("name") or str(group.get("id"))
+                conn, f"id:group:{group.get('id')}"
             )
             and not _profiles_are_current(
-                conn, group, group.get("name") or str(group.get("id"))
+                conn, group, f"id:group:{group.get('id')}"
             )
         )
     ]
@@ -459,7 +459,9 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 500,
     initial_skipped = 0
     for group in groups:
         group_id = str(group.get("id"))
-        name = group.get("name") or group_id
+        name = f"id:group:{group_id}"
+        if sum(g.get("name") == group.get("name") for g in groups) == 1:
+            threads.adopt_key(conn, "groupme", name, group.get("name") or group_id)
         hushed = _muted(group.get("muted_until"))
         # The listing omits memberships; group detail refreshes rosters later.
         threads.record(conn, "groupme", name, label=group.get("name"),
@@ -506,7 +508,7 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 500,
             # Process messages in ascending chronological order so the watermark advances accurately.
             messages = sorted(messages, key=lambda m: int(m.get("created_at") or 0))
             newest = since
-            name = group.get("name") or str(group.get("id"))
+            name = f"id:group:{group.get('id')}"
             for message in messages:
                 budget -= 1
                 _deliver(conn, report, message, thread=name,
@@ -531,6 +533,8 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 500,
             chats = client.chats()
         except base.HttpError as exc:
             report.notes.append(f"DMs unavailable: {str(exc)[:100]}")
+            report.error = report.error or f"DMs unavailable: {str(exc)[:200]}"
+            report.more = True
             chats = []
 
         waiting = []
@@ -544,7 +548,7 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 500,
                 if not identity.resolve(conn, handle):
                     identity.note_unresolved(conn, handle, "groupme", other["name"],
                                              (chat.get("last_message") or {}).get("text"))
-            threads.record(conn, "groupme", other.get("name") or other_id,
+            threads.record(conn, "groupme", f"id:dm:{other_id}",
                            label=other.get("name"), is_group=False)
             since = base.watermark(conn, f"groupme.dm.{other_id}", "") or None
             newest = last_message_id(chat, "last_message")
@@ -576,7 +580,7 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 500,
                 other_id = str(other.get("id") or "")
                 messages = sorted(messages, key=lambda m: int(m.get("created_at") or 0))
                 newest = since
-                name = other.get("name") or other_id
+                name = f"id:dm:{other_id}"
                 for message in messages:
                     budget -= 1
                     _deliver(conn, report, message, thread=name,
@@ -608,6 +612,8 @@ def _fetch(report, chunk: list, call, describe) -> tuple[list, bool]:
                     limited = True
                 else:
                     report.notes.append(f"{describe(item)}: {str(exc)[:80]}")
+                    report.error = report.error or f"{describe(item)}: {str(exc)[:200]}"
+                    report.more = True
     if limited:
         report.notes.append("rate limited by GroupMe — stopping this round")
         report.more = True

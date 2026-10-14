@@ -160,6 +160,10 @@ class TelegramSource(PolledSource):
         # Telethon raises FloodWaitError with the seconds Telegram wants back.
         return type(exc).__name__ == "FloodWaitError"
 
+    def is_inaccessible(self, exc: Exception) -> bool:
+        return type(exc).__name__ in {"ChannelPrivateError", "ChatAdminRequiredError",
+                                     "ChannelInvalidError"}
+
     # ------------------------------------------------------------------ shape --
     def fetch(self, conn: sqlite3.Connection, cfg: Config,
               report: base.IngestReport, limit: int) -> None:

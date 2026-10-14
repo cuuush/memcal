@@ -104,7 +104,6 @@ Full guides: **https://cuuush.github.io/memcal/**
 - [Quickstart](https://cuuush.github.io/memcal/quickstart/) — install, first ingest, nightly job
 - [Sources](https://cuuush.github.io/memcal/sources/) — Slack, Telegram, WhatsApp, iMessage, Signal, email, calendar, …
 - [CLI](https://cuuush.github.io/memcal/clients/cli/) · [MCP](https://cuuush.github.io/memcal/clients/mcp/) · [Integrations](https://cuuush.github.io/memcal/integrations/)
-- [Evaluation](https://cuuush.github.io/memcal/evaluation/) — how memory quality is measured
 
 Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Notable changes: [CHANGELOG.md](CHANGELOG.md).
 

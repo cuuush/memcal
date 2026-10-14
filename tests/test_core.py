@@ -3422,7 +3422,7 @@ class TestWhatsApp(Base):
         whatsapp.ingest(self.conn, self.cfg, db_path=path)
         row = self.conn.execute("SELECT * FROM archive WHERE channel='whatsapp'").fetchone()
         self.assertEqual(row["person"], "Mum")
-        self.assertEqual(row["thread"], "Family")
+        self.assertEqual(row["thread"], "id:12345-67890@g.us")
 
     def test_a_jid_resolves_against_the_same_contacts_as_imessage(self):
         # One person is one person across streams, or bundling splits them in two.
@@ -5342,7 +5342,7 @@ class TestASubjectNamesAPerson(Base):
 
 
 class TestKeysAreMintedHereNotByTheModel(Base):
-    """Found by tools/benchmark_temporal.py, 2026-07-28.
+    """Correctness regression.
 
     The same run returned `"key": "alpha"` and `"key": "beta"` for two new rows, and
     both went in and stayed — a permanent identifier for a poker game, invented.
@@ -5676,7 +5676,7 @@ class TestTheCeilingCoversTheThinking(Base):
 
 
 class TestTheDaysAreNamedNotCounted(Base):
-    """Found by tools/benchmark_temporal.py, 2026-07-28.
+    """Correctness regression.
 
     "beer garden saturday? like 3", said on Monday the 3rd, landed on Sunday the 9th in
     two live runs out of four. Naming today and leaving the rest as arithmetic is asking
