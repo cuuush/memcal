@@ -81,9 +81,19 @@ def claimed(conn: sqlite3.Connection, run_id: int) -> int:
         "SELECT count(*) n FROM spool WHERE run_id = ?", (run_id,)).fetchone()["n"])
 
 
-def requeue(conn: sqlite3.Connection, run_id: int) -> tuple[int, int]:
+def requeue(conn: sqlite3.Connection, run_id: int, *, horizon_days: int = archive.SPOOL_HORIZON_DAYS,
+            cfg=None) -> tuple[int, int]:
+    """Release retry traffic only when no Dream owns this store."""
+    if cfg is None:
+        return _requeue_owned(conn, run_id, horizon_days=horizon_days)
+    from .. import lock
+    with lock.held(cfg, name="dream.lock"):
+        return _requeue_owned(conn, run_id, horizon_days=horizon_days)
+
+
+def _requeue_owned(conn: sqlite3.Connection, run_id: int, *, horizon_days: int) -> tuple[int, int]:
     """Release readable lines claimed by a run; return `(released, too_old)`."""
-    cutoff = (db.today() - timedelta(days=archive.SPOOL_HORIZON_DAYS)).isoformat()[:10]
+    cutoff = (db.today() - timedelta(days=horizon_days)).isoformat()[:10]
     cur = conn.execute(
         """UPDATE spool SET processed_at = NULL, run_id = NULL
             WHERE run_id = ? AND archive_id IN

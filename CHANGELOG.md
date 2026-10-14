@@ -30,6 +30,20 @@
 - Dream's guessed sender labels are explicitly labeled as such, so a label like
   Lucy daycare cannot be mistaken for an unconfirmed booking.
 
+- Delayed evidence can no longer undo newer wiki or recurring-schedule corrections;
+  event evidence compares timestamps across timezone offsets correctly.
+- Source conversation identities survive renames and distinguish equally named chats,
+  preserving unambiguous legacy history and explicit mutes. BlueBubbles retains
+  tied boundary messages and reports partially read pages correctly.
+- Email body recovery respects newly blocked senders, and failed history reads no
+  longer report a successful collection.
+- Concurrent Dream passes refuse overlapping ownership, wiki publication preserves
+  concurrent staged edits, and Dream/retry use the configured archive horizon.
+- Duplicate cleanup transfers event relationships, deleted operations cannot replay
+  into new events, and explicit dates and attendance corrections are respected.
+- Ended schedules remove generated future occurrences, normal calendar write paths
+  retract withdrawn publications, and web job streams use the EventSource MIME type.
+
 - Source headings correctly label older context as days earlier when current
   evidence is displayed first.
 
@@ -44,6 +58,11 @@
 - Brief trimming removes ended events and distant plans before upcoming plans,
   preserving their people and freshness warnings. Omitted known events are
   disclosed even when an input-coverage warning is already present.
+
+### Removed
+
+- The internal benchmark runner, corpus, scoring tools, evaluation pages and
+  benchmark-only tests. Memory-system benchmarking now lives in PACBench.
 
 ## [0.8.2] - 2026-10-08
 
@@ -126,7 +145,6 @@
 - Date ranges use compact month/day notation. Memory sources show cited message IDs,
   wiki evidence opens on demand, and Settings exposes provider/model controls first.
   Successful resumes clear the earlier run’s retry alert while retaining its history.
-
 
 - `memcal setup` focuses on provider/model, iMessage transport and BlueBubbles
   connections, and source selection, with optional credentials. `--advanced`

@@ -116,6 +116,7 @@ def sweep_ceiling(snapshot: str, model: str = "") -> int:
 def sweep(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
           diff_log: list[str], *, run_id: int | None = None) -> tuple[dict, list[str]]:
     """Execute the sweep stage, returning (result_dict, actions_taken)."""
+    versions = {e.key: dict(conn.execute("SELECT * FROM events WHERE key = ?", (e.key,)).fetchone()) for e in events.window(conn, cfg.days_back, cfg.days_forward)}
     snapshot = state_snapshot(conn, cfg, diff_log)
     ceiling = sweep_ceiling(snapshot, cfg.sweep_model)
     if cfg.llm_provider == "openai-compatible":
@@ -138,52 +139,63 @@ def sweep(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
         raise LLMError(f"reply cut off at the {ceiling}-token ceiling; "
                        "state was not fully reviewed")
 
-    for row in result.get("drop_events") or []:
-        if not isinstance(row, dict):
-            continue
-        key = (row or {}).get("key")
-        if row.get("reason") == "duplicate":
-            keep = events.get(conn, row.get("keep_key") or "")
-            drop = events.get(conn, key or "")
-            if (keep is None or drop is None or keep.id == drop.id
-                    or keep.date != drop.date or keep.subject != drop.subject
-                    or "declined" in (keep.status, drop.status)
-                    or any(getattr(keep, field) and getattr(drop, field)
-                           and getattr(keep, field) != getattr(drop, field)
-                           for field in ("time", "until", "location"))):
-                actions.append(f"kept event {key}: duplicate needs a valid survivor for the same occasion")
-                continue
-            # Preserve a calendar-backed identity first, then the actual booking.
-            # The model judges equivalence; it cannot discard the booking in favor
-            # of a same-day observation that the calendar publisher will reject.
-            def rank(event):
-                on_calendar = str(event.origin or "").startswith(events.OBSERVED_ORIGINS) or bool(
-                    conn.execute("SELECT 1 FROM calendar_items WHERE event_key=? AND published=1",
-                                 (event.key,)).fetchone())
-                booked = event.kind == "commitment" and event.status == "confirmed"
-                return on_calendar, booked
+    conn.execute("BEGIN IMMEDIATE")
+    with conn:
+        def unchanged(key):
+            current = conn.execute("SELECT * FROM events WHERE key = ?", (key,)).fetchone()
+            return key in versions and current is not None and dict(current) == versions[key]
 
-            if rank(drop) > rank(keep):
-                keep, drop = drop, keep
-            merged = events.merge(conn, keep.key, drop.key, written_by="sweep", commit=False)
-            if merged:
-                actions.append(f"merged duplicate {drop.key} into {keep.key}")
-                trace.stamp(conn, kind="event", ref=keep.key, verb="merged",
+        for row in result.get("drop_events") or []:
+            if not isinstance(row, dict):
+                continue
+            key = (row or {}).get("key")
+            if not key or not unchanged(key):
+                continue
+            if row.get("reason") == "duplicate":
+                if not unchanged(row.get("keep_key")):
+                    continue
+                keep = events.get(conn, row.get("keep_key") or "")
+                drop = events.get(conn, key or "")
+                if (keep is None or drop is None or keep.id == drop.id
+                        or keep.date != drop.date or keep.subject != drop.subject
+                        or "declined" in (keep.status, drop.status)
+                        or any(getattr(keep, field) and getattr(drop, field)
+                               and getattr(keep, field) != getattr(drop, field)
+                               for field in ("time", "until", "location"))):
+                    actions.append(f"kept event {key}: duplicate needs a valid survivor for the same occasion")
+                    continue
+                # Preserve a calendar-backed identity first, then the actual booking.
+                # The model judges equivalence; it cannot discard the booking in favor
+                # of a same-day observation that the calendar publisher will reject.
+                def rank(event):
+                    on_calendar = str(event.origin or "").startswith(events.OBSERVED_ORIGINS) or bool(
+                        conn.execute("SELECT 1 FROM calendar_items WHERE event_key=? AND published=1",
+                                     (event.key,)).fetchone())
+                    booked = event.kind == "commitment" and event.status == "confirmed"
+                    return on_calendar, booked
+
+                if rank(drop) > rank(keep):
+                    keep, drop = drop, keep
+                merged = events.merge(conn, keep.key, drop.key, written_by="sweep", commit=False)
+                if merged:
+                    actions.append(f"merged duplicate {drop.key} into {keep.key}")
+                    trace.stamp(conn, kind="event", ref=keep.key, verb="merged",
+                                entity="sweep:state-review", stage="sweep", run_id=run_id)
+            elif row.get("reason") == "junk" and key and events.delete(conn, key, commit=False):
+                actions.append(f"dropped event {key} (junk)")
+        for row in result.get("drop_todos") or []:
+            key = (row or {}).get("key")
+            if not key or not unchanged(key):
+                continue
+            if key and todos.close(conn, key, status="dropped", commit=False):
+                actions.append(f"dropped todo {key} ({row.get('reason')})")
+        for question in result.get("questions") or []:
+            if isinstance(question, str) and question.strip():
+                key = todos.ask(conn, question.strip(), written_by="sweep", commit=False)
+                # Record trace provenance stamp for sweep-generated questions.
+                trace.stamp(conn, kind="question", ref=key, verb="asked",
                             entity="sweep:state-review", stage="sweep", run_id=run_id)
-        elif row.get("reason") == "junk" and key and events.delete(conn, key):
-            actions.append(f"dropped event {key} (junk)")
-    for row in result.get("drop_todos") or []:
-        key = (row or {}).get("key")
-        if key and todos.close(conn, key, status="dropped"):
-            actions.append(f"dropped todo {key} ({row.get('reason')})")
-    for question in result.get("questions") or []:
-        if isinstance(question, str) and question.strip():
-            key = todos.ask(conn, question.strip(), written_by="sweep")
-            # Record trace provenance stamp for sweep-generated questions.
-            trace.stamp(conn, kind="question", ref=key, verb="asked",
-                        entity="sweep:state-review", stage="sweep", run_id=run_id)
-            actions.append(f"asked: {question.strip()}")
-    conn.commit()
+                actions.append(f"asked: {question.strip()}")
     return result, actions
 
 

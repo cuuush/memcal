@@ -91,4 +91,3 @@ See [Integrations](integrations/index.md).
 - [Architecture](architecture/index.md) — observe, gate, dream, brief.
 - [Remember](api/remember.md), [Recall](api/recall.md), [Correct](api/correct.md) — the tool surface.
 - [Sources](sources/index.md) — every input memcal reads.
-- [Evaluation](evaluation/index.md) — how memory quality is measured.

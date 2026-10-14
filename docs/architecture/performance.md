@@ -37,7 +37,7 @@ activity read. Nothing in the turn path waits on extraction, consolidation, or
 history-wide search. Response latency, source reads, driver and provider model
 calls, and nightly processing cost are recorded separately, so a slow correct
 answer and an immediate correct answer are never confused. See
-[Grading](../evaluation/grading.md).
+PACBench, maintained as a separate project.
 
 ## Backends
 

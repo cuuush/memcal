@@ -235,7 +235,19 @@ class _ProposeBreaker:
                                 on_done=on_done)
 
 
-def dream(
+def dream(conn: sqlite3.Connection, cfg: Config, *, mode: str = "nightly",
+          model: str | None = None, limit: int = 0, dry_run: bool = False,
+          skip_sweep: bool = False, redo: str | None = None, progress=None,
+          replay: dict | None = None) -> DreamResult:
+    """Run one pass with exclusive ownership of this store's Dream state."""
+    from .. import lock
+    with lock.held(cfg, name="dream.lock"):
+        return _dream_owned(conn, cfg, mode=mode, model=model, limit=limit,
+                            dry_run=dry_run, skip_sweep=skip_sweep, redo=redo,
+                            progress=progress, replay=replay)
+
+
+def _dream_owned(
     conn: sqlite3.Connection,
     cfg: Config,
     *,
@@ -352,7 +364,7 @@ def _dream(
     # A backfill can queue years of mail in one go. Retiring it here rather than at
     # ingest time means an archive spooled by an older build heals itself on the next
     # pass instead of charging for a decade of newsletters.
-    cutoff = (db.today() - timedelta(days=archive.SPOOL_HORIZON_DAYS)).isoformat()
+    cutoff = (db.today() - timedelta(days=cfg.spool_horizon_days)).isoformat()
     retired = archive.spool_retire(conn, cutoff)
     if retired:
         print(f"retired {retired} spooled items older than {cutoff} (still in the archive)")

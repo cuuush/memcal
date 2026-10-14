@@ -201,6 +201,8 @@ def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None 
                         f"in System Settings → Privacy & Security.")
         return report
 
+    for chat in src.execute("SELECT chat_identifier, display_name FROM chat WHERE chat_identifier IS NOT NULL AND (display_name IS NULL OR display_name = '' OR (SELECT count(*) FROM chat c2 WHERE c2.display_name = chat.display_name) = 1)"):
+        threads.adopt_key(conn, "imessage", f"id:{chat['chat_identifier']}", chat["display_name"] or chat["chat_identifier"])
     tier = identity.top_tier(conn)
     for row in rows:
         report.read += 1
@@ -222,7 +224,7 @@ def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None 
             report.unknown_handles.add(handle)
 
         is_group = members > 1
-        thread = row["chat_name"] or row["chat"] or handle or "unknown"
+        thread = f"id:{row['chat']}" if row["chat"] else handle or "unknown"
         threads.record(conn, "imessage", thread, label=row["chat_name"], is_group=is_group)
         if handle and not from_me:
             threads.record_members(conn, "imessage", thread, [(handle, None)])

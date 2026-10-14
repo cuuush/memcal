@@ -20,7 +20,6 @@ from unittest import mock
 
 from memcal import cli, db, llm, trace, web, web_server
 from memcal.sources import base
-from tests.scenarios import skeleton
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -80,8 +79,6 @@ class TestTheWebServerBoundsRequestBodies(unittest.TestCase):
                 self.assertEqual(caught.exception.status, 400)
                 self.assertIn(message, str(caught.exception).lower())
 
-    def test_an_empty_body_keeps_the_existing_empty_object_semantics(self):
-        self.assertEqual(web._read_json_body({}, io.BytesIO()), {})
 
 
 class TestHttpErrorsReleaseTheirResponses(unittest.TestCase):
@@ -143,8 +140,8 @@ class TestCliMainClosesEveryOpenedDatabase(unittest.TestCase):
                 conn.execute("SELECT 1")
 
 
-class TestTrackedFixturesContainOnlyApprovedSyntheticIdentities(unittest.TestCase):
-    """Shareable fixtures use one reviewed cast; no private identifier reaches tracked text."""
+class TestTrackedTextContainsNoPrivateIdentifiers(unittest.TestCase):
+    """No private identifier reaches tracked text."""
 
     FROZEN = frozenset()
     PRIVATE_DIGESTS = frozenset({
@@ -166,33 +163,6 @@ class TestTrackedFixturesContainOnlyApprovedSyntheticIdentities(unittest.TestCas
         r"(?<!\d)(?:\+?1[-. ()]*)?(?:[2-9]\d{2}[-. ()]*)[2-9]\d{2}"
         r"[-. ]*\d{4}(?!\d)"
     )
-    APPROVED_CAST = {
-        "me": ("+19175550117", "88000", "19175550117@s.whatsapp.net"),
-        "Jordan Lee": ("+19175550001", "88001", "19175550001@s.whatsapp.net"),
-        "Alex Rivera": ("+19175550002", "88002", "19175550002@s.whatsapp.net"),
-        "Cameron Ortiz": ("+19175550003", "88003", "19175550003@s.whatsapp.net"),
-        "Harper": ("+19175550004", "88004", "19175550004@s.whatsapp.net"),
-        "Riley Morgan": ("+19175550005", "88005", "19175550005@s.whatsapp.net"),
-        "Rowan Vale": ("+19175550006", "88006", "19175550006@s.whatsapp.net"),
-        "Alex Chen": ("+19175550007", "88007", "19175550007@s.whatsapp.net"),
-        "Skyler Reed": ("+19175550008", "88008", "19175550008@s.whatsapp.net"),
-        "Devon Park": ("+19175550009", "88009", "19175550009@s.whatsapp.net"),
-        "Bailey Stone": ("+19175550010", "88010", "19175550010@s.whatsapp.net"),
-        "Mom": ("+19175550011", "88011", "19175550011@s.whatsapp.net"),
-        "Jose": ("+19175550012", "88012", "19175550012@s.whatsapp.net"),
-        "Quinn Brooks": ("+19175550013", "88013", "19175550013@s.whatsapp.net"),
-        "Rae": ("+19175550014", "88014", "19175550014@s.whatsapp.net"),
-        "Morgan": ("+19175550015", "88015", "19175550015@s.whatsapp.net"),
-        "Nadia Okoro": ("+19175550016", "88016", "19175550016@s.whatsapp.net"),
-        "Sasha Kim": ("+19175550017", "88017", "19175550017@s.whatsapp.net"),
-        "Unnameable Neighbour": (
-            "+261516951601296", "88018", "261516951601296@lid"),
-    }
-    APPROVED_PERSON_MAIL = {
-        ("Alex Rivera", "alex.rivera@example.com"),
-        ("Bailey Stone", "bailey@example.com"),
-        ("Morgan Hale", "morgan@harbortutoring.example"),
-    }
 
     @staticmethod
     def _digest(value):
@@ -260,49 +230,6 @@ class TestTrackedFixturesContainOnlyApprovedSyntheticIdentities(unittest.TestCas
                         findings.append(f"{name}:{line_number}:comment")
         self.assertEqual(findings, [])
 
-    def test_the_canonical_native_fixture_identities_are_reviewed(self):
-        self.assertEqual(skeleton.CAST, self.APPROVED_CAST)
-        person_mail = {(row["name"], row["addr"]) for row in skeleton.EMAIL
-                       if row["kind"] == "person"}
-        self.assertEqual(person_mail, self.APPROVED_PERSON_MAIL)
-
-        fixture = ROOT / "tests" / "scenarios" / "fixtures"
-        approved_names = (set(self.APPROVED_CAST) - {"me"}) | {"Casey", "GroupMe"}
-        approved_phones = {row[0] for row in self.APPROVED_CAST.values()} | {"262966"}
-        approved_gm_ids = {row[1] for row in self.APPROVED_CAST.values()} | {"0", "system"}
-        approved_jids = {row[2] for row in self.APPROVED_CAST.values()}
-
-        blue = json.loads((fixture / "bluebubbles" / "messages.json").read_text())
-        for row in blue:
-            addresses = [p["address"] for p in row["chats"][0]["participants"]]
-            addresses.append(row["chats"][0]["chatIdentifier"])
-            if row["handle"]:
-                addresses.append(row["handle"]["address"])
-            self.assertTrue(set(addresses) <= approved_phones)
-
-        groupme = fixture / "groupme"
-        payloads = [json.loads((groupme / "groups.json").read_text())]
-        payloads += [json.loads(path.read_text())
-                     for path in sorted(groupme.glob("msgs-*.json"))]
-        for payload in payloads:
-            for row in payload:
-                if "members" in row:
-                    self.assertTrue({m["nickname"] for m in row["members"]}
-                                    <= approved_names)
-                    self.assertTrue({m["user_id"] for m in row["members"]}
-                                    <= approved_gm_ids)
-                else:
-                    self.assertIn(row["name"], approved_names)
-                    self.assertIn(row["user_id"], approved_gm_ids)
-
-        conn = sqlite3.connect(fixture / "whatsapp" / "ChatStorage.sqlite")
-        self.addCleanup(conn.close)
-        names = {row[0] for row in conn.execute(
-            "SELECT ZCONTACTNAME FROM ZWAGROUPMEMBER WHERE ZCONTACTNAME IS NOT NULL")}
-        jids = {row[0] for row in conn.execute(
-            "SELECT ZMEMBERJID FROM ZWAGROUPMEMBER")}
-        self.assertTrue(names <= approved_names)
-        self.assertTrue(jids <= approved_jids)
 
 
 class TestEverySourceMetaKeyWrittenIsReadSomewhere(unittest.TestCase):

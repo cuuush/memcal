@@ -21,6 +21,6 @@ The archive is append-only. Typed rows can be corrected, merged, or withdrawn,
 but evidence and value history stay queryable. Model-call traces stay local, so
 any row can be chased back to the exact generation that wrote it.
 
-Treat the store as sensitive: keep `~/.memcal`, `.env` files, model-call traces,
-and benchmark output out of version control, guarded by normal filesystem access
+Treat the store as sensitive: keep `~/.memcal`, `.env` files, and model-call traces
+out of version control, guarded by normal filesystem access
 controls.

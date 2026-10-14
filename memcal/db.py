@@ -34,6 +34,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 # Existing databases need explicit ALTERs; schema.sql only creates new tables.
 ADDED_COLUMNS = (
+    ("slot_history", "evidence_ts", "TEXT"),
     ("events", "until", "TEXT"),
     # What a cancellation named, for exact re-identification.
     ("pending_changes", "subject_time", "TEXT"),
@@ -326,7 +327,7 @@ def open_db(db_path: Path) -> sqlite3.Connection:
 # -------------------------------------------------------------------- clock --
 #
 # Centralize the clock because dates control write precedence, matching, spool expiry,
-# and brief windows. Tests and benchmarks pin it with `MEMCAL_TODAY` or `set_today()`;
+# and brief windows. Tests pin it with `MEMCAL_TODAY` or `set_today()`;
 # unset means the real clock.
 
 _FAKE_TODAY: date | None = None
@@ -412,7 +413,7 @@ def parse_date(value: str | date) -> date:
 WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
 
-def parse_when(phrase: str, *, ref: date | None = None) -> tuple[date, int]:
+def parse_when(phrase: str, *, ref: date | None = None, strict: bool = False) -> tuple[date, int]:
     """Resolve a simple human date phrase to ``(start, day_count)``."""
     ref = ref or today()
     text = " ".join((phrase or "").split()).lower().strip()
@@ -421,7 +422,8 @@ def parse_when(phrase: str, *, ref: date | None = None) -> tuple[date, int]:
     try:
         return parse_date(text), 1
     except ValueError:
-        pass
+        if strict and re.match(r"^\d{4}-", text):
+            raise ValueError(f"invalid date: {phrase!r}")
     if text in ("today", "tonight"):
         return ref, 1
     if text == "tomorrow":
@@ -443,6 +445,12 @@ def parse_when(phrase: str, *, ref: date | None = None) -> tuple[date, int]:
             if "next" in text and ahead < 7 - ref.weekday():
                 ahead += 7          # still inside this week, so "next" means the one after
             return ref + timedelta(days=ahead), 1
+    from . import dates
+    resolved = dates.resolve(text, ref)
+    if resolved:
+        return parse_date(resolved), 1
+    if strict:
+        raise ValueError(f"unrecognized date: {phrase!r}")
     return ref, 1
 
 

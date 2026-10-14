@@ -500,7 +500,7 @@ def _claims(row, field: str) -> list[str]:
     out += [str(row.get(name) or "") for name in ("location", "note", "wake_condition")]
     # The day is a claim like any other, and the line that settled it — "poker
     # thursday" — is the single most useful thing to have kept when someone later asks
-    # where a date came from. `bench_audit --audit dates` re-derives the date from
+    # where a date came from. source-evidence diagnostics re-derive the date from
     # exactly these lines, so leaving them out makes a correct row unverifiable.
     out.append(_day_words(row.get("date")))
     return [claim for claim in out if claim.strip()]
@@ -560,7 +560,7 @@ def _evidence_ts(bundle: Bundle, cited, claims) -> str | None:
     if not picked and claims:
         picked = [i for i in _supporting_lines(bundle, claims) if i in by_id]
     if picked:
-        return max(by_id[i] for i in picked)
+        return max((by_id[i] for i in picked), key=lambda v: db.parse_ts(v, strict=True))
     return _newest(bundle)
 
 
@@ -608,7 +608,7 @@ def _evidence_by_field(bundle: Bundle, cited, row: dict) -> dict[str, str] | str
             continue
         lines = [i for i in (claimed.get(name) or ()) if i in by_id]
         if lines:
-            out[name] = max(by_id[i] for i in lines)
+            out[name] = max((by_id[i] for i in lines), key=lambda v: db.parse_ts(v, strict=True))
     return out
 
 
@@ -620,7 +620,7 @@ def _newest(bundle: Bundle) -> str | None:
     re-litigate it from traffic older than the decision.
     """
     stamps = [str(row["ts"]) for row in bundle.items if row["ts"]]
-    return max(stamps) if stamps else None
+    return max(stamps, key=lambda v: db.parse_ts(v, strict=True)) if stamps else None
 
 
 def _clean(value):
@@ -872,7 +872,7 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
         return None
     # A pending observation is one statement, not a set of fields, so it records the one
     # moment it was said — the latest of whatever supported the diff it came out of.
-    said_at = (max((str(v) for v in evidence_ts.values() if v), default=None)
+    said_at = (max((str(v) for v in evidence_ts.values() if v), key=lambda v: db.parse_ts(v, strict=True), default=None)
                if isinstance(evidence_ts, dict) else evidence_ts)
     title = _clean(row.get("title"))
     date_value = _clean(row.get("date"))
@@ -1160,11 +1160,13 @@ def _wiki_slot_current_ts(conn: sqlite3.Connection | None, cfg: Config,
                            slug: str, slot: str) -> str | None:
     """When the evidence behind this slot's current value was said.
 
-    The newest archive line stamped behind the resolved ref first — that is when
-    the fact was stated. A direct write (note/CLI) stamps no trace, so fall back
-    to the slot history's write time, then the slot's own day stamp. None when
-    nothing on file says when, in which case the write stays allowed.
+    The current slot history establishes its version, including direct writes.
+    Older pages without history fall back to linked evidence and the page stamp.
     """
+    if conn is not None:
+        latest = conn.execute("SELECT evidence_ts, changed_at FROM slot_history WHERE page = ? AND slot = ? ORDER BY id DESC LIMIT 1", (slug, slot)).fetchone()
+        if latest:
+            return str(latest["evidence_ts"] or latest["changed_at"])
     ref = f"{slug}.{slot.lower()}"
     stamps: list[str] = []
     if conn is not None:
@@ -1190,7 +1192,7 @@ def _wiki_slot_current_ts(conn: sqlite3.Connection | None, cfg: Config,
         slot_ts = ((page.slots.get(slot) or {}).get("ts")) if page else None
         if slot_ts:
             stamps.append(str(slot_ts))
-    return max(stamps) if stamps else None
+    return max(stamps, key=lambda v: db.parse_ts(v, strict=True)) if stamps else None
 
 
 def _ts_not_newer(older: str, newer: str) -> bool:
@@ -1267,7 +1269,7 @@ def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None =
                     before = conn.total_changes if conn is not None else None
                     wiki.set_slot(cfg.wiki_dir, slug, slot, value, source=source,
                                   section=section, conn=conn, commit=commit,
-                                  archive_ids=archive_ids)
+                                  archive_ids=archive_ids, evidence_ts=evidence_ts)
                     made_self = True
                     if before is None or conn.total_changes != before:
                         out.append(("slot", f"{slug}.{slot} = {value}",
@@ -1330,7 +1332,10 @@ def _apply_series(conn: sqlite3.Connection, cfg: Config, row: dict, *, source: s
     if row.get("ended") is True:
         if known is None or known.status == "ended":
             return None
-        series_mod.end(conn, slug, written_by=written_by, commit=commit)
+        ended = series_mod.end(conn, slug, written_by=written_by,
+                               evidence_ts=evidence_ts, commit=commit)
+        if ended is None or ended.status != "ended":
+            return None
         return "ended", f"series: {known.title} has stopped", slug
 
     fields = {
@@ -1369,7 +1374,7 @@ def _apply_series(conn: sqlite3.Connection, cfg: Config, row: dict, *, source: s
     if known is not None and not _schedule_moved(known, fields):
         fields.pop("effective_on", None)
 
-    rule, verb = series_mod.upsert(conn, fields, written_by=written_by, commit=commit)
+    rule, verb = series_mod.upsert(conn, fields, written_by=written_by, evidence_ts=evidence_ts, commit=commit)
     if verb == "unchanged":
         return None
     # Deliberately *not* rolled forward here. This runs before the events in its own

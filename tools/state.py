@@ -6,6 +6,7 @@ eleven bundles?". Nothing here writes.
     python3 tools/state.py
 """
 
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -14,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from memcal import config, db                             # noqa: E402
 
 cfg = config.load(None)
-conn = db.open_db(cfg.db_path)
+conn = sqlite3.connect(f"file:{cfg.db_path}?mode=ro", uri=True)
+conn.row_factory = sqlite3.Row
 q = lambda sql, *a: conn.execute(sql, a).fetchall()       # noqa: E731
 
 print(f"db: {cfg.db_path}")
@@ -51,3 +53,5 @@ print("\nunresolved:", q("SELECT count(*) c FROM unresolved")[0]["c"],
                                         " GROUP BY 1 ORDER BY 2 DESC")])
 print("runs:", [(r["id"], r["mode"], str(r["started_at"])[:16])
                 for r in q("SELECT * FROM runs ORDER BY id DESC LIMIT 5")])
+
+conn.close()

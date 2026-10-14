@@ -31,10 +31,10 @@ def main() -> int:
 
     cfg = config.load(args.home)
     conn = db.open_db(cfg.db_path)
-    client = llm.OpenRouter(cfg.api_key)
+    client = llm.client_for(cfg)
 
     snapshot = sweep_stage.state_snapshot(conn, cfg, [])
-    ceiling = sweep_stage.sweep_ceiling(snapshot)
+    ceiling = sweep_stage.sweep_ceiling(snapshot, cfg.sweep_model)
     print(f"snapshot {len(snapshot)} chars, ceiling {ceiling} tokens, "
           f"model {cfg.sweep_model}\n")
 

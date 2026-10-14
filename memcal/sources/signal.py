@@ -17,7 +17,7 @@ import sqlite3
 import subprocess
 from datetime import datetime, timezone
 
-from .. import textclean
+from .. import textclean, threads
 from ..config import Config
 from . import base, register
 from .polled import Conversation, Message, SourceError, StreamSource, link_me
@@ -160,6 +160,11 @@ class SignalSource(StreamSource):
 
     def identify(self, conn: sqlite3.Connection, client,
                  report: base.IngestReport) -> str:
+        from collections import Counter
+        names = Counter(self._groups.values())
+        for group_id, label in self._groups.items():
+            if names[label] == 1:
+                threads.adopt_key(conn, "signal", f"id:group:{group_id}", label)
         return link_me(conn, report, "signal", self._me, name="me")
 
     # ------------------------------------------------------------------ setup --
@@ -218,7 +223,8 @@ class SignalSource(StreamSource):
         if group_id:
             conversation = Conversation(
                 id=f"group:{group_id}",
-                name=self._groups.get(group_id) or f"Signal group {group_id[:8]}",
+                name=f"id:group:{group_id}",
+                label=self._groups.get(group_id) or f"Signal group {group_id[:8]}",
                 is_group=True,
             )
         else:

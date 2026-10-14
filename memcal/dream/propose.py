@@ -516,7 +516,7 @@ def build_prefix(conn: sqlite3.Connection, cfg: Config) -> str:
 # separate thinking budget — so a packed request can reason until the ceiling and return
 # JSON that stops mid-object. Ten bundles in one call is 10,200 tokens for the model to
 # think in and then fail to write a diff. Both numbers are on Config so the trade can
-# actually be measured instead of argued about; `benchmark_temporal.py --pack N`
+# actually be measured instead of argued about; isolated extraction checks
 # exercises the same corpus at different packing levels.
 PACK_TOKENS = 12_000     # fallback for callers with no Config to hand
 PACK_BUNDLES = 6
