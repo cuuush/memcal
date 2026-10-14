@@ -1,6 +1,18 @@
 ## [Unreleased]
 
+### Changed
+
+- `memcal dream` shows compact source results, major steps, and a short final
+  summary. `--verbose` shows source notes, individual requests, and all changes;
+  failures and dry-run cost estimates remain visible by default.
+
 ### Fixed
+
+- Dream progress counts actual writes rather than diagnostic log entries, reports
+  how many bundles were actually reviewed, and treats a successful pass with no
+  changes as complete.
+- Dream's guessed sender labels are explicitly labeled as such, so a label like
+  Lucy daycare cannot be mistaken for an unconfirmed booking.
 
 - Source headings correctly label older context as days earlier when current
   evidence is displayed first.

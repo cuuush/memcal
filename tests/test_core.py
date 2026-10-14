@@ -7161,7 +7161,7 @@ class TestTheUnattendedPathNeverHeardOnRetry(Base):
 
         def fake_dream(conn, cfg, **kw):
             seen.update(kw)
-            return type("R", (), {"errors": [], "nothing_new": True, "report": lambda s: "",
+            return type("R", (), {"errors": [], "nothing_new": True, "report": lambda s, **kw: "",
                                   "usage_summary": ""})()
 
         real, cli.dream = cli.dream, fake_dream
@@ -7186,7 +7186,7 @@ class TestTheUnattendedPathNeverHeardOnRetry(Base):
         order the nightly does, so a source days behind is not extracted stale."""
         pulled = {"n": 0}
         real, cli.dream = cli.dream, lambda conn, cfg, **kw: type(
-            "R", (), {"errors": [], "nothing_new": True, "report": lambda s: "",
+            "R", (), {"errors": [], "nothing_new": True, "report": lambda s, **kw: "",
                       "usage_summary": ""})()
         self.addCleanup(setattr, cli, "dream", real)
         real_ingest = cli._ingest_all_for_dream
@@ -7198,7 +7198,7 @@ class TestTheUnattendedPathNeverHeardOnRetry(Base):
 
     def test_no_ingest_and_dry_run_skip_the_pull(self):
         real, cli.dream = cli.dream, lambda conn, cfg, **kw: type(
-            "R", (), {"errors": [], "nothing_new": True, "report": lambda s: "",
+            "R", (), {"errors": [], "nothing_new": True, "report": lambda s, **kw: "",
                       "usage_summary": ""})()
         self.addCleanup(setattr, cli, "dream", real)
         real_ingest = cli._ingest_all_for_dream
@@ -7211,13 +7211,13 @@ class TestTheUnattendedPathNeverHeardOnRetry(Base):
         self.assertEqual(pulled["n"], 0, "--no-ingest / --dry-run still pulled")
 
     def test_the_cli_prints_the_pass_as_it_happens(self):
-        """Stages, waves and each request, not only the waits.
+        """Verbose shows stages, waves and each request, not only the waits.
 
         The pass emits all of it and the web UI has always drawn all of it; the CLI
         printed only `waiting`, so a forty-minute run looked like a hang.
         """
         out = io.StringIO()
-        show = cli._dream_progress()
+        show = cli._dream_progress(verbose=True)
         with contextlib.redirect_stdout(out):
             show("stage", {"stage": "model", "state": "waiting",
                            "note": "capacity; waiting 300s (600s so far)"})
@@ -7237,7 +7237,7 @@ class TestTheUnattendedPathNeverHeardOnRetry(Base):
     def test_a_re_send_says_it_was_a_re_send(self):
         """A split or second-look wave must not read as bundles nobody planned for."""
         out = io.StringIO()
-        show = cli._dream_progress()
+        show = cli._dream_progress(verbose=True)
         with contextlib.redirect_stdout(out):
             show("propose_wave", {"kind": "second-look", "requests": 1, "bundles": 5})
         self.assertIn("propose (second-look)", out.getvalue())

@@ -458,7 +458,7 @@ class TestResumePrompt(ResumeBase):
             errors = []
             nothing_new = True
 
-            def report(self):
+            def report(self, *, verbose=True):
                 return "ok"
 
         def _dream(conn, cfg, **kw):
@@ -490,7 +490,7 @@ class TestResumePrompt(ResumeBase):
             errors = []
             nothing_new = True
 
-            def report(self):
+            def report(self, *, verbose=True):
                 return "ok"
 
         def _dream(conn, cfg, **kw):

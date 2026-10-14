@@ -800,7 +800,7 @@ def _apply_thread_names(conn, cfg: Config, bundle, diff: dict, *,
         if identity.guess_name(conn, handle, name, channel=channel,
                                why=str(entry.get("why") or ""), commit=False):
             counts["name:guessed"] += 1
-            log.append(f"named     {handle} → maybe {name}")
+            log.append(f"label     {handle} → {name} (guessed sender label)")
 
 
 def _named_only_by_thread(bundle, row) -> bool:
