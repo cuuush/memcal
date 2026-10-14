@@ -51,12 +51,12 @@ def _who(row: sqlite3.Row, with_whom: dict[tuple, str] | None = None,
          persons_guessed: set[str] | None = None) -> str:
     other = (with_whom or {}).get((row["channel"], row["thread"]))
     if persons_guessed and other in persons_guessed:
-        other = presentation.as_guess(other)
+        other = presentation.as_guess(other, audience="calendar")
     if row["from_me"]:
         return f"me → {other}" if other else "me"
     name = row["person"] or row["handle"] or "?"
     if row["person"] and persons_guessed and row["person"] in persons_guessed:
-        name = presentation.as_guess(name)
+        name = presentation.as_guess(name, audience="calendar")
     return name
 
 
@@ -247,10 +247,10 @@ def items(conn: sqlite3.Connection, *, channel: str = "", verdict: str = "",
     with_whom = counterparts(conn, rows)
     persons_guessed = threads.guessed_persons(conn)
     # Prefix guessed counterparts too: "me → X" reads as confirmed unless the
-    # other side carries the same maybe: marker the brief uses.
+    # The inference marker qualifies the sender's name, independently of plan status.
     for key, name in list(with_whom.items()):
         if name in persons_guessed:
-            with_whom[key] = presentation.as_guess(name)
+            with_whom[key] = presentation.as_guess(name, audience="calendar")
     return {
         "items": [_item(r, with_whom, persons_guessed) for r in rows],
         "total": total,
@@ -315,7 +315,7 @@ def groups(conn: sqlite3.Connection, *, channel: str = "", verdict: str = "",
         out.append({
             "channel": row["channel"],
             "key": row["key"],
-            "title": presentation.as_guess(raw_title) if is_guessed else raw_title,
+            "title": presentation.as_guess(raw_title, audience="calendar") if is_guessed else raw_title,
             "guessed": is_guessed,
             "n": row["n"],
             "gated": row["gated"] or 0,
@@ -375,7 +375,7 @@ def item_detail(conn: sqlite3.Connection, archive_id: int) -> dict:
     with_whom = counterparts(conn, [row])
     for key, name in list(with_whom.items()):
         if name in persons_guessed:
-            with_whom[key] = presentation.as_guess(name)
+            with_whom[key] = presentation.as_guess(name, audience="calendar")
     out = _item(row, with_whom, persons_guessed)
     out["text"] = row["text"] or ""
     out["meta"] = _meta(row)

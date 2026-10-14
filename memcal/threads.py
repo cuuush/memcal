@@ -703,19 +703,15 @@ def _mark_collisions(cards: list[dict]) -> list[dict]:
     # Two conversations with one name is the failure that looks like one conversation
     # with missing messages. Say which ones, and let the roster tell them apart. Scoped
     # per channel: the same friend on iMessage and on WhatsApp is one person, not a clash.
-    # Compare on the unprefixed name so a guessed "maybe: X" still collides with a
+    # Compare on the raw name so an inferred label still collides with a
     # confirmed "X" — they read as the same name at a glance.
     seen: dict[tuple, int] = {}
     for card in cards:
-        raw = card["title"]
-        if raw.startswith(presentation.GUESS_PREFIX):
-            raw = raw[len(presentation.GUESS_PREFIX):]
+        raw = card.get("raw_title", presentation.raw_name(card["title"]))
         key = (card["channel"], raw)
         seen[key] = seen.get(key, 0) + 1
     for card in cards:
-        raw = card["title"]
-        if raw.startswith(presentation.GUESS_PREFIX):
-            raw = raw[len(presentation.GUESS_PREFIX):]
+        raw = card.get("raw_title", presentation.raw_name(card["title"]))
         card["collision"] = seen.get((card["channel"], raw), 0) > 1
     return cards
 
@@ -729,12 +725,12 @@ def _card(row: sqlite3.Row, names: dict[tuple, str],
     who = (roster or {}).get((row["channel"], row["thread"]), [])
     raw_title = names.get((row["channel"], row["thread"]), row["thread"])
     is_guessed = (row["channel"], row["thread"]) in (guessed or set())
-    title = presentation.as_guess(raw_title) if is_guessed else raw_title
+    title = presentation.as_guess(raw_title, audience="calendar") if is_guessed else raw_title
     speakers = []
     for w in who[:6]:
         name = w["person"] or w["handle"]
         if w["person"] and persons_guessed and w["person"] in persons_guessed:
-            name = presentation.as_guess(name)
+            name = presentation.as_guess(name, audience="calendar")
         speakers.append(name)
     return {
         # The roster is what tells two same-named chats apart, so it travels with the card.
@@ -743,6 +739,7 @@ def _card(row: sqlite3.Row, names: dict[tuple, str],
         "channel": row["channel"],
         "thread": row["thread"],
         "title": title,
+        "raw_title": raw_title,
         "guessed": is_guessed,
         "label": row["label"] or "",
         # Shown next to the title because two chats can share a name and this is the

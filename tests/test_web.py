@@ -1587,17 +1587,18 @@ class TestGuessedNamesReachTheWebUI(Base):
         card = [t for t in web_queue.conversations(self.conn, self.cfg)["threads"]
                 if t["thread"] == handle][0]
         self.assertTrue(card["guessed"])
-        self.assertEqual(card["title"], presentation.as_guess("Tire shop"))
+        self.assertEqual(card["title"], presentation.as_guess("Tire shop", audience="calendar"))
+        self.assertEqual(card["raw_title"], "Tire shop")
 
     def test_gate_rollup_and_feed_mark_a_guess(self):
         handle = self.guessed_thread()
         group = [g for g in web_queue.groups(self.conn)["groups"]
                  if g["key"] == handle][0]
         self.assertTrue(group["guessed"])
-        self.assertEqual(group["title"], presentation.as_guess("Tire shop"))
+        self.assertEqual(group["title"], presentation.as_guess("Tire shop", audience="calendar"))
         item = web_queue.items(self.conn)["items"][0]
         self.assertTrue(item["guessed"])
-        self.assertEqual(item["who"], presentation.as_guess("Tire shop"))
+        self.assertEqual(item["who"], presentation.as_guess("Tire shop", audience="calendar"))
 
     def test_settling_a_guess_clears_it_everywhere(self):
         handle = self.guessed_thread()

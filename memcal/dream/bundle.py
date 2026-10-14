@@ -13,7 +13,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from .. import archive, db, threads
+from .. import archive, db, presentation, threads
 
 # Read the backlog by default; `pack()` enforces the request token budget.
 MAX_ITEMS_PER_BUNDLE = 2_000
@@ -42,10 +42,12 @@ class Bundle:
     #: bundle labels its lines "Crystal Harbor" rather than a chat guid.
     convo_titles: dict = field(default_factory=dict)
     context_ids: set[int] = field(default_factory=set)
+    inferred_names: set[str] = field(default_factory=set)
 
     @property
     def label(self) -> str:
-        return self.title or self.entity.split(":", 1)[-1]
+        name = self.title or self.entity.split(":", 1)[-1]
+        return presentation.as_guess(name) if name in self.inferred_names else name
 
     @property
     def people(self) -> list[str]:
@@ -128,7 +130,9 @@ def _render_v1(bundle: "Bundle", head: str | None = None) -> str:
     if head is None:
         head = f"BUNDLE {bundle.entity}"
         if bundle.title and bundle.title != bundle.entity.split(":", 1)[-1]:
-            head += f"   ({bundle.title})"
+            head += f"   ({bundle.label})"
+        elif bundle.label != bundle.entity.split(":", 1)[-1]:
+            head += f"   ({bundle.label})"
     lines = ([head] if head else []) + [bundle._shape()]
 
     single = len({(r["channel"], r["thread"]) for r in bundle.items}) == 1
@@ -147,6 +151,8 @@ def _render_v1(bundle: "Bundle", head: str | None = None) -> str:
             lines.append(f"-- {day.strftime('%a %Y-%m-%d')} --")
 
         who = "me" if row["from_me"] else (row["person"] or row["handle"] or "unknown")
+        if not row["from_me"] and who in bundle.inferred_names:
+            who = presentation.as_guess(who)
         # Distinguish a user statement from an instruction addressed to the agent.
         if who == "me" and _addressed_to(row) == "machine":
             who = "me → assistant"
@@ -255,7 +261,9 @@ def build(conn: sqlite3.Connection, limit: int = SPOOL_LIMIT,
         key = threads.fold_entity(row["entity"], alias)
         total[key] = total.get(key, 0) + row["n"]
     names = threads.titles(conn)
+    inferred_names = threads.guessed_persons(conn)
     for bundle in bundles:
+        bundle.inferred_names = inferred_names
         bundle.waiting = max(0, total.get(bundle.entity, 0) - len(bundle.spool_ids))
         bundle.title = _title_for(bundle, names)
         # Items arrive newest-first per entity, so a merged bundle interleaves two

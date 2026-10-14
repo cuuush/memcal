@@ -938,6 +938,12 @@ def upsert(
             continue
         if name == "status" and STATUSES.index(new) < STATUSES.index(old) and old == "confirmed":
             continue  # don't walk a confirmed row backwards to 'mentioned'
+        if (name == "kind" and old == "commitment" and new == "observed"
+                and existing.status in ("confirmed", "happened")
+                and written_by.startswith(("dream:", "sweep"))):
+            # An observation can advance a booking to happened without erasing
+            # that it was a commitment. Calendar identity follows that lifecycle.
+            continue
         if name == "title" and _says_less(new, old):
             continue  # a shorter name for what is already here is not news
         if name in inferred and _claimed_by_another(conn, existing.id, name, written_by):
