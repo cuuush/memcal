@@ -1066,7 +1066,7 @@ def cmd_ingest(args) -> int:
 
 
 def _ingest_locked(args, cfg: Config, conn: sqlite3.Connection, chosen: list,
-                   *, due: bool) -> int:
+                   *, due: bool, compact: bool = False) -> int:
     if due:
         # Another collector may have run while this one waited on the lock. A
         # skipped invocation is not a completed check: re-evaluate, record
@@ -1080,12 +1080,13 @@ def _ingest_locked(args, cfg: Config, conn: sqlite3.Connection, chosen: list,
     # row read in the next minute, and an unnamed one is a bundle keyed on a phone
     # number that never joins up with anything.
     linked, message = identity.refresh_contacts(conn)
-    if linked:
+    if linked and not compact:
         print(f"contacts: {message}")
 
     failed: list[str] = []
     incomplete: list[str] = []
     unavailable: list[str] = []
+    unchanged = 0
     collection_id = archive.open_collection(conn, mode="cli")
     for source in chosen:
         if due:
@@ -1100,13 +1101,21 @@ def _ingest_locked(args, cfg: Config, conn: sqlite3.Connection, chosen: list,
                 continue
         report = sources.catch_up(source, conn, cfg, limit=args.limit,
                                   rounds=args.rounds, collection_id=collection_id)
-        print(report.summary())
+        if not compact or report.error or report.more:
+            print(report.summary(), flush=True)
+        elif report.archived:
+            print(f"  {source.name}: {report.archived:,} new item(s), "
+                  f"{report.passed:,} queued", flush=True)
+        else:
+            unchanged += 1
         if report.error:
             failed.append(source.name)
         elif report.more:
             incomplete.append(source.name)
     archive.close_collection(conn, collection_id)
     brief.write(conn, cfg)
+    if compact and unchanged:
+        print(f"  {unchanged} source(s) up to date", flush=True)
     # Any source failure fails the command, including `ingest all`, so
     # unattended runs report errors instead of exiting 0.
     if due and (failed or unavailable or incomplete):
@@ -1359,16 +1368,36 @@ def cmd_gatecheck(args) -> int:
     return 0
 
 
-def _dream_progress():
-    """Print a pass as it happens. Returns the callback `dream` wants."""
-    requests = 0
+def _dream_progress(*, verbose: bool = False):
+    """Show major steps and quarter milestones; verbose includes every request."""
+    shown_stages: set[str] = set()
+    checkpoint = 0
 
     def show(event: str, data: dict) -> None:
-        nonlocal requests
+        nonlocal checkpoint
         if event == "stage":
             stage = data.get("stage") or "model"
             state = data.get("state") or ""
             note = data.get("note") or ""
+            if not verbose:
+                if state in ("waiting", "failed"):
+                    print(f"  {stage}: {note}", flush=True)
+                elif stage == "prepare" and state == "done":
+                    print(f"  Ready: {note}", flush=True)
+                elif state == "running":
+                    key, message = {
+                        "prepare": ("prepare", "Preparing memory…"),
+                        "propose": ("propose", "Reading conversations…"),
+                        "merge": ("update", "Updating memory…"),
+                        "apply": ("update", "Updating memory…"),
+                        "sweep": ("sweep", "Checking changes…"),
+                        "render": ("render", "Refreshing brief…"),
+                        "price": ("price", "Estimating cost…"),
+                    }.get(stage, (stage, note))
+                    if key not in shown_stages:
+                        shown_stages.add(key)
+                        print(f"  {message}", flush=True)
+                return
             if state in ("running", "waiting", "failed"):
                 mark = {"waiting": "…", "failed": "!"}.get(state, "")
                 print(f"  {stage}{mark}: {note}" if note else f"  {stage}{mark}",
@@ -1378,15 +1407,24 @@ def _dream_progress():
             return
         if event == "propose_wave":
             kind = data.get("kind", "main")
+            if not verbose:
+                return
             opening = "propose" if kind == "main" else f"propose ({kind})"
             print(f"  {opening}: {data.get('requests', 0)} request(s) in flight · "
                   f"{data.get('bundles', 0)} bundle(s)", flush=True)
             return
         if event == "propose_request":
-            requests += 1
             # Request counts shift with packing and re-sends, so progress is
             # measured in bundles.
             done, total = data.get("done", 0), data.get("total", 0)
+            if not verbose:
+                # Re-sends can widen the denominator. Never print a percentage
+                # twice or claim completion before propose itself finishes.
+                reached = min(75, (100 * done // total // 25) * 25) if total else 0
+                if data.get("ok") and reached > checkpoint:
+                    checkpoint = reached
+                    print(f"  Reading: about {checkpoint}%", flush=True)
+                return
             state = "ok " if data.get("ok") else "failed"
             tail = f" — {data.get('error')}" if data.get("error") else ""
             print(f"    [{done}/{total}] {state} {data.get('label') or 'request'}{tail}",
@@ -1414,11 +1452,13 @@ def _ingest_all_for_dream(args, cfg: Config, conn: sqlite3.Connection) -> None:
     from .sources import bluebubbles as _bluebubbles                # noqa: PLC0415
     for note in _bluebubbles.ensure_server(cfg):
         print(f"ingest: {note}")
-    print("ingest: pulling sources first (--no-ingest to skip)")
+    verbose = getattr(args, "verbose", False)
+    print("ingest: pulling sources first (--no-ingest to skip)" if verbose else
+          "Checking sources…", flush=True)
     ingest_args = argparse.Namespace(limit=1000, rounds=sources.DEFAULT_ROUNDS)
     try:
         with lock.held(cfg):
-            _ingest_locked(ingest_args, cfg, conn, chosen, due=False)
+            _ingest_locked(ingest_args, cfg, conn, chosen, due=False, compact=not verbose)
     except lock.Busy as exc:
         print(f"ingest: {exc} — skipping the pull, dreaming over what is already here",
               file=sys.stderr)
@@ -1500,10 +1540,11 @@ def cmd_dream(args) -> int:
         result = dream(conn, cfg, mode=args.mode, model=args.model, limit=args.limit,
                        dry_run=args.dry_run, skip_sweep=args.no_sweep,
                        redo=args.redo if round_no == 1 else None,
-                       progress=_dream_progress(), replay=replay)
+                       progress=_dream_progress(verbose=getattr(args, "verbose", False)),
+                       replay=replay)
         if args.rounds > 1:
             print(f"\n=== round {round_no} of {args.rounds} ===")
-        print(result.report())
+        print(result.report(verbose=getattr(args, "verbose", False)))
         failed = failed or bool(result.errors)
         left = conn.execute(
             "SELECT count(*) n FROM spool WHERE processed_at IS NULL").fetchone()["n"]
@@ -2571,6 +2612,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_gatecheck)
 
     s = sub.add_parser("dream", help="run the dream pass over everything spooled")
+    s.add_argument("--verbose", "-v", action="store_true",
+                   help="show source notes, every model request, and detailed changes")
     s.add_argument("--mode", default="ondemand", choices=["nightly", "ondemand", "realtime"],
                    help="nightly = frontier model, whole window; ondemand = cheaper")
     s.add_argument("--model", help="override the propose model")

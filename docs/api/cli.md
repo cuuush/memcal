@@ -47,7 +47,7 @@
 | `mail` | Queue by priority; `--backfill [--apply]` recovers bodies |
 | `senders` / `top` / `block` | Email gate table, always-pass senders, hard blocks |
 | `gatecheck` | Gate pass/reject inspection |
-| `dream` | The pass (`--dry-run`, `--retry`, `--redo`, `--rounds`, `--no-sweep`) |
+| `dream` | The pass with compact progress (`--verbose` for details; `--dry-run`, `--retry`, `--redo`, `--rounds`, `--no-sweep`) |
 | `schedule` | Nightly job (`status`, `install`, `run`, `due`) |
 
 ## Inspect and administer

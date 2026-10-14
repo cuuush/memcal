@@ -49,15 +49,30 @@ class DreamResult:
     dry_run: bool = False
     nothing_new: bool = False
 
-    def report(self) -> str:
-        if self.nothing_new:
+    def report(self, *, verbose: bool = True) -> str:
+        """Detailed saved report, or a compact terminal result with errors intact."""
+        if self.nothing_new and not self.errors:
             return (f"dream run #{self.run_id} — nothing new since the last pass "
                     f"(ingest first, or use --redo to re-read what was already processed)")
+        if not verbose:
+            state = ("partial" if self.diffs else "failed") if self.errors else "complete"
+            if self.dry_run:
+                state = "preview"
+            lines = [f"Dream #{self.run_id} {state} — {self.bundles} conversations, "
+                     f"{self.items:,} items, {self.diffs} writes"]
+            if self.dry_run:
+                lines.extend(f"  {line}" for line in self.log
+                             if not line.startswith("request "))
+            if self.questions:
+                lines.append(f"  {len(self.questions)} question(s) need your review")
+            if self.woken:
+                lines.append(f"  {len(self.woken)} to-do(s) ready to revisit")
+            lines.extend(f"  error: {error}" for error in self.errors)
+            lines.append(f"  Changes: memcal review · Details: memcal trace {self.run_id}")
+            return "\n".join(lines)
         lines = [f"dream run #{self.run_id} — {self.bundles} bundles, {self.items} items, "
                  f"{self.diffs} writes"]
-        lines += [f"  {line}" for line in self.log[:40]]
-        if len(self.log) > 40:
-            lines.append(f"  … {len(self.log) - 40} more")
+        lines += [f"  {line}" for line in self.log]
         for label, values in (("merged", self.resolved),
                               ("sweep", self.sweep_actions), ("woke", self.woken),
                               ("asked", self.questions), ("note", self.notes),
@@ -554,16 +569,17 @@ def _dream(
         counts, log = apply_stage.apply_diffs(
             conn, cfg, got, written_by=f"dream:{mode}", run_id=run_id, stage="propose")
         result.log.extend(log)
-        result.diffs += sum(v for k, v in counts.items() if "rejected" not in k)
+        wave_writes = sum(v for k, v in counts.items() if "rejected" not in k)
+        result.diffs += wave_writes
         # A wave can write the row an earlier wave's cancellation was waiting for.
         if pending.open_items(conn):
             result.log.extend(pending.retry(conn))
-        emit("propose", "running", f"wave {index} wrote {len(log)} row(s)", wave=index)
+        emit("propose", "running", f"wave {index} made {wave_writes} write(s)", wave=index)
 
     result.errors.extend(errors)
     result.notes.extend(notes)
-    emit("propose", "done" if (proposals or result.diffs) else "failed",
-         f"{len(bundles)} bundles reviewed · {len(errors)} issue(s)")
+    emit("propose", "failed" if errors else "done",
+         f"{len(read_entities)} of {len(bundles)} bundles reviewed · {len(errors)} issue(s)")
 
     # 3. merge — the only stage seeing every proposal at once. In wave mode
     # these accumulate rather than assign, since per-wave passes already ran.
@@ -612,7 +628,7 @@ def _dream(
             # model call with no fraction to report, so the size of the thing it was
             # handed is the only advance warning of whether this is four seconds or forty.
             emit("sweep", "running",
-                 f"reviewing {len(result.log)} write(s) against the whole store")
+                 f"reviewing {result.diffs} write(s) against the whole store")
             _result, actions = sweep_stage.sweep(client, conn, cfg, result.log, run_id=run_id)
             result.sweep_actions = actions
             emit("sweep", "done", f"{len(actions)} action(s)")

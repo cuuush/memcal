@@ -57,6 +57,11 @@ Use `memcal setup --section imessage` (or `provider`, `brief`, `collect`, `dream
 the local Messages database by default and needs Full Disk Access for the process
 running Memcal. See [iMessage setup](docs/sources/imessage.md) to use BlueBubbles.
 
+`memcal dream` shows short progress updates and a result summary. Use
+`memcal review` to see recent changes, or `memcal dream --verbose` for source
+notes, individual requests, and detailed changes. Errors remain visible in both modes.
+`memcal dream --dry-run` keeps the cost estimate visible without making model calls.
+
 Dream diagnostics persist for CLI, web, and scheduled runs. Open a run in the web
 UI and expand **Saved dream log** for stage progress and crash tracebacks; model
 calls retain their prompts and replies. `memcal trace <run>` also prints saved
