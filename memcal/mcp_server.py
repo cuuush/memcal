@@ -710,10 +710,7 @@ class Server:
                         "label, value, or prose. An empty query matches nothing.")
             hits = wiki.search_facts(self.cfg.wiki_dir, query, limit)
             if not hits:
-                return (f"No matching wiki fact for {query!r}. This means no stored "
-                        f"fact matched — not that the user never told us. Try "
-                        f"memcal_search_archive for original statements, or "
-                        f"memcal_open if you know the page.")
+                return presentation.wiki_search_miss(query)
             return _render_search_hits(hits, query, limit)
 
         if name == "memcal_list_days":

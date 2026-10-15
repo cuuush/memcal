@@ -1171,7 +1171,7 @@ class MemcalMemoryProvider(MemoryProvider):
     def _dispatch(self, conn, tool_name: str, args: Dict[str, Any]) -> str:
         from datetime import timedelta
 
-        from memcal import archive, db, events, wiki
+        from memcal import archive, db, events, presentation, wiki
 
         if tool_name == "memcal_open_page":
             return self._dispatch(conn, "memcal_open", {"ref": args.get("slug", "")})
@@ -1228,10 +1228,7 @@ class MemcalMemoryProvider(MemoryProvider):
                 return json.dumps({
                     "query": query,
                     "results": [],
-                    "message": (f"No matching wiki fact for {query!r}. This means "
-                                f"no stored fact matched — not that the user never "
-                                f"told us. Try memcal_search_archive for original "
-                                f"statements, or memcal_open if you know the page."),
+                    "message": presentation.wiki_search_miss(query),
                 })
             return json.dumps({"query": query, "results": hits,
                                "truncated": len(hits) == limit})
