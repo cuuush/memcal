@@ -23,21 +23,17 @@ TOOLS = [
     {
         "name": "memcal_brief",
         "description": ("The always-in-context block: the next 30 days by default, open to-dos, "
-                        "questions to ask, and identity aliases. Read this first; most "
-                        "questions about the user's life are answerable from it alone."),
+                        "questions to ask, and identity aliases. Read this first; open "
+                        "relevant handles or pages with memcal_open for details and history."),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
         "name": "memcal_open",
         "description": (
-            "Open a brief handle or wiki page (me, page names, recorded aliases). The "
-            "brief is an index: it names what is happening and who is there, and holds "
-            "the rest here. Use this whenever the answer needs a detail the line does "
-            "not carry — the street address, the invite or join link, whether it "
-            "repeats and when the next one is, what the invitation said, who to ask. "
-            "Also returns the messages it came from and every change it has been "
-            "through, so 'is this right?' and 'where did this come from?' are the same "
-            "one call. For a handle it already includes the whole thread behind "
+            "Open a relevant brief handle or wiki page first when the brief omits a "
+            "detail. Returns stored details, change history and linked evidence; "
+            "check these before searching the archive. Accepts me, page names and "
+            "recorded aliases. For a handle it already includes the whole thread behind "
             "pending new activity, full text with (new) markers and [ids] to cite, "
             "so a flagged row needs no second call unless a cap truncates it. "
             "Takes the handle the brief prints in brackets, such as E258, T2, or "
@@ -127,8 +123,9 @@ TOOLS = [
     {
         "name": "memcal_search_archive",
         "description": (
-            "Find original statements when the wiki does not answer the question, or "
-            "inspect evidence behind a claim. Search every raw message, email, and "
+            "Search original statements after relevant records and wiki lookup do not "
+            "answer. First open matching brief handles or pages with memcal_open: a "
+            "short brief line may omit stored details and history. Search every raw message, email, and "
             "note ever ingested. The filters are what make digging quick: `person` "
             "for one side of a conversation, `channel` for a channel, `since`/`until` "
             "for a window. `query` may be empty when the filters are the search. "
@@ -149,11 +146,10 @@ TOOLS = [
     {
         "name": "memcal_source",
         "description": (
-            "Show the original messages a calendar row, to-do or question came from — "
-            "the actual email or texts, in full, not a search result — and how well the "
-            "row is backed up. Use this when the user asks why something is on the "
-            "calendar, what an invitation said, or for a detail the one-line summary "
-            "dropped. Takes the row's stable key, or the short handle the brief prints "
+            "Read full original messages or email when memcal_open's details and linked "
+            "evidence are not enough. Open the relevant record with memcal_open first; "
+            "use this for a fuller quotation or verification against the source. "
+            "Takes the row's stable key, or the short handle the brief prints "
             "in brackets, e.g. 'E46' or 'riders-alliance-event@2026-07-30'."
         ),
         "inputSchema": {

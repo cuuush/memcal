@@ -2,6 +2,9 @@
 
 ### Fixed
 
+- Agent briefs and MCP/Hermes tool descriptions direct agents to open relevant
+  records for details and change history before searching the raw archive.
+
 - Source headings correctly label older context as days earlier when current
   evidence is displayed first.
 
