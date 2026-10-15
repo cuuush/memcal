@@ -2,6 +2,9 @@
 
 ### Fixed
 
+- Empty wiki searches in MCP and Hermes now direct agents to retained calendar
+  events and pages before raw archive lookup, consistently with the tool guidance.
+
 - Cited attendee corrections from source conversations can remove someone from an
   existing event. Partial guest lists remain additive, older evidence cannot undo a
   newer roster, and merge no longer restores a withdrawn guest from stored context.
