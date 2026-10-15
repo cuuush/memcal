@@ -2,6 +2,10 @@
 
 ### Fixed
 
+- Cited attendee corrections from source conversations can remove someone from an
+  existing event. Partial guest lists remain additive, older evidence cannot undo a
+  newer roster, and merge no longer restores a withdrawn guest from stored context.
+
 - Agent briefs and MCP/Hermes tool descriptions direct agents to open relevant
   records for details and change history before searching the raw archive.
 

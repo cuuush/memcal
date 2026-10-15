@@ -604,7 +604,7 @@ def _evidence_by_field(bundle: Bundle, cited, row: dict) -> dict[str, str] | str
 
     out: dict[str, str] = {}
     for name in _DATED_FIELDS:
-        if row.get(name) in (None, "", []):
+        if row.get(name) in (None, "", []) and not (name == "participants" and row.get(name) == []):
             continue
         lines = [i for i in (claimed.get(name) or ()) if i in by_id]
         if lines:
@@ -996,7 +996,9 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
                      target_key="", commit=False)
         return ("pending", f"cancellation with no matching row: {title}")
     event, verb = events.upsert(conn, fields, written_by=written_by,
-                                evidence_ts=evidence_ts, commit=commit)
+                                evidence_ts=evidence_ts,
+                                replace_participants=bool(key and isinstance(evidence_ts, dict)
+                                    and evidence_ts.get("participants")), commit=commit)
     return verb, f"{event.date} {event.title} [{event.key}]", event.key
 
 
