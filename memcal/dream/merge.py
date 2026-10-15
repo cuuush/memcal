@@ -487,7 +487,7 @@ def _field_cites(group: list[Mention], merged: dict) -> dict[str, list[int]] | N
             value = mention.row.get(field)
             agrees = value == selected
             if field == "participants" and isinstance(selected, list):
-                agrees = bool(value) and set(value) <= set(selected)
+                agrees = isinstance(value, list) and set(value) <= set(selected)
             if not agrees:
                 continue
             claimed = mention.row.get("field_cite_ids")
@@ -537,6 +537,13 @@ def _guest_list(names) -> list[str]:
     return sorted(out.values())
 
 
+def _roster_updates(group: list[Mention]) -> list[Mention]:
+    """A cited edit to an identified row asserts its complete current roster."""
+    return [m for m in group if not m.existing and m.row.get("key")
+            and isinstance(m.row.get("field_cite_ids"), dict)
+            and m.row["field_cite_ids"].get("participants")]
+
+
 def _merge_locally(group: list[Mention]) -> dict:
     """Merge agreeing fragments without a model call."""
     base = dict(min(group, key=lambda m: m.date).row)
@@ -546,11 +553,16 @@ def _merge_locally(group: list[Mention]) -> dict:
             break
     # One person, one entry. A union of raw strings put Quinn in twice — once as
     # "Quinn Brooks" and once as "Quinn" — because each thread names people the way
-    # that thread names them, and a guest list only ever grows. Folding on the slug and
-    # keeping the fullest spelling gives the calendar the name a reader wants and the
-    # store a single person.
-    base["participants"] = _guest_list(
-        person for mention in group for person in (mention.row.get("participants") or []))
+    # that thread names them. Fold partial lists on the slug, but preserve a cited
+    # correction's complete roster so stored context cannot restore a withdrawn guest.
+    rosters = _roster_updates(group)
+    if rosters:
+        if not base.get("key"):
+            base["key"] = rosters[0].row["key"]
+        base["participants"] = _guest_list(rosters[0].row.get("participants") or [])
+    else:
+        base["participants"] = _guest_list(
+            person for mention in group for person in (mention.row.get("participants") or []))
     for field in ("time", "until", "location", "note"):
         values = [mention.row.get(field) for mention in group if mention.row.get(field)]
         if values:
@@ -571,6 +583,12 @@ def _conflicted(group: list[Mention]) -> bool:
     """Does this cluster need a model at all? Only if the fragments disagree about
     something a union cannot settle. Agreeing fragments are the common case and must
     not cost a call."""
+    rosters = _roster_updates(group)
+    if rosters:
+        selected = _people(rosters[0].row)
+        if any(_people(m.row) != selected for m in rosters[1:]) or any(
+                not m.existing and _people(m.row) - selected for m in group):
+            return True
     if len({m.date for m in group}) > 1 or len(
             {db.slugify(str(m.row.get("title") or "")) for m in group}) > 1:
         return True
