@@ -1,6 +1,7 @@
 """Regressions at the scheduled-run, retained-context, and detail boundaries."""
 
 import os
+import sqlite3
 import subprocess
 import unittest
 from pathlib import Path
@@ -9,7 +10,7 @@ from unittest import mock
 from _support import Base
 from memcal import brief, db, detail, events, identity, schedule, threads, todos, trace
 from memcal.dream import bundle as bundles, propose, run, sweep
-from memcal.sources import proton
+from memcal.sources import base, imessage, proton, whatsapp
 
 
 class TestScheduledRuntimeVisibility(Base):
@@ -28,6 +29,20 @@ class TestScheduledRuntimeVisibility(Base):
         self.assertEqual(proc.stdout.strip(), 'node-visible')
         self.assertEqual(proc.returncode, 0)
         self.assertIn(str(bindir), plist['EnvironmentVariables']['PATH'])
+
+
+class TestScheduledReadPermissionGuidance(Base):
+    def test_failed_message_reads_name_the_responsible_bundle(self):
+        path = Path(self.tmp.name) / 'protected.sqlite'
+        path.touch()
+        with mock.patch.dict(os.environ, {'MEMCAL_APP': '1', 'MEMCAL_HOME': str(self.cfg.home)}), \
+             mock.patch.object(imessage.sqlite3, 'connect', side_effect=sqlite3.OperationalError('unable to open database file')):
+            reports = [imessage.ingest(self.conn, db_path=path),
+                       whatsapp.ingest(self.conn, self.cfg, db_path=str(path))]
+        for report in reports:
+            self.assertIn(str(self.cfg.home / 'memcal.app'), report.error)
+            self.assertIn('Full Disk Access', report.error)
+            self.assertNotIn('terminal', report.error)
 
 
 class TestBridgeAutomaticStartup(Base):

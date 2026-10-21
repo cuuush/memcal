@@ -197,8 +197,7 @@ def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None 
             report.notes.append(f"re-decoded {mended} line(s) with the current decoder")
         rows = src.execute(QUERY, (watermark, floor_ns, limit)).fetchall()
     except sqlite3.OperationalError as exc:
-        report.error = (f"cannot read {path} ({exc}). Grant Full Disk Access to your terminal "
-                        f"in System Settings → Privacy & Security.")
+        report.error = f"cannot read {path} ({exc}). {base.full_disk_access_help()}"
         return report
 
     for chat in src.execute("SELECT chat_identifier, display_name FROM chat WHERE chat_identifier IS NOT NULL AND (display_name IS NULL OR display_name = '' OR (SELECT count(*) FROM chat c2 WHERE c2.display_name = chat.display_name) = 1)"):

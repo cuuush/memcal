@@ -302,7 +302,7 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 2000,
         src = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         src.row_factory = sqlite3.Row
     except sqlite3.Error as exc:
-        report.error = f"could not open {path.name}: {exc}"
+        report.error = f"could not open {path.name}: {exc}. {base.full_disk_access_help(cfg)}"
         return report
 
     repaired = repair_minted_handles(conn, src)

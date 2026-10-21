@@ -21,6 +21,8 @@
 - Scheduled dreams retain runtime paths for Node and source CLIs; schedule status
   explains when a saved launchd job is not loaded. Local Proton Bridge collection
   attempts a background app launch and waits for IMAP before retrying.
+- Protected Messages/WhatsApp read failures identify the scheduled `memcal.app`
+  that needs Full Disk Access, including its path, instead of naming the terminal.
 - Dream's question summary shows real open questions and how to answer them,
   without counting rejected or already dropped questions.
 - Email sender display names are retained and recovered from saved headers, and
