@@ -71,8 +71,12 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
         # build, and health tests exercise the macOS behavior off a Mac.
         self._macos = mock.patch.object(schedule, "_is_macos", return_value=True)
         self._macos.start()
+        self._access = mock.patch.object(schedule, 'source_access_health',
+                                         return_value=('ok', 'fixture access'))
+        self._access.start()
 
     def tearDown(self):
+        self._access.stop()
         self._macos.stop()
         db.set_today(None)
         self.conn.close()

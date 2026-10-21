@@ -2105,6 +2105,16 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
         add("Schedule", "plist identity", WARN, detail,
             fix="memcal schedule install   # rewrites the plist to match the bundle")
 
+    if state['installed']:
+        access, detail = schedule.source_access_health(cfg)
+        remedy = (f"System Settings → Privacy & Security → Full Disk Access → enable "
+                  f"memcal.app ({schedule.app_path(cfg)}); the terminal's permission is separate")
+        if access == WARN:
+            remedy = ('memcal schedule install' if schedule.bundle_health(cfg)[0] != 'ok'
+                      else 'memcal sources; memcal schedule status; re-run memcal doctor to verify access')
+        add('Schedule', 'protected source access', access, detail,
+            fix=remedy if access in (WARN, FAIL) else '')
+
     kind = "nightly" if state["installed"] else "interactive"
     verified = db.get_meta(conn, f"ical.permission.{kind}")
     add("Schedule", "calendar permission", OK if verified else WARN,
@@ -2151,6 +2161,16 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
 
 @_closes_direct_connections
 def cmd_doctor(args) -> int:
+    if getattr(args, 'probe_source_access', False):
+        # The temporary launchd agent must not open/migrate the Memcal store or
+        # recurse into a full doctor run. Only test the protected source tables.
+        cfg = config.load(getattr(args, 'home', None))
+        payload = schedule.read_source_access(cfg)
+        if args.result:
+            from pathlib import Path
+            Path(args.result).write_text(json.dumps(payload), encoding='utf-8')
+            return 0
+        return emit_json(payload)
     # open_ctx() creates the home and database as a side effect. Notice the state
     # before opening it so a first `memcal doctor` does not claim the store was
     # already healthy when it was the command that initialized it.
@@ -2702,6 +2722,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_models)
 
     s = sub.add_parser("doctor", help="find what is wrong, and what to type about it")
+    s.add_argument('--probe-source-access', action='store_true', help=argparse.SUPPRESS)
+    s.add_argument('--result', help=argparse.SUPPRESS)
     s.add_argument("--verbose", "-v", action="store_true",
                    help="also print the checks that passed")
     s.add_argument("--json", action="store_true", help="machine-readable output")

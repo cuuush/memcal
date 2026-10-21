@@ -7,6 +7,7 @@ import os
 import plistlib
 import shlex
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -491,6 +492,68 @@ def calendar_permission_probe(cfg: Config, *, timeout: int = 45) -> tuple[bool, 
     ok = bool(payload.get("ok"))
     detail = str(payload.get("message") or "no detail")
     return ok, f"nightly launchd requester ({identity}): {detail}"
+
+
+def _protected_sources(cfg: Config) -> list[str]:
+    from . import sources
+    disabled = sources.disabled_set(cfg)
+    names = []
+    if 'imessage' not in disabled and cfg.imessage_backend == 'chatdb':
+        names.append('imessage')
+    if 'whatsapp' not in disabled:
+        names.append('whatsapp')
+    return names
+
+
+def read_source_access(cfg: Config) -> dict:
+    """Probe protected databases without ingestion, migrations, or message bodies."""
+    from .sources import imessage, whatsapp
+    checks = {}
+    for name in _protected_sources(cfg):
+        if name == 'imessage':
+            path, table = imessage.CHAT_DB, 'message'
+        else:
+            path, table = whatsapp.store_path(cfg.secret('WHATSAPP_DB', 'whatsappdb')), 'ZWAMESSAGE'
+        if path is None:
+            checks[name] = {'ok': None, 'detail': 'local database not found'}
+            continue
+        try:
+            src = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True, timeout=2)
+            try:
+                # Read a constant through the source table, never message contents.
+                src.execute(f'SELECT 1 FROM {table} LIMIT 1').fetchone()
+            finally:
+                src.close()
+        except (sqlite3.Error, OSError) as exc:
+            checks[name] = {'ok': False, 'detail': str(exc)}
+        else:
+            checks[name] = {'ok': True, 'detail': 'read-only database access verified'}
+    return {'checks': checks}
+
+
+def source_access_health(cfg: Config, *, timeout: int = 10) -> tuple[str, str]:
+    """Test the scheduled app's access, independent of the calling terminal's grant."""
+    expected = _protected_sources(cfg)
+    if not _is_macos() or not expected:
+        return 'skip', 'no enabled macOS protected sources to check'
+    if bundle_health(cfg)[0] != 'ok':
+        return 'warn', 'scheduled source access is unverified until memcal.app is installed and current'
+    payload, identity = launchd_memcal_call(
+        cfg, label=f'{LABEL}.source-access-{uuid.uuid4().hex[:12]}', stem='source-access',
+        memcal_argv=['doctor', '--probe-source-access'], timeout=timeout)
+    checks = payload.get('checks') if isinstance(payload, dict) else None
+    if not isinstance(checks, dict) or any(
+            not isinstance(checks.get(name), dict) or type(checks[name].get('ok')) not in (bool, type(None))
+            or 'ok' not in checks[name] for name in expected):
+        return 'warn', f'scheduled source access could not be verified ({identity}; probe failed or timed out)'
+    failed = [f"{name}: {checks[name].get('detail', 'read failed')}"
+              for name in expected if checks[name]['ok'] is False]
+    if failed:
+        return 'fail', 'memcal.app cannot read protected sources — ' + '; '.join(failed)
+    unknown = [name for name in expected if checks[name]['ok'] is None]
+    if unknown:
+        return 'warn', 'scheduled access unverified: database not found for ' + ', '.join(unknown)
+    return 'ok', 'read-only access verified as memcal.app: ' + ', '.join(expected)
 
 
 def eventkit_call(cfg: Config, verb: str, *, timeout: int = 90) -> tuple[bool, str]:
