@@ -18,6 +18,9 @@
 
 ### Fixed
 
+- `memcal doctor` verifies Messages/WhatsApp database access through the scheduled
+  `memcal.app` identity and gives the exact Full Disk Access remedy when blocked.
+  A terminal's permission no longer masks a missing scheduler permission.
 - Scheduled dreams retain runtime paths for Node and source CLIs; schedule status
   explains when a saved launchd job is not loaded. Local Proton Bridge collection
   attempts a background app launch and waits for IMAP before retrying.
