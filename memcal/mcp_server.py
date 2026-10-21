@@ -33,9 +33,8 @@ TOOLS = [
             "Open a relevant brief handle or wiki page first when the brief omits a "
             "detail. Returns stored details, change history and linked evidence; "
             "check these before searching the archive. Accepts me, page names and "
-            "recorded aliases. For a handle it already includes the whole thread behind "
-            "pending new activity, full text with (new) markers and [ids] to cite, "
-            "so a flagged row needs no second call unless a cap truncates it. "
+            "recorded aliases. Source excerpts contain only the cited lines responsible "
+            "for the record. Read pending changes separately with memcal_activity. "
             "Takes the handle the brief prints in brackets, such as E258, T2, or "
             "Q12. Existing legacy S handles remain readable."),
         "inputSchema": {

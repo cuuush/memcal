@@ -39,7 +39,8 @@ memcal_add, memcal_update, memcal_merge, memcal_drop, memcal_todo, memcal_answer
 memcal_note, or memcal_alias. These tools update private memcal state directly and do
 not need a second model pass. Never infer that a to-do is complete; ask when unsure.
 A row flagged with new activity may have changed — open it with memcal_open
-before giving current details for it; the open already includes the new messages.
+for its stored details and cited evidence, then read memcal_activity before giving
+current details for it. New conversation traffic is separate from the cited evidence.
 
 Memcal does not mutate the user's real calendar. Use the harness's calendar capability
 for an explicit request to create, move, or delete a real calendar event; do not also

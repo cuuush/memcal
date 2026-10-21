@@ -2388,7 +2388,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--yes", action="store_true", help="setup without confirmation")
     s.set_defaults(func=cmd_openclaw)
 
-    s = sub.add_parser("open", help="read a handle (E286, T7, Q12) or wiki page, with new activity included")
+    s = sub.add_parser("open", help="read a handle (E286, T7, Q12) or wiki page, with cited evidence only")
     s.add_argument("ref", help="a brief handle, page name, recorded alias, or 'me'")
     s.set_defaults(func=cmd_open)
 

@@ -1,4 +1,4 @@
-"""`memcal_open` carries pending activity so a flagged row needs one call."""
+"""Opening stored evidence stays separate from reading pending activity."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ class OpenIncludesPendingActivity(unittest.TestCase):
     def tearDown(self):
         self.conn.close()
 
-    def test_flagged_row_opens_with_its_new_messages(self):
+    def test_flagged_row_opens_only_citations_while_activity_reads_new_messages(self):
         m1 = archive.append(
             self.conn, channel="imessage", external_id="o1",
             ts="2026-09-10T10:00:00", thread="t1", text="poker saturday?",
@@ -50,18 +50,15 @@ class OpenIncludesPendingActivity(unittest.TestCase):
         self.assertIn(f"memcal_open(ref=E{event.id})", text)
 
         opened = detail.open_handle(self.conn, self.cfg, f"E{event.id}")
-        self.assertIn("moved to Sunday?", opened)
-        self.assertIn(f"[{m2}]", opened)
-        self.assertIn("new activity since last review", opened)
-        self.assertIn(f"memcal_activity(handle=E{event.id})", opened)
-        self.assertIn("full thread imessage/t1", opened)
-        # Reviewed context rides along unmarked; pending is marked new.
+        self.assertNotIn("moved to Sunday?", opened)
+        self.assertNotIn(f"[{m2}]", opened)
+        self.assertNotIn("new activity since last review", opened)
+        self.assertIn(f"memcal_activity(handle=E{event.id})", text)
+        self.assertNotIn("full thread", opened)
         self.assertIn("poker saturday?", opened)
-        self.assertIn("(new)", opened)
 
         page = activity.read(self.conn, "event", event.key)
-        for item in page["items"]:
-            self.assertIn(f"[{item['id']}]", opened)
+        self.assertIn(m2, [item['id'] for item in page['items']])
 
     def test_quiet_row_open_carries_no_activity_section(self):
         event, _ = live.add_event(

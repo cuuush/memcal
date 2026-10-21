@@ -82,6 +82,18 @@ class Series:
         return self.weekday is not None
 
 
+def allows_date(conn: sqlite3.Connection, slug: str, on: str) -> bool:
+    """A retired schedule cannot lend its identity or access details to a new plan."""
+    rule = conn.execute('SELECT status, effective_on, ends_on FROM series WHERE slug=?',
+                        (slug,)).fetchone()
+    if rule is None:
+        return True  # Legacy membership can predate declared schedule rules.
+    if rule['status'] == 'ended' and not rule['ends_on']:
+        return False
+    return (not rule['effective_on'] or on >= rule['effective_on']) and (
+        not rule['ends_on'] or on <= rule['ends_on'])
+
+
 def get(conn: sqlite3.Connection, slug: str) -> Series | None:
     row = conn.execute("SELECT * FROM series WHERE slug = ?", (db.slugify(slug or ""),)
                        ).fetchone()

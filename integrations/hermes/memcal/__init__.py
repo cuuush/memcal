@@ -181,9 +181,8 @@ OPEN = {
         "detail. Returns stored details, change history and linked evidence; "
         "check these before searching the archive. Accepts me, page names and "
         "recorded aliases. For a "
-        "handle it already includes the whole thread behind pending new activity, "
-        "full text with line ids to cite, so a flagged row needs no second call "
-        "unless a cap truncates it.\n"
+        "handle it includes only cited source lines. Read pending changes separately "
+        "with memcal_activity.\n"
         "Brief lines carry a short handle such as E258, T2, Q12 or S4; give it that. "
         "Events, to-dos and questions all work; S handles remain readable for older data."),
     "parameters": {

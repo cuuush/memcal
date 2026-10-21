@@ -7,7 +7,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from . import db
+from . import db, series as series_mod
 
 def date_phrase(start: str, end: str | None = None) -> str:
     """Compact calendar date or inclusive date range."""
@@ -447,6 +447,8 @@ def find_match_scored(
             continue
         if not (lo <= ordinal <= hi):
             continue
+        if ev.series and not series_mod.allows_date(conn, ev.series, on):
+            continue
 
         # A shared name/day cannot override evidence of separate occasions.
         # Partial rosters can legitimately grow across a DM and a group; an
@@ -646,10 +648,12 @@ def _claimed_by_another(conn: sqlite3.Connection, event_id: int, field: str,
 SERIES_QUALITIES = ("location", "join_url")
 
 
-def _series_for(conn: sqlite3.Connection, title: str) -> str | None:
+def _series_for(conn: sqlite3.Connection, title: str, on: str) -> str | None:
     """Find an existing series by exact title slug."""
     slug = db.slugify(title or "")
     if not slug:
+        return None
+    if not series_mod.allows_date(conn, slug, on):
         return None
     row = conn.execute(
         "SELECT series FROM events WHERE series = ? LIMIT 1", (slug,)).fetchone()
@@ -661,7 +665,7 @@ def _series_for(conn: sqlite3.Connection, title: str) -> str | None:
 
 def _inherit_from_series(conn: sqlite3.Connection, fields: dict) -> None:
     """Fill absent series-level qualities from the rule, then recent occurrences."""
-    series = fields.get("series") or _series_for(conn, fields.get("title", ""))
+    series = fields.get("series") or _series_for(conn, fields.get("title", ""), fields['date'])
     if not series:
         return
     wanted = [name for name in SERIES_QUALITIES if not fields.get(name)]
@@ -680,8 +684,8 @@ def _inherit_from_series(conn: sqlite3.Connection, fields: dict) -> None:
         return
     row = conn.execute(
         f"SELECT {', '.join(wanted)} FROM events"
-        "  WHERE series = ? AND (" + " OR ".join(f"{n} IS NOT NULL" for n in wanted) + ")"
-        "  ORDER BY date DESC, id DESC LIMIT 1", (series,)).fetchone()
+        "  WHERE series = ? AND date <= ? AND (" + " OR ".join(f"{n} IS NOT NULL" for n in wanted) + ")"
+        "  ORDER BY date DESC, id DESC LIMIT 1", (series, fields['date'])).fetchone()
     if row is None:
         return
     for name in wanted:
@@ -726,6 +730,11 @@ def upsert(
     # Defaults apply to new rows only; partial updates must not assert them.
     subject = fields.get("subject") or "me"
 
+    # Apply the lifetime constraint to explicit model associations too, including
+    # amendments and replay. A null association never erases an existing one here;
+    # detaching an already contaminated row is an explicit typed correction.
+    if fields.get('series') and not series_mod.allows_date(conn, fields['series'], fields['date']):
+        fields.pop('series')
     existing: Event | None = None
     # How sure we are this is the same row: 4 when the diff named the key outright,
     # then find_match's own ladder beneath that. Only the date update consults it.

@@ -18,6 +18,11 @@
 
 ### Fixed
 
+- A new event cannot inherit the identity, location, or join link of a schedule
+  outside its lifetime. Wiki grouping also respects ended schedule boundaries.
+- Opening a record shows only cited source messages, without neighbouring messages,
+  conversation tails, or uncited legacy bundle fallback. Activity stays available
+  separately through `memcal_activity`.
 - `memcal doctor` verifies Messages/WhatsApp database access through the scheduled
   `memcal.app` identity and gives the exact Full Disk Access remedy when blocked.
   A terminal's permission no longer masks a missing scheduler permission.

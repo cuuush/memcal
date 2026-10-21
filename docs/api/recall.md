@@ -39,8 +39,8 @@ the range. A shortened brief discloses missing rows instead of claiming complete
 
 Open durable facts with `memcal_open(ref="me")` or a page name. When the page is
 unknown, use `memcal_search_wiki` before searching raw archive messages. A flagged
-event's `memcal_open` result already includes pending activity from its whole thread;
-use `memcal_activity` only if the returned cap requires another page.
+event's `memcal_open` result contains its stored details and cited evidence only;
+use `memcal_activity` to read pending messages separately.
 
 `memcal_conversation` takes a `line_id` from search results or a channel/thread
 pair, so a flagged thread is one call away — the assistant never invents a
