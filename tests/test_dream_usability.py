@@ -1,6 +1,7 @@
 """Regressions at the scheduled-run, retained-context, and detail boundaries."""
 
 import os
+import email
 import sqlite3
 import subprocess
 import unittest
@@ -79,6 +80,17 @@ class TestBridgeAutomaticStartup(Base):
 
 
 class TestRetainedEmailNamesAndContext(Base):
+    def test_next_venmo_message_is_named_during_normal_ingestion(self):
+        message = email.message_from_string(
+            'Message-ID: <new-venmo@example.org>\nFrom: Venmo <venmo@venmo.com>\n'
+            'Date: Tue, 20 Oct 2026 10:00:00 -0400\nSubject: Your receipt\n\n')
+        mailbox = mock.Mock()
+        mailbox.body.return_value = 'Your payment receipt'
+        report = base.IngestReport.opened('email', self.cfg)
+        proton._handle_message(self.conn, self.cfg, report, mailbox, 1, message, 'INBOX')
+        self.assertEqual(identity.resolve(self.conn, 'venmo@venmo.com'), 'Venmo')
+        self.assertNotIn('venmo@venmo.com', [r['handle'] for r in identity.unresolved(self.conn)])
+
     def add_email(self, handle='receipts@example.org', name='Example', reason='bulk-headers'):
         meta = db.jdump({'from': f'\\"{name}\\" <{handle}>', 'subject': 'Our October concerts'})
         cursor = self.conn.execute(
@@ -108,6 +120,7 @@ class TestRetainedEmailNamesAndContext(Base):
         self.assertIn('Promotional email from Example', opened)
         self.assertIn('Our October concerts', opened)
         self.assertIn('Promotional email from Example', brief.render(self.conn, self.cfg))
+        self.assertIn('Our October concerts', brief.render(self.conn, self.cfg))
 
     def test_address_is_not_an_already_named_conversation(self):
         item = {'channel': 'email', 'thread': 'mail', 'handle': 'sender@example.org',

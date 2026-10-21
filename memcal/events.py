@@ -140,8 +140,11 @@ def email_context(conn: sqlite3.Connection, key: str, *, detail: bool = False) -
     label = ('Promotional email' if row['gate_reason'] in
              ('bulk-headers', 'sender-table:archive') else 'Email announcement')
     text = f"{label} from {sender}"
-    if detail and meta.get('subject'):
-        text += f" — {meta['subject']}"
+    if meta.get('subject'):
+        subject = ' '.join(str(meta['subject']).split())
+        if not detail and len(subject) > 110:
+            subject = subject[:107].rstrip() + '…'
+        text += f" — {subject}"
     return text
 
 

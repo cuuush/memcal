@@ -18,6 +18,15 @@
 
 ### Fixed
 
+- Dream saves cited attendance roles separately: invitations and conditional interest
+  cannot become companions, performers are saved as hosts, and inviting someone
+  preserves the other guests. These assessments survive cross-conversation merging.
+- DMs can retrieve bounded, citable context from related retained group discussions,
+  including silent roster members and unresolved-member counts.
+- Visits to the user render from the user's perspective. Explicit abbreviation
+  expansions are validated against cited full wording before storage; unsupported
+  meanings stay marked as uncertain. Compact email opportunities include the source
+  subject so unfamiliar announcements explain what they concern.
 - A new event cannot inherit the identity, location, or join link of a schedule
   outside its lifetime. Wiki grouping also respects ended schedule boundaries.
 - Opening a record shows only cited source messages, without neighbouring messages,

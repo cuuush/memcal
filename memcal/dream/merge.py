@@ -1137,6 +1137,21 @@ def _collapse(group: list[Mention], merged: dict) -> None:
     writable = [m for m in group if not m.existing]
     if not writable:
         return
+    # Role assessments and explicit wording survive both local and model merging.
+    # Apply still validates their source ids and keeps conditional guests out of
+    # participants even if the merge's flat participant list included them.
+    for field in ('attendance', 'expansions'):
+        if any(isinstance(m.row.get(field), list) for m in writable):
+            merged[field] = [entry for m in writable for entry in m.row.get(field) or []]
+    targets = {m.row.get('visit_target') for m in writable if m.row.get('visit_target')}
+    if len(targets) == 1:
+        merged['visit_target'] = next(iter(targets))
+        visitors = {m.row.get('subject') if m.row.get('subject') not in (None, '', 'me')
+                    else m.bundle.entity.removeprefix('person:')
+                    for m in writable if m.row.get('visit_target') == 'me'
+                    and m.bundle.entity.startswith('person:')}
+        if len(visitors) == 1:
+            merged['_visit_subject'] = next(iter(visitors))
     keeper = min(writable, key=lambda m: m.date)
     for mention in group:
         if mention.existing:

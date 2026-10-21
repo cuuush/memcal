@@ -270,6 +270,7 @@ def build(conn: sqlite3.Connection, limit: int = SPOOL_LIMIT,
         # conversations out of order until this puts them back on one timeline.
         bundle.items.sort(key=lambda r: str(r["ts"]))
         add_thread_context(conn, bundle)
+        add_related_group_context(conn, bundle)
         bundle.convo_titles = {
             (r["channel"], r["thread"]): names.get((r["channel"], r["thread"]),
                                                   r["thread"] or r["channel"])
@@ -364,6 +365,65 @@ def add_thread_context(conn: sqlite3.Connection, bundle: Bundle) -> None:
         bundle.items = sorted(bundle.items + extra, key=lambda r: str(r["ts"]))
     else:
         bundle.items.sort(key=lambda r: str(r["ts"]))
+
+
+def add_related_group_context(conn: sqlite3.Connection, bundle: Bundle) -> None:
+    """Nominate retained group discussions about the occasion mentioned in a DM.
+
+    The group need not have new spool items. Topic/date agreement nominates context;
+    neither shared people nor membership alone establishes attendance. Restored rows
+    have real L-tags but do not consume another conversation's pending work.
+    """
+    from . import affinity
+
+    new = [r for r in bundle.items if int(r['id']) not in bundle.context_ids]
+    if not new or not bundle.entity.startswith('person:'):
+        return
+    anchors = affinity.fragments(Bundle(entity=bundle.entity, items=bundle.items))
+    tokens = sorted({t for f in anchors for t in f.tokens}, key=lambda t: (-len(t), t))[:12]
+    if not tokens:
+        return
+    lo = (min(db.parse_ts(r['ts']) for r in new)
+          - timedelta(days=DISTANT_CONTEXT_DAYS)).date().isoformat()
+    hi = max(str(r['ts'])[:10] for r in new)
+    here = {(r['channel'], r['thread']) for r in bundle.items}
+    # Bound the FTS candidates before reading tails; do not scan the full archive or
+    # resurrect a conversation the user muted.
+    query = ' OR '.join('"' + t.replace('"', '""') + '"' for t in tokens)
+    matches = conn.execute(
+        "SELECT a.* FROM archive_fts f JOIN archive a ON a.id=f.rowid"
+        " JOIN threads t ON t.channel=a.channel AND t.thread=a.thread"
+        " WHERE archive_fts MATCH ? AND t.is_group=1"
+        " AND coalesce(t.decision,'')!='mute' AND substr(a.ts,1,10) BETWEEN ? AND ?"
+        " ORDER BY rank LIMIT 60", (query, lo, hi)).fetchall()
+    candidates = {}
+    for row in matches:
+        group = (row['channel'], row['thread'])
+        if group in here:
+            continue
+        entity = f'thread:{group[0]}:{group[1]}'
+        fragments = affinity.fragments(Bundle(entity=entity, items=[row]))
+        if not fragments:
+            fragments = [affinity.Fragment(entity, int(row['id']), None,
+                         affinity._tokens(row['text']), frozenset(), entity)]
+        score = max((len(a.tokens & b.tokens) for a in anchors for b in fragments
+                     if affinity.related(a, b, frozenset(), near_days=0)), default=0)
+        if score and (group not in candidates or score > candidates[group][0]):
+            candidates[group] = (score, row)
+    seen = {int(r['id']) for r in bundle.items}
+    extra = []
+    for group, (_score, match) in sorted(candidates.items(),
+            key=lambda item: (-item[1][0], item[0]))[:2]:
+        tail = conn.execute(
+            'SELECT * FROM archive WHERE channel=? AND thread=?'
+            ' AND substr(ts,1,10) BETWEEN ? AND ? ORDER BY ts DESC,id DESC LIMIT 5',
+            (*group, lo, hi)).fetchall()
+        for row in [match, *reversed(tail)]:
+            if int(row['id']) not in seen:
+                seen.add(int(row['id']))
+                bundle.context_ids.add(int(row['id']))
+                extra.append(row)
+    bundle.items = sorted(bundle.items + extra, key=lambda r: (str(r['ts']), int(r['id'])))
 
 
 def all_text(bundles: list[Bundle]) -> str:

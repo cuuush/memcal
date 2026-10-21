@@ -53,11 +53,17 @@ The supplied conversation roster identifies who the exchange is with, not who ac
 this occasion. Use it to resolve speakers and group references. A guest invited in a DM
 does not replace the existing group's attendees. Performers and advertised lineups go
 in hosts or notes, never in the user's companion list.
+Use attendance to state each person's role and cite their actual acceptance, invitation,
+conditional reply, or performer announcement. Code applies these role changes separately:
+inviting a new person leaves the other guests intact. Do not use membership as acceptance.
 Write titles and notes for the user reading them later: a visit to the user is "Visit
 you", with the visitor as subject. Preserve conditional interest as tentative. Expand
 abbreviations when their meaning is supported by the conversation or supplied pages;
 otherwise retain the abbreviation and explain the uncertainty in the note. For an
 email opportunity, explain what it is and who announced it in the note.
+Set visit_target to me for someone coming to the user, so code renders that visit from
+the user's perspective. Supply expansions with cited full wording for abbreviations;
+code validates and spells them out in stored titles, locations, and notes.
 
 Use `date` for the first day and `until` only when an end day was stated. Resolve relative
 dates from the timestamp on the message, not today. Old traffic describes its own time.
