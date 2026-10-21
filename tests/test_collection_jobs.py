@@ -224,7 +224,8 @@ class TestProtonBridgeConnectionFailures(unittest.TestCase):
     def test_a_closed_bridge_says_to_open_it(self):
         conn, cfg = self._context()
         with mock.patch.object(
-                proton.imaplib, "IMAP4_SSL", side_effect=ConnectionRefusedError):
+                proton.imaplib, "IMAP4_SSL", side_effect=ConnectionRefusedError), \
+             mock.patch.object(proton, '_launch_local_bridge', return_value=False):
             report = proton.ingest(conn, cfg)
 
         self.assertIn("not accepting connections", report.error or "")

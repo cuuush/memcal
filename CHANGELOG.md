@@ -18,6 +18,17 @@
 
 ### Fixed
 
+- Scheduled dreams retain runtime paths for Node and source CLIs; schedule status
+  explains when a saved launchd job is not loaded. Local Proton Bridge collection
+  attempts a background app launch and waits for IMAP before retrying.
+- Dream's question summary shows real open questions and how to answer them,
+  without counting rejected or already dropped questions.
+- Email sender display names are retained and recovered from saved headers, and
+  email opportunities show their promotional or announcement context in brief/detail.
+- Opening a record resolves only its own conversation names instead of repeatedly
+  scanning the whole archive. Group bundles include members and bounded earlier
+  conversation context; Dream explains abbreviations and visits from the user's view.
+
 - Dream cleanup merges duplicate events with their evidence and calendar links,
   retaining a confirmed booking when the other row records its arrival. Completed
   bookings retain their published calendar entries.

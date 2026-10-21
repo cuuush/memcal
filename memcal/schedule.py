@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -513,6 +514,18 @@ def eventkit_call(cfg: Config, verb: str, *, timeout: int = 90) -> tuple[bool, s
 
 # ------------------------------------------------------------------ writing --
 
+def runtime_path() -> str:
+    """Keep CLI runtimes visible when launchd starts with its minimal PATH."""
+    entries = os.environ.get("PATH", "").split(os.pathsep)
+    for command in ("node", "codex", "claude", "python3"):
+        found = shutil.which(command)
+        if found:
+            entries.append(str(Path(found).parent))
+    entries.extend([str(Path.home() / ".local/bin"), "/opt/homebrew/bin",
+                    "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"])
+    return os.pathsep.join(dict.fromkeys(p for p in entries if Path(p).is_absolute()))
+
+
 def render_script(cfg: Config, *, python: str | None = None) -> str:
     """Render the scheduled job."""
     python = python or sys.executable
@@ -521,6 +534,7 @@ def render_script(cfg: Config, *, python: str | None = None) -> str:
 # `memcal schedule run` executes the same file.
 set -u
 
+export PATH={shlex.quote(runtime_path())}
 export MEMCAL_HOME="{cfg.home}"
 PY="{python}"
 LOG="{log_path(cfg)}"
@@ -620,7 +634,7 @@ def render_plist(cfg: Config, *, hour: int = DEFAULT_HOUR, minute: int = DEFAULT
         "StandardOutPath": str(cfg.home / "launchd.err"),
         "StandardErrorPath": str(cfg.home / "launchd.err"),
         "ProcessType": "Background",
-        "EnvironmentVariables": {"MEMCAL_HOME": str(cfg.home)},
+        "EnvironmentVariables": {"MEMCAL_HOME": str(cfg.home), "PATH": runtime_path()},
         "WorkingDirectory": str(PROJECT_ROOT),
     }
     if argv[0] == str(app_executable(cfg)):
@@ -886,7 +900,10 @@ def status(cfg: Config, *, runner=subprocess.run) -> dict:
     # every other angle, so the things most likely to rot get checked by name.
     warning = None
     script = script_path(cfg)
-    if installed and not script.exists():
+    if installed and not loaded:
+        warning = ("the nightly job is installed but not loaded in launchd; "
+                   "run `memcal schedule install` to register it again")
+    elif installed and not script.exists():
         # A loaded plist pointing at a missing script fails every night.
         warning = (f"{script} does not exist, so the job fails every night the moment "
                    f"launchd starts it — run `memcal schedule install` to regenerate it")

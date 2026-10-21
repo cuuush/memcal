@@ -64,6 +64,15 @@ running Memcal. See [iMessage setup](docs/sources/imessage.md) to use BlueBubble
 `memcal review` to see recent changes, or `memcal dream --verbose` for source
 notes, individual requests, and detailed changes. Errors remain visible in both modes.
 `memcal dream --dry-run` keeps the cost estimate visible without making model calls.
+When Dream has a question for you, its summary shows the question and its `Q` handle.
+Reply with `memcal answer Q12 "your answer"` using the displayed handle, or run
+`memcal review` to see all open questions.
+On macOS, a closed local Proton Mail Bridge is opened in the background before email
+collection retries. If Bridge requires an unlock, the error tells you to open and
+unlock it, then retry `memcal ingest email`.
+Scheduled runs retain the command search path from installation so Node and source
+CLIs remain available under launchd. Run `memcal schedule install` after changing
+runtime locations, and `memcal schedule status` to check that the job is loaded.
 Inferred sender names appear to agents as `"Name" (inferred from messages)`.
 That annotation describes the name, independently of whether a booking is confirmed.
 Calendar event titles stay plain; inferred participant names are qualified in the notes.

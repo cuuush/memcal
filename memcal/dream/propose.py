@@ -814,7 +814,7 @@ def _lone_nameless_thread(bundle: Bundle) -> tuple[str, str] | None:
     # `title` is the conversation's own display name (a source label, else the raw
     # thread id). `label` carries the channel prefix, so it is the wrong thing to
     # name-check — an unnamed number reads as "imessage:+1…", which looks name-shaped.
-    if kind != "thread" or identity.name_shaped(bundle.title):
+    if kind != "thread" or (identity.name_shaped(bundle.title) and '@' not in bundle.title):
         return None
     channel, _, thread = rest.partition(":")
     handles = {(row["handle"] or "").strip()
@@ -955,6 +955,15 @@ def build_bundle_block(cfg: Config, bundle: Bundle,
         # The routing id leads and is the only bundle name in the block.
         head = f"BUNDLE ID {bundle_id(bundle.entity)}   ({bundle.label})"
     if conn is not None:
+        rosters = []
+        for channel, thread in sorted({(r['channel'], r['thread']) for r in bundle.items
+                                       if r['thread'] and r['channel'] != 'email'}):
+            members = threads.entity_people(conn, f'thread:{channel}:{thread}')
+            if members:
+                rosters.append(f"{channel}/{thread}: " + ', '.join(members))
+        if rosters:
+            context.append("CONVERSATION MEMBERS (membership is not attendance)\n"
+                           + '\n'.join(rosters))
         open_rows = build_open_rows(conn, bundle)
         if open_rows:
             context.append(open_rows)

@@ -577,6 +577,7 @@ function renderEventDetail(detail, body) {
   if (e.location) field("Location", pill("location", e.location), true);
   if (e.series) field("Series", pill("series", e.series));
   field("Note", e.note, true);
+  field("Context", e.email_context, true);
   top.append(meta, related);
   const writes = detail.timeline?.writes || [];
   if (writes.length) {

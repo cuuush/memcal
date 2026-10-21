@@ -299,7 +299,7 @@ def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
 
 def _mark_source_shifts(conn: sqlite3.Connection, rows: list[dict]) -> list[dict]:
     """Mark each change of conversation or day in a source timeline."""
-    names = titles(conn)
+    names = titles(conn, keys=[(r['channel'], r['thread']) for r in rows])
     previous = None
     for row in rows:
         stamp = db.parse_ts(row["ts"])
@@ -345,7 +345,8 @@ def citations(conn: sqlite3.Connection, kind: str, ref: str,
         """SELECT count(DISTINCT s.id) AS n FROM provenance p
               JOIN spool s ON s.run_id = p.run_id AND s.entity = p.entity
              WHERE p.kind = ? AND p.ref = ?""", (kind, ref)).fetchone()["n"]
-    resolved = names if names is not None else (titles(conn) if rows else {})
+    resolved = names if names is not None else titles(
+        conn, keys=[(r['channel'], r['thread']) for r in rows])
     where = sorted({resolved.get((r["channel"], r["thread"]), r["thread"] or r["channel"])
                     for r in rows})
     stamps = sorted(str(r["ts"]) for r in rows)
@@ -364,10 +365,10 @@ def citations(conn: sqlite3.Connection, kind: str, ref: str,
     }
 
 
-def titles(conn: sqlite3.Connection) -> dict[tuple, str]:
+def titles(conn: sqlite3.Connection, *, keys=None) -> dict[tuple, str]:
     """Thread names, imported late to keep `threads` out of this module's import cycle."""
     from . import threads                                          # noqa: PLC0415
-    return threads.titles(conn)
+    return threads.titles(conn, keys=keys)
 
 
 def conversation(conn: sqlite3.Connection, *, channel: str, thread: str,

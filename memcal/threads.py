@@ -384,14 +384,15 @@ def refresh(conn: sqlite3.Connection) -> int:
     return len(rows)
 
 
-def _speakers(conn: sqlite3.Connection) -> dict[tuple, list[dict]]:
+def _speakers(conn: sqlite3.Connection, keys=None) -> dict[tuple, list[dict]]:
     """Everyone who has spoken into each thread besides the user, busiest first."""
     out: dict[tuple, list[dict]] = {}
+    scope, params = _title_scope(keys)
     for row in conn.execute(
         """SELECT channel, thread, person, handle, count(*) AS n FROM archive
             WHERE from_me = 0 AND thread IS NOT NULL AND thread != ''
-              AND (person IS NULL OR person != 'me')
-            GROUP BY 1, 2, 3, 4 ORDER BY n DESC"""
+              AND (person IS NULL OR person != 'me')""" + scope + """
+            GROUP BY 1, 2, 3, 4 ORDER BY n DESC""", params
     ):
         seat = out.setdefault((row["channel"], row["thread"]), [])
         key = row["person"] or row["handle"]
@@ -428,8 +429,16 @@ def _join(names: list[str], extra: int) -> str:
 MAX_NAMED = 3
 
 
+def _title_scope(keys) -> tuple[str, list]:
+    if keys is None:
+        return "", []
+    keys = list(dict.fromkeys(keys))
+    return (" AND (" + " OR ".join("(channel=? AND thread=?)" for _ in keys) + ")",
+            [value for key in keys for value in key]) if keys else (" AND 0", [])
+
+
 def titles(conn: sqlite3.Connection,
-           speakers: dict[tuple, list[dict]] | None = None) -> dict[tuple, str]:
+           speakers: dict[tuple, list[dict]] | None = None, *, keys=None) -> dict[tuple, str]:
     """A readable name for every thread, in one pass. `{(channel, thread): name}`.
 
     `speakers` is a precomputed `_speakers` map for callers that already hold
@@ -437,9 +446,11 @@ def titles(conn: sqlite3.Connection,
     must not rebuild it once per card.
     """
     if speakers is None:
-        speakers = _speakers(conn)
+        speakers = _speakers(conn, keys)
+    scope, params = _title_scope(keys)
     rows = {(r["channel"], r["thread"]): r
-            for r in conn.execute("SELECT channel, thread, label, is_group, mine FROM threads")}
+            for r in conn.execute("SELECT channel, thread, label, is_group, mine FROM threads"
+                                  " WHERE 1" + scope, params)}
     out = {}
     for key in set(speakers) | set(rows):
         row = rows.get(key)
@@ -467,7 +478,7 @@ def titles(conn: sqlite3.Connection,
 
 
 def title(conn: sqlite3.Connection, channel: str, thread: str) -> str:
-    return titles(conn).get((channel, thread), thread or channel)
+    return titles(conn, keys=[(channel, thread)]).get((channel, thread), thread or channel)
 
 
 def is_guessed_thread(conn: sqlite3.Connection, channel: str, thread: str) -> bool:

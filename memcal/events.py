@@ -124,6 +124,27 @@ def split_platform(title: str) -> tuple[str, str]:
     return _PLATFORM_TAG.sub("", title).strip(), found.group(1)
 
 
+def email_context(conn: sqlite3.Connection, key: str, *, detail: bool = False) -> str:
+    """Describe an opportunity's retained email provenance, independent of its title."""
+    row = conn.execute(
+        "SELECT a.handle, a.meta, a.gate_reason FROM evidence e"
+        " JOIN archive a ON a.id=e.archive_id JOIN events v ON v.key=e.ref"
+        " WHERE e.kind='event' AND e.ref=? AND a.channel='email'"
+        " AND v.kind='opportunity' ORDER BY a.ts DESC, a.id DESC LIMIT 1", (key,)).fetchone()
+    if row is None:
+        return ""
+    from .sources.proton import sender_name
+    meta = db.jload(row['meta'], {})
+    name, address = sender_name(meta.get('from', ''))
+    sender = name or address or row['handle'] or 'an unknown sender'
+    label = ('Promotional email' if row['gate_reason'] in
+             ('bulk-headers', 'sender-table:archive') else 'Email announcement')
+    text = f"{label} from {sender}"
+    if detail and meta.get('subject'):
+        text += f" — {meta['subject']}"
+    return text
+
+
 @dataclass
 class Event:
     key: str

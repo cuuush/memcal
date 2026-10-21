@@ -144,7 +144,9 @@ class TestCompactDreamReport(unittest.TestCase):
                                       questions=["where?"], woken=["Book the room"])
         out = result.report(verbose=False)
         self.assertIn("NO PRICE ON FILE", out)
-        self.assertIn("1 question(s) need your review", out)
+        self.assertIn("Questions for you:", out)
+        self.assertIn("where?", out)
+        self.assertIn('memcal answer Q<number> "your answer"', out)
         self.assertIn("1 to-do(s) ready to revisit", out)
 
 

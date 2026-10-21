@@ -45,6 +45,15 @@ Statuses:
 Keep date, time, place, people, and status out of the title; they have fields. `subject`
 is `me` or the person whose availability/state the row describes. Include only people
 who actually joined or spoke as participants, not an entire room roster.
+The supplied conversation roster identifies who the exchange is with, not who accepted
+this occasion. Use it to resolve speakers and group references. A guest invited in a DM
+does not replace the existing group's attendees. Performers and advertised lineups go
+in hosts or notes, never in the user's companion list.
+Write titles and notes for the user reading them later: a visit to the user is "Visit
+you", with the visitor as subject. Preserve conditional interest as tentative. Expand
+abbreviations when their meaning is supported by the conversation or supplied pages;
+otherwise retain the abbreviation and explain the uncertainty in the note. For an
+email opportunity, explain what it is and who announced it in the note.
 
 Use `date` for the first day and `until` only when an end day was stated. Resolve relative
 dates from the timestamp on the message, not today. Old traffic describes its own time.

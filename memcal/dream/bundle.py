@@ -329,6 +329,22 @@ def add_thread_context(conn: sqlite3.Connection, bundle: Bundle) -> None:
         here = [row for row in bundle.items
                 if row["channel"] == channel and row["thread"] == thread]
         earliest = min(here, key=lambda row: (str(row["ts"]), int(row["id"])))
+        group = conn.execute("SELECT is_group FROM threads WHERE channel=? AND thread=?",
+                             (channel, thread)).fetchone()
+        if group and group['is_group']:
+            # A short scheduling reply can follow last week's discussion of what the
+            # group is doing. Restore a bounded tail even without a pronoun trigger.
+            previous_rows = conn.execute(
+                "SELECT * FROM archive WHERE channel=? AND thread=? AND ts < ?"
+                " AND substr(ts,1,10)>=? ORDER BY ts DESC, id DESC LIMIT 6",
+                (channel, thread, earliest['ts'],
+                 (db.parse_ts(earliest['ts']) - timedelta(days=DISTANT_CONTEXT_DAYS))
+                 .date().isoformat())).fetchall()
+            for prior in previous_rows:
+                if prior['id'] not in seen and len(extra) < MAX_CONTEXT_PER_BUNDLE:
+                    seen.add(prior['id'])
+                    extra.append(prior)
+                    bundle.context_ids.add(int(prior['id']))
         if _NEEDS_REFERENT.search(str(earliest["text"] or "")):
             prior = conn.execute(
                 """SELECT * FROM archive

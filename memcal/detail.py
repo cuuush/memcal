@@ -118,6 +118,7 @@ def event_record(conn: sqlite3.Connection, cfg: Config, ref: str) -> dict:
             "id": row["id"], "subject": row["subject"],
             "participants": participants, "hosts": hosts, "series": row["series"] or "",
             "note": row["note"] or "", "source": row["source"] or "",
+            "email_context": events.email_context(conn, ref, detail=True),
             # Full pressable URLs omitted from the one-line summary.
             "rsvp_url": row["rsvp_url"] or "", "join_url": row["join_url"] or "",
             "part_of": row["part_of"],
@@ -161,6 +162,7 @@ def _event_text(conn: sqlite3.Connection, cfg: Config, ref: str) -> str:
         ("hosted by", ", ".join(row["hosts"])),
         ("whose", row["subject"] if row["subject"] != "me" else ""),
         ("note", row["note"]),
+        ("context", row["email_context"]),
         ("source", row["source"]),
     ]))
     out.extend(_series_lines(conn, row))
@@ -332,7 +334,7 @@ def _sources_text(conn: sqlite3.Connection, kind: str, ref: str) -> str:
     if not cited["narrow"]:
         out.append("  (!) no line-level citation — these are the conversation it came "
                    "out of, not the lines it was built from")
-    names = threads.titles(conn)
+    names = threads.titles(conn, keys=[(r['channel'], r.get('thread') or '') for r in rows])
     for row in rows:
         if row.get("source_heading"):
             out.append(f"  — {row['source_heading']} —")

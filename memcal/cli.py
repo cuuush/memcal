@@ -1684,7 +1684,7 @@ def cmd_review(args) -> int:
         print(f"\n# it wants to know ({len(questions)})")
         for q in questions:
             print(f"  {handle('question', q['id']):>5}  {q['text']}")
-        print("  answer with:  memcal answer Q35 \"...\"   (or words from the question)")
+        print(f"  answer with:  memcal answer Q{questions[0]['id']} \"your answer\"")
 
     stale = [t for t in todos.open_items(conn) if "week" in t.age or "month" in t.age]
     if stale:
