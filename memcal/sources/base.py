@@ -9,14 +9,25 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import sqlite3
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import timedelta
+from pathlib import Path
 from typing import Callable
 
 from .. import archive, db, gate, identity, threads
+
+
+def full_disk_access_help(cfg=None) -> str:
+    home = cfg.home if cfg is not None else Path(os.environ.get('MEMCAL_HOME', '~/.memcal')).expanduser()
+    target = (f"memcal.app ({home / 'memcal.app'})"
+              if os.environ.get('MEMCAL_APP') == '1'
+              else 'the app running this command (your terminal for a manual run)')
+    return (f"Grant Full Disk Access to {target} in System Settings → Privacy & Security "
+            "→ Full Disk Access. The scheduled job retries automatically.")
 
 
 @dataclass
