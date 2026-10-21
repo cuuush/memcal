@@ -77,6 +77,8 @@ runtime locations, and `memcal schedule status` to check that the job is loaded.
 `memcal.app`, separately from your terminal's permissions. It reads no message bodies
 and points to the app's Full Disk Access setting if access is blocked.
 Inferred sender names appear to agents as `"Name" (inferred from messages)`.
+`memcal open E42` shows the stored record, changes, and cited source messages only.
+Read new or uncited conversation traffic separately with `memcal activity E42`.
 That annotation describes the name, independently of whether a booking is confirmed.
 Calendar event titles stay plain; inferred participant names are qualified in the notes.
 

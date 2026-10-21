@@ -44,7 +44,11 @@ Statuses:
 
 Keep date, time, place, people, and status out of the title; they have fields. `subject`
 is `me` or the person whose availability/state the row describes. Include only people
-who actually joined or spoke as participants, not an entire room roster.
+who are explicitly taking part in this occasion. A message sender or recipient is not
+automatically an attendee. An invitation, conditional interest, or availability still
+pending another obligation belongs in the note, not in participants. Preserve stated
+companions when inviting another person to join them; the invitation does not replace
+the established guests with its recipient.
 The supplied conversation roster identifies who the exchange is with, not who accepted
 this occasion. Use it to resolve speakers and group references. A guest invited in a DM
 does not replace the existing group's attendees. Performers and advertised lineups go

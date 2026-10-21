@@ -25,17 +25,17 @@ class TestBoundedSourcePreviewKeepsRecentEvidence(Base):
         self.assertEqual([r['id'] for r in rows],ids[-12:])
         self.assertTrue(all(r['evidence'] for r in rows))
 
-    def test_the_normal_event_open_keeps_recent_reason_and_slot_evidence(self):
+    def test_the_normal_event_open_keeps_citations_and_excludes_uncited_reason(self):
         for i in range(20):self.line(i)
         self.line(30,'The speaker switched slots because their train is delayed.',cited=False)
         correction=self.line(31,'We are using the west room now.')
         events.upsert(self.conn,{'key':self.event.key,'title':'Workshop','date':'2026-08-20',
             'location':'West room'},written_by='dream',evidence_ts='2026-08-10T10:31:00')
         opened=detail.open_handle(self.conn,self.cfg,f'E{self.event.id}')
-        self.assertIn('train is delayed',opened)
+        self.assertNotIn('train is delayed',opened)
         self.assertIn(f'[{correction}]',opened)
         preview=detail._sources_text(self.conn,'event',self.event.key)
-        self.assertIn('train is delayed',preview)
+        self.assertNotIn('train is delayed',preview)
         self.assertLessEqual(sum('· Taylor:' in line for line in preview.splitlines()),12)
 
     def test_uncited_neighbours_do_not_displace_the_newest_citation(self):

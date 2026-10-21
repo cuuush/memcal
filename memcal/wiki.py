@@ -964,13 +964,16 @@ def _fill_where(conn, wiki_dir: Path, slug: str, series: str, rows) -> Page | No
 
 def link_series(conn, wiki_dir: Path) -> list[str]:
     """Find repeats and give them a series page. Two poker games are two rows, one page."""
+    from . import series as series_store
     linked: list[str] = []
     rows = conn.execute(
         "SELECT id, title, date, series, coalesce(origin, source) AS came_from FROM events"
     ).fetchall()
     groups: dict[str, list] = {}
     for row in rows:
-        groups.setdefault(row["series"] or db.slugify(row["title"]), []).append(row)
+        candidate = row['series'] or db.slugify(row['title'])
+        if candidate and series_store.allows_date(conn, candidate, row['date']):
+            groups.setdefault(candidate, []).append(row)
     for series, members in groups.items():
         if len(members) < 2 or not series:
             continue

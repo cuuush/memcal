@@ -205,7 +205,7 @@ UNTHREADED_STREAMS = frozenset({"ical"})
 
 
 def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
-                *, context: int = 2, limit: int = 40) -> list[dict]:
+                *, context: int = 2, limit: int = 40, cited_only: bool = False) -> list[dict]:
     """Original archive lines behind one derived row, with a little thread context.
 
     New writes use the explicit `evidence` link. Older writes predate that table,
@@ -218,6 +218,8 @@ def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
             WHERE e.kind = ? AND e.ref = ?
             ORDER BY a.ts DESC, a.id DESC LIMIT ?""", (kind, ref, limit)
     ).fetchall()
+    if not linked and cited_only:
+        return []
     if not linked:
         history_rows = conn.execute(
             """SELECT run_id, entity FROM provenance
@@ -242,7 +244,7 @@ def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
 
     ids = {row["id"] for row in linked}
     expanded: dict[int, sqlite3.Row] = {row["id"]: row for row in linked}
-    if context:
+    if context and not cited_only:
         for row in linked:
             if not row["thread"] or row["channel"] in UNTHREADED_STREAMS:
                 continue
