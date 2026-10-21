@@ -15,6 +15,9 @@ import re
 import socket
 import sqlite3
 import ssl
+import subprocess
+import sys
+import time
 from datetime import timedelta
 from email.header import decode_header, make_header
 from typing import Callable
@@ -38,6 +41,50 @@ BODY_CHARS = 4000   # what is fetched from the message itself
 ARCHIVE_BODY_CHARS = 2500
 
 
+def _launch_local_bridge(host: str, port: int) -> bool:
+    """Launch the local Mac app once and wait briefly for its IMAP listener."""
+    if sys.platform != "darwin" or host not in ("127.0.0.1", "localhost", "::1"):
+        return False
+    try:
+        opened = subprocess.run(["/usr/bin/open", "-g", "-j", "-a", "Proton Mail Bridge"],
+                                capture_output=True, text=True, timeout=10)
+        if opened.returncode:
+            return False
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection((host, port), timeout=0.5):
+                    return True
+            except OSError:
+                time.sleep(0.25)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return False
+
+
+def sender_name(raw: str) -> tuple[str, str]:
+    # Some old Bridge exports escaped the surrounding display-name quotes.
+    name, address = email.utils.parseaddr(str(raw or "").replace('\\"', '"'))
+    return identity.clean_name(name), address.lower()
+
+
+def recover_sender_names(conn: sqlite3.Connection) -> int:
+    """Recover display names already retained in headers; never infer from domains."""
+    recovered = 0
+    unknown = conn.execute("SELECT handle FROM unresolved WHERE channel='email'").fetchall()
+    for row in unknown:
+        latest = conn.execute(
+            "SELECT meta FROM archive WHERE channel='email' AND handle=?"
+            " AND from_me=0 ORDER BY id DESC LIMIT 1", (row['handle'],)).fetchone()
+        if not latest:
+            continue
+        name, address = sender_name(db.jload(latest['meta'], {}).get('from', ''))
+        if address == row['handle'] and name and identity.adopt_seen_name(
+                conn, address, name, source='email:profile'):
+            recovered += 1
+    return recovered
+
+
 class Bridge:
     def __init__(self, cfg: Config):
         self.host = cfg.secret("PROTON_BRIDGE_HOST", "protonhost") or DEFAULT_HOST
@@ -58,18 +105,33 @@ class Bridge:
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
         try:
-            self.conn = imaplib.IMAP4_SSL(
-                self.host, self.port, timeout=30, ssl_context=context)
-            self.security = "SSL"
-        except ssl.SSLError:
-            self._connect_starttls(context)
-        except (OSError, socket.error) as exc:
+            self._connect(context)
+        except ConnectionRefusedError as exc:
+            if not _launch_local_bridge(self.host, self.port):
+                raise base.HttpError(
+                    f"Proton Bridge is not accepting connections at {self.host}:{self.port}. "
+                    "Automatic startup was unavailable or Bridge did not become ready. "
+                    "Open Bridge and unlock it, then run `memcal ingest email`.") from exc
+            try:
+                self._connect(context)
+            except OSError as retry_error:
+                raise base.HttpError("Proton Bridge was launched but IMAP is still unavailable. "
+                                     "Open Bridge and unlock it, then run `memcal ingest email`.") from retry_error
+        except OSError as exc:
             raise base.HttpError(
                 f"Proton Bridge is not accepting connections at {self.host}:{self.port}. "
                 "Open Bridge and unlock it."
             ) from exc
         self._login()
         return self
+
+    def _connect(self, context: ssl.SSLContext) -> None:
+        try:
+            self.conn = imaplib.IMAP4_SSL(
+                self.host, self.port, timeout=30, ssl_context=context)
+            self.security = "SSL"
+        except ssl.SSLError:
+            self._connect_starttls(context)
 
     def _connect_starttls(self, context: ssl.SSLContext) -> None:
         try:
@@ -257,6 +319,7 @@ def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 300,
     report = base.IngestReport.opened("email", cfg)
     progress = base.adapt_progress(progress)
     report.progress = progress
+    recover_sender_names(conn)
     try:
         with Bridge(cfg) as bridge:
             available = set(bridge.folders())
@@ -430,7 +493,7 @@ def _handle_message(conn, cfg, report, bridge, uid, headers, folder,
                     uidvalidity: str = "") -> None:
     subject = header_str(headers, "Subject") or "(no subject)"
     from_raw = header_str(headers, "From")
-    _name, address = email.utils.parseaddr(from_raw)
+    _name, address = sender_name(from_raw)
     address = (address or "unknown").lower()
     own_id, parent_id, chain = message_ids(headers)
     message_id = archived_id(conn, own_id) if own_id else f"{folder}:{uid}"
@@ -486,6 +549,7 @@ def _handle_message(conn, cfg, report, bridge, uid, headers, folder,
         from_me=from_me,
         counterpart=counterpart,
         meta={"folder": folder, "uid": uid, "uidvalidity": uidvalidity,
+              "seen_name": _name if not from_me else None,
               "subject": subject, "from": from_raw,
               "message_id": message_id, "in_reply_to": parent_id,
               "references": chain, **body_meta},

@@ -218,9 +218,14 @@ def reconcile_backward_window(conn: sqlite3.Connection, cfg: Config) -> list[str
             text += " who with?"
         key = todos.ask(conn, text, key=f"q:resolve:{ev.key}", about_event=ev.id,
                         written_by="reconcile")
+        question = conn.execute(
+            "SELECT id, text FROM questions WHERE key = ? AND status = 'open'",
+            (key,)).fetchone()
+        if not question:
+            continue
         # Stamp provenance linking the reconciliation question to the target event.
         trace.stamp(conn, kind="question", ref=key, verb="asked",
                     entity=f"event:{ev.key}", stage="code")
-        raised.append(text)
+        raised.append(f"Q{question['id']}  {question['text']}")
     conn.commit()
     return raised

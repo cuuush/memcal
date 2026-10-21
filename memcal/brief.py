@@ -424,7 +424,8 @@ def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date, *,
         for ev in mains:
             marker = "· " if db.parse_date(ev.date) < ref else ""
             lines.append(f"{source_tag('event', ev.id)} {marker}"
-                         + ev.one_line(extra=[via.get(ev.key, "")], overview=True))
+                         + ev.one_line(extra=[events.email_context(conn, ev.key)
+                                               or via.get(ev.key, "")], overview=True))
             _hint_after(lines, ev, state)
             lines.extend(_question_lines(asked.get(ev.id, [])))
             lines.extend(_child_lines(conn, ev, asked, state))
@@ -478,7 +479,8 @@ def _later_block(conn: sqlite3.Connection, cfg: Config, ref: date, *,
     for ev in shown:
         lines.append(f"{source_tag('event', ev.id)} "
                      + ev.one_line(overview=True,
-                                   extra=[_duration(ev), via.get(ev.key, "")]))
+                                   extra=[_duration(ev), events.email_context(conn, ev.key)
+                                          or via.get(ev.key, "")]))
         _hint_after(lines, ev, state)
         lines.extend(_question_lines(asked.get(ev.id, [])))
     if total > LATER_LIMIT:

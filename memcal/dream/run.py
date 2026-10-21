@@ -64,7 +64,11 @@ class DreamResult:
                 lines.extend(f"  {line}" for line in self.log
                              if not line.startswith("request "))
             if self.questions:
-                lines.append(f"  {len(self.questions)} question(s) need your review")
+                lines.append("  Questions for you:")
+                lines.extend(f"    {question}" for question in self.questions[:5])
+                if len(self.questions) > 5:
+                    lines.append(f"    +{len(self.questions) - 5} more in memcal review")
+                lines.append('  Read: memcal review · Reply: memcal answer Q<number> "your answer"')
             if self.woken:
                 lines.append(f"  {len(self.woken)} to-do(s) ready to revisit")
             lines.extend(f"  warning: {line.strip()}" for line in self.log
@@ -375,6 +379,8 @@ def _dream(
     # Anything the platform already named. Free, no model call, and it is the difference
     # between a person's rows bundling together and each one filing under a numeral.
     identity.adopt_platform_names(conn)
+    from ..sources import proton
+    proton.recover_sender_names(conn)
     identity.collapse_split_spellings(conn)
     if forgotten:
         print(f"dropped {forgotten} bulk address(es) from the unresolved-handles queue")
@@ -680,7 +686,9 @@ def _dream(
     stale = todos.expire_questions(conn)
     if stale:
         result.log.append(f"expired   {stale} question(s) nobody engaged with")
-    result.questions = sweep_stage.reconcile_backward_window(conn, cfg)
+    sweep_stage.reconcile_backward_window(conn, cfg)
+    result.questions = [f"Q{q['id']}  {q['text']}"
+                        for q in todos.open_questions(conn, limit=100)]
 
     # Only what was actually read. A request that failed — a timeout, a refusal, a reply
     # cut off at its output ceiling — contributes no proposals, and marking its bundles
