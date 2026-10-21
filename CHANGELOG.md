@@ -18,6 +18,9 @@
 
 ### Fixed
 
+- Dated appointments restore bounded earlier excerpts from the same conversation,
+  including nearby replies that name a clinic without repeating the appointment.
+  Calendar topic and date must agree; muted and unrelated chats stay excluded.
 - Dream saves cited attendance roles separately: invitations and conditional interest
   cannot become companions, performers are saved as hosts, and inviting someone
   preserves the other guests. These assessments survive cross-conversation merging.

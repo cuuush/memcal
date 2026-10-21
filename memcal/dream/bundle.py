@@ -270,6 +270,7 @@ def build(conn: sqlite3.Connection, limit: int = SPOOL_LIMIT,
         # conversations out of order until this puts them back on one timeline.
         bundle.items.sort(key=lambda r: str(r["ts"]))
         add_thread_context(conn, bundle)
+        add_plan_context(conn, bundle)
         add_related_group_context(conn, bundle)
         bundle.convo_titles = {
             (r["channel"], r["thread"]): names.get((r["channel"], r["thread"]),
@@ -365,6 +366,85 @@ def add_thread_context(conn: sqlite3.Connection, bundle: Bundle) -> None:
         bundle.items = sorted(bundle.items + extra, key=lambda r: str(r["ts"]))
     else:
         bundle.items.sort(key=lambda r: str(r["ts"]))
+
+
+def add_plan_context(conn: sqlite3.Connection, bundle: Bundle) -> None:
+    """Restore earlier details about dated plans already known to the calendar.
+
+    An invitation may repeat the appointment and day without repeating its clinic.
+    Nominate bounded excerpts from the same conversation where that subject was
+    discussed, including adjacent replies that supply details without naming it.
+    They remain context to interpret, not attributes inherited by storage.
+    """
+    from . import affinity
+
+    if not bundle.entity.startswith('person:'):
+        return
+    new = [r for r in bundle.items if int(r['id']) not in bundle.context_ids]
+    if not new:
+        return
+    fragments = [f for f in affinity.fragments(Bundle(entity=bundle.entity, items=new)) if f.dated]
+    days = sorted({f.when for f in fragments})
+    if not days:
+        return
+    marks = ','.join('?' for _ in days)
+    topics = {}
+    newest_day = max(str(r['ts'])[:10] for r in new)
+    for event in conn.execute(f'SELECT title,date FROM events WHERE date IN ({marks})', days):
+        words = affinity._tokens(event['title'])
+        mentions = sum(words <= f.tokens and event['date'] == f.when for f in fragments) if words else 0
+        if mentions:
+            rank = (event['date'] >= newest_day, mentions, len(words))
+            topics[words] = max(topics.get(words, rank), rank)
+    if not topics:
+        return
+    # A topic gets a chance before a second excerpt of any topic. Cap independent
+    # subjects and excerpts so a long DM cannot reopen the entire archive.
+    topics = sorted(topics, key=lambda words: (topics[words], sorted(words)), reverse=True)[:4]
+    earliest = min(db.parse_ts(r['ts']) for r in new)
+    lo = (earliest - timedelta(days=DISTANT_CONTEXT_DAYS)).date().isoformat()
+    here = {(r['channel'], r['thread']) for r in new if r['thread'] and r['channel'] != 'email'}
+    candidates = []
+    for channel, thread in sorted(here):
+        state = conn.execute('SELECT is_group,decision FROM threads WHERE channel=? AND thread=?',
+                             (channel, thread)).fetchone()
+        if state and (state['is_group'] or state['decision'] == 'mute'):
+            continue
+        for topic in topics:
+            query = ' AND '.join('"' + word.replace('"', '""') + '"' for word in sorted(topic))
+            matches = conn.execute(
+                'SELECT a.* FROM archive_fts f JOIN archive a ON a.id=f.rowid'
+                ' WHERE archive_fts MATCH ? AND a.channel=? AND a.thread=?'
+                ' AND substr(a.ts,1,10)>=? AND a.ts<? ORDER BY a.ts DESC,a.id DESC LIMIT 20',
+                (query, channel, thread, lo, earliest.isoformat())).fetchall()
+            selected = []
+            for row in matches:
+                when = db.parse_ts(row['ts'])
+                if all(abs(when-db.parse_ts(other['ts'])) > timedelta(hours=2) for other in selected):
+                    selected.append(row)
+                if len(selected) == 2:
+                    break
+            candidates.extend((index, row) for index, row in enumerate(selected))
+    seen = {int(r['id']) for r in bundle.items}
+    extra = []
+    for _index, anchor in sorted(candidates, key=lambda pair: pair[0]):
+        before = conn.execute(
+            'SELECT * FROM archive WHERE channel=? AND thread=? AND (ts<? OR (ts=? AND id<?))'
+            ' ORDER BY ts DESC,id DESC LIMIT 2',
+            (anchor['channel'],anchor['thread'],anchor['ts'],anchor['ts'],anchor['id'])).fetchall()
+        after = conn.execute(
+            'SELECT * FROM archive WHERE channel=? AND thread=? AND (ts>? OR (ts=? AND id>?))'
+            ' ORDER BY ts,id LIMIT 5',
+            (anchor['channel'],anchor['thread'],anchor['ts'],anchor['ts'],anchor['id'])).fetchall()
+        for row in [anchor, *reversed(before), *after]:
+            if int(row['id']) in seen or len(extra) >= 24:
+                continue
+            if abs(db.parse_ts(row['ts'])-db.parse_ts(anchor['ts'])) > timedelta(hours=2):
+                continue
+            seen.add(int(row['id']))
+            bundle.context_ids.add(int(row['id']))
+            extra.append(row)
+    bundle.items = sorted(bundle.items + extra, key=lambda r: (str(r['ts']),int(r['id'])))
 
 
 def add_related_group_context(conn: sqlite3.Connection, bundle: Bundle) -> None:
