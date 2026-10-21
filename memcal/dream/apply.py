@@ -16,6 +16,7 @@ from .. import (dates, db, events, identity, pending, presentation, questions,
                 series as series_mod, todos, trace, wiki)
 from ..config import Config
 from .bundle import Bundle
+from . import event_context
 
 # A row may land only near its source traffic: an old message cannot
 # schedule the current week.
@@ -344,6 +345,7 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
                  about=_claims(row, "title"),
                  generation=row.get("_generation_id") if isinstance(row, dict) else None)
         for row in diff.get("events") or []:
+            row = event_context.normalize(conn, bundle, row)
             cited = row.get("cite_ids") if isinstance(row, dict) else None
             outcome = _apply_event(conn, row, source=source, written_by=written_by,
                                    horizon=_horizon(bundle, cited, row),
@@ -970,6 +972,8 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
         "location": location,
         "status": status,
         "participants": participants,
+        "hosts": ([p for p in row.get("hosts", []) if isinstance(p, str)]
+                  if "hosts" in row else None),
         "series": _clean(row.get("series")),
         "note": _clean(row.get("note")),
         "join_url": join_url,

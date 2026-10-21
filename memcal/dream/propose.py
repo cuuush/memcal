@@ -193,12 +193,46 @@ _FIELD_CITES = {
 EVENT_DIFF_V2 = {
     **BUNDLE_DIFF["properties"]["events"]["items"],
     "required": (BUNDLE_DIFF["properties"]["events"]["items"]["required"]
-                 + ["instead_of", "cites", "field_cites", "links"]),
+                 + ["instead_of", "cites", "field_cites", "links", "attendance",
+                    "expansions", "visit_target"]),
     "properties": {
         **BUNDLE_DIFF["properties"]["events"]["items"]["properties"],
         "date": {"type": ["string", "null"],
                  "description": "yyyy-mm-dd, or null for an undated cancellation notice"},
         "field_cites": _FIELD_CITES,
+        "participants": {"type": "array", "items": {"type": "string"},
+                         "description": "Legacy compatibility field: return []; use cited attendance roles for people changes."},
+        "attendance": {
+            "type": "array",
+            "description": ("Assess every named companion, invitee, and performer, including "
+                            "companions already stated in an invitation. These are role changes, "
+                            "not the conversation roster. Code saves only attending as companions, "
+                            "host as hosts, and invited/conditional/declined in notes. [] if unchanged."),
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["name", "role", "cites"],
+                "properties": {
+                    "name": {"type": "string"},
+                    "role": {"type": "string", "enum": ["attending", "invited", "conditional", "host", "declined"]},
+                    "cites": _CITES,
+                },
+            },
+        },
+        "expansions": {
+            "type": "array",
+            "description": ("Abbreviations in title/location/note to spell out. The full "
+                            "expanded wording must occur in a cited line; never guess a meaning."),
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["short", "expanded", "cites"],
+                "properties": {
+                    "short": {"type": "string"}, "expanded": {"type": "string"},
+                    "cites": _CITES,
+                },
+            },
+        },
+        "visit_target": {"type": ["string", "null"],
+                         "description": "For a visit, 'me' if coming to the user, otherwise the named recipient; null for other occasions."},
         # The one field that separates "this week we meet Wednesday instead" from "we
         # meet Wednesdays now". Both arrive as a Wednesday, and without somewhere to say
         # which one it is, the rule and the exception are the same write.
@@ -959,8 +993,15 @@ def build_bundle_block(cfg: Config, bundle: Bundle,
         for channel, thread in sorted({(r['channel'], r['thread']) for r in bundle.items
                                        if r['thread'] and r['channel'] != 'email'}):
             members = threads.entity_people(conn, f'thread:{channel}:{thread}')
-            if members:
-                rosters.append(f"{channel}/{thread}: " + ', '.join(members))
+            unknown = sum(1 for r in conn.execute(
+                'SELECT handle FROM thread_members WHERE channel=? AND thread=?',
+                (channel, thread)) if not identity.resolve(conn, r['handle']))
+            names = list(members)
+            if unknown:
+                names.append(f'{unknown} unresolved member(s); attendance unknown')
+            if names:
+                label = bundle.convo_titles.get((channel, thread), thread)
+                rosters.append(f"{channel}/{label}: " + ', '.join(names))
         if rosters:
             context.append("CONVERSATION MEMBERS (membership is not attendance)\n"
                            + '\n'.join(rosters))
@@ -1950,6 +1991,11 @@ def _resolve_cites(bundle: Bundle, diff: dict) -> None:
                 continue
             if "cites" in row:
                 row["cite_ids"] = bundle.cite(row.pop("cites"))
+            if key == "events":
+                for field in ("attendance", "expansions"):
+                    for entry in row.get(field) or []:
+                        if isinstance(entry, dict):
+                            entry["cite_ids"] = bundle.cite(entry.pop("cites", []))
             claimed = row.pop("field_cites", None)
             if isinstance(claimed, dict):
                 resolved = {str(field): bundle.cite(tags)
