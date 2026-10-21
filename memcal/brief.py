@@ -38,7 +38,8 @@ def structured(text: str) -> list[dict]:
 #: digits to prevent scanners from misinterpreting them as active handles.
 #: Agent gets one quiet line; CLI keeps a slightly clearer spelling.
 LEGENDS = {
-    "agent": "[〔E#〕〔T#〕〔Q#〕 handles and pages open with memcal_open]\n\n",
+    "agent": ("[〔E#〕〔T#〕〔Q#〕 / pages: memcal_open for details/history "
+              "before archive search.]\n\n"),
     "cli": ("[〔E#〕〔T#〕〔Q#〕 handles open with `memcal open E258`. "
             "Pages open with `memcal open <name>`; the names in parentheses "
             "after a page are the facts it holds]\n\n"),

@@ -43,6 +43,15 @@
   into new events, and explicit dates and attendance corrections are respected.
 - Ended schedules remove generated future occurrences, normal calendar write paths
   retract withdrawn publications, and web job streams use the EventSource MIME type.
+- Empty wiki searches in MCP and Hermes now direct agents to retained calendar
+  events and pages before raw archive lookup, consistently with the tool guidance.
+
+- Cited attendee corrections from source conversations can remove someone from an
+  existing event. Partial guest lists remain additive, older evidence cannot undo a
+  newer roster, and merge no longer restores a withdrawn guest from stored context.
+
+- Agent briefs and MCP/Hermes tool descriptions direct agents to open relevant
+  records for details and change history before searching the raw archive.
 
 - Source headings correctly label older context as days earlier when current
   evidence is displayed first.

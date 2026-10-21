@@ -7,6 +7,16 @@ import json
 
 CHANGE_LABELS = {"new": "New", "edited": "Updated"}
 
+
+def wiki_search_miss(query: str) -> str:
+    """A wiki miss says nothing about details retained on calendar events."""
+    return (f"No matching wiki fact for {query!r}. This means no wiki fact matched — "
+            "not that the user never told us. Open relevant events/pages with "
+            "memcal_open; find calendar entries with memcal_list_days or "
+            "memcal_list_month. Use memcal_search_archive only if retained "
+            "details cannot answer.")
+
+
 STAGE_LABELS = {
     "propose": "Read",
     "merge": "Merge",

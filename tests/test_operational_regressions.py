@@ -1587,7 +1587,8 @@ class TestTheCliCouldNotOpenWhatItPrinted(Base):
         alongside the code it guards proves nothing.
         """
         self.assertEqual(
-            "[〔E#〕〔T#〕〔Q#〕 handles and pages open with memcal_open]\n\n",
+            "[〔E#〕〔T#〕〔Q#〕 / pages: memcal_open for details/history "
+            "before archive search.]\n\n",
             brief.legend("agent"))
         self.assertEqual(brief.legend("agent"), brief.legend("nonsense-surface"))
 
