@@ -185,7 +185,9 @@ _FIELD_CITES = {
                     "{\"time\": [\"L7\"], \"location\": [\"L3\"]}. Cite the line that "
                     "states the new value, not one quoting or denying the old one. A "
                     "field you cannot point at a line for may not overrule a value "
-                    "already settled"),
+                    "already settled. For an existing event, a cited participants "
+                    "list is its complete current roster; uncited or unkeyed names "
+                    "remain partial additions"),
 }
 
 EVENT_DIFF_V2 = {

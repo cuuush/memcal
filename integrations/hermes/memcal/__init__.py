@@ -150,11 +150,10 @@ LIST_MONTH = {
 SEARCH_ARCHIVE = {
     "name": "memcal_search_archive",
     "description": (
-        "Find original statements when the wiki does not answer the question, or "
-        "inspect evidence behind a claim. Search every message, email, and note "
-        "ever ingested. Use when you need the exact wording of something, "
-        "something older than the wiki knows, or to go and check a claim the user "
-        "is questioning.\n"
+        "Search original statements after relevant records and wiki lookup do not "
+        "answer. First open matching brief handles or pages with memcal_open: a "
+        "short brief line may omit stored details and history. Search every "
+        "message, email, and note ever ingested.\n"
         "The filters are what make digging quick: `person` for one side of a "
         "conversation ('what did Quinn say about it'), `channel` for a channel "
         "('was it in an email'), and `since`/`until` for a window ('that week'). "
@@ -178,14 +177,10 @@ SEARCH_ARCHIVE = {
 OPEN = {
     "name": "memcal_open",
     "description": (
-        "Open a brief handle or wiki page (me, page names, recorded aliases). "
-        "The brief is an index — it names what is happening and who is there, and holds "
-        "the rest here.\n"
-        "Reach for this whenever the answer needs a detail the line does not carry: the "
-        "street address, the invite or join link, whether it repeats and when the next "
-        "one is, what the invitation actually said, who to ask about it. It also "
-        "returns the messages the row came from and every change it has been through, "
-        "so 'is this right?' and 'where did this come from?' are one call. For a "
+        "Open a relevant brief handle or wiki page first when the brief omits a "
+        "detail. Returns stored details, change history and linked evidence; "
+        "check these before searching the archive. Accepts me, page names and "
+        "recorded aliases. For a "
         "handle it already includes the whole thread behind pending new activity, "
         "full text with line ids to cite, so a flagged row needs no second call "
         "unless a cap truncates it.\n"
@@ -203,12 +198,10 @@ OPEN = {
 OPEN_SOURCE = {
     "name": "memcal_open_source",
     "description": (
-        "Open the original messages or email behind a line in the memcal brief, and see "
-        "how well it is actually backed up. Brief lines end in a short source handle "
-        "such as E46, T3, Q5, or S1.\n"
-        "This is the first thing to reach for whenever the user asks where something "
-        "came from, why it is on their calendar, whether it is right, or what the "
-        "invitation actually said. Lines marked as evidence are what the row was built "
+        "Read full original messages or email when memcal_open's details and linked "
+        "evidence are not enough. Open the relevant record with memcal_open first; "
+        "use this for a fuller quotation or verification against the source. Brief "
+        "handles include E46, T3, Q5, or S1. Lines marked as evidence are what the row was built "
         "from; the rest is nearby conversation. If it comes back saying there is no "
         "line-level citation, say so — that row is a summary of a conversation, not a "
         "quote from it, and it may simply be wrong.\n"
@@ -880,8 +873,9 @@ class MemcalMemoryProvider(MemoryProvider):
             "do not claim the list is exhaustive. A line flagged with new activity may have "
             "changed, so open the named activity before giving current details for it. "
             "Look things up for dates past its window, or for depth it does not carry. "
-            "Every memory line has a source handle; open it when the wording is too "
-            "short or the user asks what it means.\n\n"
+            "For missing details, open relevant handles or pages with memcal_open "
+            "before searching the archive: short snapshot lines may omit stored "
+            "details and change history.\n\n"
             "When something here is settled in conversation, write it back the moment "
             "they say it, with the tool that names what changed:\n"
             "  not going, cancelled, don't care  -> memcal_update, status 'declined'\n"
@@ -1177,7 +1171,7 @@ class MemcalMemoryProvider(MemoryProvider):
     def _dispatch(self, conn, tool_name: str, args: Dict[str, Any]) -> str:
         from datetime import timedelta
 
-        from memcal import archive, db, events, wiki
+        from memcal import archive, db, events, presentation, wiki
 
         if tool_name == "memcal_open_page":
             return self._dispatch(conn, "memcal_open", {"ref": args.get("slug", "")})
@@ -1234,10 +1228,7 @@ class MemcalMemoryProvider(MemoryProvider):
                 return json.dumps({
                     "query": query,
                     "results": [],
-                    "message": (f"No matching wiki fact for {query!r}. This means "
-                                f"no stored fact matched — not that the user never "
-                                f"told us. Try memcal_search_archive for original "
-                                f"statements, or memcal_open if you know the page."),
+                    "message": presentation.wiki_search_miss(query),
                 })
             return json.dumps({"query": query, "results": hits,
                                "truncated": len(hits) == limit})
