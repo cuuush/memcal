@@ -511,9 +511,25 @@ def block(conn: sqlite3.Connection, cfg: Config, payload: dict) -> dict:
     channel = (payload.get("channel") or "").strip()
     thread = (payload.get("thread") or "").strip()
 
-    # An event id is the handle the agent is most likely to have: it just proposed the
-    # row, and what it knows is which one the user objected to. `provenance` is what makes
-    # that answerable — it records the bundle every written row came out of.
+    # Resolve email from actual cited senders, not display names or Message-ID thread
+    # keys. A display name may have put mail in a person bundle without proving trust.
+    if payload.get("event_id") and not (address or thread):
+        cited = conn.execute(
+            """SELECT a.channel, a.handle, a.from_me FROM events v
+                 JOIN evidence e ON e.kind='event' AND e.ref=v.key
+                 JOIN archive a ON a.id=e.archive_id WHERE v.id=?""",
+            (int(payload["event_id"]),)).fetchall()
+        if cited and all(r["channel"] == "email" for r in cited):
+            senders = {r["handle"].strip().lower() for r in cited
+                       if not r["from_me"] and r["handle"]}
+            if len(senders) != 1:
+                return {"error": "that event has no single cited email sender — "
+                                 "give an explicit address to block"}
+            address = senders.pop()
+        elif any(r["channel"] == "email" for r in cited):
+            return {"error": "that event has mixed email and chat evidence — "
+                             "give an explicit address or chat to block"}
+
     if payload.get("event_id") and not (address or thread):
         row = conn.execute(
             """SELECT p.entity FROM events e
@@ -525,10 +541,15 @@ def block(conn: sqlite3.Connection, cfg: Config, payload: dict) -> dict:
         kind, _, rest = str(row["entity"]).partition(":")
         if kind == "thread":
             channel, _, thread = rest.partition(":")
-            # For mail the thread key *is* the address, and blocking a sender is a
-            # stronger, more useful statement than muting one address's thread.
             if channel == "email":
-                address, thread = thread.lower(), ""
+                senders = {r["handle"].strip().lower() for r in conn.execute(
+                    "SELECT DISTINCT handle FROM archive WHERE channel='email'"
+                    " AND thread=? AND from_me=0 AND handle IS NOT NULL", (thread,))
+                    if r["handle"].strip()}
+                if len(senders) != 1:
+                    return {"error": "that email thread has no single sender — "
+                                     "give an explicit address to block"}
+                address, thread = senders.pop(), ""
         else:
             # A person bundle. Muting a friend is not what "I don't care about this" ever
             # means — it means the thing, and there is no sender to blame.

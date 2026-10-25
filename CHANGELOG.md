@@ -18,6 +18,9 @@
 
 ### Fixed
 
+- Dream input and opened source evidence retain actual email addresses beside display
+  names. Blocking an email event resolves its cited sender, including person bundles
+  and Message-ID threads; ambiguous sources require an explicit address.
 - Dated appointments restore bounded earlier excerpts from the same conversation,
   including nearby replies that name a clinic without repeating the appointment.
   Calendar topic and date must agree; muted and unrelated chats stay excluded.

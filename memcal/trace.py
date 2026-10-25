@@ -16,7 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from . import calls, dates, db
+from . import calls, dates, db, presentation
 
 API = "https://openrouter.ai/api/v1"
 
@@ -279,7 +279,9 @@ def source_rows(conn: sqlite3.Connection, kind: str, ref: str,
         "ts": str(row["ts"]),
         "channel": row["channel"],
         "thread": row["thread"] or "",
-        "who": "me" if row["from_me"] else (row["person"] or row["handle"] or "?"),
+        "who": presentation.email_sender(
+            "me" if row["from_me"] else (row["person"] or row["handle"] or "?"),
+            channel=row["channel"], handle=row["handle"], from_me=row["from_me"]),
         "text": row["text"] or "",
         "evidence": row["id"] in ids,
     } for row in sorted(selected, key=lambda r: (str(r["ts"]), r["id"]))]
@@ -403,7 +405,9 @@ def _line(row: sqlite3.Row) -> dict:
         "ts": str(row["ts"])[:16],
         "channel": row["channel"],
         "thread": row["thread"] or "",
-        "who": "me" if row["from_me"] else (row["person"] or row["handle"] or "?"),
+        "who": presentation.email_sender(
+            "me" if row["from_me"] else (row["person"] or row["handle"] or "?"),
+            channel=row["channel"], handle=row["handle"], from_me=row["from_me"]),
         "text": row["text"] or "",
     }
 

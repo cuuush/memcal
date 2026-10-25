@@ -153,6 +153,8 @@ def _render_v1(bundle: "Bundle", head: str | None = None) -> str:
         who = "me" if row["from_me"] else (row["person"] or row["handle"] or "unknown")
         if not row["from_me"] and who in bundle.inferred_names:
             who = presentation.as_guess(who)
+        who = presentation.email_sender(who, channel=row["channel"],
+                                        handle=row["handle"], from_me=row["from_me"])
         # Distinguish a user statement from an instruction addressed to the agent.
         if who == "me" and _addressed_to(row) == "machine":
             who = "me → assistant"
