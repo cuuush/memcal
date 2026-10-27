@@ -1,9 +1,8 @@
 # Dream
 
-Dream is a batch transform, not an agent: input in, a structured diff out. No
-loop, no wandering, no per-message tool calls. It runs nightly (and on demand),
-reads everything gated since the last watermark, and reconciles it into typed
-state.
+Dream is a batch process that turns collected source material into structured
+updates. It runs nightly or on demand, reads queued material since the last
+watermark, and reconciles it with the stored records.
 
 ```bash
 memcal dream --dry-run   # preview size and estimated cost; calls nothing
@@ -30,8 +29,8 @@ entity or thread, across all streams** — Jordan's text, the group-chat line wh
 Jordan spoke, and Jordan's email land in one bundle. A typical day is 5–15
 bundles. This is the key choice: splitting by source would separate the things
 that must be joined, while grouping by subject makes cross-platform deduplication
-structural. Three messages about one dinner arrive in one context, so no model can
-create three memories from them.
+structural. Grouping related messages gives the model shared context for
+identifying one plan.
 
 **2. Propose (model, parallel, packed).** Each call takes up to
 `MEMCAL_PACK_BUNDLES` (default 6) bundles and sees their content
@@ -39,7 +38,7 @@ plus current state — the event window, open to-dos, questions, and the wiki pa
 for its entities. That state is identical across calls, so it caches. Each returns
 a **typed, keyed diff**: event inserts and updates, to-do opens and closes, wiki
 slot fills, questions to ask. Never free-form memories — only
-diffs against keys, which is what makes deduplication automatic.
+diffs against keys, which helps the merge stage reconcile related updates.
 
 Within a call, propose can be split into **ordered field passes** —
 calendar, then to-dos, then wiki pages, then questions — over one cached
@@ -67,14 +66,14 @@ records which pass wrote it, and write operations carry the originating message
 plus the row version they acted on — so re-reading the sentence that moved an
 event does not create a second one. See [Evidence & provenance](evidence.md).
 
-**5. Sweep (one cheap model call).** A post-write **janitor**, not a second merge.
+**5. Sweep (one model call).** A post-write review of the results.
 It reads the *resulting* state plus the day's diff log — around 2k tokens, **not**
 the day's traffic and **not** the source lines — and looks for damage the earlier
-stages left: a duplicate to drop, obvious junk (banter, newsletter events, facts
-about software), a contradiction to raise as a question. Because it has no source
+stages left: a duplicate to drop, irrelevant entries (such as banter or newsletter
+events), or a contradiction to raise as a question. Because it has no source
 evidence it **cannot correct** anything — status changes and merges are left to
-Merge and Apply, which can compare source. That evidence-free, output-only view is
-exactly why it is cheap. Skippable with `--no-sweep`.
+Merge and Apply, which can compare source. This output-only review can be skipped
+with `--no-sweep`.
 
 **Merge vs. sweep, in one line:** merge runs *before* the write, *with* source, and
 *fixes* things (fuse, correct status); sweep runs *after* the write, on a summary

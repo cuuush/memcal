@@ -1,37 +1,23 @@
 # memcal
 
-**Memory + Calendar for AI agents**
+**Memory and calendar for AI agents**
 
 [![PyPI](https://img.shields.io/pypi/v/memcal)](https://pypi.org/project/memcal/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-cuuush.github.io-brightgreen)](https://cuuush.github.io/memcal/)
 
-Most memory systems for agents like OpenClaw or Hermes (Mem0, Hindsight) are good at saving things like preferences and observations, but fail at personal assistant tasks, like remembering you have a dentist appointment next Friday. Memcal attempts to bridge this gap by enabling an agent to maintain its own internal calendar of your life. On top of that, a nightly fact-gathering stage will scan sources like iMessage, email, WhatsApp, iCal, and more to automatically update the agent calendar.
+Memcal gives your agent a memory of your plans, conversations, and commitments. It brings together sources such as iMessage, email, WhatsApp, and calendars, then uses a nightly **Dream** pass to update events and other memories as things change.
 
-With Memcal, you can ask an agent, “What’s my weekend looking like?” and it will remember that your friend is free for dinner Saturday night, that the nonprofit you follow is having a member day, or even that your family is coming into town...
+Ask “What's my weekend looking like?” and your agent can recall a possible dinner with a friend, a community event, or a family visit—even when those plans started in different conversations.
 
-![Vague “Maya thing” → confirmed plan + who’s in](docs/assets/demo-chat.png)
+![A vague plan becomes a confirmed event with participants](docs/assets/demo-chat.png)
 
-Instant answers: Memcal pre-renders a brief of your next 30 days into the prompt, so Hermes can answer without firing off a long, expensive lookup first. For a full calendar month, use `memcal_list_month(month="2026-10")`; for a year, use `memcal_list_days(when="2026-01-01", days=365)` (366 for a leap year). The brief reports when its token budget leaves events out.
+Memcal prepares a brief of the next 30 days so an agent can answer common questions without a separate lookup. The brief tells you if its token budget leaves events out. Events keep their history and evidence: a past appointment does not automatically mean you attended it.
 
-The default backend is Codex with `gpt-6-luna`; OpenRouter uses `openai/gpt-6-luna`.
-Explicitly saved model choices still apply. See [Configuration](docs/hosting/configuration.md)
-for the other backends and stage-model settings.
+## Get started
 
-## Under the hood
-
-- **Write-time recency** — updates move old values to history; read time isn’t a relevance fight ([memcal vs retrieval](https://cuuush.github.io/memcal/architecture/memcal-vs-rag/))
-- **Pre-rendered brief** — the next 30 days are already in the prompt, so weekend / “is that still on?” questions answer right away without a slow tool round-trip
-- **Typed stores** — events, series, todos, questions, wiki
-- **Multi-stream join** — Slack, Messages, email, calendar, and agent chat resolve to one underlying thing
-- **Nightly dream pass** — observe → gate → propose → merge → brief
-
-## Install
-
-Requires Python 3.11+, SQLite with FTS5, and one model backend (Codex by default; Claude Code, Antigravity, Grok, OpenRouter, or an OpenAI-compatible API also work).
-
-### Quick start
+You'll need Python 3.11+, SQLite with FTS5, and a model backend. Codex is the default; Claude Code, Antigravity, Grok, OpenRouter, and OpenAI-compatible APIs are also supported.
 
 ```bash
 pip install memcal
@@ -40,71 +26,13 @@ memcal doctor
 memcal brief
 ```
 
-Run `memcal update` to pull the latest code from GitHub. A checkout fast-forwards
-its Git upstream; a pip installation installs from the GitHub repository. Both
-upgrade dependencies, migrate the existing store, refresh its saved brief, and
-rebuild an installed scheduler and app wrapper. Checkout updates also repair the
-launcher. Local edits or unpublished commits stop the update so you can resolve
-them first. Restart running UI and agent sessions afterward.
+Setup walks you through your provider and sources. For Codex via OAuth, sign in with `codex login` first; setup lists available models without making an inference call. The default model is `gpt-6-luna` for Codex and `openai/gpt-6-luna` for OpenRouter. Your saved model choice takes precedence.
 
-Run `memcal setup` to choose your model provider, iMessage transport and BlueBubbles
-connection, and disabled sources. Other source credentials are optional.
-Selecting **Codex via OAuth** lists the models offered by your signed-in Codex
-session. Pick a number or type a model ID; Enter keeps the saved model.
-Sign in through `codex login` first. Setup lists models without making an inference call.
-Use `memcal setup --advanced` for model tuning, brief, dream, and publishing settings.
-Enter keeps saved values;
-`?` explains a setting and `-` resets it. The wizard shows a change summary before saving.
-Use `memcal setup --section imessage` (or `provider`, `brief`, `collect`, `dream`,
-`merge`, `publish`, `credentials`) to jump to one section. On macOS, iMessage reads
-the local Messages database by default and needs Full Disk Access for the process
-running Memcal. See [iMessage setup](docs/sources/imessage.md) to use BlueBubbles.
+Memcal is built first for **macOS**, where it can use Messages, Calendar, and launchd scheduling. iMessage reads the local Messages database by default and requires Full Disk Access for the process running Memcal. See [iMessage setup](docs/sources/imessage.md) for BlueBubbles and permission details. Email, MCP, and optional chat integrations also work on Linux; install Slack support with `pip install 'memcal[slack]'`.
 
-`memcal dream` shows short progress updates and a result summary. Use
-`memcal review` to see recent changes, or `memcal dream --verbose` for source
-notes, individual requests, and detailed changes. Errors remain visible in both modes.
-`memcal dream --dry-run` keeps the cost estimate visible without making model calls.
-When Dream has a question for you, its summary shows the question and its `Q` handle.
-Reply with `memcal answer Q12 "your answer"` using the displayed handle, or run
-`memcal review` to see all open questions.
-On macOS, a closed local Proton Mail Bridge is opened in the background before email
-collection retries. If Bridge requires an unlock, the error tells you to open and
-unlock it, then retry `memcal ingest email`.
-Scheduled runs retain the command search path from installation so Node and source
-CLIs remain available under launchd. Run `memcal schedule install` after changing
-runtime locations, and `memcal schedule status` to check that the job is loaded.
-`memcal doctor` also checks local Messages/WhatsApp read access through the scheduled
-`memcal.app`, separately from your terminal's permissions. It reads no message bodies
-and points to the app's Full Disk Access setting if access is blocked.
-Inferred sender names appear to agents as `"Name" (inferred from messages)`.
-`memcal open E42` shows the stored record, changes, and cited source messages only.
-Read new or uncited conversation traffic separately with `memcal activity E42`.
-That annotation describes the name, independently of whether a booking is confirmed.
-Calendar event titles stay plain; inferred participant names are qualified in the notes.
+Memcal reads sensitive personal data and sends selected source text to your configured model provider. Read the [privacy notes](https://cuuush.github.io/memcal/privacy/) before connecting real accounts.
 
-Dream diagnostics persist for CLI, web, and scheduled runs. Open a run in the web
-UI and expand **Saved dream log** for stage progress and crash tracebacks; model
-calls retain their prompts and replies. `memcal trace <run>` also prints saved
-errors. Logs live under `~/.memcal/calls/run-XXXX/dream.jsonl`; a failure before
-the run opens is saved under `calls/live/` and prints its path.
-
-For a service with an OpenAI-compatible chat-completions endpoint, configure its
-base URL, model ID, and API key explicitly:
-
-```bash
-memcal setup --provider openai-compatible --model YOUR_MODEL \
-  --base-url https://YOUR_HOST/v1 --api-key YOUR_KEY
-```
-
-`MEMCAL_PROPOSE_OUTPUT_FLOOR` can reserve more output tokens for models whose
-reasoning consumes the completion allowance. The default, `0`, uses Memcal's
-calculated ceiling.
-
-Memcal is built first for **macOS** — Messages, Calendar (EventKit), and launchd scheduling are the full product path. Connect those, then ask the agent what your week looks like.
-
-Slack (`pip install 'memcal[slack]'`) and MCP work on any machine if you want chat without the Apple sources.
-
-From source (alternate):
+For a checkout instead of PyPI:
 
 ```bash
 git clone https://github.com/cuuush/memcal.git
@@ -112,27 +40,34 @@ cd memcal
 ./install.sh
 ```
 
-Memcal reads sensitive personal data and sends selected source text to the model provider you configure — read the [privacy notes](https://cuuush.github.io/memcal/privacy/) before connecting real accounts.
+See the [quickstart](https://cuuush.github.io/memcal/quickstart/) for your first ingest and nightly schedule.
 
-## MCP (any harness)
+## Connect your agent
+
+Memcal works with any MCP client and has native integrations for [Hermes](https://cuuush.github.io/memcal/integrations/hermes/) and [OpenClaw](https://cuuush.github.io/memcal/integrations/openclaw/). To start the MCP server:
 
 ```bash
 python3 -m memcal.mcp_server
 ```
 
-Native plugins: [Hermes](https://cuuush.github.io/memcal/integrations/hermes/) · [OpenClaw](https://cuuush.github.io/memcal/integrations/openclaw/)
+See the [MCP guide](https://cuuush.github.io/memcal/clients/mcp/) for client configuration. Agents can also look beyond the brief with tools such as `memcal_list_month(month="2026-10")` and `memcal_list_days(when="2026-01-01", days=365)`.
+
+## Using Memcal
+
+- `memcal dream` collects and processes updates, then shows a summary. Add `--verbose` for details or `--dry-run` for a cost estimate without model calls.
+- `memcal review` shows recent changes and open questions. Answer a question using its displayed handle, for example `memcal answer Q12 "your answer"`.
+- `memcal open E42` shows a record, its changes, and cited source messages. Use `memcal activity E42` to see newer or uncited conversation traffic.
+- `memcal schedule install` installs the macOS scheduler; `memcal schedule status` checks it. Reinstall the schedule after changing runtime locations.
+- `memcal update` updates a checkout or pip installation from GitHub, upgrades dependencies, migrates the store, and refreshes the brief and installed scheduler. Local edits or unpublished commits stop a checkout update. Restart running UI and agent sessions afterward.
+
+Run `memcal setup --advanced` for model, brief, Dream, and publishing settings, or `memcal setup --section imessage` to revisit a section. See [configuration](docs/hosting/configuration.md) for provider and model options, including OpenAI-compatible endpoints.
+
+## How it works
+
+Memcal stores events, recurring series, todos, questions, and wiki entries in typed stores. It joins related information across sources, keeps older values in history, and applies updates using the time their evidence was said. The nightly Dream pass collects information, proposes and merges changes, and refreshes the brief. See [Memcal vs. retrieval](https://cuuush.github.io/memcal/architecture/memcal-vs-rag/) for the design.
 
 ## Learn more
 
-Full guides: **https://cuuush.github.io/memcal/**
-
-- [Quickstart](https://cuuush.github.io/memcal/quickstart/) — install, first ingest, nightly job
-- [Sources](https://cuuush.github.io/memcal/sources/) — Slack, Telegram, WhatsApp, iMessage, Signal, email, calendar, …
+- [Documentation](https://cuuush.github.io/memcal/) · [Quickstart](https://cuuush.github.io/memcal/quickstart/) · [Sources](https://cuuush.github.io/memcal/sources/)
 - [CLI](https://cuuush.github.io/memcal/clients/cli/) · [MCP](https://cuuush.github.io/memcal/clients/mcp/) · [Integrations](https://cuuush.github.io/memcal/integrations/)
-
-Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Notable changes: [CHANGELOG.md](CHANGELOG.md).
-
-Elapsed plans retain their agreed status: a past confirmed or tentative appointment
-is not proof of attendance. Event details say attendance is unconfirmed until there
-is evidence it happened. The nightly pass repairs older clock-only `code:past`
-status changes when no later status evidence supersedes them.
+- [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)

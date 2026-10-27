@@ -1,9 +1,9 @@
 # Architecture overview
 
-Memcal is one resident memory serving many agents. A local store owns the
-watchers, the gate, the spool, the dream pass, and brief rendering. Agents —
-Hermes, OpenClaw, anything MCP-speaking — are transient: they read the brief, open
-detail on demand, and write back through typed tools.
+Memcal keeps a local memory store that can serve multiple agents. It collects
+source messages, processes them in Dream, and renders a brief. Agents such as
+Hermes and OpenClaw, or any MCP client, can read the brief, open details, and
+write corrections through typed tools.
 
 ## The loop
 
@@ -22,22 +22,20 @@ streams ──▶ observe ──▶ gate ──▶ spool ──▶ dream (nightl
 - **Night:** dream reconciles everything collected into typed state and re-renders
   the brief.
 
-## Design theses
+## Design principles
 
-1. **Breadth in context, depth on demand.** A small always-present block carries the
-   next 30 days by default; tools fetch dates and details outside that window.
-2. **One world model, many streams.** A text, an email, a group message, and
-   something said to the agent resolve to the same row. Bundling by entity across
-   streams makes cross-platform deduplication structural.
-3. **Recency is resolved when writing, not when reading.** The old address moves to
-   history at write time. Reads never weigh timestamps against relevance scores.
-4. **Extraction is filling known slots.** The model proposes diffs against keys —
-   event inserts/updates, to-do opens/closes, wiki slot fills,
-   questions. Never free-form memories.
-5. **Dictionary lookup before model call.** Contacts, sender policy, nicknames, and
-   thread links are hash lookups. The model only sees what genuinely needs judgment.
-6. **Inferred things become questions, never facts.** One confident wrong write costs
-   more trust than ten useful ones earn.
+1. **A brief with details on demand.** The brief includes the next 30 days by
+   default; tools retrieve other dates and supporting evidence.
+2. **Related information across sources.** Memcal groups and reconciles mentions
+   of the same person or plan from messages, email, and agent conversations.
+3. **Evidence-based updates.** Corrections are applied per field according to when
+   the evidence was said, with previous values retained in history.
+4. **Structured changes.** The model proposes updates to events, to-dos, wiki
+   entries, and questions rather than saving an unstructured list of memories.
+5. **Use model calls where judgment helps.** Ingest uses dictionary lookups for
+   identity and policy; model calls handle extraction and ambiguous matches.
+6. **Preserve uncertainty.** When evidence is insufficient, Memcal can raise a
+   question rather than turn a guess into a fact.
 
 ## Map
 
