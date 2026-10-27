@@ -53,5 +53,64 @@ class TestUpcomingVisitSurvivesACrowdedMonth(Base):
         self.assertEqual(brief._dropped_index(lines, past_ids={1, 3}), (3, 4))
 
 
+class TestPersonalPlansSurvivePromotionsAndWikiIndex(Base):
+    def setUp(self):
+        super().setUp()
+        db.set_today("2026-10-26")
+        self.cfg.brief_token_cap = 600
+
+    def test_unconfirmed_group_plan_outlives_earlier_promotions_and_large_index(self):
+        game = events.upsert(self.conn, {
+            "title": "Winter campaign", "date": "2026-11-01", "kind": "opportunity",
+            "status": "mentioned", "source": "thread:imessage:players"}, match=False).event
+        appointment = events.upsert(self.conn, {
+            "title": "Doctor appointment", "date": "2026-10-27", "kind": "commitment",
+            "status": "confirmed"}, match=False).event
+        promos = [events.upsert(self.conn, {
+            "title": f"Promotional offer {i} " + "sale details " * 15,
+            "date": "2026-10-28", "kind": "opportunity", "status": "mentioned",
+            "source": f"thread:email:promo-{i}"}, match=False).event for i in range(15)]
+        for i in range(10):
+            events.upsert(self.conn, {"title": f"Cancelled outing {i} " + "details " * 20,
+                "date": "2026-10-29", "kind": "commitment", "status": "declined",
+                "source": "thread:imessage:old-plans"}, match=False)
+        facts = "## People and facts\nAbout you (open with memcal_open me): " + "fact " * 150
+        facts += "\nPages: " + " · ".join(f"reference-page-{i}" for i in range(100))
+        def hint(_conn, _cfg, ev):
+            return brief.FRESHNESS_HINT_FORMAT.format(
+                where="chat/players", count="1", extra="", handle=f"E{ev.id}")
+        with mock.patch.object(brief, "_facts_block", return_value=facts), \
+             mock.patch.object(brief, "_freshness_hint", side_effect=hint), \
+             mock.patch.object(brief, "MAX_HINTS_PER_BLOCK", 100):
+            text = brief.render(self.conn, self.cfg)
+        self.assertIn(brief.source_tag("event", game.id), text)
+        self.assertIn(brief.source_tag("event", appointment.id), text)
+        self.assertIn(f"memcal_open(ref=E{game.id})", text)
+        self.assertEqual(events.get(self.conn, game.key).status, "mentioned")
+        self.assertLessEqual(textclean.estimate_tokens(text), self.cfg.brief_token_cap)
+        self.assertTrue(any(brief.source_tag("event", p.id) not in text for p in promos))
+        for promo in promos:
+            if brief.source_tag("event", promo.id) not in text:
+                self.assertNotIn(f"memcal_open(ref=E{promo.id})", text)
+        self.assertIn("known events omitted", text)
+        self.assertNotIn("[complete for", text)
+        self.assertIn("open with memcal_open me", text)
+
+    def test_personal_child_survives_with_its_parent(self):
+        parent = events.upsert(self.conn, {
+            "title": "Community festival", "date": "2026-11-01", "kind": "opportunity",
+            "source": "thread:email:festival"}, match=False).event
+        child = events.upsert(self.conn, {
+            "title": "Meet Alex", "date": "2026-11-01", "kind": "commitment",
+            "part_of": parent.id}, match=False).event
+        for i in range(15):
+            events.upsert(self.conn, {"title": f"Promotion {i} " + "details " * 30,
+                "date": "2026-10-28", "kind": "opportunity"}, match=False)
+        text = brief.render(self.conn,self.cfg)
+        self.assertIn(brief.source_tag("event",parent.id),text)
+        self.assertIn(brief.source_tag("event",child.id),text)
+        self.assertLessEqual(textclean.estimate_tokens(text),self.cfg.brief_token_cap)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -355,6 +355,57 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
                                    commit=False)
             note("event", outcome, "event:", cites=cited, about=_claims(row, "title"),
                  generation=row.get("_generation_id") if isinstance(row, dict) else None)
+            blocked = row.get("_blocked_fields") or []
+            if blocked and outcome and len(outcome) >= 3:
+                ref = outcome[2]
+                reason = ("source association needs review" if "association" in blocked
+                          else "older or uncited evidence")
+                log.append(f"held      {row.get('date')} {row.get('title')} "
+                           f"[{ref}]: {', '.join(blocked)} — {reason}")
+                generation = row.get("_generation_id") or generation_id
+                held = conn.execute(
+                    "SELECT 1 FROM provenance WHERE kind='event' AND ref=? AND verb='held'"
+                    " AND entity=? AND generation_id IS ?", (ref, source, generation or None)).fetchone()
+                if not held:
+                    trace.stamp(conn, kind="event", ref=ref, verb="held", entity=source,
+                                stage=stage, run_id=run_id, generation_id=generation,
+                                archive_ids=cited or archive_ids, strict=True)
+                event = events.get(conn, ref)
+                if (event and event.kind == "opportunity" and event.status == "mentioned"
+                        and event.written_by.startswith("dream:") and event.source != source
+                        and set(blocked) & {"kind", "status", "association"}
+                        and row.get("kind") == "commitment"
+                        and row.get("status") in ("tentative", "confirmed")):
+                    question_key = f"q:review-plan:{event.id}"
+                    prior_question = conn.execute(
+                        "SELECT 1 FROM questions WHERE key=?", (question_key,)).fetchone()
+                    question = todos.ask(conn,
+                        (f"Do the planning messages refer to {event.title} on {event.date}, "
+                         "or a different plan? The source conversations need to be reconciled."
+                         if "association" in blocked else
+                         f"Is {event.title} on {event.date} a plan you are attending? "
+                         "The planning messages suggest a commitment, but another "
+                         "conversation left it unconfirmed."),
+                        key=question_key, about_event=event.id,
+                        written_by=written_by, commit=False)
+                    if question == question_key and not prior_question:
+                        counts["question:asked"] += 1
+                    if question and not held:
+                        trace.stamp(conn, kind="question", ref=question, verb="asked",
+                                    entity=source, stage=stage, run_id=run_id,
+                                    generation_id=generation, archive_ids=cited or archive_ids,
+                                    strict=True)
+            if outcome and len(outcome) >= 3:
+                event = events.get(conn, outcome[2])
+                if event and (event.kind == "commitment" or event.status == "declined"):
+                    review = conn.execute(
+                        "SELECT id FROM questions WHERE key=? AND status='open'",
+                        (f"q:review-plan:{event.id}",)).fetchone()
+                    if review:
+                        questions.record_history(conn, review['id'], "status", "open", "dropped",
+                                                 "code:plan-reviewed")
+                        conn.execute("UPDATE questions SET status='dropped',updated_at=? WHERE id=?",
+                                     (db.now(),review['id']))
             for verb, label in _apply_links(conn, row, outcome,
                                             written_by=written_by, commit=False):
                 counts[f"link:{verb}"] += 1
@@ -941,6 +992,9 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
     key = _clean(row.get("key"))
     if key and events.get(conn, key) is None:
         key = None
+    if key and row.get("_association_unresolved"):
+        row["_blocked_fields"] = ["association"]
+        return "unchanged", f"{date_value} {title} [{key}]", key
 
     kind = _clean(row.get("kind")) or "commitment"
     status = _clean(row.get("status")) or "mentioned"
@@ -999,10 +1053,17 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
                      # and stated so the contract is visible at the call site.
                      target_key="", commit=False)
         return ("pending", f"cancellation with no matching row: {title}")
-    event, verb = events.upsert(conn, fields, written_by=written_by,
+    row.pop("_blocked_fields", None)
+    report = events.upsert(conn, fields, written_by=written_by,
                                 evidence_ts=evidence_ts,
+                                reconsider=row.get("_reconsider"),
                                 replace_participants=bool(key and isinstance(evidence_ts, dict)
                                     and evidence_ts.get("participants")), commit=commit)
+    event, verb = report
+    if report.stale:
+        # Preserve the rejected proposal's evidence and a visible explanation.
+        # A processed bundle is not the same as an accepted field update.
+        row["_blocked_fields"] = list(report.stale)
     return verb, f"{event.date} {event.title} [{event.key}]", event.key
 
 

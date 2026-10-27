@@ -69,6 +69,11 @@ def render(conn: sqlite3.Connection, cfg: Config, ref: date | None = None,
     represented = {ev.key for ev in rendered}
     id_to_key = {ev.id: ev.key for ev in rendered}
     past_ids = {ev.id for ev in rendered if (ev.until or ev.date) < ref.isoformat()}
+    plan_ids = {ev.id for ev in rendered if ev.status not in ("declined", "happened")
+                and (ev.kind in ("commitment", "availability")
+                or ev.participants or str(ev.origin or ev.source or "").startswith(
+                    ("person:", "thread:imessage:", "thread:whatsapp:",
+                     "thread:groupme:", "thread:telegram:")))}
     blocks = [
         # Renders first because it represents immediate items rather than future state.
         _now_block(conn),
@@ -80,9 +85,10 @@ def render(conn: sqlite3.Connection, cfg: Config, ref: date | None = None,
         _facts_block(conn, cfg),
     ]
     text = "\n\n".join(b for b in blocks if b).rstrip() + "\n"
-    trimmed = _trim(legend(surface) + text, cfg.brief_token_cap, past_ids=past_ids)
+    trimmed = _trim(legend(surface) + text, cfg.brief_token_cap, past_ids=past_ids,
+                    plan_ids=plan_ids)
     return _reconcile_coverage(conn, trimmed, cfg.brief_token_cap,
-                               id_to_key=id_to_key, past_ids=past_ids)
+                               id_to_key=id_to_key, past_ids=past_ids, plan_ids=plan_ids)
 
 
 #: Inline freshness hints are the exception path, not the rule: past this many in
@@ -738,7 +744,8 @@ def _pages_line(cfg: Config) -> str:
         for slug in index)
 
 
-def _trim(text: str, token_cap: int, *, past_ids: set[int] | None = None) -> str:
+def _trim(text: str, token_cap: int, *, past_ids: set[int] | None = None,
+          plan_ids: set[int] | None = None) -> str:
     """Fit the budget by dropping ended events, then lower-priority sections.
 
     An event row and its activity warning drop as one unit: a retained row never
@@ -748,9 +755,12 @@ def _trim(text: str, token_cap: int, *, past_ids: set[int] | None = None) -> str
     if textclean.estimate_tokens(text) <= token_cap:
         return text
     lines = text.splitlines()
+    if plan_ids:
+        lines = [ABOUT_YOU_TRIMMED if line.startswith(ABOUT_YOU_PREFIX) else line
+                 for line in lines]
     # Keep headers and coverage notices while making room for upcoming plans.
     while textclean.estimate_tokens("\n".join(lines)) > token_cap and len(lines) > 8:
-        drop = _dropped_index(lines, past_ids=past_ids)
+        drop = _dropped_index(lines, past_ids=past_ids, plan_ids=plan_ids)
         if drop is None:
             break
         del lines[drop[0]:drop[1]]
@@ -807,7 +817,8 @@ def _is_coverage(line: str) -> bool:
 
 
 def _dropped_index(lines: list[str], *,
-                   past_ids: set[int] | None = None) -> tuple[int, int] | None:
+                   past_ids: set[int] | None = None,
+                   plan_ids: set[int] | None = None) -> tuple[int, int] | None:
     # Dates come from typed events rather than interpreting the display text.
     # An ended event, its warning, and its nested details can make room for a
     # future plan. Keep a past parent if it still contains an ongoing child.
@@ -828,6 +839,28 @@ def _dropped_index(lines: list[str], *,
                           for tag in SOURCE_RE.findall(detail) if tag.startswith("E")}
             if nested_ids <= past_ids:
                 return i, end
+    if plan_ids:
+        # A nearby promotion must not displace a personal plan later this month.
+        # Drop an entire event unit, including its questions and freshness warning.
+        candidates = []
+        for i, line in enumerate(lines):
+            if line.startswith("  "):
+                continue
+            tags = SOURCE_RE.findall(line) if _is_event_line(line) else []
+            if not tags or not tags[0].startswith("E"):
+                continue
+            end = i + 1
+            while end < len(lines) and lines[end].startswith("  "):
+                end += 1
+            ids = {int(t[1:]) for detail in lines[i:end]
+                   for t in SOURCE_RE.findall(detail) if t.startswith("E")}
+            if not ids & plan_ids:
+                candidates.append((i, end))
+        if candidates:
+            return candidates[-1]
+        for i, line in enumerate(lines):
+            if line.startswith("Pages: "):
+                return i, i + 1
     prefer = ("## People and facts", "## Ask about", "## Open", "## Later",
               "## Upcoming", "## This week")
     for header in prefer:
@@ -931,7 +964,8 @@ def _surviving_event_keys(conn: sqlite3.Connection, text: str,
 
 def _reconcile_coverage(conn: sqlite3.Connection, text: str, token_cap: int, *,
                         id_to_key: "dict[int, str] | None" = None,
-                        past_ids: set[int] | None = None) -> str:
+                        past_ids: set[int] | None = None,
+                        plan_ids: set[int] | None = None) -> str:
     """Post-trim honesty: coverage is judged against what actually survived.
 
     `represented_keys` is computed before trimming, so an event whose hint stood
@@ -957,7 +991,8 @@ def _reconcile_coverage(conn: sqlite3.Connection, text: str, token_cap: int, *,
                      else _COVERAGE_TRIMMED)
     elif omitted and not any("known events omitted" in line for line in lines):
         lines.append("[some known events omitted; use memcal_list_month or memcal_list_days]")
-    return _trim("\n".join(lines).rstrip() + "\n", token_cap, past_ids=past_ids)
+    return _trim("\n".join(lines).rstrip() + "\n", token_cap, past_ids=past_ids,
+                 plan_ids=plan_ids)
 
 
 def write(conn: sqlite3.Connection, cfg: Config, ref: date | None = None) -> Path:

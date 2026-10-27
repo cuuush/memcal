@@ -163,6 +163,8 @@ def same_event(a: Mention, b: Mention, cfg: Config | None = None,
         return False
     if {a.row.get("status"), b.row.get("status")} == {"happened", "confirmed"}:
         return False
+    if a.row.get("key") and a.row.get("key") == b.row.get("key"):
+        return True
 
     shared_title = _tokens(a.row.get("title", "")) & _tokens(b.row.get("title", ""))
     shared_title -= _PLATFORM        # the exporter's name is not the occasion's name
@@ -603,6 +605,8 @@ def _conflicted(group: list[Mention]) -> bool:
                 for b in token_sets[index + 1:]):
             return True
     statuses = {m.row.get("status") for m in group if m.row.get("status")}
+    if any(m.row.get("_review_version") for m in group):
+        return True  # compare the planning evidence with the stored inference
     if "declined" in statuses and len(statuses) > 1:
         return True
     return False
@@ -849,10 +853,10 @@ def _stored_near(conn, mentions: list[Mention], *, include_claimed: bool = False
         return []
     # A row apply will reach on its own is apply's, under the evidence rules. Only the
     # ones nothing resolves to are worth a cluster.
-    claimed: set[str] = set()
-    if not include_claimed:
-        claimed = {str(m.row.get("key")) for m in mentions if m.row.get("key")}
-        for m in mentions:
+    claimed = {str(m.row.get("key")) for m in mentions if m.row.get("key")}
+    targets = {id(m): str(m.row.get("key") or "") for m in mentions}
+    for m in mentions:
+        if not targets[id(m)]:
             hit = events.find_match(
                 conn, title=str(m.row.get("title") or ""), on=m.date,
                 series=m.row.get("series"),
@@ -862,14 +866,31 @@ def _stored_near(conn, mentions: list[Mention], *, include_claimed: bool = False
                 time=m.row.get("time"), location=m.row.get("location"))
             if hit is not None:
                 claimed.add(hit.key)
+                targets[id(m)] = hit.key
     out: list[Mention] = []
     for event in events.between(conn, lo, hi):
-        if event.key in claimed:
+        reviewers = [m for m in mentions if targets[id(m)] == event.key
+                     and m.bundle.entity != event.source
+                     and m.row.get("kind") == "commitment"
+                     and m.row.get("status") in ("tentative", "confirmed")]
+        reconsider = (event.kind == "opportunity" and event.status == "mentioned"
+                      and bool(reviewers))
+        if event.key in claimed and not include_claimed and not reconsider:
             continue
         row = {"key": event.key, "date": event.date, "time": event.time,
                "title": event.title, "location": event.location, "kind": event.kind,
                "subject": event.subject, "status": event.status, "series": event.series,
                "note": event.note, "participants": list(event.participants or [])}
+        if reconsider:
+            for mention in reviewers:
+                mention.row.setdefault("key", event.key)
+            row["_review_version"] = {
+                "id": event.id,
+                "history_id": conn.execute(
+                    "SELECT coalesce(max(id),0) FROM event_history WHERE event_id=?",
+                    (event.id,)).fetchone()[0],
+                "updated_at": conn.execute(
+                    "SELECT updated_at FROM events WHERE id=?", (event.id,)).fetchone()[0]}
         evidence = conn.execute(
             """SELECT DISTINCT a.* FROM evidence e JOIN archive a ON a.id = e.archive_id
                 WHERE e.kind = 'event' AND e.ref = ? ORDER BY a.ts DESC LIMIT 6""",
@@ -953,12 +974,18 @@ def merge_all(client: CompletionClient, cfg: Config, proposals: list,
             # recoverable failure; one row built out of two plans is not.
             log.append(f"merge failed for {sources}: {exc} — kept {len(group)} rows "
                        f"separate, unresolved")
+            _defer_claimed_review(group)
             continue
 
         if reply.truncated:
             log.append(f"kept {len(group)} rows separate ({sources}): reply cut off")
+            _defer_claimed_review(group)
             continue
         if answer.get("same_event") is False:
+            # A refused association cannot still update the row via its original
+            # key. Preserve that proposed update for review; ordinary keyless,
+            # distinct proposals retain their normal independent identities.
+            _defer_claimed_review(group)
             _apply_pending_targets(conn, group, answer)
             _apply_observation_targets(group, answer)
             _mark_distinct_lifecycle(group)
@@ -966,14 +993,17 @@ def merge_all(client: CompletionClient, cfg: Config, proposals: list,
             continue
         if str(answer.get("same_event") or "").lower() == "unresolved":
             log.append(f"kept {len(group)} rows separate ({sources}): model could not tell")
+            _defer_claimed_review(group)
             continue
         if not answer.get("date") or not answer.get("title"):
             why = (f"reply cut off at the {ceiling}-token ceiling" if reply.truncated
                    else "model returned no date or title")
             log.append(f"kept {len(group)} rows separate ({sources}): {why}")
+            _defer_claimed_review(group)
             continue
         if answer.get("same_event") is not True:
             log.append(f"kept {len(group)} rows separate ({sources}): no merge decision")
+            _defer_claimed_review(group)
             continue
 
         merged = {k: v for k, v in answer.items()
@@ -990,6 +1020,9 @@ def merge_all(client: CompletionClient, cfg: Config, proposals: list,
             *merged["cite_ids"],
             *(archive_id for ids in (merged["field_cite_ids"] or {}).values() for archive_id in ids)]))
         merged["_evidence_times"] = _evidence_times(group, conn)
+        reviewed = [m for m in group if m.existing and m.row.get("_review_version")]
+        if len(reviewed) == 1 and reviewed[0].bundle.items:
+            merged["_reconsider"] = reviewed[0].row["_review_version"]
         _apply_pending_targets(conn, group, answer, merged=merged)
         _apply_observation_targets(group, answer, merged=merged)
         _corroborate(merged, voices)
@@ -1007,6 +1040,13 @@ def merge_all(client: CompletionClient, cfg: Config, proposals: list,
         client, cfg, proposals, conn=conn, run_id=run_id)
     log.extend(question_log)
     return proposals, log
+
+
+def _defer_claimed_review(group: list[Mention]) -> None:
+    keys = {m.row.get("key") for m in group if m.existing and m.row.get("_review_version")}
+    for mention in group:
+        if not mention.existing and mention.row.get("key") in keys:
+            mention.row["_association_unresolved"] = True
 
 
 QUESTION_CHOICE_SCHEMA = {

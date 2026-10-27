@@ -18,6 +18,12 @@
 
 ### Fixed
 
+- Dream compares older group planning evidence with the cited source of an existing
+  unconfirmed opportunity before promoting an untouched model inference. Later
+  corrections remain protected; blocked updates retain their evidence and explain
+  what still needs review instead of disappearing as successful no-change reads.
+- Brief trimming preserves upcoming personal plans ahead of promotional opportunities
+  and the wiki index, including tentative plans and their activity warnings.
 - Dated appointments restore bounded earlier excerpts from the same conversation,
   including nearby replies that name a clinic without repeating the appointment.
   Calendar topic and date must agree; muted and unrelated chats stay excluded.

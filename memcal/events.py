@@ -706,6 +706,7 @@ def upsert(
     inferred: tuple[str, ...] = (),
     clear: tuple[str, ...] = (),
     replace_participants: bool = False,
+    reconsider: dict | None = None,
     commit: bool = True,
 ) -> UpsertReport:
     """Insert or update one event, preserving history and write precedence."""
@@ -857,6 +858,32 @@ def upsert(
     # no floor for it, so the founding message that first fills it still lands
     # even though it predates the run time that created the empty shell.
     settled, day_fields = _field_versions(conn, existing.id) if dated else ({}, set())
+    # A semantic comparison may enrich an untouched model guess with newly read,
+    # older planning evidence. It cannot reopen a correction, a typed decision,
+    # or a row changed while the comparison was in flight. Ordinary writes keep
+    # the evidence-time rule; this narrow exception requires Merge's snapshot.
+    reconsider_fields: set[str] = set()
+    if (reconsider and written_by.startswith("dream:")
+            and existing.written_by.startswith("dream:")
+            and existing.kind == "opportunity" and existing.status == "mentioned"
+            and fields.get("date") == existing.date
+            and fields.get("kind") == "commitment"
+            and fields.get("status") in ("tentative", "confirmed")
+            and evidence_for("kind") and evidence_for("status")):
+        latest = conn.execute(
+            "SELECT coalesce(max(id),0) FROM event_history WHERE event_id=?",
+            (existing.id,)).fetchone()[0]
+        if reconsider == {"id": existing.id, "history_id": latest,
+                          "updated_at": last_write}:
+            history = conn.execute(
+                "SELECT field,written_by FROM event_history WHERE event_id=? ORDER BY id",
+                (existing.id,)).fetchall()
+            founding = {r["field"] for r in history
+                        if str(r["written_by"]).endswith((":born", ":born-day"))}
+            revised = {r["field"] for r in history
+                if not str(r["written_by"]).endswith((":born", ":born-day"))}
+            if {"kind", "status"} <= founding - revised:
+                reconsider_fields = {"kind", "status"}
     has_creation = _BORN_MARK in settled
     # Floor for a non-empty field with no history row at all: its stored evidence
     # stamp if it has one (a cheaper-writer insert), else the row's creation
@@ -973,11 +1000,11 @@ def upsert(
             continue
         if name == "status" and STATUSES.index(new) < STATUSES.index(old) and old == "confirmed" and written_by != "live":
             continue  # don't walk a confirmed row backwards to 'mentioned'
-        if (name == "kind" and old == "commitment" and new == "observed"
+        if (name == "kind" and old == "commitment" and new in ("observed", "opportunity")
                 and existing.status in ("confirmed", "happened")
                 and written_by.startswith(("dream:", "sweep"))):
-            # An observation can advance a booking to happened without erasing
-            # that it was a commitment. Calendar identity follows that lifecycle.
+            # An observation or invitation summary cannot erase a confirmed
+            # commitment. Calendar publishing follows both kind and status.
             continue
         if name == "title" and _says_less(new, old):
             continue  # a shorter name for what is already here is not news
@@ -996,7 +1023,8 @@ def upsert(
             continue
         here = evidence_for(name)
         floor, day = _floor(name, old)
-        if dated and (not here or _stale(here, floor, day)):
+        if dated and (not here or (_stale(here, floor, day)
+                                  and name not in reconsider_fields)):
             # Older than the decision it would revise; genuinely newer evidence lands.
             stale.append(name)
             continue
