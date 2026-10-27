@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-27
+
 ### Added
 
 - Setup lists Codex's signed-in model catalog and accepts a model number or ID,
