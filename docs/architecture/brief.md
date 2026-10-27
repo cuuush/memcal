@@ -1,7 +1,8 @@
 # Brief
 
-One rendered file, always in context. The brief is the whole interface — everything
-else in this architecture exists to keep it accurate and short.
+The brief is a rendered snapshot that gives an agent useful context at the start
+of a turn. It summarizes upcoming plans and points to records the agent can open
+for more detail.
 
 ```bash
 memcal brief
@@ -53,10 +54,9 @@ When it needs space, ended events give way to ongoing and upcoming plans;
 distant Later plans are trimmed before the active window. An event's activity
 warning stays with its row. Missing known events are disclosed even when there
 is already a warning about unreviewed input.
-Junk in the archive costs nothing; junk in the brief costs on every single turn
-forever, so rendering trims to fit and freshness metadata stays beside its event
-when trimming happens. A general backlog notice survives truncation: when activity
-is omitted, the brief says so.
+Rendering trims the brief to fit the budget and keeps freshness metadata beside
+its event. A general backlog notice survives truncation, so the brief indicates
+when activity has been omitted.
 
 ## Coverage is qualified
 
@@ -65,8 +65,7 @@ flagged items carry activity warnings beside the last-confirmed plan. Prepared
 facts are the fast path when coverage supports them; for a flagged item, the
 assistant inspects the indicated activity before claiming current details. If
 collection or lookup failed, it states the last known plan and the limit instead
-of presenting that plan as freshly verified. The old "snapshot is the answer"
-wording is gone: the brief is the starting point, and it says where it ends.
+of presenting that plan as freshly verified. The brief is a starting point and indicates the limits of its coverage.
 
 Trimming keeps this honest. An event and its warning drop as one unit, and the
 completeness stamp is only kept while every coverage hole it would otherwise hide

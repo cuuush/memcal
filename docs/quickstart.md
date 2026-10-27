@@ -34,8 +34,8 @@ pip install "memcal[chat]"
 memcal setup
 ```
 
-The setup flow asks for the provider and model, then saves only the owned settings in
-`~/.memcal/.env`. Existing source credentials and hand-written settings are preserved.
+Setup asks for a provider and model, then saves its settings in `~/.memcal/.env`.
+Existing source credentials and hand-written settings are preserved.
 Codex defaults to `gpt-6-luna`; OpenRouter defaults to `openai/gpt-6-luna`. An
 explicit saved model remains selected. See [Configuration](hosting/configuration.md)
 for other providers, source setup, and advanced settings.
@@ -65,26 +65,33 @@ memcal dream --dry-run
 memcal dream
 ```
 
-To collect and update automatically, install the nightly job:
+On macOS, install the nightly job to collect and update automatically:
 
 ```bash
 memcal schedule install
 ```
 
+On Linux, this command prints cron instructions instead of installing a launchd job.
+
 ## Connect an agent
+
+For OpenClaw, with the OpenClaw CLI already installed:
 
 ```bash
 memcal openclaw setup
 openclaw gateway restart
 ```
 
+For an existing Hermes installation:
+
 ```bash
+mkdir -p ~/.hermes/plugins
 ln -s /path/to/memcal/integrations/hermes/memcal ~/.hermes/plugins/memcal
 hermes memory setup
 ```
 
-Any other harness: read `brief.md` and connect `python3 -m memcal.mcp_server`.
-See [Integrations](integrations/index.md).
+For another harness, connect the MCP server with `python3 -m memcal.mcp_server`.
+See [MCP setup](clients/mcp.md) and [Integrations](integrations/index.md).
 
 ## Next steps
 

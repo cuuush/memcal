@@ -16,9 +16,9 @@ rest.
 | Calendar | [Setup](calendar.md) | macOS permission via `memcal ical setup` |
 | Agent conversations | [Setup](conversations.md) | None — flows from the integrations |
 
-Credentials live in `~/.memcal/.env` (one `key=value` per line) — you never
-edit it by hand for these: each `memcal login` pastes, validates, and saves
-for you, asking before it overwrites anything. `memcal sources`
+Credentials are configured per source, typically in `~/.memcal/.env`. Some
+sources provide a `memcal login` flow; follow the linked setup guide for each
+source. `memcal sources`
 reports what each source still needs; `memcal doctor` checks the whole setup.
 
 ## Comparison
@@ -38,16 +38,19 @@ All three share the ingest economics: `--limit` (default 1000 items/round),
 `N skipped as muted` for platform-muted threads (muting shapes priority and
 presentation, never collection).
 
-## Which order to set up
+## Setting up chat sources
 
-1. **Slack first** if you have it. No interactive login, fastest verify loop
-   (`memcal sources` → `memcal ingest slack --limit 20`), and the richest history.
+If you use these services, one possible order is:
+
+1. **Slack first.** Verify it with
+   `memcal sources` and `memcal ingest slack --limit 20`; Slack can provide
+   substantial history.
 2. **Telegram second.** Needs the `my.telegram.org` app page and one interactive
    login; session reuse makes every later run non-interactive. Good history depth
    once logged in.
 3. **Signal last, and promptly.** No history exists before the link, and the queue
    starts accumulating at link time — link, verify (`linked as …`), and ingest in
-   one sitting so nothing waits acked-but-unarchived.
+   one sitting to minimize the time messages wait in the queue.
 
 After each source: `memcal ingest <name> --limit 20`, read the summary, then
 `memcal ingest all` and `memcal dream --dry-run` before adding the next one. If a

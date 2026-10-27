@@ -1,48 +1,26 @@
 # Overview
 
-## Why memcal?
+## What is Memcal?
 
-**Memory + Calendar for AI agents.**
+Memcal gives AI agents a memory of your plans, conversations, and commitments.
+It brings together sources such as iMessage, email, WhatsApp, and calendars,
+then uses a nightly **Dream** pass to update events and other memories as things
+change.
 
-Most memory systems for agents like OpenClaw or Hermes (Mem0, Hindsight) are good at saving things like preferences and observations, but fail at personal assistant tasks, like remembering you have a dentist appointment next Friday. Memcal attempts to bridge this gap by enabling an agent to maintain its own internal calendar of your life. On top of that, a nightly fact-gathering stage will scan sources like iMessage, email, WhatsApp, iCal, and more to automatically update the agent calendar.
+Ask your agent “What's my weekend looking like?” and it can draw on plans from
+different conversations, such as a possible dinner, a community event, or a
+family visit.
 
-With Memcal, you can ask an agent, “What’s my weekend looking like?” and it will remember that your friend is free for dinner Saturday night, that the nonprofit you follow is having a member day, or even that your family is coming into town...
-
-**The problem is harder than it looks:**
-
-- **Recency is decided at write time, not read time.** If Jordan texts a new poker
-  address, the old address moves to history when the update lands. At read time there
-  is one value and nothing to weigh — relevance scoring never gets a chance to drown
-  out the timestamp the way it does when a year-old email answers for last week.
-- **Implicit questions need context, not retrieval.** "I'm bored," "what's going on
-  this week," "should I invite anyone" are only answerable from what is already
-  sitting in the prompt. No tool call finds those answers.
-- **One life, many streams.** A text, an email, a group-chat line, and something said
-  to the agent all resolve to the same underlying thing. They differ only in where
-  they came from — so memcal joins them structurally instead of storing five copies.
-- **Extraction is slot-filling, never "find memories."** The model is asked whether
-  anything changes a calendar row, a to-do, or a named fact. Most days the answer is
-  no, which is correct — and keeps junk ("i love you" → "Harper loves Casey") out of
-  memory.
-
-Memcal solves these with an agent calendar that lives in context, fed by the streams
-you already get, reconciled every night.
-
-## What memcal does
-
-**Your agent** reads a small rendered snapshot (the **brief**) on every turn, opens
-detail and evidence through typed handles, and writes corrections back through typed
-tools — all against its dedicated **memory store**.
-
-Overnight, the **dream** pass reads the day's new traffic and proposes typed updates:
-new events, moved dates, opened to-dos, saved facts, questions to ask. Deterministic
-rules merge them; a model is consulted again only for genuine conflicts.
+Memcal prepares a **brief** for the agent, including the next 30 days by default.
+The agent can open a record to inspect its details and evidence, or use tools to
+make corrections. During the day, freshness hints flag new activity that may
+change an answer; the agent can check the original messages before responding.
 
 ## Key components
 
 ### Typed stores
 
-Memcal keeps one world model with a fixed shape:
+Memcal organizes information into these stores:
 
 | Store | What it holds | Example |
 |---|---|---|
@@ -53,9 +31,8 @@ Memcal keeps one world model with a fixed shape:
 | **Wiki** | Durable facts about people, places, projects, preferences | `jordan` — address, birthday |
 | **Archive** | Every raw message, email, and calendar row, full-text indexed | The evidence behind each item above |
 
-During the day, collection is cheap and model-free; freshness hints flag activity
-that could affect known context, with a short route to the original messages when an
-answer needs checking. See [Daytime freshness](architecture/freshness.md).
+During the day, collection runs without model calls. Freshness hints flag activity
+that could affect known context and point the agent to the original messages. See [Daytime freshness](architecture/freshness.md).
 
 ### The nightly pipeline
 
@@ -68,8 +45,8 @@ Six stages turn raw traffic into the brief:
    changes.
 4. **Merge** — deterministic rules join compatible mentions; a model arbitrates only
    real conflicts.
-5. **Apply & sweep** — version-checked writes land, cleanup expires or reconnects
-   stale state, one cheap model call re-reads the result for duplicates.
+5. **Apply & sweep** — version-checked writes update the stores; cleanup handles stale state,
+   and a model reviews the result for duplicates.
 6. **Brief** — the current slice of your life renders into a small Markdown snapshot
    the agent receives on every turn.
 
@@ -103,8 +80,7 @@ integrations; anything MCP-speaking works through the generic server.
 
 - [**Dream**](architecture/dream.md) — how the nightly pass turns traffic into typed state.
 - [**Brief**](architecture/brief.md) — the snapshot your agent sees every turn.
-- [**Daytime freshness**](architecture/freshness.md) — cheap collection and activity
-  hints between dreams.
+- [**Daytime freshness**](architecture/freshness.md) — collection and activity hints between Dream runs.
 - [**Identity**](architecture/identity.md) — how memcal decides who is who.
 
 ### API & tools

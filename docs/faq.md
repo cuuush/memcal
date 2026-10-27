@@ -30,8 +30,8 @@ Signal keeps no server-side archive — only the undelivered queue. A linked
 device sees traffic from the link moment forward. See [Signal](sources/signal.md).
 
 **User token or bot token for Slack?**
-User token (`xoxp-…`). Bots cannot see your DMs, and DMs are the point. Scopes
-freeze at install time — Reinstall after adding any. See [Slack](sources/slack.md).
+Use a user token (`xoxp-…`) to access your DMs. Scopes are fixed when the app
+is installed; reinstall it after adding scopes. See [Slack](sources/slack.md).
 
 **Is the Telegram session file dangerous?**
 It grants full account access. Keep `~/.memcal` private, same as your `.env`.
