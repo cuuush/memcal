@@ -1,6 +1,6 @@
 [project]
 name = "memcal"
-version = "1.0.0"
+version = "0.8.3"
 description = "A calendar and a to-do list that live in context, fed by the streams you already get."
 readme = "README.md"
 license = "MIT"
