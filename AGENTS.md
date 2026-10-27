@@ -205,6 +205,8 @@ narratives here.
 
 ## Hard rules
 
+- NEVER include real names or personal information in contributions, including code, tests, fixtures, documentation, commit messages, and PRs. Use fully synthetic examples.
+
 - New schema columns: update `schema.sql`, `db.ADDED_COLUMNS`, and every named-column
   `INSERT`/upsert path (`migrate()` runs `CREATE TABLE IF NOT EXISTS` — schema edits alone
   do not migrate existing databases).
