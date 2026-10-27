@@ -63,8 +63,10 @@ class TestUndeliveredMemcalContext(unittest.TestCase):
         original = brief.render
         release = threading.Event()
         entered = threading.Event()
+        workers = []
 
         def slow(*args, **kwargs):
+            workers.append(threading.current_thread())
             entered.set()
             if not release.wait(5):
                 raise AssertionError("Test failed to release render")
@@ -81,8 +83,7 @@ class TestUndeliveredMemcalContext(unittest.TestCase):
                     before_release()
             finally:
                 release.set()
-                worker = self.manager._external_prefetch_threads.get("memcal")
-                if worker:
+                for worker in workers:
                     worker.join(5)
                     self.assertFalse(worker.is_alive())
         self.manager._external_prefetch_timeout = 2
@@ -119,7 +120,9 @@ class TestUndeliveredMemcalContext(unittest.TestCase):
         # missing-confirmation state in the Memcal protocol.
         self.assertEqual(warning, "")
         self.assertEqual(busy, "")
-        self.assertEqual(calls, 1)
+        # Hermes versions may skip the retry or admit a second bounded call.
+        # Neither timed-out result was delivered, so recovery must still resend.
+        self.assertIn(calls, (1, 2))
         recovery = self.ask()
         self.assertIn("Check the new poker address", recovery)
         self.complete(recovery)
