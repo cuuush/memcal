@@ -18,6 +18,20 @@ that keeps a sender out entirely is you saying so (`memcal senders <address>
 ignore`, "I don't care about this" to the agent, or the block button in the web
 queue). A blocked sender's body is never fetched or stored.
 
+To reject a scam sender and retire its queued mail:
+
+```bash
+memcal block scammer@example.com --reason "Impersonation scam"
+memcal block --event 123 --reason "Impersonation scam"
+```
+
+An email event is resolved through its cited sender address, even when its display
+name looks official. If the evidence has multiple senders or mixes email and chat,
+give an explicit address. Blocking does not delete existing events or change your
+mailbox's spam rules. Automatic low priority still permits Dream to read a message;
+it is not a phishing quarantine. Display names and event-like subjects prove neither
+authenticity nor acceptance of an appointment.
+
 ```bash
 memcal mail                        # queued by priority, and what has no body
 memcal mail --backfill             # what a recovery run would cover — reports only

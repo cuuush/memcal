@@ -8,6 +8,15 @@ import json
 CHANGE_LABELS = {"new": "New", "edited": "Updated"}
 
 
+def email_sender(who: str, *, channel: str, handle: str = "",
+                 from_me: bool = False) -> str:
+    """Keep an email's actual address visible beside its claimed display name."""
+    address = str(handle or "").strip()
+    if channel == "email" and not from_me and address and address != who:
+        return f"{who} <{address}>"
+    return who
+
+
 def wiki_search_miss(query: str) -> str:
     """A wiki miss says nothing about details retained on calendar events."""
     return (f"No matching wiki fact for {query!r}. This means no wiki fact matched — "
