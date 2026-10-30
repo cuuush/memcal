@@ -315,8 +315,10 @@ def header_str(message: email.message.Message, name: str) -> str:
 
 def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 300,
            folders: tuple[str, ...] = FOLDERS,
-           progress: Callable[[str], None] | None = None) -> base.IngestReport:
+           progress: Callable[[str], None] | None = None,
+           collection_id: int | None = None) -> base.IngestReport:
     report = base.IngestReport.opened("email", cfg)
+    report.collection_id = collection_id
     progress = base.adapt_progress(progress)
     report.progress = progress
     recover_sender_names(conn)
@@ -747,7 +749,8 @@ class ProtonSource(Source):
 
     def fetch(self, conn, cfg, report, limit):
         from .bluebubbles import _absorb
-        _absorb(report, ingest(conn, cfg, limit=limit, progress=report.progress))
+        _absorb(report, ingest(conn, cfg, limit=limit, progress=report.progress,
+                               collection_id=report.collection_id))
 
     def check(self, cfg):
         ok, message = Source.check(self, cfg)

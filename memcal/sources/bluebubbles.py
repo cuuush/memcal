@@ -214,8 +214,10 @@ def chat_of(message: dict) -> tuple[str, bool, list[str], str]:
     return key, is_group, participants, name
 
 
-def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 1000) -> base.IngestReport:
+def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 1000,
+           collection_id: int | None = None) -> base.IngestReport:
     report = base.IngestReport.opened("imessage", cfg)
+    report.collection_id = collection_id
     try:
         client = BlueBubbles(cfg)
         if not client.ping():
@@ -316,7 +318,7 @@ class BlueBubblesSource(Source):
     order = 10
 
     def fetch(self, conn, cfg, report, limit):
-        result = ingest(conn, cfg, limit=limit)
+        result = ingest(conn, cfg, limit=limit, collection_id=report.collection_id)
         _absorb(report, result)
 
     def check(self, cfg):

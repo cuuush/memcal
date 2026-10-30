@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- iMessage and email collection passes retain their source records for collection reporting.
+
 ## [0.8.3] - 2026-10-27
 
 ### Added

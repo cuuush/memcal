@@ -17,7 +17,7 @@ from unittest import mock
 
 from memcal import archive, db, identity, web_jobs
 from memcal.config import Config
-from memcal.sources import base, groupme, ical, imessage, proton
+from memcal.sources import base, bluebubbles, groupme, ical, imessage, proton
 from memcal.sources.spec import SourceError
 
 
@@ -173,6 +173,30 @@ class TestEmailProgress(unittest.TestCase):
         self.assertIn("INBOX: checking for new messages…", updates)
         self.assertIn("INBOX: 25/30 this round · 6 waiting", updates)
         self.assertEqual(updates[-1], "INBOX: 30/30 this round")
+
+    def test_email_source_collection_keeps_message_timestamp(self):
+        db.set_today("2026-07-31T03:00:00-04:00")
+        self.addCleanup(db.set_today, None)
+        headers = email.message_from_string(
+            "From: example@example.test\nSubject: dinner tomorrow\n"
+            "Date: Thu, 30 Jul 2026 12:00:00 -0400\nMessage-ID: <fixture@example.test>\n\n")
+        class Bridge:
+            def __init__(self, cfg): pass
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def folders(self): return ["INBOX"]
+            def select(self, folder): return True, "1"
+            def uids_since(self, last_uid, since_days=0): return [1] if not last_uid else []
+            def headers(self, uid): return headers
+            def body(self, uid): return "Dinner at seven."
+        cid = archive.open_collection(self.conn, mode="cli")
+        with mock.patch.object(proton, "Bridge", Bridge):
+            report = proton.ProtonSource().run(self.conn, self.cfg, collection_id=cid)
+        archive.close_collection(self.conn, cid)
+        self.assertIsNone(report.error)
+        row = self.conn.execute("SELECT collection_id, ts FROM archive WHERE channel='email'").fetchone()
+        self.assertEqual((row[0], row[1]), (cid, "2026-07-30T12:00:00-04:00"))
+        self.assertEqual(archive.last_complete_check(self.conn, "email")["collection_id"], cid)
 
 
 class TestProtonBridgeConnectionFailures(unittest.TestCase):
@@ -775,6 +799,40 @@ class TestASourceThatFilledItsPageSaysSo(unittest.TestCase):
         report = imessage.ingest(self.conn, limit=5, db_path=chat_db)
         self.assertEqual(report.read, 5)
         self.assertTrue(report.more, "catch_up cannot loop on a source that never says so")
+
+    def test_imessage_source_collection_keeps_message_timestamp(self):
+        db.set_today("2026-07-31T03:00:00-04:00")
+        self.addCleanup(db.set_today, None)
+        chat_db = self._chat_db(1)
+        cid = archive.open_collection(self.conn, mode="cli")
+        with mock.patch.object(imessage, "CHAT_DB", chat_db):
+            report = imessage.IMessageSource().run(self.conn, self.cfg, collection_id=cid)
+        archive.close_collection(self.conn, cid)
+        self.assertIsNone(report.error)
+        row = self.conn.execute("SELECT collection_id, ts FROM archive WHERE channel='imessage'").fetchone()
+        self.assertEqual(row[0], cid)
+        self.assertEqual(db.parse_ts(row[1]), db.now_dt() - timedelta(days=1))
+        self.assertEqual(archive.last_complete_check(self.conn, "imessage")["collection_id"], cid)
+
+    def test_direct_bluebubbles_source_keeps_collection_and_message_time(self):
+        db.set_today("2026-07-31T03:00:00-04:00")
+        self.addCleanup(db.set_today, None)
+        stamp = int((db.now_dt() - timedelta(days=1)).timestamp() * 1000)
+        class Client:
+            def __init__(self, cfg): pass
+            def ping(self): return True
+            def messages(self, after, limit, offset):
+                return [{"guid": "fixture-guid", "dateCreated": stamp,
+                         "text": "Dinner tomorrow?", "handle": {"address": "+19175550001"}}]
+        cid = archive.open_collection(self.conn, mode="cli")
+        with mock.patch.object(bluebubbles, "BlueBubbles", Client):
+            report = bluebubbles.BlueBubblesSource().run(self.conn, self.cfg, collection_id=cid)
+        archive.close_collection(self.conn, cid)
+        self.assertIsNone(report.error)
+        row = self.conn.execute("SELECT collection_id, ts FROM archive WHERE channel='imessage'").fetchone()
+        self.assertEqual(row[0], cid)
+        self.assertEqual(db.parse_ts(row[1]), db.now_dt() - timedelta(days=1))
+        self.assertEqual(archive.last_complete_check(self.conn, "bluebubbles")["collection_id"], cid)
 
     def test_chatdb_routes_direct_replies_together_and_two_guests_as_group(self):
         chat_db = Path(self.tmp.name) / "two-chats.db"

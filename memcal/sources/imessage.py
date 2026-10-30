@@ -292,7 +292,7 @@ class IMessageSource(Source):
         from .bluebubbles import ingest as bb_ingest
         # `chatdb` reads the local database and never touches BlueBubbles.
         if _backend(cfg) == "chatdb":
-            local = ingest(conn, limit=limit)
+            local = ingest(conn, limit=limit, collection_id=report.collection_id)
             if local.error:
                 raise SourceError(local.error)
             report.absorb(local)
@@ -300,7 +300,7 @@ class IMessageSource(Source):
         # `bluebubbles`: read through the server, falling back to chat.db when the server
         # is unavailable — unless the fallback is turned off, when that is a hard failure.
         try:
-            result = bb_ingest(conn, cfg, limit=limit)
+            result = bb_ingest(conn, cfg, limit=limit, collection_id=report.collection_id)
             if not result.error:
                 _absorb(report, result)
                 return
@@ -310,7 +310,7 @@ class IMessageSource(Source):
         if not getattr(cfg, "imessage_fallback", True):
             raise SourceError(
                 f"BlueBubbles unavailable and the chat.db fallback is off: {reason}")
-        local = ingest(conn, limit=limit)
+        local = ingest(conn, limit=limit, collection_id=report.collection_id)
         if local.error:
             raise SourceError(f"{local.error} (bluebubbles also unavailable: {reason[:80]})")
         report.absorb(local)
