@@ -1054,7 +1054,17 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
                      target_key="", commit=False)
         return ("pending", f"cancellation with no matching row: {title}")
     row.pop("_blocked_fields", None)
+    # A replacement is a distinct occurrence: matching its predecessor would erase
+    # the relationship. Still match other rows so replay finds the replacement.
+    replaced = set()
+    if not key:
+        for link in row.get("links") or []:
+            if isinstance(link, dict) and link.get("kind") == "replaces":
+                target = events.get(conn, str(link.get("key") or ""))
+                if target:
+                    replaced.add(target.id)
     report = events.upsert(conn, fields, written_by=written_by,
+                                exclude_match_ids=frozenset(replaced),
                                 evidence_ts=evidence_ts,
                                 reconsider=row.get("_reconsider"),
                                 replace_participants=bool(key and isinstance(evidence_ts, dict)

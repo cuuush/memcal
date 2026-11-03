@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Rescheduled bookings linked as replacements retain their new date and keep the earlier booking's history.
 - iMessage and email collection passes retain their source records for collection reporting.
 
 ## [0.8.3] - 2026-10-27

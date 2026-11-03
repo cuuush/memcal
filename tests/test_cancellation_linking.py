@@ -345,6 +345,37 @@ class TestCancellationAndImmediateRebookingLifecycle(Base):
         row = self.conn.execute("SELECT * FROM archive WHERE id = ?", (archive_id,)).fetchone()
         return Bundle(entity=entity, items=[row]), archive_id
 
+    def test_existing_booking_and_keyless_replacement_survive_merge_and_replay(self):
+        old_key = f"appointment@{self.d(6)}"
+        original, original_id = self.bundle("person:Quinn", "imessage", "initial-1",
+                                            f"{self.d(0)}T09:00:00",
+                                            "The appointment is on the earlier date.")
+        initial = [(original, {"events": [{"title": "Appointment", "date": self.d(6),
+                    "status": "confirmed", "participants": ["Quinn"],
+                    "cite_ids": [original_id]}]}, "gen-initial")]
+        apply_stage.apply_diffs(self.conn, self.cfg, initial, written_by="dream:nightly")
+        bundle, aid = self.bundle("person:Quinn", "email", "move-1",
+                                  f"{self.d(0)}T10:00:00",
+                                  "The appointment moves to the later date.")
+        proposals = [(bundle, {"events": [
+            {"key": old_key, "title": "Appointment", "date": self.d(6),
+             "status": "declined", "participants": ["Quinn"], "cite_ids": [aid]},
+            {"title": "Appointment", "date": self.d(9), "status": "confirmed",
+             "participants": ["Quinn"], "cite_ids": [aid],
+             "links": [{"kind": "replaces", "key": old_key}]},
+        ]}, "gen-move")]
+        client = _MergeClient({"same_event": False, "pending_targets": [],
+                               "observation_targets": []})
+        merged, _ = merge_stage.merge_all(client, self.cfg, proposals, conn=self.conn)
+        for _ in range(2):
+            apply_stage.apply_diffs(self.conn, self.cfg, merged, written_by="dream:nightly")
+        new_key = f"appointment@{self.d(9)}"
+        self.assertEqual(events.get(self.conn, old_key).status, "declined")
+        self.assertEqual(events.get(self.conn, new_key).status, "confirmed")
+        self.assertEqual([e.key for e in events.links_for(self.conn, new_key, "replaces")],
+                         [old_key])
+        self.assertEqual(len(events.between(self.conn, self.d(6), self.d(9))), 2)
+
     def test_fresh_undated_sms_and_dated_emails_keep_two_targets(self):
         sms, sms_id = self.bundle("person:Booking service", "imessage", "sms-1",
                                   f"{self.d(0)}T10:00:00", "Your appointment was canceled")

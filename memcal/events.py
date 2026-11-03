@@ -429,6 +429,7 @@ def find_match_scored(
     subject: str = "me",
     time: str | None = None,
     location: str | None = None,
+    exclude_ids: frozenset[int] = frozenset(),
 ) -> tuple[Event, int] | None:
     """Return the best deterministic match and its confidence tier."""
     target = db.parse_date(on)
@@ -444,6 +445,8 @@ def find_match_scored(
     seen: list[tuple[Event, int, int, int, bool]] = []   # row, ordinal, distance, tier, absorbs
     for row in rows:
         ev = Event.from_row(row)
+        if ev.id in exclude_ids:
+            continue
         try:
             ordinal = db.parse_date(ev.date).toordinal()
         except ValueError:
@@ -702,6 +705,7 @@ def upsert(
     *,
     written_by: str = "cli",
     match: bool = True,
+    exclude_match_ids: frozenset[int] = frozenset(),
     evidence_ts: "str | dict[str, str] | None" = None,
     inferred: tuple[str, ...] = (),
     clear: tuple[str, ...] = (),
@@ -756,6 +760,7 @@ def upsert(
             subject=subject,
             time=fields.get("time"),
             location=fields.get("location"),
+            exclude_ids=exclude_match_ids,
         )
         if scored:
             existing, confidence = scored
