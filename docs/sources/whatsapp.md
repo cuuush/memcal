@@ -40,3 +40,10 @@ Security → Full Disk Access → add and enable `~/.memcal/memcal.app`, then qu
 reopen Memcal. If running without the wrapper, grant access to the terminal or agent
 app that runs Python. Opening WhatsApp cannot bypass this permission. Run
 `memcal sources` and `memcal doctor` to verify the connector and scheduled requester.
+
+macOS can retain the terminal/agent as the responsible requester even when a CLI
+command passes through `memcal.app`. If doctor's scheduled probe passes but the
+interactive source check fails, the scheduled grant is already working: enable Full
+Disk Access for the terminal/agent running that command, then quit and reopen that
+app. Doctor states this distinction explicitly; reinstalling the schedule cannot
+change the interactive host's privacy grant.

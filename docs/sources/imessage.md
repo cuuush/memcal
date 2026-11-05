@@ -104,3 +104,10 @@ Skip BlueBubbles entirely and read the local database:
 ```
 MEMCAL_IMESSAGE_BACKEND=chatdb
 ```
+
+macOS can retain the terminal/agent as the responsible requester even when a CLI
+command passes through `memcal.app`. If doctor's scheduled probe passes but the
+interactive source check fails, the scheduled grant is already working: enable Full
+Disk Access for the terminal/agent running that command, then quit and reopen that
+app. Doctor states this distinction explicitly; reinstalling the schedule cannot
+change the interactive host's privacy grant.

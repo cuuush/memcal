@@ -22,7 +22,8 @@
 
 - Calendar consent completes from authorization changes when callbacks are missing;
   repeat setup recognizes existing grants and consent workers avoid database locks.
-- Protected-source diagnostics include actionable Full Disk Access instructions.
+- Protected-source diagnostics include actionable Full Disk Access instructions and
+  distinguish the interactive host from an already-authorized scheduled app.
 - Schedule reinstall suppresses acknowledged old failures until a fresh invocation,
   and nightly extraction no longer collects sources twice.
 - Wiki extraction distinguishes the subject from the speaker, rejects temporary

@@ -2005,10 +2005,13 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
     behind = dict(archive.stale_streams(conn, cfg=cfg))
     fresh = {row["channel"]: row for row in archive.freshness(conn, cfg)}
     off = sources.disabled_set(cfg)
+    interactive_denied = []
     for source in sources.all_sources(cfg):
         if progress:
             progress(f"Checking source {source.name}…")
         usable, message = source.check(cfg)
+        if not usable and source.name in {"imessage", "whatsapp"} and source.name not in off:
+            interactive_denied.append(source.name)
         seen = fresh.get(source.name)
         age = db.age_phrase(seen["newest"]) if seen and seen["newest"] else "never"
         detail = f"{(seen or {}).get('n', 0)} items, last seen {age}"
@@ -2020,12 +2023,14 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
                 fix="memcal ingest --stale   # the daytime tick also retries this on its interval")
         elif source.name in behind:
             add("Sources", source.name, FAIL, f"{age} behind — {message}",
-                fix=f"{message} Then run memcal ingest {source.name}")
+                fix=f"memcal ingest {source.name}   # after the access steps above")
         elif not usable:
             status = WARN if source.in_all else SKIP
             login = f"memcal login {source.name}"
-            fix = login if login in message else \
-                f"memcal sources         # what {source.name} still needs"
+            fix = (f"memcal ingest {source.name}   # after the access steps above"
+                   if source.name in {"imessage", "whatsapp"} else
+                   login if login in message else
+                   f"memcal sources         # what {source.name} still needs")
             note = message if source.name in {"imessage", "whatsapp"} else _one_line(message)
             if source.name.lower() in off:
                 note += " — disabled, skipped by `ingest all`"
@@ -2161,6 +2166,12 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
                       else 'memcal sources; memcal schedule status; re-run memcal doctor to verify access')
         add('Schedule', 'protected source access', access, detail,
             fix=remedy if access in (WARN, FAIL) else '')
+        if access == OK and interactive_denied:
+            add("Schedule", "interactive requester", INFO,
+                "scheduled memcal.app can read " + ", ".join(interactive_denied)
+                + "; the current interactive host cannot",
+                fix="enable Full Disk Access for the terminal/agent launching this command, "
+                    "then quit and reopen that app; Memcal's scheduled grant already works")
 
     kind = "nightly" if state["installed"] else "interactive"
     verified = db.get_meta(conn, f"ical.permission.{kind}")

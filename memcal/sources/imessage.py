@@ -283,8 +283,10 @@ def access_help(cfg) -> str:
     from .. import schedule
     return (f"cannot read {CHAT_DB}. Open System Settings → Privacy & Security → "
             f"Full Disk Access, add and enable memcal.app ({schedule.app_path(cfg)}), "
-            "then quit and reopen memcal. When running without memcal.app, enable "
-            "your terminal or agent app too. Re-run memcal doctor to verify.")
+            "then quit and reopen memcal. macOS may attribute an interactive command to "
+            "its terminal or agent app even through the wrapper: if the scheduled "
+            "probe passes, enable Full Disk Access for that terminal/agent and reopen it. "
+            "Re-run memcal doctor to verify.")
 
 
 def _backend(cfg) -> str:

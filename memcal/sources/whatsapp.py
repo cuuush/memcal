@@ -447,5 +447,6 @@ class WhatsAppSource(Source):
             return False, (f"found {path.name} but could not read it: {exc}. Open WhatsApp and "
                            "sign in. If it still fails, enable memcal.app in System Settings → "
                            "Privacy & Security → Full Disk Access, then reopen memcal. "
-                           "Optional: enable Open WhatsApp for dream in Settings.")
+                           "If the scheduled probe passes, the interactive terminal/agent "
+                           "needs its own Full Disk Access grant and restart. Optional: enable Open WhatsApp for dream in Settings.")
         return True, f"{n} messages in {path.parent.name}"
