@@ -2180,8 +2180,10 @@ all</code>, <code>memcal dream --dry-run</code>, <code>memcal dream</code>).</p>
 <h2 id="opening-the-desktop-app-for-collection">Opening the desktop app for collection<a class="headerlink" href="#opening-the-desktop-app-for-collection" title="Permanent link">&para;</a></h2>
 <p>In Settings → Collection, enable <strong>Open WhatsApp for dream</strong>. This also applies to
 explicit collection and the nightly source pull. The app opens hidden and in the
-background; doctor and source diagnostics never open it. Configuration:</p>
+background. Periodic <code>ingest --due</code> checks read the database without launching the
+app by default; doctor and source diagnostics never open it. Configuration:</p>
 <pre><code class="language-dotenv">MEMCAL_WHATSAPP_AUTOSTART=1
+MEMCAL_WHATSAPP_AUTOSTART_BACKGROUND=0
 MEMCAL_WHATSAPP_CLOSE_AFTER=1
 MEMCAL_WHATSAPP_WAIT_SECONDS=30
 </code></pre>
@@ -2189,6 +2191,9 @@ MEMCAL_WHATSAPP_WAIT_SECONDS=30
 normally. It quits WhatsApp after collection only when it opened the app itself;
 an already-running app stays open. Set <code>MEMCAL_WHATSAPP_CLOSE_AFTER=0</code> to leave a newly opened app
 running. The wait is a maximum startup allowance, not a fixed delay after collection.</p>
+<p>Only enable <strong>Open WhatsApp during background checks</strong> if you want periodic checks
+to launch it too. The two startup settings are independent of closing the Memcal
+web UI: launchd keeps scheduled work running until its job is disabled.</p>
 <p>Protected source reads, WhatsApp startup, and cleanup run through the Memcal app
 bridge. Enable Full Disk Access for <code>~/.memcal/memcal.app</code>; your terminal or agent
 keeps its existing permissions. Opening WhatsApp cannot bypass the app's grant.

@@ -2560,7 +2560,12 @@ control how long a CLI request can take before fallback.</p>
 <tr>
 <td><code>MEMCAL_WHATSAPP_AUTOSTART</code></td>
 <td>off</td>
-<td>Open WhatsApp hidden before collection (including dream's source pull)</td>
+<td>Open WhatsApp hidden for dream, nightly, or explicit collection</td>
+</tr>
+<tr>
+<td><code>MEMCAL_WHATSAPP_AUTOSTART_BACKGROUND</code></td>
+<td>off</td>
+<td>Also allow opening during periodic <code>ingest --due</code> message checks; requires autostart</td>
 </tr>
 <tr>
 <td><code>MEMCAL_WHATSAPP_CLOSE_AFTER</code></td>

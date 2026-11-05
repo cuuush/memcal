@@ -2104,6 +2104,11 @@ snapshot. No secret — access is a macOS permission, requested explicitly:</p>
 <pre><code class="language-bash">memcal ical setup
 memcal ical status
 </code></pre>
+<p>Calendar reads, publishing, recurring events, and Reminders use the local bridge
+to <code>memcal.app</code>, including when <code>memcal dream</code> runs from a terminal. Consent belongs
+to Memcal, shared with nightly work. Your terminal does not need permission to
+control Calendar. If macOS names the terminal in a pending prompt, decline it and
+run <code>memcal ical setup</code> after updating.</p>
 <p>Events you create in personal calendars are retained as scheduling context for
 matching and interpreting messages. They stay out of the brief and web event lists;
 direct record detail remains available. Plans learned from messages and subscribed
@@ -2121,7 +2126,9 @@ status can complete the check even if macOS does not deliver the JXA callback.
 Temporary consent workers return their result without opening or migrating the
 Memcal database, so an open store transaction cannot hold up a completed dialog.
 If setup times out, the error names the requester and manual settings steps; do not
-reset all privacy permissions. Calendar data and Automation are separate grants.</p>
+reset all privacy permissions. Calendar data and Automation are separate grants.
+For Automation, enable <strong>memcal → Calendar</strong> in System Settings → Privacy &amp; Security
+→ Automation. The bridge never retries an unsuccessful request from the terminal.</p>
 
 
 
