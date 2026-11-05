@@ -11,7 +11,7 @@ from memcal.dream import run as dream_run
 class TestOlderPlanningEvidenceEnrichesAnUntouchedGuess(Base):
     def setUp(self):
         super().setUp()
-        db.set_today('2026-10-20')
+        db.set_today('2026-10-20T15:30:00-04:00')
         self.counter = 0
         self.invite = self.line('Want to join our game on November 1?', 'dm',
                                 '2026-10-20T15:00:00-04:00')
@@ -21,7 +21,8 @@ class TestOlderPlanningEvidenceEnrichesAnUntouchedGuess(Base):
             'title': 'Winter campaign', 'date': '2026-11-01', 'kind': 'opportunity',
             'status': 'mentioned', 'source': 'person:Visitor', 'participants': []},
             written_by='dream:ondemand', evidence_ts={
-                'date': self.invite['ts'], 'status': self.invite['ts']}).event
+                'date': self.invite['ts'], 'kind': self.invite['ts'],
+                'status': self.invite['ts']}).event
         trace.stamp(self.conn, kind='event', ref=self.ev.key, verb='inserted',
                     entity='person:Visitor', archive_ids=[self.invite['id']])
         self.conn.commit()
@@ -220,9 +221,11 @@ class TestOlderPlanningEvidenceEnrichesAnUntouchedGuess(Base):
                                           (ev.id,)).fetchone()[0],'dropped')
 
     def test_newer_cited_evidence_still_updates_a_previously_corrected_plan(self):
+        db.set_today('2026-10-20T16:30:00-04:00')
         events.upsert(self.conn,{'key':self.ev.key,'date':self.ev.date,'status':'mentioned'},
                       written_by='dream:nightly',evidence_ts={'status':'2026-10-20T16:00:00-04:00'})
         self.group=self.line('We confirmed November 1.', 'players','2026-10-20T17:00:00-04:00')
+        db.set_today('2026-10-20T17:30:00-04:00')
         proposals,_=merge.merge_all(self.judge(),self.cfg,self.proposals(),conn=self.conn)
         ev,_=self.apply(proposals)
         self.assertEqual((ev.kind,ev.status),('commitment','confirmed'))
