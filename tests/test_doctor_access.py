@@ -110,7 +110,7 @@ class TestDoctorUsesScheduledPermissionIdentity(Base):
         self.assertEqual(finding.status, cli.FAIL)
         self.assertIn('Full Disk Access', finding.fix)
         self.assertIn(str(schedule.app_path(self.cfg)), finding.fix)
-        self.assertIn("terminal's permission is separate", finding.fix)
+        self.assertIn("app bridge", finding.fix)
 
 
 if __name__ == '__main__':

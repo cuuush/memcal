@@ -1,7 +1,7 @@
 """iMessage ingestion — reads ~/Library/Messages/chat.db read-only.
 
-Requires Full Disk Access for whatever runs it; that failure is reported clearly
-rather than raised as a stack trace. Handles resolve by dict lookup at ingest,
+Protected reads run through the Memcal app bridge. The raw reader requires the
+app's Full Disk Access; failures are reported without a stack trace. Handles resolve by dict lookup at ingest,
 before anything expensive runs.
 """
 
@@ -281,12 +281,9 @@ def available() -> bool:
 
 def access_help(cfg) -> str:
     from .. import schedule
-    return (f"cannot read {CHAT_DB}. Run memcal permissions setup for guided help. Open System Settings → Privacy & Security → "
-            f"Full Disk Access, add and enable memcal.app ({schedule.app_path(cfg)}), "
-            "then quit and reopen memcal. macOS may attribute an interactive command to "
-            "its terminal or agent app even through the wrapper: if the scheduled "
-            "probe passes, enable Full Disk Access for that terminal/agent and reopen it. "
-            "Re-run memcal doctor to verify.")
+    return (f"cannot read {CHAT_DB}. Run memcal permissions setup to prepare and authorize "
+            f"memcal.app ({schedule.app_path(cfg)}). Protected reads use its local app bridge; "
+            "the terminal or agent does not need Full Disk Access.")
 
 
 def _backend(cfg) -> str:
@@ -303,6 +300,10 @@ class IMessageSource(Source):
     order = 20
 
     def fetch(self, conn, cfg, report, limit):
+        from .. import bridge
+        if bridge.available(cfg) and _backend(cfg) == "chatdb":
+            bridge.ingest(conn, cfg, report, limit)
+            return
         from .bluebubbles import _absorb
         from .bluebubbles import ingest as bb_ingest
         # `chatdb` reads the local database and never touches BlueBubbles.
@@ -325,6 +326,10 @@ class IMessageSource(Source):
         if not getattr(cfg, "imessage_fallback", True):
             raise SourceError(
                 f"BlueBubbles unavailable and the chat.db fallback is off: {reason}")
+        if bridge.available(cfg):
+            bridge.ingest(conn, cfg, report, limit)
+            report.notes.append(f"bluebubbles unavailable: {reason[:80]}")
+            return
         local = ingest(conn, limit=limit, collection_id=report.collection_id)
         if local.error:
             raise SourceError(f"{local.error} (bluebubbles also unavailable: {reason[:80]})")
@@ -332,8 +337,11 @@ class IMessageSource(Source):
         report.notes.append(f"read chat.db directly — bluebubbles unavailable: {reason[:80]}")
 
     def check(self, cfg):
+        from .. import bridge
         from .bluebubbles import BlueBubbles
         if _backend(cfg) == "chatdb":
+            if bridge.available(cfg):
+                return bridge.check(cfg, "imessage")
             return (True, "via local chat.db") if available() else (False, access_help(cfg))
         try:
             if BlueBubbles(cfg).ping():
@@ -343,4 +351,6 @@ class IMessageSource(Source):
                 return False, f"bluebubbles unavailable, fallback off: {str(exc)[:60]}"
         if not getattr(cfg, "imessage_fallback", True):
             return False, "bluebubbles not answering, fallback off"
+        if bridge.available(cfg):
+            return bridge.check(cfg, "imessage")
         return (True, "via local chat.db") if available() else (False, access_help(cfg))

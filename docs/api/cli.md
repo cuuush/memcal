@@ -68,10 +68,8 @@
 memcal permissions status
 memcal permissions setup
 memcal permissions setup --target memcal
-memcal permissions setup --target host
 memcal permissions setup --no-open --json
 ```
 
-The [Full Disk Access helper](../hosting/permissions.md) compares interactive and
-scheduled source reads, identifies the app to enable, and opens System Settings
-only for explicit setup. Status is passive; no store initialization or model call.
+The [Full Disk Access helper](../hosting/permissions.md) verifies the Memcal app bridge,
+reveals `memcal.app`, and opens System Settings only for explicit setup. Status is passive; no store initialization or model call.

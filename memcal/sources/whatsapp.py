@@ -73,6 +73,11 @@ def store_path(explicit: str | None = None) -> Path | None:
 def desktop_session(cfg, *, enabled=True, report=print, runner=subprocess.run,
                     monotonic=time.monotonic, sleep=time.sleep):
     """Own only an app we opened, and always release it after collection."""
+    from .. import bridge
+    if bridge.available(cfg):
+        # The app worker owns startup, waiting and cleanup for the whole collection.
+        yield
+        return
     opened = False
     try:
         try:
@@ -331,8 +336,9 @@ def is_group(row) -> bool:
 
 
 def ingest(conn: sqlite3.Connection, cfg: Config, *, limit: int = 2000,
-           db_path: str | None = None) -> base.IngestReport:
+           db_path: str | None = None, collection_id: int | None = None) -> base.IngestReport:
     report = base.IngestReport.opened("whatsapp", cfg)
+    report.collection_id = collection_id
     path = store_path(db_path or cfg.secret("WHATSAPP_DB", "whatsappdb"))
     if not path:
         report.error = ("no WhatsApp store found. Install WhatsApp from the Mac App Store "
@@ -430,9 +436,16 @@ class WhatsAppSource(Source):
     order = 20
 
     def fetch(self, conn, cfg, report, limit):
-        report.absorb(ingest(conn, cfg, limit=limit))
+        from .. import bridge
+        if bridge.available(cfg):
+            bridge.ingest(conn, cfg, report, limit)
+            return
+        report.absorb(ingest(conn, cfg, limit=limit, collection_id=report.collection_id))
 
     def check(self, cfg):
+        from .. import bridge
+        if bridge.available(cfg):
+            return bridge.check(cfg, "whatsapp")
         path = store_path(cfg.secret("WHATSAPP_DB", "whatsappdb"))
         if not path:
             return False, ("WhatsApp desktop not installed or never signed in — "
@@ -447,6 +460,5 @@ class WhatsAppSource(Source):
             return False, (f"found {path.name} but could not read it: {exc}. Run memcal permissions setup. Open WhatsApp and "
                            "sign in. If it still fails, enable memcal.app in System Settings → "
                            "Privacy & Security → Full Disk Access, then reopen memcal. "
-                           "If the scheduled probe passes, the interactive terminal/agent "
-                           "needs its own Full Disk Access grant and restart. Optional: enable Open WhatsApp for dream in Settings.")
+                           "Interactive reads use the Memcal app bridge. Optional: enable Open WhatsApp for dream in Settings.")
         return True, f"{n} messages in {path.parent.name}"

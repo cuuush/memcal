@@ -35,18 +35,10 @@ normally. It quits WhatsApp after collection only when it opened the app itself;
 an already-running app stays open. Set `MEMCAL_WHATSAPP_CLOSE_AFTER=0` to leave a newly opened app
 running. The wait is a maximum startup allowance, not a fixed delay after collection.
 
-An unreadable database may still need macOS permission: System Settings → Privacy &
-Security → Full Disk Access → add and enable `~/.memcal/memcal.app`, then quit and
-reopen Memcal. If running without the wrapper, grant access to the terminal or agent
-app that runs Python. Opening WhatsApp cannot bypass this permission. Run
-`memcal sources` and `memcal doctor` to verify the connector and scheduled requester.
-
-macOS can retain the terminal/agent as the responsible requester even when a CLI
-command passes through `memcal.app`. If doctor's scheduled probe passes but the
-interactive source check fails, the scheduled grant is already working: enable Full
-Disk Access for the terminal/agent running that command, then quit and reopen that
-app. Doctor states this distinction explicitly; reinstalling the schedule cannot
-change the interactive host's privacy grant.
+Protected source reads, WhatsApp startup, and cleanup run through the Memcal app
+bridge. Enable Full Disk Access for `~/.memcal/memcal.app`; your terminal or agent
+keeps its existing permissions. Opening WhatsApp cannot bypass the app's grant.
+Run `memcal sources` and `memcal doctor` to verify the bridge and source readiness.
 
 Use `memcal permissions setup` or **Settings → Full Disk Access** in the web UI for
 [guided approval and rechecking](../hosting/permissions.md). The helper opens the

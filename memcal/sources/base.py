@@ -23,11 +23,9 @@ from .. import archive, db, gate, identity, threads
 
 def full_disk_access_help(cfg=None) -> str:
     home = cfg.home if cfg is not None else Path(os.environ.get('MEMCAL_HOME', '~/.memcal')).expanduser()
-    target = (f"memcal.app ({home / 'memcal.app'})"
-              if os.environ.get('MEMCAL_APP') == '1'
-              else 'the app running this command (your terminal for a manual run)')
-    return (f"Grant Full Disk Access to {target} in System Settings → Privacy & Security "
-            "→ Full Disk Access. The scheduled job retries automatically.")
+    return (f"Run memcal permissions setup to authorize memcal.app ({home / 'memcal.app'}) "
+            "in System Settings → Privacy & Security → Full Disk Access. Protected source "
+            "reads use its app bridge.")
 
 
 @dataclass

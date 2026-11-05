@@ -178,7 +178,7 @@ def cmd_init(args) -> int:
     print(f"db        {cfg.db_path}")
     print(f"wiki      {cfg.wiki_dir}")
     print(f"brief     {cfg.brief_path}")
-    linked, message = identity.import_contacts(conn)
+    linked, message = identity.refresh_contacts(conn, cfg=cfg, force=True)
     print(f"contacts  {message}")
     brief.write(conn, cfg)
     print(f"\nwrote {cfg.brief_path}")
@@ -1086,7 +1086,7 @@ def _ingest_locked(args, cfg: Config, conn: sqlite3.Connection, chosen: list,
     # Resolve before ingesting, not after: a handle named today is a person on every
     # row read in the next minute, and an unnamed one is a bundle keyed on a phone
     # number that never joins up with anything.
-    linked, message = identity.refresh_contacts(conn)
+    linked, message = identity.refresh_contacts(conn, cfg=cfg)
     if linked and not compact:
         print(f"contacts: {message}")
 
@@ -1230,13 +1230,19 @@ def cmd_reminders(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_bridge_worker(args) -> int:
+    from . import bridge
+    cfg = config.load(getattr(args, "home", None))
+    return bridge.worker(cfg, args.request, args.result)
+
+
 def cmd_permissions(args) -> int:
     """Guide Full Disk Access approval without opening or migrating the store."""
     from . import permissions
     cfg = config.load(getattr(args, "home", None))
     json_mode = getattr(args, "json", False)
     if not json_mode:
-        print("Checking protected source access for this host and the scheduled app…", flush=True)
+        print("Checking protected source access through the Memcal app bridge…", flush=True)
     if args.action == "setup":
         state = permissions.setup(cfg, target=args.target, open_ui=not args.no_open)
     else:
@@ -1245,11 +1251,11 @@ def cmd_permissions(args) -> int:
         emit_json(state)
     else:
         print(state["detail"], flush=True)
-        for name, check in state.get("interactive", {}).items():
+        for name, check in state.get("checks", {}).items():
             mark = "ok" if check.get("ok") is True else "unverified" if check.get("ok") is None else "denied"
-            print(f"  interactive {name}: {mark} — {check.get('detail', '')}", flush=True)
+            print(f"  {name}: {mark} — {check.get('detail', '')}", flush=True)
         if state.get("scheduled"):
-            print("  scheduled: " + state["scheduled"]["detail"], flush=True)
+            print("  app bridge: " + state["scheduled"]["detail"], flush=True)
         if state.get("app"):
             print("  app: " + state["app"], flush=True)
         for n, step in enumerate(state.get("steps", []), 1):
@@ -2196,18 +2202,16 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
         access, detail = schedule.source_access_health(cfg)
         remedy = (f"memcal permissions setup --target memcal; "
                   f"System Settings → Privacy & Security → Full Disk Access → enable "
-                  f"memcal.app ({schedule.app_path(cfg)}); the terminal's permission is separate")
+                  f"memcal.app ({schedule.app_path(cfg)}); protected reads use the app bridge")
         if access == WARN:
             remedy = ('memcal schedule install' if schedule.bundle_health(cfg)[0] != 'ok'
                       else 'memcal sources; memcal schedule status; re-run memcal doctor to verify access')
         add('Schedule', 'protected source access', access, detail,
             fix=remedy if access in (WARN, FAIL) else '')
         if access == OK and interactive_denied:
-            add("Schedule", "interactive requester", INFO,
-                "scheduled memcal.app can read " + ", ".join(interactive_denied)
-                + "; the current interactive host cannot",
-                fix="memcal permissions setup --target host; enable Full Disk Access for the terminal/agent launching this command, "
-                    "then quit and reopen that app; Memcal's scheduled grant already works")
+            add("Schedule", "app bridge", WARN,
+                "memcal.app can read protected sources but a source bridge check failed",
+                fix="memcal update; retry the command to reconnect to the app bridge")
 
     kind = "nightly" if state["installed"] else "interactive"
     verified = db.get_meta(conn, f"ical.permission.{kind}")
@@ -2391,7 +2395,7 @@ COMMAND_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 #: confusing CLI — `ui` and `web` were both in the visible list, doing the same job,
 #: with `web` labelled "the same server, under its original name" — so the older name
 #: keeps working and stops being a choice anybody has to make.
-HIDDEN_COMMANDS = frozenset({"web", "standing", "forget"})
+HIDDEN_COMMANDS = frozenset({"web", "standing", "forget", "bridge-worker"})
 
 #: The top of `--help`. A list of forty verbs answers "what is there" and never answers
 #: "what do I type", and the second question is the one somebody opening a terminal
@@ -2703,10 +2707,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--json", action="store_true", help="machine-readable output")
     s.set_defaults(func=cmd_sources)
 
+    s = sub.add_parser("bridge-worker", help=argparse.SUPPRESS)
+    s.add_argument("--request", required=True, help=argparse.SUPPRESS)
+    s.add_argument("--result", required=True, help=argparse.SUPPRESS)
+    s.set_defaults(func=cmd_bridge_worker)
+
     s = sub.add_parser("permissions", help="guide and verify macOS Full Disk Access")
     s.add_argument("action", nargs="?", default="status", choices=["status", "setup"],
                    help="status checks source reads; setup opens guided macOS approval")
-    s.add_argument("--target", choices=["auto", "memcal", "host"], default="auto",
+    s.add_argument("--target", choices=["auto", "memcal"], default="auto",
                    help="which requester to guide; auto compares scheduled and interactive access")
     s.add_argument("--no-open", action="store_true", help="show setup steps without opening macOS settings")
     s.add_argument("--json", action="store_true", help="emit requester checks and setup steps as JSON")

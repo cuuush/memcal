@@ -12,8 +12,8 @@ before source and scheduled-app probes. `--verbose` includes passing checks;
 `--json` emits one clean JSON result without progress text. Protected-source
 failures include the Full Disk Access steps rather than pointing back to another
 command with the same missing explanation. `memcal permissions setup` opens the
-[Full Disk Access helper](permissions.md), which compares the interactive host and
-the scheduled app before choosing which requester needs approval.
+[Full Disk Access helper](permissions.md), which verifies the Memcal app bridge and guides approval of `memcal.app`.
+Interactive source reads use that bridge rather than the terminal's privacy grant.
 
 ## Runs and volume
 

@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Fixed
+
+- Interactive source checks and Messages/WhatsApp collection use a private local
+  bridge to the authorized Memcal app. Terminals and agent hosts no longer need
+  their own Full Disk Access grant. Contacts refresh and WhatsApp startup/cleanup
+  also run in the app, preserving cursors, collection totals, and replay safety.
+- Permission guidance and web Settings authorize only `memcal.app`; host-app grant
+  recommendations were removed.
+
 ## [0.8.6] - 2026-11-05
 
 ### Fixed

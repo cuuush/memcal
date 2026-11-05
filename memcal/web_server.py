@@ -385,7 +385,7 @@ class Handler(BaseHTTPRequestHandler):
             from . import permissions
             target = payload.get("target", "auto")
             if target not in permissions.TARGETS:
-                return self._send({"error": "target must be auto, memcal or host"}, 400)
+                return self._send({"error": "target must be auto or memcal"}, 400)
             try:
                 return self._send(permissions.setup(self.cfg, target=target))
             except Exception as exc:

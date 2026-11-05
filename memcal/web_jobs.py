@@ -288,7 +288,7 @@ def _collect_inner(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
     # writes, and a source that starts before it is finished files known people as
     # strangers.
     job.step("contacts", "running", phase="linking")
-    linked, message = identity.refresh_contacts(conn)
+    linked, message = identity.refresh_contacts(conn, cfg=cfg)
     if linked:
         job.say(f"contacts: {message}")
     job.step("contacts", "done", f"{linked} linked" if linked else "fresh")

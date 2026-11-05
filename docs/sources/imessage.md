@@ -36,11 +36,9 @@ prove that macOS permits the database to be opened.
 2. Add and enable `~/.memcal/memcal.app` (Finder's Go to Folder can open `~/.memcal`).
 3. Quit and reopen Memcal, then run `memcal doctor` again.
 
-If the app wrapper is missing, run `memcal schedule install` from the installed
-checkout first. If running Python without the wrapper, enable the terminal or
-agent app that launches it. The terminal's grant and the scheduled Memcal app's
-grant are separate; doctor checks the scheduled requester too. Calendar consent
-does not grant Messages access.
+If the app is missing, `memcal permissions setup` prepares it. CLI and web source
+reads use the [Memcal app bridge](../hosting/permissions.md), so your terminal or
+agent does not need Full Disk Access. Calendar consent does not grant Messages access.
 
 ## Choosing and tuning the backend
 
@@ -104,13 +102,6 @@ Skip BlueBubbles entirely and read the local database:
 ```
 MEMCAL_IMESSAGE_BACKEND=chatdb
 ```
-
-macOS can retain the terminal/agent as the responsible requester even when a CLI
-command passes through `memcal.app`. If doctor's scheduled probe passes but the
-interactive source check fails, the scheduled grant is already working: enable Full
-Disk Access for the terminal/agent running that command, then quit and reopen that
-app. Doctor states this distinction explicitly; reinstalling the schedule cannot
-change the interactive host's privacy grant.
 
 Use `memcal permissions setup` or **Settings → Full Disk Access** in the web UI for
 [guided approval and rechecking](../hosting/permissions.md). The helper opens the

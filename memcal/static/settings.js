@@ -766,7 +766,7 @@ function renderPermissions(access) {
   box.append(el("h2", null, "Full Disk Access"));
   const card = el("div", "card");
   card.append(el("p", "note", access.detail));
-  if (access.scheduled) card.append(el("p", "note", `Scheduled app: ${access.scheduled.detail}`));
+  if (access.scheduled) card.append(el("p", "note", `Memcal app: ${access.scheduled.detail}`));
   if (access.app) card.append(el("p", "setpathv", `App to enable: ${access.app}`));
   if ((access.steps || []).length) {
     const steps = el("ol");

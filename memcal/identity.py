@@ -479,13 +479,21 @@ def guess_person(conn: sqlite3.Connection, row: sqlite3.Row) -> str | None:
 REFRESH_AFTER_HOURS = 24
 
 
-def refresh_contacts(conn: sqlite3.Connection, *, force: bool = False) -> tuple[int, str]:
+def refresh_contacts(conn: sqlite3.Connection, *, force: bool = False, cfg=None) -> tuple[int, str]:
     """Re-read Contacts if it has been a day."""
     last = db.get_meta(conn, "contacts.imported_at", "")
     if last and not force:
         age = (db.parse_ts(db.now()) - db.parse_ts(last)).total_seconds()
         if age < REFRESH_AFTER_HOURS * 3600:
             return 0, "fresh"
+    if cfg is not None:
+        from . import bridge
+        if bridge.available(cfg):
+            try:
+                result = bridge.call(cfg, "contacts", force=force, conn=conn)
+                return int(result["count"]), str(result["detail"])
+            except bridge.BridgeError as exc:
+                return 0, str(exc)
     count, message = import_contacts(conn)
     db.set_meta(conn, "contacts.imported_at", db.now())
     return count, message
@@ -528,7 +536,7 @@ def import_contacts(conn: sqlite3.Connection) -> tuple[int, str]:
                     total += 1
         src.close()
     if errors and total == 0:
-        return 0, ("could not read Contacts (grant Full Disk Access to your terminal): "
+        return 0, ("could not read Contacts (run memcal permissions setup to authorize memcal.app): "
                    + "; ".join(errors))
     return total, f"linked {total} handles from {len(paths)} source(s)"
 

@@ -167,6 +167,14 @@ def catch_up(source: Source, conn, cfg, *, limit: int = 1000,
     overwrite corrects them.
     """
     from .. import archive as _archive
+    from .. import bridge
+    local = source.name == "whatsapp" or (
+        source.name == "imessage" and cfg.imessage_backend == "chatdb")
+    if local and bridge.available(cfg):
+        if progress:
+            progress("Reading protected source through memcal.app…")
+        return bridge.collect(conn, cfg, source.name, limit=limit, rounds=rounds,
+                              collection_id=collection_id)
 
     try:
         accepted = inspect.signature(source.run).parameters

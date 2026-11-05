@@ -13,79 +13,46 @@ from memcal import cli, db, permissions, schedule, web
 
 
 class TestPermissionRequesterSelection(Base):
-    def setUp(self):
-        super().setUp()
-        self.enterContext(mock.patch.object(schedule, '_is_macos', return_value=True))
+    def test_app_access_is_sufficient_without_host_full_disk_access(self):
+        with mock.patch.object(schedule, '_is_macos', return_value=True), \
+             mock.patch('memcal.bridge.available', return_value=True), \
+             mock.patch('memcal.bridge.check', return_value=(True, 'app read verified')), \
+             mock.patch.object(schedule, 'read_source_access', side_effect=AssertionError('host read')):
+            state = permissions.status(self.cfg)
+        self.assertTrue(state['ready'])
+        self.assertIsNone(state['target'])
+        self.assertNotIn('host_app', state)
 
-    def inspect(self, interactive, scheduled):
-        with mock.patch.object(schedule, 'read_source_access', return_value={'checks': interactive}), \
-             mock.patch.object(schedule, 'source_access_health', return_value=scheduled), \
-             mock.patch.object(permissions, 'host_app', return_value=Path('/Applications/ExampleHost.app')):
-            return permissions.status(self.cfg)
-
-    def test_working_scheduled_grant_directs_only_interactive_denial_to_the_host(self):
-        state = self.inspect({'imessage': {'ok': False, 'detail': 'denied'}}, ('ok', 'verified'))
-        self.assertEqual(state['target'], 'host')
+    def test_denied_bridge_directs_approval_to_memcal_only(self):
+        with mock.patch.object(schedule, '_is_macos', return_value=True), \
+             mock.patch('memcal.bridge.available', return_value=True), \
+             mock.patch('memcal.bridge.check', return_value=(False, 'app denied')):
+            state = permissions.status(self.cfg)
         self.assertFalse(state['ready'])
-        plan = permissions.guide(self.cfg, state)
-        self.assertEqual(plan['app'], '/Applications/ExampleHost.app')
-        self.assertTrue(any('Quit and reopen' in step for step in plan['steps']))
-
-    def test_unverified_scheduled_grant_selects_memcal_even_when_host_can_read(self):
-        state = self.inspect({'imessage': {'ok': True, 'detail': 'readable'}}, ('fail', 'denied'))
-        self.assertEqual(state['target'], 'memcal')
         self.assertEqual(permissions.guide(self.cfg, state)['app'], str(schedule.app_path(self.cfg)))
 
-    def test_readable_sources_are_verified_and_unknown_sources_are_not(self):
-        self.assertTrue(self.inspect({'whatsapp': {'ok': True}}, ('ok', 'verified'))['ready'])
-        self.assertFalse(self.inspect({'whatsapp': {'ok': None}}, ('warn', 'missing database'))['ready'])
-
-    def test_other_platforms_never_probe_mac_sources_or_launch_apps(self):
+    def test_other_platforms_do_not_probe_or_open_mac_settings(self):
         with mock.patch.object(schedule, '_is_macos', return_value=False), \
-             mock.patch.object(schedule, 'read_source_access') as read, \
-             mock.patch.object(schedule, 'source_access_health') as probe, \
-             mock.patch.object(permissions, 'host_app') as host:
+             mock.patch.object(schedule, 'source_access_health') as probe:
             plan = permissions.setup(self.cfg, runner=mock.Mock(side_effect=AssertionError('opened UI')))
         self.assertFalse(plan['supported'])
-        read.assert_not_called()
         probe.assert_not_called()
-        host.assert_not_called()
-
-
-class TestHostApplicationDiscovery(Base):
-    def test_walks_past_python_and_memcal_without_reading_command_arguments(self):
-        runner = mock.Mock(side_effect=[
-            subprocess.CompletedProcess([], 0, '30 /Library/Python.app/Contents/MacOS/Python\n'),
-            subprocess.CompletedProcess([], 0, '20 ' + str(schedule.app_executable(self.cfg)) + '\n'),
-            subprocess.CompletedProcess([], 0, '1 /Applications/Example Host.app/Contents/MacOS/Example\n'),
-        ])
-        self.assertEqual(permissions.host_app(self.cfg, pid=40, runner=runner),
-                         Path('/Applications/Example Host.app'))
-        for call in runner.call_args_list:
-            self.assertEqual(call.args[0][-4:], ['-o', 'ppid=', '-o', 'comm='])
-
-    def test_cycles_and_failed_process_lookups_return_unknown(self):
-        for result in (subprocess.CompletedProcess([], 0, '40 /bin/sh'),
-                       subprocess.CompletedProcess([], 1, ''),
-                       subprocess.TimeoutExpired('ps', 2)):
-            runner = mock.Mock(side_effect=result if isinstance(result, Exception) else None,
-                               return_value=result)
-            self.assertIsNone(permissions.host_app(self.cfg, pid=40, runner=runner))
 
 
 class TestPermissionHelperOpensOnlyReviewableSettings(Base):
     def setUp(self):
         super().setUp()
-        self.app = self.cfg.home / 'Example Host.app'
+        self.app = schedule.app_path(self.cfg)
         self.app.mkdir()
-        self.state = {'supported': True, 'ready': False, 'target': 'host',
-                      'memcal_app': str(schedule.app_path(self.cfg)), 'host_app': str(self.app),
+        self.state = {'supported': True, 'ready': False, 'target': 'memcal',
+                      'memcal_app': str(schedule.app_path(self.cfg)), 'checks': {},
                       'interactive': {'imessage': {'ok': False}},
-                      'scheduled': {'ok': True, 'status': 'ok', 'detail': 'verified'},
-                      'detail': 'Scheduled grant works; host is denied.'}
+                      'scheduled': {'ok': False, 'status': 'fail', 'detail': 'denied'},
+                      'detail': 'App bridge needs permission.'}
         self.enterContext(mock.patch.object(permissions, 'status', return_value=self.state))
 
     def test_opens_settings_and_reveals_exact_app_without_mutating_a_grant(self):
+        self.enterContext(mock.patch.object(schedule, 'bundle_health', return_value=('ok', 'current')))
         runner = mock.Mock(return_value=subprocess.CompletedProcess([], 0, '', ''))
         result = permissions.setup(self.cfg, runner=runner)
         self.assertTrue(result['opened'])
@@ -104,20 +71,15 @@ class TestPermissionHelperOpensOnlyReviewableSettings(Base):
         build.assert_not_called()
 
     def test_working_target_is_not_reprompted(self):
+        self.state.update(ready=True)
         runner = mock.Mock(side_effect=AssertionError('already authorized'))
         result = permissions.setup(self.cfg, target='memcal', runner=runner)
         self.assertFalse(result['opened'])
         self.assertTrue(result['target_ready'])
         self.assertFalse(result['steps'])
 
-    def test_a_readable_host_is_not_reprompted_when_only_scheduled_access_is_denied(self):
-        self.state.update(ready=False, target='memcal', scheduled={'ok': False},
-                          interactive={'imessage': {'ok': True}})
-        result = permissions.setup(self.cfg, target='host', runner=mock.Mock(side_effect=AssertionError('opened UI')))
-        self.assertTrue(result['target_ready'])
-        self.assertFalse(result['opened'])
-
     def test_failed_deep_link_falls_back_to_settings_and_keeps_manual_steps(self):
+        self.enterContext(mock.patch.object(schedule, 'bundle_health', return_value=('ok', 'current')))
         runner = mock.Mock(side_effect=[subprocess.CompletedProcess([], 1, '', ''),
                                        subprocess.CompletedProcess([], 0, '', ''),
                                        subprocess.CompletedProcess([], 1, '', '')])

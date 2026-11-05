@@ -415,7 +415,7 @@ def pinned_python(cfg: Config) -> str:
 
 
 def launchd_memcal_call(cfg: Config, *, label: str, stem: str,
-                          memcal_argv: list[str], timeout: int = 45,
+                          memcal_argv: list[str], timeout: int = 45, work_dir: Path | None = None,
                           ) -> tuple[dict | None, str]:
     """Run one memcal invocation as a temporary launchd agent; return its payload.
 
@@ -430,8 +430,9 @@ def launchd_memcal_call(cfg: Config, *, label: str, stem: str,
     # call, and concurrent invocations must not clobber each other's files.
     nonce = uuid.uuid4().hex[:12]
     label = f"{label}-{nonce}"
-    plist = cfg.home / f"{stem}-{nonce}.plist"
-    result = cfg.home / f"{stem}-{nonce}-result.json"
+    directory = work_dir if work_dir is not None else cfg.home
+    plist = directory / f"{stem}-{nonce}.plist"
+    result = directory / f"{stem}-{nonce}-result.json"
     argv = launch_through(cfg, [python, "-m", "memcal", *memcal_argv,
                                 "--result", str(result)])
     identity = APP_NAME if argv[0] == str(app_executable(cfg)) else python
@@ -450,6 +451,7 @@ def launchd_memcal_call(cfg: Config, *, label: str, stem: str,
         }
         if argv[0] == str(app_executable(cfg)):
             payload_plist["AssociatedBundleIdentifiers"] = [APP_BUNDLE_ID]
+            payload_plist["EnvironmentVariables"]["MEMCAL_HELPER_CONTEXT"] = "1"
         with plist.open("wb") as fh:
             plistlib.dump(payload_plist, fh)
         _launchctl("bootout", f"{_domain()}/{label}")
@@ -705,6 +707,7 @@ def render_plist(cfg: Config, *, hour: int = DEFAULT_HOUR, minute: int = DEFAULT
     }
     if argv[0] == str(app_executable(cfg)):
         plist["AssociatedBundleIdentifiers"] = [APP_BUNDLE_ID]
+        plist["EnvironmentVariables"]["MEMCAL_HELPER_CONTEXT"] = "1"
     return plist
 
 
