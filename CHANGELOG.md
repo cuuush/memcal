@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.8.7] - 2026-11-05
+
 ### Fixed
 
 - Interactive source checks and Messages/WhatsApp collection use a private local
