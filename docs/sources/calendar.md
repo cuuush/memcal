@@ -8,6 +8,11 @@ memcal ical setup
 memcal ical status
 ```
 
+Events you create in personal calendars are retained as scheduling context for
+matching and interpreting messages. They stay out of the brief and web event lists;
+direct record detail remains available. Plans learned from messages and subscribed
+calendar events appear in those memory views.
+
 Partiful invitations are recognized through Apple Calendar data when you
 subscribe to the Partiful calendar. Memcal keeps their RSVP links and
 distinguishes an unanswered invitation (opportunity, mentioned) from a confirmed

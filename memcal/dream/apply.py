@@ -347,10 +347,15 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
         for row in diff.get("events") or []:
             row = event_context.normalize(conn, bundle, row)
             cited = row.get("cite_ids") if isinstance(row, dict) else None
+            if cited and set(cited) <= bundle.context_ids and not row.get("key"):
+                counts["event:rejected-context-only"] += 1
+                log.append(f"{'rejected':9} new event supported only by restored context: "
+                           f"{row.get('title') or ''}")
+                continue
             outcome = _apply_event(conn, row, source=source, written_by=written_by,
                                    horizon=_horizon(bundle, cited, row),
                                    evidence_ts=_evidence_by_field(bundle, cited, row),
-                                   join_url=_join_link(bundle, cited),
+                                   join_url=_join_link(bundle, cited, conn=conn),
                                    named_only_by_thread=_named_only_by_thread(bundle, row),
                                    commit=False)
             note("event", outcome, "event:", cites=cited, about=_claims(row, "title"),
@@ -503,6 +508,11 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
                 counts["question:rejected-uncited"] += 1
                 log.append(f"{'rejected':9} uncited new question: {question_text}")
                 continue
+            if cited and set(cited) <= bundle.context_ids:
+                counts["question:rejected-context-only"] += 1
+                log.append(f"{'rejected':9} new question supported only by restored context: "
+                           f"{question_text}")
+                continue
             # A question that names a thing and the day it happens is a calendar row
             # wearing a question mark. Written as a row it answers date lookups, ages
             # out on its own, and stops needing them to answer it for the store to know
@@ -520,7 +530,7 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
                 log.append(f"{'rejected':9} nothing in {bundle.label} mentions "
                            f"that: {question_text}")
                 continue
-            text = _standalone_question(bundle, question_text)
+            text = _standalone_question(bundle, question_text, cite_ids=cited)
             # The bundle's newest line, not now: "on Sunday" means the Sunday near
             # whoever said it, and a nightly pass reads traffic that is already a day
             # or more old. `_dated_occasion` above anchors on the same moment.
@@ -706,19 +716,24 @@ def _readable(candidate: str) -> str:
     return name
 
 
-def _standalone_question(bundle: Bundle, proposed: str) -> str:
+def _standalone_question(bundle: Bundle, proposed: str, *, cite_ids=None) -> str:
     """Make a question understandable after its conversation has disappeared.
 
     The model once copied a mother's exact line, "When am I coming over again?", into
     the brief. It was a fair question and a useless memory: neither the user nor the
     agent could tell who "I" was. The bundle already knows the speaker, so attach that
     context in code instead of asking every model to remember a prose convention.
+    When citations exist, only those messages can supply a speaker: related group
+    context in the same bundle is not evidence for this question's attribution.
     """
     text = " ".join((proposed or "").split()).strip()
     if not text:
         return text
+    cited = set(cite_ids) if cite_ids is not None else None
     candidates = []
     for row in bundle.items:
+        if cited is not None and row["id"] not in cited:
+            continue
         if row["from_me"]:
             continue
         body = " ".join(str(row["text"] or "").split()).strip()
@@ -732,10 +747,14 @@ def _standalone_question(bundle: Bundle, proposed: str) -> str:
             continue
         candidates.append((overlap + (2 if "?" in body else 0), row))
     row = max(candidates, key=lambda pair: pair[0])[1] if candidates else None
+    if row is None and cited is not None:
+        # The user's own message (whose `person` may name its recipient), an empty
+        # citation set, or unrelated cited text cannot justify naming a speaker.
+        return text
     speaker = _readable(str(row["person"] or "") if row is not None else "")
     if not speaker and row is not None:
         speaker = _readable(str(row["handle"] or ""))
-    if not speaker and bundle.entity.startswith("person:"):
+    if not speaker and cited is None and bundle.entity.startswith("person:"):
         speaker = _readable(bundle.entity.split(":", 1)[1])
     # Already descriptive: do not turn "Should I ask Mom when she's coming?" into
     # "Mom asked: Should I ask Mom…".
@@ -749,7 +768,7 @@ def _standalone_question(bundle: Bundle, proposed: str) -> str:
             return f"{speaker} asked: {text}"
         return f"From {speaker}'s messages: {text}"
     label = _readable(bundle.label)
-    if not speaker and label and label.casefold() not in text.casefold():
+    if not speaker and cited is None and label and label.casefold() not in text.casefold():
         return f"In {label}: {text}"
     return text
 
@@ -889,14 +908,20 @@ def _named_only_by_thread(bundle, row) -> bool:
     return all(word in _squash(bundle.label or "") for word in words)
 
 
-def _join_link(bundle, cites=None) -> str | None:
-    """The conferencing URL in this bundle's own lines, found in code."""
+def _join_link(bundle, cites=None, *, conn=None) -> str | None:
+    """A conferencing URL from this event's evidence, never uncited bundle traffic."""
     from ..sources.ical import join_link
     if not bundle:
         return None
     wanted = {int(i) for i in (cites or ()) if isinstance(i, int)}
-    ordered = [item for item in bundle.items if item["id"] in wanted] if wanted else []
-    ordered += [item for item in bundle.items if item["id"] not in wanted]
+    ordered = ([item for item in bundle.items if item["id"] in wanted]
+               if cites is not None else list(bundle.items))
+    # Merge can retain citations from another bundle. Read those exact messages,
+    # rather than substituting an unrelated link from the keeper's conversation.
+    missing = sorted(wanted - {int(item['id']) for item in ordered if item['id']})
+    if conn is not None and missing:
+        marks = ','.join('?' for _ in missing)
+        ordered.extend(conn.execute(f'SELECT * FROM archive WHERE id IN ({marks})', missing))
     return join_link(*[str(item["text"] or "") for item in ordered])
 
 

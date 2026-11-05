@@ -9,6 +9,7 @@ from datetime import timedelta
 from .. import db, events, llm, pending, trace
 from ..config import Config
 from ..llm import CompletionClient
+from . import event_context
 from .bundle import Bundle
 
 #: Two mentions of one event are rarely written on the same day — "next Sunday" said on
@@ -371,7 +372,7 @@ SCHEMA = {
     # Every other schema in the package already lists all its keys; this was the outlier.
     "required": ["same_event", "date", "until", "time", "title", "location",
                  "kind", "status", "participants", "note", "citations", "links",
-                 "pending_targets", "observation_targets", "why"],
+                 "pending_targets", "observation_targets", "why", "end_boundary"],
     "properties": {
         # Three answers, not two. "I cannot tell from this" is a real state and it has
         # to be sayable: with only true/false the honest answer had nowhere to go and
@@ -385,6 +386,16 @@ SCHEMA = {
                                       " later, one wrong row cannot be taken apart"},
         "date": {"type": "string", "description": "yyyy-mm-dd"},
         "until": {"type": ["string", "null"]},
+        "end_boundary": {
+            "type": ["object", "null"], "additionalProperties": False,
+            "description": "Evidence scope for until: an outing departure during a stay is not its end. Null when no end is asserted.",
+            "required": ["role", "source_ids"],
+            "properties": {
+                "role": {"type": "string", "enum": [
+                    "event_end", "intermediate_departure", "unknown"]},
+                "source_ids": {"type": "array", "items": {"type": "integer"}},
+            },
+        },
         "time": {"type": ["string", "null"]},
         "title": {"type": "string"},
         "location": {"type": ["string", "null"]},
@@ -1020,6 +1031,12 @@ def merge_all(client: CompletionClient, cfg: Config, proposals: list,
             *merged["cite_ids"],
             *(archive_id for ids in (merged["field_cite_ids"] or {}).values() for archive_id in ids)]))
         merged["_evidence_times"] = _evidence_times(group, conn)
+        if 'end_boundary' in answer:
+            boundary = answer.get('end_boundary')
+            merged['end_boundary'] = ({'role': boundary.get('role'),
+                'cite_ids': boundary.get('source_ids') or []} if isinstance(boundary, dict) else None)
+            event_context.normalize_end_boundary(
+                merged, {int(i) for i in merged['_evidence_times']})
         reviewed = [m for m in group if m.existing and m.row.get("_review_version")]
         if len(reviewed) == 1 and reviewed[0].bundle.items:
             merged["_reconsider"] = reviewed[0].row["_review_version"]

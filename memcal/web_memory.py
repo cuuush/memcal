@@ -235,6 +235,10 @@ FACETS = ("person", "location", "series")
 _FACET_INDEX: dict[tuple, tuple] = {}
 _FACET_LOCK = threading.Lock()
 
+# Calendar imports remain in the store for matching and scheduling context. The
+# memory views show plans Memcal learned, rather than mirroring a personal calendar.
+_MEMORY_EVENTS = "coalesce(nullif(origin,''),source,'') NOT LIKE 'ical:created:%'"
+
 
 def _facet_watermark(conn: sqlite3.Connection, cfg: Config) -> tuple:
     """Cheap proof nothing the facet index reads has changed.
@@ -264,7 +268,8 @@ def _facet_index(conn: sqlite3.Connection,
 
     index: dict[str, dict[str, list[dict]]] = {facet: {} for facet in FACETS}
     slugs: dict[str, str] = {}
-    for row in conn.execute("SELECT * FROM events ORDER BY date DESC, id DESC"):
+    for row in conn.execute(
+            f"SELECT * FROM events WHERE {_MEMORY_EVENTS} ORDER BY date DESC, id DESC"):
         summary = _event_summary(row)
         seen = set()
         for name in [row["subject"], *db.jload(row["participants"], [])]:
@@ -326,12 +331,12 @@ def event_list(conn: sqlite3.Connection, cfg: Config, *, person: str = "",
         return {"error": "scope must be all or upcoming"}
     limit, offset = max(1, min(limit, 500)), max(0, offset)
     if not asked:
-        where, params = "", []
+        where, params = f" WHERE {_MEMORY_EVENTS}", []
         order = "date DESC, id DESC"
         if scope == "upcoming":
             lo = db.today().isoformat()
             hi = (db.today() + timedelta(days=cfg.days_forward)).isoformat()
-            where = " WHERE date <= ? AND COALESCE(NULLIF(until, ''), date) >= ?"
+            where += " AND date <= ? AND COALESCE(NULLIF(until, ''), date) >= ?"
             params = [hi, lo]
             order = "date ASC, id ASC"
         total = conn.execute("SELECT count(*) AS n FROM events" + where,

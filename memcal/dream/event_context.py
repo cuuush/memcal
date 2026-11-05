@@ -17,6 +17,25 @@ def _words(text: str) -> str:
     return ' '.join(re.findall(r'\w+', str(text).casefold()))
 
 
+def normalize_end_boundary(row: dict, valid_ids) -> None:
+    """Only a cited end of this occasion can assert its last day."""
+    boundary = row.get('end_boundary')
+    if 'end_boundary' not in row or not row.get('until'):
+        return
+    boundary = boundary if isinstance(boundary, dict) else {}
+    fields = dict(row.get('field_cite_ids') or {})
+    ids = [i for i in boundary.get('cite_ids', []) if i in valid_ids]
+    if boundary.get('role') == 'event_end' and ids:
+        fields['until'] = sorted(set(ids))
+        row['cite_ids'] = list(dict.fromkeys([*(row.get('cite_ids') or []), *ids]))
+    else:
+        # Omission preserves a known stay's end; an internal departure is not an
+        # instruction to shorten that stay or to invent an end for a new one.
+        row.pop('until', None)
+        fields.pop('until', None)
+    row['field_cite_ids'] = fields
+
+
 def normalize(conn: sqlite3.Connection, bundle: Bundle, row: dict) -> dict:
     if not isinstance(row, dict):
         return row
@@ -29,6 +48,7 @@ def normalize(conn: sqlite3.Connection, bundle: Bundle, row: dict) -> dict:
         marks = ','.join('?' for _ in other)
         lines.update({int(r['id']): r for r in conn.execute(
             f'SELECT * FROM archive WHERE id IN ({marks})', other)})
+    normalize_end_boundary(row, lines)
     fields = dict(row.get('field_cite_ids') or {})
     cited = list(row.get('cite_ids') or [])
 

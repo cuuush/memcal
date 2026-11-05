@@ -24,7 +24,7 @@ from .. import (actions, calls, db, events, identity, llm, questions, textclean,
                 threads, todos, trace, wiki)
 from ..config import Config
 from ..llm import CompletionClient, Reply
-from . import affinity
+from . import affinity, event_context
 from . import bundle as bundle_stage
 from . import instructions
 from . import stages as stage_plan_mod
@@ -194,12 +194,25 @@ EVENT_DIFF_V2 = {
     **BUNDLE_DIFF["properties"]["events"]["items"],
     "required": (BUNDLE_DIFF["properties"]["events"]["items"]["required"]
                  + ["instead_of", "cites", "field_cites", "links", "attendance",
-                    "expansions", "visit_target"]),
+                    "expansions", "visit_target", "end_boundary"]),
     "properties": {
         **BUNDLE_DIFF["properties"]["events"]["items"]["properties"],
         "date": {"type": ["string", "null"],
                  "description": "yyyy-mm-dd, or null for an undated cancellation notice"},
         "field_cites": _FIELD_CITES,
+        "end_boundary": {
+            "type": ["object", "null"], "additionalProperties": False,
+            "description": ("Scope of the evidence used for until. A departure for an outing "
+                            "during a stay is intermediate_departure, not the stay's end. "
+                            "Use unknown when the return/checkout/end is not established; "
+                            "null when not asserting an end date."),
+            "required": ["role", "cites"],
+            "properties": {
+                "role": {"type": "string", "enum": [
+                    "event_end", "intermediate_departure", "unknown"]},
+                "cites": _CITES,
+            },
+        },
         "participants": {"type": "array", "items": {"type": "string"},
                          "description": "Legacy compatibility field: return []; use cited attendance roles for people changes."},
         "attendance": {
@@ -1131,7 +1144,26 @@ def build_open_rows(conn: sqlite3.Connection, bundle: Bundle) -> str:
     """What is already on the calendar that this conversation could be about."""
     graph_entities = [bundle.entity, *bundle.merged]
     same, related, nominated, cut = _candidates(conn, bundle)
-    if not same and not related and not nominated:
+    # A stay may be named only on the personal calendar while the DM talks about
+    # arrivals and outings. Show bounded overlapping calendar spans as candidates;
+    # dates nominate them, but never establish identity or change their boundaries.
+    new = [row for row in bundle.items if row['id']
+           and int(row['id']) not in bundle.context_ids]
+    days = {f.when for f in affinity.fragments(
+        Bundle(entity=bundle.entity, items=new)) if f.dated}
+    seen = {event.key for event in [*same, *related, *nominated]}
+    spans = []
+    if days:
+        spans = [events.Event.from_row(row) for row in conn.execute(
+            "SELECT * FROM events WHERE until>date AND status!='declined'"
+            " AND date<=? AND until>=?"
+            " AND coalesce(nullif(origin,''),source,'') LIKE 'ical:created:%'",
+            (max(days), min(days))) if row['key'] not in seen
+            and any(row['date'] <= day <= row['until'] for day in days)]
+        spans.sort(key=lambda event: (
+            -sum(event.date <= day <= event.until for day in days), event.date, event.key))
+        spans = spans[:4]
+    if not same and not related and not nominated and not spans:
         return ""
     here = {r["id"] for r in bundle.items if "id" in r.keys()}
     lines = ["ALREADY ON THE CALENDAR, AND POSSIBLY WHAT THIS CONVERSATION IS ABOUT.",
@@ -1191,6 +1223,13 @@ def build_open_rows(conn: sqlite3.Connection, bundle: Bundle) -> str:
         # one, and a model that was never shown the row cannot be said to have decided
         # the plan was new.
         lines.append(f"  ({cut} further row(s) matched on wording and were not shown)")
+    if spans:
+        lines.append("PERSONAL CALENDAR STAYS OVERLAPPING DAYS MENTIONED HERE. "
+                     "Date overlap only nominates a possible parent stay; decide whether "
+                     "this is the same trip, an outing during it, or unrelated. A departure "
+                     "during a stay does not change its end.")
+        for event in spans:
+            append_event(event, from_here=False)
     return "\n".join(lines)
 
 
@@ -1992,6 +2031,9 @@ def _resolve_cites(bundle: Bundle, diff: dict) -> None:
             if "cites" in row:
                 row["cite_ids"] = bundle.cite(row.pop("cites"))
             if key == "events":
+                boundary = row.get("end_boundary")
+                if isinstance(boundary, dict):
+                    boundary["cite_ids"] = bundle.cite(boundary.pop("cites", []))
                 for field in ("attendance", "expansions"):
                     for entry in row.get(field) or []:
                         if isinstance(entry, dict):
@@ -2003,6 +2045,9 @@ def _resolve_cites(bundle: Bundle, diff: dict) -> None:
                             if isinstance(tags, (list, tuple))}
                 row["field_cite_ids"] = {field: ids for field, ids in resolved.items()
                                          if ids}
+            if key == "events":
+                event_context.normalize_end_boundary(
+                    row, {int(item['id']) for item in bundle.items if item['id']})
 
 
 def bundle_ref(bundle: Bundle) -> dict:

@@ -461,7 +461,11 @@ def add_related_group_context(conn: sqlite3.Connection, bundle: Bundle) -> None:
     new = [r for r in bundle.items if int(r['id']) not in bundle.context_ids]
     if not new or not bundle.entity.startswith('person:'):
         return
-    anchors = affinity.fragments(Bundle(entity=bundle.entity, items=bundle.items))
+    # This is DM -> group-chat context. Newsletters and multi-sender email threads
+    # cannot nominate personal chats, and restored context cannot nominate more context.
+    if any(r['channel'] == 'email' for r in new):
+        return
+    anchors = affinity.fragments(Bundle(entity=bundle.entity, items=new))
     tokens = sorted({t for f in anchors for t in f.tokens}, key=lambda t: (-len(t), t))[:12]
     if not tokens:
         return
@@ -476,6 +480,7 @@ def add_related_group_context(conn: sqlite3.Connection, bundle: Bundle) -> None:
         "SELECT a.* FROM archive_fts f JOIN archive a ON a.id=f.rowid"
         " JOIN threads t ON t.channel=a.channel AND t.thread=a.thread"
         " WHERE archive_fts MATCH ? AND t.is_group=1"
+        " AND a.channel!='email'"
         " AND coalesce(t.decision,'')!='mute' AND substr(a.ts,1,10) BETWEEN ? AND ?"
         " ORDER BY rank LIMIT 60", (query, lo, hi)).fetchall()
     candidates = {}

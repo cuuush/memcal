@@ -47,6 +47,12 @@ LEGENDS = {
 DEFAULT_SURFACE = "agent"
 
 
+def _memory_events(rows):
+    """Personal-calendar imports are context, not additional memories to surface."""
+    return [ev for ev in rows
+            if not str(ev.origin or ev.source or '').startswith('ical:created:')]
+
+
 def legend(surface: str = DEFAULT_SURFACE) -> str:
     return LEGENDS.get(surface) or LEGENDS[DEFAULT_SURFACE]
 
@@ -63,7 +69,7 @@ def render(conn: sqlite3.Connection, cfg: Config, ref: date | None = None,
     # The two window scans (the active range, and the wider Later range) are the
     # expensive part of a render. Run each once here and thread the results
     # through the blocks and the post-trim reconciliation, so nothing re-queries.
-    window = events.window(conn, cfg.days_back, cfg.days_forward, ref)
+    window = _memory_events(events.window(conn, cfg.days_back, cfg.days_forward, ref))
     later = _later_selection(conn, cfg, ref)
     rendered = _rendered_events(conn, window, later[0])
     represented = {ev.key for ev in rendered}
@@ -317,7 +323,7 @@ def _rendered_events(conn: sqlite3.Connection, window: list[events.Event],
     mains = [ev for ev in window if not ev.part_of]
     out = list(mains)
     for ev in mains:
-        out.extend(events.children_of(conn, ev.id))
+        out.extend(_memory_events(events.children_of(conn, ev.id)))
     out.extend(later_shown)
     return out
 
@@ -334,7 +340,7 @@ def represented_keys(conn: sqlite3.Connection, cfg: Config,
     yet is never rendered.
     """
     ref = ref or db.today()
-    window = events.window(conn, cfg.days_back, cfg.days_forward, ref)
+    window = _memory_events(events.window(conn, cfg.days_back, cfg.days_forward, ref))
     later_shown = _later_selection(conn, cfg, ref)[0]
     return {ev.key for ev in _rendered_events(conn, window, later_shown)}
 
@@ -411,6 +417,7 @@ def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date, *,
                 represented: "set[str] | None" = None) -> str:
     rows = window if window is not None \
         else events.window(conn, cfg.days_back, cfg.days_forward, ref)
+    rows = _memory_events(rows)
     # Anchors the reference date explicitly to prevent incorrect date inference.
     lines = [f"## Upcoming  (today is {ref.strftime('%A %-d %B %Y')})"]
     if not rows:
@@ -426,7 +433,7 @@ def _week_block(conn: sqlite3.Connection, cfg: Config, ref: date, *,
         ordered = []
         for ev in mains:
             ordered.append(ev)
-            ordered.extend(events.children_of(conn, ev.id))
+            ordered.extend(_memory_events(events.children_of(conn, ev.id)))
         state = _block_hints(conn, cfg, ordered)
         for ev in mains:
             marker = "· " if db.parse_date(ev.date) < ref else ""
@@ -468,7 +475,8 @@ def _later_selection(conn: sqlite3.Connection, cfg: Config,
     what the block renders and what the backlog treats as covered cannot diverge."""
     edge = ref + timedelta(days=cfg.days_forward)
     rows = [e for e in events.window(conn, 0, cfg.days_forward + LATER_DAYS, ref)
-            if db.parse_date(e.date) > edge and _committed(e)]
+            if db.parse_date(e.date) > edge and _committed(e)
+            and not str(e.origin or e.source or '').startswith('ical:created:')]
     return rows[:LATER_LIMIT], len(rows)
 
 
@@ -521,7 +529,7 @@ def _child_lines(conn: sqlite3.Connection, parent: events.Event, asked: dict,
                  state: dict | None = None) -> list[str]:
     """Formats child events and associated questions nested under a parent event."""
     out: list[str] = []
-    for child in events.children_of(conn, parent.id):
+    for child in _memory_events(events.children_of(conn, parent.id)):
         out.append(f"  ↳ {source_tag('event', child.id)} "
                    + child.one_line(overview=True))
         if state is not None:

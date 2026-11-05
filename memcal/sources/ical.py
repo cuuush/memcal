@@ -978,10 +978,22 @@ def reconcile_deleted(
 
     asked: set[str] = set()
     gone = 0
+    # Retire all missing identities before deciding whether their shared event is
+    # gone. Another calendar can still carry the same occasion under a new UID.
     for row in missing:
         conn.execute(
             "UPDATE calendar_items SET active = 0, updated_at = ? WHERE identity = ?",
             (db.now(), row["identity"]))
+    reconciled: set[str] = set()
+    for row in missing:
+        if row["event_key"] in reconciled:
+            continue
+        reconciled.add(row["event_key"])
+        if conn.execute(
+                "SELECT 1 FROM calendar_items WHERE event_key=? AND active=1"
+                " AND provider='ical' AND published=0 LIMIT 1",
+                (row["event_key"],)).fetchone():
+            continue
         event = events.get(conn, row["event_key"])
         if event is None or event.date < today:
             continue

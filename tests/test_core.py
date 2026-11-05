@@ -1118,11 +1118,11 @@ class TestICalendar(Base):
         }
         self.assertEqual(origins, {"created", "subscribed"})
 
-    def test_created_event_reaches_brief_without_dream(self):
+    def test_created_event_is_retained_as_context_without_mirroring_it_in_the_brief(self):
         report = self.snapshot([self.item("mine", "Dentist", 3)])
         rendered = brief.render(self.conn, self.cfg)
-        self.assertIn("Dentist", rendered)
-        self.assertIn("confirmed", rendered)
+        self.assertNotIn("Dentist", rendered)
+        self.assertEqual(events.window(self.conn, 0, 10)[0].status, "confirmed")
         self.assertEqual(report.passed, 0)
         self.assertEqual(len(archive.spool_pending(self.conn)), 0)
 
@@ -1956,18 +1956,12 @@ class TestALinkIsHowYouAttendAndNotAPlace(Base):
         self.assertEqual(row.note, "Suite 300, ring buzzer 4. Bring your insurance card.")
         self.assertEqual(row.location, "Riverton Sports Medicine")
         self.assertIsNone(row.join_url)
-        # The brief names the row and `memcal_open` carries the detail. Asserted as a
-        # *path* rather than as a substring: what this report was actually about is that
-        # the buzzer code was unreachable, and "it is on the brief line" was one way to
-        # be reachable, not the requirement. This form also fails if the handle stops
-        # resolving, which the old one could not see.
+        # Personal imports stay out of the brief; direct detail still retains the
+        # practical arrival instructions read from the calendar.
         rendered = brief.render(self.conn, self.cfg)
-        self.assertIn("Physio", rendered)
-        handle = brief.SOURCE_RE.search(
-            [line for line in rendered.splitlines() if "Physio" in line][0])
-        self.assertTrue(handle, "a brief row with no handle cannot be opened")
+        self.assertNotIn("Physio", rendered)
         self.assertIn("buzzer 4",
-                      detail.open_handle(self.conn, self.cfg, handle.group(1)))
+                      detail.open_handle(self.conn, self.cfg, f"E{row.id}"))
 
     def test_memcals_own_published_note_is_not_read_back_as_news(self):
         """Otherwise the row cites memcal's calendar entry as evidence for itself."""

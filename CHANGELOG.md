@@ -1,7 +1,21 @@
 ## [Unreleased]
 
+### Changed
+
+- Personal-calendar imports remain available as scheduling context and direct record
+  detail, while the brief and web event lists show learned plans and subscribed events.
+
 ### Fixed
 
+- Dream question attribution uses the question's cited messages, preventing unrelated
+  group context from adding the wrong speaker to a question.
+- Email bundles cannot retrieve group-chat context, and restored context alone cannot
+  create new events or questions under an unrelated source.
+- Conferencing links come from an event's cited messages rather than unrelated bundle
+  traffic.
+- Removing one calendar copy preserves a shared event while another copy remains active.
+- Trip end dates use a cited boundary assessment; departures for outings during a stay
+  cannot shorten it. Overlapping personal-calendar stays remain visible to extraction.
 - The runtime version agrees with the published package version.
 - Rescheduled bookings linked as replacements retain their new date and keep the earlier booking's history.
 - iMessage and email collection passes retain their source records for collection reporting.
