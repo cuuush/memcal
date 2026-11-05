@@ -2211,6 +2211,13 @@ back out</em>, and like every outward-write setting they read this store's <code
 working-directory files. Publishing is idempotent: changes update the matching item,
 withdrawn rows retract it, and disabled publishing performs no external writes.
 Calendar and Reminders require separate macOS permissions.</p>
+<p>All Calendar and Reminders operations run through <code>memcal.app</code>: snapshots, event
+creation and updates, recurring events, and retractions. Interactive commands and
+nightly work share its grants. Calendar Automation approval should name Memcal;
+your terminal or agent does not need permission to control Calendar. See
+<a href="../../sources/calendar/">Calendar setup</a> for the exact system settings.</p>
+<p><code>memcal disable</code> stops scheduled publishing by stopping scheduled Dream and
+collection. Manual commands can still publish to destinations you have enabled.</p>
 
 
 

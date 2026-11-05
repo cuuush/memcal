@@ -2267,7 +2267,10 @@ the run details to read it. Successful resumes clear the earlier retry alert,
 retain the original failure, and identify the replacement run.</p>
 <h2 id="schedule">Schedule<a class="headerlink" href="#schedule" title="Permanent link">&para;</a></h2>
 <p><code>memcal schedule status</code> shows loaded state, next run, last pass, and exit —
-plus whether a pass is currently owed. See <a href="../scheduling/">Scheduling</a>.</p>
+plus whether a pass is currently owed. After <code>memcal disable</code>, it reports that
+scheduled work is disabled and shows <code>memcal enable</code> as the way to resume. Doctor
+treats intentionally disabled scheduling as a healthy state. Updates and schedule
+reinstall preserve it. See <a href="../scheduling/">Scheduling</a>.</p>
 
 
 

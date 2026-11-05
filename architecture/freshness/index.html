@@ -2369,6 +2369,11 @@ transport latency. Each source exposes its last successful collection and error
 status, so a quiet source reads as checked, not as broken —
 and a source silent since yesterday gets an honest coverage warning, not "nothing
 changed." Explicit exclusions and mutes are preserved throughout.</p>
+<p>On macOS, periodic checks read WhatsApp's existing local database without opening
+the desktop app by default. Automatic startup for Dream and explicit collection
+is configured separately from startup during background checks. See
+<a href="../../sources/whatsapp/">WhatsApp</a>. <code>memcal disable</code> stops periodic checks and
+scheduled Dream until <code>memcal enable</code>; closing the web UI alone does not stop them.</p>
 <h2 id="nominate-dont-decide">Nominate, don't decide<a class="headerlink" href="#nominate-dont-decide" title="Permanent link">&para;</a></h2>
 <p>Activity links start from exact associations: an event's supporting evidence
 already points at source threads and calendar identifiers. Where evidence supports

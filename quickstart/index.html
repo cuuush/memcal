@@ -344,6 +344,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#approve-macos-sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Approve macOS sources
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#first-ingest" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2221,6 +2232,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#approve-macos-sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Approve macOS sources
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#first-ingest" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2306,6 +2328,17 @@ for other providers, source setup, and advanced settings.</p>
 <pre><code class="language-bash">memcal doctor
 memcal brief
 </code></pre>
+<h2 id="approve-macos-sources">Approve macOS sources<a class="headerlink" href="#approve-macos-sources" title="Permanent link">&para;</a></h2>
+<p>Messages, WhatsApp, and Contacts use a local bridge to <code>memcal.app</code>, which owns
+Full Disk Access. Calendar uses the same app for Automation and Calendar data
+access; your terminal or agent does not need these grants.</p>
+<pre><code class="language-bash">memcal permissions setup    # prepare the app and guide Full Disk Access approval
+memcal ical setup           # request Calendar access from the Memcal app
+</code></pre>
+<p>Enable <code>memcal.app</code> when prompted. Calendar publishing also needs Calendar data
+access; Reminders publishing has its own setup. See the
+<a href="../hosting/permissions/">permission helper</a>, <a href="../sources/calendar/">Calendar</a>, and
+<a href="../hosting/publishing/">Publishing</a>.</p>
 <h2 id="first-ingest">First ingest<a class="headerlink" href="#first-ingest" title="Permanent link">&para;</a></h2>
 <p>See which connectors are available, then pull from one source with a small limit
 before collecting everything:</p>
@@ -2321,6 +2354,16 @@ memcal dream
 <pre><code class="language-bash">memcal schedule install
 </code></pre>
 <p>On Linux, this command prints cron instructions instead of installing a launchd job.</p>
+<p>The macOS job also checks for new source records every five minutes by default.
+Those periodic checks make no model calls and leave WhatsApp closed unless you
+explicitly enable background startup. Closing the web UI does not stop the job.</p>
+<p>To stop macOS scheduled work and resume it later:</p>
+<pre><code class="language-bash">memcal disable             # stops nightly Dream and periodic checks
+memcal schedule status     # confirms scheduling is disabled
+memcal enable              # resumes the installed job
+</code></pre>
+<p>The disabled state persists across logins and updates. Your data, app permissions,
+and manual commands remain available. See <a href="../hosting/scheduling/">Scheduling</a>.</p>
 <h2 id="connect-an-agent">Connect an agent<a class="headerlink" href="#connect-an-agent" title="Permanent link">&para;</a></h2>
 <p>For OpenClaw, with the OpenClaw CLI already installed:</p>
 <pre><code class="language-bash">memcal openclaw setup

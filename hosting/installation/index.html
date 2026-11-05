@@ -2275,9 +2275,11 @@ saved provider settings.</p>
 <code>https://github.com/cuuush/memcal</code> using the Python that runs the command; Git must
 be on PATH. Existing Slack and Telegram extras are upgraded too.</p>
 <p>Both paths run the newly installed code to migrate the existing store and refresh
-its saved brief. On macOS, an installed scheduler is regenerated and reloaded,
-including the app wrapper, while preserving its scheduled time and pending retry.
-An update does not enable scheduling on a store that did not have it. Use
+its saved brief. On macOS, an installed scheduler is regenerated, including the app
+wrapper, while preserving its scheduled time and pending retry. Enabled scheduling
+is reloaded; scheduling stopped with <code>memcal disable</code> stays disabled until
+<code>memcal enable</code>. An update does not install scheduling on a store that did not have
+it. Use
 <code>memcal --home /path/to/store update</code> to select the store to refresh.</p>
 <p>Linked Hermes and OpenClaw plugins and MCP servers use the updated code on their
 next start. Restart running UI or agent sessions afterward; for OpenClaw, run

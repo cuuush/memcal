@@ -1066,6 +1066,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#stop-and-resume-scheduled-work-macos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stop and resume scheduled work (macOS)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2255,6 +2266,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#stop-and-resume-scheduled-work-macos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stop and resume scheduled work (macOS)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2423,7 +2445,11 @@
 </tr>
 <tr>
 <td><code>schedule</code></td>
-<td>Nightly job (<code>status</code>, <code>install</code>, <code>run</code>, <code>due</code>)</td>
+<td>macOS nightly job (<code>status</code>, <code>install</code>, <code>uninstall</code>, <code>run</code>, <code>due</code>)</td>
+</tr>
+<tr>
+<td><code>disable</code> / <code>enable</code></td>
+<td>Stop or resume macOS scheduled Dream and periodic source checks</td>
 </tr>
 </tbody>
 </table>
@@ -2453,6 +2479,14 @@
 <td>Provider/model setup; store init</td>
 </tr>
 <tr>
+<td><code>update</code></td>
+<td>Update the installation and refresh its store and installed scheduler</td>
+</tr>
+<tr>
+<td><code>permissions</code></td>
+<td>Guide Full Disk Access approval and verify protected source reads through the app</td>
+</tr>
+<tr>
 <td><code>ui</code></td>
 <td>Web UI (loopback)</td>
 </tr>
@@ -2474,6 +2508,20 @@ memcal permissions setup --no-open --json
 </code></pre>
 <p>The <a href="../../hosting/permissions/">Full Disk Access helper</a> verifies the Memcal app bridge,
 reveals <code>memcal.app</code>, and opens System Settings only for explicit setup. Status is passive; no store initialization or model call.</p>
+<p>Calendar and Reminders use the app bridge too. Run <code>memcal ical setup</code> for Calendar
+Automation and, when publishing is enabled, Calendar data access. Run
+<code>memcal reminders setup --yes</code> for Reminders publishing. These grants belong to
+<code>memcal.app</code>; the calling terminal or agent does not need them. See
+<a href="../../sources/calendar/">Calendar setup</a> and <a href="../../hosting/publishing/">Publishing</a>.</p>
+<h2 id="stop-and-resume-scheduled-work-macos">Stop and resume scheduled work (macOS)<a class="headerlink" href="#stop-and-resume-scheduled-work-macos" title="Permanent link">&para;</a></h2>
+<pre><code class="language-bash">memcal disable
+memcal schedule status
+memcal enable
+</code></pre>
+<p>Disabling stops the installed scheduled job and keeps it disabled across logins,
+restarts, updates, and schedule reinstall. It preserves the app, permissions, and
+data. Manual commands and the web UI remain available. Closing a terminal or the web
+UI alone does not stop scheduling. See <a href="../../hosting/scheduling/">Scheduling</a>.</p>
 
 
 
