@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.8.5] - 2026-11-05
+
 ### Added
 
 - Guided Full Disk Access setup through `memcal permissions setup` and the web Settings
