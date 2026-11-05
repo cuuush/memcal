@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- The runtime version agrees with the published package version.
 - Rescheduled bookings linked as replacements retain their new date and keep the earlier booking's history.
 - iMessage and email collection passes retain their source records for collection reporting.
 

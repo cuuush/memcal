@@ -48,6 +48,15 @@ from memcal import sources  # noqa: E402
 from memcal.sources import base, bluebubbles, groupme, ical, imessage, proton, providers, spec, whatsapp  # noqa: E402
 from tools import clock_sweep  # noqa: E402
 
+class TestPackageVersionMatchesManifest(unittest.TestCase):
+    def test_package_version_matches_project_version(self):
+        import memcal
+
+        root = Path(__file__).resolve().parent.parent
+        manifest = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+        self.assertEqual(memcal.__version__, manifest["project"]["version"])
+
+
 class TestReleaseVersionAgreement(unittest.TestCase):
     def setUp(self):
         self.root = Path(__file__).resolve().parent.parent
