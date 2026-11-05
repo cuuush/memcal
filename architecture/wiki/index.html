@@ -622,10 +622,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#slots-not-blobs" class="md-nav__link">
+  <a href="#facts-and-context" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Slots, not blobs
+        Facts and context
       
     </span>
   </a>
@@ -1880,6 +1880,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../hosting/permissions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full Disk Access
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../hosting/scheduling/" class="md-nav__link">
         
   
@@ -2140,10 +2168,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#slots-not-blobs" class="md-nav__link">
+  <a href="#facts-and-context" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Slots, not blobs
+        Facts and context
       
     </span>
   </a>
@@ -2206,11 +2234,29 @@ to their page. When the page is unknown, <code>memcal_search_wiki</code> searche
 aliases, fact labels, values, and prose before an archive lookup.</p>
 <p>Legacy <code>preferences/</code> pages remain readable and migrate into <code>people/</code>; new writes
 use only people, places, or projects. Personal preferences belong on the user's page.</p>
-<h2 id="slots-not-blobs">Slots, not blobs<a class="headerlink" href="#slots-not-blobs" title="Permanent link">&para;</a></h2>
+<h2 id="facts-and-context">Facts and context<a class="headerlink" href="#facts-and-context" title="Permanent link">&para;</a></h2>
 <p>Durable facts belong on wiki pages; open obligations belong in to-dos. A slot fill
 is a small keyed write with provenance, applied per-slot when two bundles touch
 one page. Older installations may still contain legacy standing rows: their <code>S</code>
 handles remain readable for recovery, but new standing writes are rejected.</p>
+<p>Dream's v2 claim schema names the subject, its role in the statement, durability,
+and claim kind. An outgoing statement about its recipient cannot become a fact
+about the user. Temporary visits cannot fill a residence field; routine financial
+statements, account notices, course plans, and tautologies do not belong in profiles.
+Plans belong in events or to-dos. Older saved responses remain replayable, with
+per-field evidence precedence protecting later corrections and deleted facts.</p>
+<p>For explanations that need prose, pages have a <strong>Context</strong> section containing named
+paragraphs alongside Facts and hand-written introductory text. For example, a
+paragraph can explain what a named employer does and how it relates to someone.
+Dream supplies <code>note_key</code>, the full <code>note_text</code>, and the exact <code>note_previous</code> value
+it read, plus message citations. It replaces only that paragraph. Empty text removes
+it; null fields leave it alone. Conflicting edits and stale evidence are rejected.
+Context keeps source IDs and history, participates in wiki search and model context,
+and appears in both the web profile and agent page detail.</p>
+<p>The web profile's <strong>Shared history</strong> shows recorded past attendance and observations,
+activity counts, and recent dated event links. Future observations and elapsed plans
+without attendance evidence are excluded; an event's date passing does not prove that
+someone attended it.</p>
 <h2 id="hand-editable">Hand-editable<a class="headerlink" href="#hand-editable" title="Permanent link">&para;</a></h2>
 <p>Pages are Markdown files, readable in any editor. The dream pass reads pages from
 disk every run and never caches its own last output — your edits are the state,

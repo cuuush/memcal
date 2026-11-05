@@ -1055,6 +1055,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#protected-local-source-access-macos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protected local source access (macOS)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1902,6 +1913,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../hosting/permissions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full Disk Access
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../hosting/scheduling/" class="md-nav__link">
         
   
@@ -2205,6 +2244,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#protected-local-source-access-macos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protected local source access (macOS)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2416,6 +2466,16 @@
 </tr>
 </tbody>
 </table>
+<h2 id="protected-local-source-access-macos">Protected local source access (macOS)<a class="headerlink" href="#protected-local-source-access-macos" title="Permanent link">&para;</a></h2>
+<pre><code class="language-bash">memcal permissions status
+memcal permissions setup
+memcal permissions setup --target memcal
+memcal permissions setup --target host
+memcal permissions setup --no-open --json
+</code></pre>
+<p>The <a href="../../hosting/permissions/">Full Disk Access helper</a> compares interactive and
+scheduled source reads, identifies the app to enable, and opens System Settings
+only for explicit setup. Status is passive; no store initialization or model call.</p>
 
 
 

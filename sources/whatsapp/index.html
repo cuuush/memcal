@@ -1447,6 +1447,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WhatsApp
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="./" class="md-nav__link md-nav__link--active">
         
   
@@ -1463,6 +1481,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#opening-the-desktop-app-for-collection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Opening the desktop app for collection
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -1810,6 +1858,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../hosting/permissions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full Disk Access
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../hosting/scheduling/" class="md-nav__link">
         
   
@@ -2052,6 +2128,25 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#opening-the-desktop-app-for-collection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Opening the desktop app for collection
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -2072,7 +2167,7 @@
 
 <h1 id="whatsapp">WhatsApp<a class="headerlink" href="#whatsapp" title="Permanent link">&para;</a></h1>
 <p>Groups and direct messages from the macOS WhatsApp database
-(<code>ChatStorage.sqlite</code>). No secret and no login — it reads the local app data.</p>
+(<code>ChatStorage.sqlite</code>). No connector secret is needed. Install the desktop app and sign in there first.</p>
 <pre><code class="language-bash">memcal ingest whatsapp --limit 20
 </code></pre>
 <p>To point at a non-default database location, set the override in
@@ -2082,6 +2177,32 @@
 <p>Incremental and idempotent on re-runs with its own stored cursor.
 Verify with <code>memcal sources</code>, then collect and dream as usual (<code>memcal ingest
 all</code>, <code>memcal dream --dry-run</code>, <code>memcal dream</code>).</p>
+<h2 id="opening-the-desktop-app-for-collection">Opening the desktop app for collection<a class="headerlink" href="#opening-the-desktop-app-for-collection" title="Permanent link">&para;</a></h2>
+<p>In Settings → Collection, enable <strong>Open WhatsApp for dream</strong>. This also applies to
+explicit collection and the nightly source pull. The app opens hidden and in the
+background; doctor and source diagnostics never open it. Configuration:</p>
+<pre><code class="language-dotenv">MEMCAL_WHATSAPP_AUTOSTART=1
+MEMCAL_WHATSAPP_CLOSE_AFTER=1
+MEMCAL_WHATSAPP_WAIT_SECONDS=30
+</code></pre>
+<p>Memcal waits up to the configured limit for a readable database, then collects
+normally. It quits WhatsApp after collection only when it opened the app itself;
+an already-running app stays open. Set <code>MEMCAL_WHATSAPP_CLOSE_AFTER=0</code> to leave a newly opened app
+running. The wait is a maximum startup allowance, not a fixed delay after collection.</p>
+<p>An unreadable database may still need macOS permission: System Settings → Privacy &amp;
+Security → Full Disk Access → add and enable <code>~/.memcal/memcal.app</code>, then quit and
+reopen Memcal. If running without the wrapper, grant access to the terminal or agent
+app that runs Python. Opening WhatsApp cannot bypass this permission. Run
+<code>memcal sources</code> and <code>memcal doctor</code> to verify the connector and scheduled requester.</p>
+<p>macOS can retain the terminal/agent as the responsible requester even when a CLI
+command passes through <code>memcal.app</code>. If doctor's scheduled probe passes but the
+interactive source check fails, the scheduled grant is already working: enable Full
+Disk Access for the terminal/agent running that command, then quit and reopen that
+app. Doctor states this distinction explicitly; reinstalling the schedule cannot
+change the interactive host's privacy grant.</p>
+<p>Use <code>memcal permissions setup</code> or <strong>Settings → Full Disk Access</strong> in the web UI for
+<a href="../../hosting/permissions/">guided approval and rechecking</a>. The helper opens the
+system pane and reveals the right app; macOS keeps approval in your hands.</p>
 
 
 

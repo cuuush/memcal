@@ -1880,6 +1880,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../hosting/permissions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full Disk Access
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../hosting/scheduling/" class="md-nav__link">
         
   
@@ -2205,6 +2233,11 @@ memcal who --confirm 3  # accept a merge, or act on a doubt
 <p><code>--resolve</code> is the only step that costs anything: it sends every unnamed handle
 and every known person in one request, so a handle is matched against the whole
 roster rather than judged alone.</p>
+<p>Unnamed handles with no inbound source activity in the last 21 days are hidden from
+<code>who</code>, <code>review</code>, doctor's warning, and the model naming queue. Set
+<code>MEMCAL_UNRESOLVED_ACTIVE_DAYS</code> (1–365) to change the window. New activity brings a
+handle back. Source timestamps determine recency even when old messages are imported
+today; the archive, naming history, and explicit ignore decisions are preserved.</p>
 <h2 id="assumed-not-decided">Assumed, not decided<a class="headerlink" href="#assumed-not-decided" title="Permanent link">&para;</a></h2>
 <p>What the model concludes is provisional: merges take effect immediately, are
 listed by number, and are reversible. It can also decline to decide, which records

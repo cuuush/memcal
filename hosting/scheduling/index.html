@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://cuuush.github.io/memcal/hosting/scheduling/">
       
       
-        <link rel="prev" href="../configuration/">
+        <link rel="prev" href="../permissions/">
       
       
         <link rel="next" href="../publishing/">
@@ -1797,6 +1797,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../permissions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full Disk Access
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -2099,7 +2127,11 @@ tries again. A successful pass clears it and prevents another extraction pass
 for the same night. <code>memcal schedule status</code> reports when a retry is owed.</p>
 <p><code>memcal update</code> regenerates an installed job script and reloads launchd. To repair
 it separately, run <code>memcal schedule install</code> from your normal installation. An
-existing pending pass remains owed through update or reinstall.</p>
+existing pending pass remains owed through update or reinstall. Reinstall acknowledges
+the previous exit warning while waiting for a fresh invocation. Missing scripts,
+unloaded jobs and fresh startup failures still report immediately; a new failed
+invocation restores the warning. Collection runs once before nightly extraction,
+which uses <code>--no-ingest</code> to avoid pulling the same sources again.</p>
 <p>Daytime collection between passes is model-free; dream stays nightly. See
 <a href="../../architecture/freshness/">Daytime freshness</a> and <a href="../../architecture/dream/">Dream</a>.</p>
 

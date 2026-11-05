@@ -1470,6 +1470,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#fixing-local-database-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixing local database access
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#choosing-and-tuning-the-backend" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1880,6 +1891,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../hosting/permissions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full Disk Access
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../hosting/scheduling/" class="md-nav__link">
         
   
@@ -2129,6 +2168,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#fixing-local-database-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixing local database access
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#choosing-and-tuning-the-backend" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2204,6 +2254,20 @@ attached to people. See <a href="../../architecture/identity/">Identity</a>.</p>
 <p>For local <code>chatdb</code> ingestion, a sent message in a direct chat is associated with
 that chat's sole counterpart even when its own sender handle is absent. A chat
 with two other participants is treated as a group, preserving conversation routing.</p>
+<h2 id="fixing-local-database-access">Fixing local database access<a class="headerlink" href="#fixing-local-database-access" title="Permanent link">&para;</a></h2>
+<p><code>memcal doctor</code> and <code>memcal sources</code> attempt a read-only query of <code>chat.db</code> and
+show the actual permission steps when it fails. File existence alone does not
+prove that macOS permits the database to be opened.</p>
+<ol>
+<li>Open System Settings → Privacy &amp; Security → Full Disk Access.</li>
+<li>Add and enable <code>~/.memcal/memcal.app</code> (Finder's Go to Folder can open <code>~/.memcal</code>).</li>
+<li>Quit and reopen Memcal, then run <code>memcal doctor</code> again.</li>
+</ol>
+<p>If the app wrapper is missing, run <code>memcal schedule install</code> from the installed
+checkout first. If running Python without the wrapper, enable the terminal or
+agent app that launches it. The terminal's grant and the scheduled Memcal app's
+grant are separate; doctor checks the scheduled requester too. Calendar consent
+does not grant Messages access.</p>
 <h2 id="choosing-and-tuning-the-backend">Choosing and tuning the backend<a class="headerlink" href="#choosing-and-tuning-the-backend" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2282,6 +2346,15 @@ MEMCAL_IMESSAGE_FALLBACK=0
 <p>Skip BlueBubbles entirely and read the local database:</p>
 <pre><code>MEMCAL_IMESSAGE_BACKEND=chatdb
 </code></pre>
+<p>macOS can retain the terminal/agent as the responsible requester even when a CLI
+command passes through <code>memcal.app</code>. If doctor's scheduled probe passes but the
+interactive source check fails, the scheduled grant is already working: enable Full
+Disk Access for the terminal/agent running that command, then quit and reopen that
+app. Doctor states this distinction explicitly; reinstalling the schedule cannot
+change the interactive host's privacy grant.</p>
+<p>Use <code>memcal permissions setup</code> or <strong>Settings → Full Disk Access</strong> in the web UI for
+<a href="../../hosting/permissions/">guided approval and rechecking</a>. The helper opens the
+system pane and reveals the right app; macOS keeps approval in your hands.</p>
 
 
 

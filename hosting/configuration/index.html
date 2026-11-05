@@ -16,7 +16,7 @@
         <link rel="prev" href="../installation/">
       
       
-        <link rel="next" href="../scheduling/">
+        <link rel="next" href="../permissions/">
       
       
         
@@ -1866,6 +1866,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#optional-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#brief" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1929,6 +1940,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../permissions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full Disk Access
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -2224,6 +2263,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#optional-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#brief" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2338,6 +2388,16 @@ to configure just <code>provider</code>, <code>imessage</code>, <code>brief</cod
 <td><code>codex</code>, <code>claude-code</code>, <code>antigravity</code>, <code>grok</code>, <code>openrouter</code>, or <code>openai-compatible</code></td>
 </tr>
 <tr>
+<td><code>MEMCAL_FALLBACK_PROVIDER</code></td>
+<td>empty (disabled)</td>
+<td>Optional second provider after a primary completion fails</td>
+</tr>
+<tr>
+<td><code>MEMCAL_FALLBACK_MODEL</code></td>
+<td>fallback provider default</td>
+<td>Explicit model ID for the second provider</td>
+</tr>
+<tr>
 <td><code>MEMCAL_OPENAI_BASE_URL</code></td>
 <td>empty</td>
 <td>API base URL for <code>openai-compatible</code>, such as <code>https://host/v1</code></td>
@@ -2401,6 +2461,20 @@ required except for local development endpoints on localhost.</p>
 and web search are all switched off. The packed prompt rides in a temp file
 (<code>--prompt-file</code>) so a large propose wave never crosses the shell argument limit;
 the output schema is passed inline as the <code>--json-schema</code> literal.</p>
+<h3 id="optional-fallback">Optional fallback<a class="headerlink" href="#optional-fallback" title="Permanent link">&para;</a></h3>
+<p>Configure the primary and fallback independently in Settings (or the store <code>.env</code>):</p>
+<pre><code class="language-dotenv">MEMCAL_LLM_PROVIDER=codex
+MEMCAL_FALLBACK_PROVIDER=openrouter
+MEMCAL_FALLBACK_MODEL=openai/gpt-6-luna
+OPENROUTER_API_KEY=your-key
+</code></pre>
+<p>Fallback is off by default. Enabling it permits the same prompt and source messages
+to be sent to the second provider, with that provider's charges and privacy terms.
+It runs once after the primary transport exhausts its retries or timeout; successful
+primary calls keep using the primary. The fallback model must belong to the fallback
+provider. Clear <code>MEMCAL_FALLBACK_PROVIDER</code> to disable it. Failed fallback calls remain
+errors, and usage includes both providers. Configure <code>MEMCAL_LLM_COMMAND_TIMEOUT</code> to
+control how long a CLI request can take before fallback.</p>
 <h3 id="brief">Brief<a class="headerlink" href="#brief" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -2482,6 +2556,26 @@ the output schema is passed inline as the <code>--json-schema</code> literal.</p
 <td><code>MEMCAL_BLUEBUBBLES_AUTOSTART</code></td>
 <td>on</td>
 <td>Open a down <strong>local</strong> BlueBubbles server (hidden) during the nightly pass</td>
+</tr>
+<tr>
+<td><code>MEMCAL_WHATSAPP_AUTOSTART</code></td>
+<td>off</td>
+<td>Open WhatsApp hidden before collection (including dream's source pull)</td>
+</tr>
+<tr>
+<td><code>MEMCAL_WHATSAPP_CLOSE_AFTER</code></td>
+<td>on</td>
+<td>Close after collection only when Memcal opened it</td>
+</tr>
+<tr>
+<td><code>MEMCAL_WHATSAPP_WAIT_SECONDS</code></td>
+<td><code>30</code> (0–300)</td>
+<td>Maximum wait for the local WhatsApp database</td>
+</tr>
+<tr>
+<td><code>MEMCAL_UNRESOLVED_ACTIVE_DAYS</code></td>
+<td><code>21</code> (1–365)</td>
+<td>Hide inactive unnamed senders from naming queues and diagnostics</td>
 </tr>
 <tr>
 <td><code>MEMCAL_ITEM_BUDGET</code></td>

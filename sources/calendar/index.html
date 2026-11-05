@@ -1810,6 +1810,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../hosting/permissions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full Disk Access
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../hosting/scheduling/" class="md-nav__link">
         
   
@@ -2076,6 +2104,10 @@ snapshot. No secret — access is a macOS permission, requested explicitly:</p>
 <pre><code class="language-bash">memcal ical setup
 memcal ical status
 </code></pre>
+<p>Events you create in personal calendars are retained as scheduling context for
+matching and interpreting messages. They stay out of the brief and web event lists;
+direct record detail remains available. Plans learned from messages and subscribed
+calendar events appear in those memory views.</p>
 <p>Partiful invitations are recognized through Apple Calendar data when you
 subscribe to the Partiful calendar. Memcal keeps their RSVP links and
 distinguishes an unanswered invitation (opportunity, mentioned) from a confirmed
@@ -2083,6 +2115,13 @@ plan. See <a href="../../architecture/events/">Events &amp; series</a>.</p>
 <p>Publishing back out — confirmed memcal events to a dedicated Apple Calendar, due
 tasks to Apple Reminders — is a separate opt-in and off by default. See
 <a href="../../hosting/publishing/">Publishing</a>.</p>
+<p>Setup announces each live permission phase and its timeout. A repeat run reuses an
+existing EventKit authorization decision. After accepting a dialog, authorization
+status can complete the check even if macOS does not deliver the JXA callback.
+Temporary consent workers return their result without opening or migrating the
+Memcal database, so an open store transaction cannot hold up a completed dialog.
+If setup times out, the error names the requester and manual settings steps; do not
+reset all privacy permissions. Calendar data and Automation are separate grants.</p>
 
 
 
