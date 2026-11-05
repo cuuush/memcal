@@ -2241,8 +2241,8 @@ before source and scheduled-app probes. <code>--verbose</code> includes passing 
 <code>--json</code> emits one clean JSON result without progress text. Protected-source
 failures include the Full Disk Access steps rather than pointing back to another
 command with the same missing explanation. <code>memcal permissions setup</code> opens the
-<a href="../permissions/">Full Disk Access helper</a>, which compares the interactive host and
-the scheduled app before choosing which requester needs approval.</p>
+<a href="../permissions/">Full Disk Access helper</a>, which verifies the Memcal app bridge and guides approval of <code>memcal.app</code>.
+Interactive source reads use that bridge rather than the terminal's privacy grant.</p>
 <h2 id="runs-and-volume">Runs and volume<a class="headerlink" href="#runs-and-volume" title="Permanent link">&para;</a></h2>
 <ul>
 <li>The web UI's <strong>History page</strong> shows every pass: ok, partial, failed, running, or

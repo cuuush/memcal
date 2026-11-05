@@ -2263,11 +2263,9 @@ prove that macOS permits the database to be opened.</p>
 <li>Add and enable <code>~/.memcal/memcal.app</code> (Finder's Go to Folder can open <code>~/.memcal</code>).</li>
 <li>Quit and reopen Memcal, then run <code>memcal doctor</code> again.</li>
 </ol>
-<p>If the app wrapper is missing, run <code>memcal schedule install</code> from the installed
-checkout first. If running Python without the wrapper, enable the terminal or
-agent app that launches it. The terminal's grant and the scheduled Memcal app's
-grant are separate; doctor checks the scheduled requester too. Calendar consent
-does not grant Messages access.</p>
+<p>If the app is missing, <code>memcal permissions setup</code> prepares it. CLI and web source
+reads use the <a href="../../hosting/permissions/">Memcal app bridge</a>, so your terminal or
+agent does not need Full Disk Access. Calendar consent does not grant Messages access.</p>
 <h2 id="choosing-and-tuning-the-backend">Choosing and tuning the backend<a class="headerlink" href="#choosing-and-tuning-the-backend" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2346,12 +2344,6 @@ MEMCAL_IMESSAGE_FALLBACK=0
 <p>Skip BlueBubbles entirely and read the local database:</p>
 <pre><code>MEMCAL_IMESSAGE_BACKEND=chatdb
 </code></pre>
-<p>macOS can retain the terminal/agent as the responsible requester even when a CLI
-command passes through <code>memcal.app</code>. If doctor's scheduled probe passes but the
-interactive source check fails, the scheduled grant is already working: enable Full
-Disk Access for the terminal/agent running that command, then quit and reopen that
-app. Doctor states this distinction explicitly; reinstalling the schedule cannot
-change the interactive host's privacy grant.</p>
 <p>Use <code>memcal permissions setup</code> or <strong>Settings → Full Disk Access</strong> in the web UI for
 <a href="../../hosting/permissions/">guided approval and rechecking</a>. The helper opens the
 system pane and reveals the right app; macOS keeps approval in your hands.</p>
