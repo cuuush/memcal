@@ -543,6 +543,8 @@ def _render_search_hits(hits: list[dict], query: str, limit: int) -> str:
         facts = hit.get("facts") or {}
         for slot, info in facts.items():
             lines.append(f"  - **{slot}**: {info.get('value', '')}")
+        for key, info in (hit.get("context") or {}).items():
+            lines.append(f"  - {key}: {info.get('value', '')}")
         prov = hit.get("provenance") or {}
         if prov:
             bits = []

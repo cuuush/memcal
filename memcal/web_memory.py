@@ -84,7 +84,7 @@ def overview(conn: sqlite3.Connection, cfg: Config, days: int = 14) -> dict:
         "todos": len(todos.open_items(conn)),
         "questions": len(todos.open_questions(conn, limit=1000)),
         "pages": len(wiki.list_pages(cfg.wiki_dir)),
-        "unresolved": len(identity.unresolved(conn, limit=100000)),
+        "unresolved": len(identity.unresolved(conn, limit=100000, active_days=cfg.unresolved_active_days)),
         "brief_tokens": textclean.estimate_tokens(text),
         "brief_cap": cfg.brief_token_cap,
         "prefix_tokens": textclean.estimate_tokens(propose_stage.build_prefix(conn, cfg)),
@@ -174,16 +174,19 @@ def wiki_pages(conn: sqlite3.Connection, cfg: Config, *, q: str = "") -> dict:
             continue
         title = page.title or slug
         if needle and needle not in title.casefold() and needle not in slug.casefold() \
-                and not any(needle in a.casefold() for a in page.aliases):
+                and not any(needle in a.casefold() for a in page.aliases) \
+                and needle not in page.body.casefold() \
+                and not any(needle in key.casefold() or needle in info.get("value", "").casefold()
+                            for key, info in {**page.slots, **page.notes}.items()):
             continue
         is_self = self_slug is not None and page.slug == self_slug
         pages.append({
             "slug": page.slug, "title": title, "section": page.section,
-            "facts": len(page.slots), "questions": len(page.questions),
+            "facts": len(page.slots), "context": len(page.notes), "questions": len(page.questions),
             "aliases": list(page.aliases),
             # The slot names, so a card can say what the page is *for* — the same list
             # the brief's index publishes — without opening it.
-            "answers": list(page.slots),
+            "answers": [*page.slots, *page.notes],
             "is_self": is_self,
         })
     # The user's own page first, then by section and name — "me" should never

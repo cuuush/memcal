@@ -271,7 +271,20 @@ def ingest(conn: sqlite3.Connection, *, limit: int = 2000, db_path: Path | None 
 
 
 def available() -> bool:
-    return CHAT_DB.exists() and os.access(CHAT_DB, os.R_OK)
+    try:
+        with sqlite3.connect(CHAT_DB.resolve().as_uri() + "?mode=ro", uri=True, timeout=2) as src:
+            src.execute("SELECT 1 FROM message LIMIT 1").fetchone()
+        return True
+    except (OSError, sqlite3.Error):
+        return False
+
+
+def access_help(cfg) -> str:
+    from .. import schedule
+    return (f"cannot read {CHAT_DB}. Open System Settings → Privacy & Security → "
+            f"Full Disk Access, add and enable memcal.app ({schedule.app_path(cfg)}), "
+            "then quit and reopen memcal. When running without memcal.app, enable "
+            "your terminal or agent app too. Re-run memcal doctor to verify.")
 
 
 def _backend(cfg) -> str:
@@ -319,7 +332,7 @@ class IMessageSource(Source):
     def check(self, cfg):
         from .bluebubbles import BlueBubbles
         if _backend(cfg) == "chatdb":
-            return (True, "via local chat.db") if available() else (False, "no chat.db access")
+            return (True, "via local chat.db") if available() else (False, access_help(cfg))
         try:
             if BlueBubbles(cfg).ping():
                 return True, "via bluebubbles"
@@ -328,4 +341,4 @@ class IMessageSource(Source):
                 return False, f"bluebubbles unavailable, fallback off: {str(exc)[:60]}"
         if not getattr(cfg, "imessage_fallback", True):
             return False, "bluebubbles not answering, fallback off"
-        return (True, "via local chat.db") if available() else (False, "no chat.db access")
+        return (True, "via local chat.db") if available() else (False, access_help(cfg))

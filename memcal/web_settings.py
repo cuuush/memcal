@@ -48,7 +48,9 @@ def provider(cfg: Config) -> dict:
         ok, detail = llm.provider_status(cfg)
     except Exception as exc:            # an unknown provider is a setting, not a crash
         ok, detail = False, f"{type(exc).__name__}: {exc}"
+    fallback_ok, fallback_detail = llm.fallback_status(cfg)
     return {"name": name, "ok": bool(ok), "detail": detail,
+            "fallback": {"ok": fallback_ok, "detail": fallback_detail},
             "default_model": llm.PROVIDER_DEFAULT_MODELS.get(name, ""),
             "needs_key": name in {"openrouter", "openai-compatible"}}
 
@@ -179,6 +181,7 @@ def suggestions(cfg: Config, conn=None, provider_name: str = "",
     """
     chosen = models(cfg, conn, provider_name, roster)
     found: dict[str, list[dict]] = {key: chosen["options"] for key in MODEL_KEYS}
+    found["MEMCAL_FALLBACK_MODEL"] = _models_for(cfg.fallback_provider or "openrouter")
     # An absolute path is what the nightly agent needs, and `which` already knows it.
     for key, command in (("MEMCAL_CODEX_COMMAND", cfg.codex_command),
                          ("MEMCAL_CLAUDE_COMMAND", cfg.claude_command),

@@ -15,6 +15,7 @@ import sqlite3
 import subprocess
 import unicodedata
 from pathlib import Path
+from datetime import timedelta
 
 from . import db
 
@@ -453,9 +454,12 @@ def where_seen(conn: sqlite3.Connection, handle: str, limit: int = 2) -> list[st
         "  GROUP BY thread ORDER BY n DESC LIMIT ?", (normalize(handle), limit))]
 
 
-def unresolved(conn: sqlite3.Connection, limit: int = 50) -> list[sqlite3.Row]:
+def unresolved(conn: sqlite3.Connection, limit: int = 50, *, active_days: int = 21) -> list[sqlite3.Row]:
+    cutoff = (db.now_dt() - timedelta(days=max(1, active_days))).isoformat()
     return conn.execute(
-        "SELECT * FROM unresolved ORDER BY count DESC, last_seen DESC LIMIT ?", (limit,)
+        "SELECT u.* FROM unresolved u WHERE julianday(coalesce("
+        "(SELECT max(a.ts) FROM archive a WHERE a.handle = u.handle AND a.from_me = 0),"
+        "u.last_seen)) >= julianday(?) ORDER BY u.count DESC, u.last_seen DESC LIMIT ?", (cutoff, limit)
     ).fetchall()
 
 

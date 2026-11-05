@@ -21,3 +21,11 @@ plan. See [Events & series](../architecture/events.md).
 Publishing back out — confirmed memcal events to a dedicated Apple Calendar, due
 tasks to Apple Reminders — is a separate opt-in and off by default. See
 [Publishing](../hosting/publishing.md).
+
+Setup announces each live permission phase and its timeout. A repeat run reuses an
+existing EventKit authorization decision. After accepting a dialog, authorization
+status can complete the check even if macOS does not deliver the JXA callback.
+Temporary consent workers return their result without opening or migrating the
+Memcal database, so an open store transaction cannot hold up a completed dialog.
+If setup times out, the error names the requester and manual settings steps; do not
+reset all privacy permissions. Calendar data and Automation are separate grants.

@@ -26,7 +26,9 @@ memcal doctor
 memcal brief
 ```
 
-Setup walks you through your provider and sources. For Codex via OAuth, sign in with `codex login` first; setup lists available models without making an inference call. The default model is `gpt-6-luna` for Codex and `openai/gpt-6-luna` for OpenRouter. Your saved model choice takes precedence.
+Setup walks you through your provider and sources. For Codex via OAuth, sign in with `codex login` first; setup lists available models without making an inference call. The default model is `gpt-6-luna` for Codex and `openai/gpt-6-luna` for OpenRouter. Your saved model choice takes precedence. Optional provider fallback, WhatsApp startup
+and cleanup, and recent unnamed-sender windows are configurable in Settings; see
+[Configuration](docs/hosting/configuration.md).
 
 Memcal is built first for **macOS**, where it can use Messages, Calendar, and launchd scheduling. iMessage reads the local Messages database by default and requires Full Disk Access for the process running Memcal. See [iMessage setup](docs/sources/imessage.md) for BlueBubbles and permission details. Email, MCP, and optional chat integrations also work on Linux; install Slack support with `pip install 'memcal[slack]'`.
 

@@ -1268,7 +1268,7 @@ PROVIDER_COMMANDS: dict[str, CliBackend] = {
 DEFAULT_PROVIDER = "codex"
 
 
-def client_for(cfg, *, on_retry: Callable[[str], None] | None = None) -> CompletionClient:
+def _client_for_provider(cfg, *, on_retry: Callable[[str], None] | None = None) -> CompletionClient:
     """Construct the configured backend at the one boundary every model call uses."""
     provider = str(getattr(cfg, "llm_provider", DEFAULT_PROVIDER) or DEFAULT_PROVIDER).lower()
     if provider == "openrouter":
@@ -1283,6 +1283,54 @@ def client_for(cfg, *, on_retry: Callable[[str], None] | None = None) -> Complet
     raise LLMError(
         f"unknown LLM provider {provider!r}; choose "
         f"{', '.join(PROVIDER_DEFAULT_MODELS)} with `memcal setup`")
+
+
+class FallbackClient(CompletionClient):
+    """Retry a failed transport once on an explicitly configured second provider."""
+
+    def __init__(self, primary, secondary, model: str, on_retry=None):
+        self.primary, self.secondary, self.model = primary, secondary, model
+        self.on_retry = on_retry
+
+    @property
+    def usage(self):
+        total = Usage()
+        with _LEDGER:
+            total.add(self.primary.usage)
+            total.add(self.secondary.usage)
+        return total
+
+    def complete(self, **kwargs):
+        try:
+            reply = self.primary.complete(**kwargs)
+        except LLMError:
+            import logging
+            logging.getLogger(__name__).warning("Primary completion failed; using fallback model %s", self.model)
+            if self.on_retry:
+                self.on_retry(f"primary provider failed; trying fallback model {self.model}")
+            retry_kwargs = {**kwargs, "model": self.model}
+            retry_kwargs.pop("provider", None)
+            reply = self.secondary.complete(**retry_kwargs)
+        return reply
+
+
+def client_for(cfg, *, on_retry: Callable[[str], None] | None = None) -> CompletionClient:
+    """The single factory for primary and optional fallback application calls."""
+    from dataclasses import replace
+    fallback = str(getattr(cfg, "fallback_provider", "") or "").strip().lower()
+    if not fallback:
+        return _client_for_provider(cfg, on_retry=on_retry)
+    if fallback == cfg.llm_provider.lower():
+        raise LLMError("fallback provider must differ from the primary provider")
+    model = cfg.fallback_model or PROVIDER_DEFAULT_MODELS.get(fallback, "")
+    if not model:
+        raise LLMError("set MEMCAL_FALLBACK_MODEL for this fallback provider")
+    secondary = _client_for_provider(replace(cfg, llm_provider=fallback,
+                                             propose_model=model, sweep_model=model,
+                                             match_model=model, fallback_provider=""),
+                                     on_retry=on_retry)
+    primary = _client_for_provider(cfg, on_retry=on_retry)
+    return FallbackClient(primary, secondary, model, on_retry)
 
 
 def provider_status(cfg) -> tuple[bool, str]:
@@ -1304,6 +1352,19 @@ def provider_status(cfg) -> tuple[bool, str]:
     command = backend.command(cfg)
     path = shutil.which(command)
     return bool(path), path or f"command not found: {command}"
+
+
+def fallback_status(cfg) -> tuple[bool, str]:
+    from dataclasses import replace
+    provider = str(cfg.fallback_provider or "").strip().lower()
+    if not provider:
+        return True, "disabled"
+    model = cfg.fallback_model or PROVIDER_DEFAULT_MODELS.get(provider, "")
+    if provider == cfg.llm_provider.lower() or not model:
+        return False, "choose a different fallback provider and a model it serves"
+    ok, detail = provider_status(replace(cfg, llm_provider=provider, propose_model=model,
+                                        sweep_model=model, match_model=model))
+    return ok, f"{provider} / {model} — {detail}"
 
 
 def _safe(worker: Callable, job):

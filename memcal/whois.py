@@ -187,10 +187,10 @@ def roster(conn: sqlite3.Connection) -> list[dict]:
             if not identity.is_me(conn, person)]
 
 
-def queue(conn: sqlite3.Connection) -> list[dict]:
+def queue(conn: sqlite3.Connection, *, active_days: int = 21) -> list[dict]:
     """The handles nothing can name, busiest first."""
     out = []
-    for row in identity.unresolved(conn, limit=MAX_UNRESOLVED):
+    for row in identity.unresolved(conn, limit=MAX_UNRESOLVED, active_days=active_days):
         # Skip threads that echo the handle; one-to-one email threads are named for it.
         seen = [t for t in identity.where_seen(conn, row["handle"], limit=3)
                 if t != row["handle"]]
@@ -201,10 +201,10 @@ def queue(conn: sqlite3.Connection) -> list[dict]:
     return out
 
 
-def picture(conn: sqlite3.Connection) -> str:
+def picture(conn: sqlite3.Connection, *, active_days: int = 21) -> str:
     """The whole board as one payload."""
     mine = identity.me_names(conn)
-    return db.jdump({"me": mine, "unresolved": queue(conn), "roster": roster(conn)})
+    return db.jdump({"me": mine, "unresolved": queue(conn, active_days=active_days), "roster": roster(conn)})
 
 
 def ceiling(payload: str) -> int:
@@ -217,7 +217,7 @@ def ceiling(payload: str) -> int:
 def resolve(client: CompletionClient, conn: sqlite3.Connection, cfg: Config, *,
             run_id: int | None = None) -> Resolution:
     """One call. Returns what it concluded; writes nothing."""
-    payload = picture(conn)
+    payload = picture(conn, active_days=cfg.unresolved_active_days)
     room = ceiling(payload)
     suffix = payload + "\n\nResolve these identities."
     reply = client.complete(

@@ -92,6 +92,27 @@ _PROVIDERS = (
 )
 
 SETTINGS: tuple[Setting, ...] = (
+    Setting("MEMCAL_FALLBACK_PROVIDER", "fallback_provider", "Fallback provider",
+            "Optional second provider after a model transport failure. Requests may be "
+            "sent to this provider and incur its charges. Empty disables fallback.",
+            "provider", kind="choice", choices=(("", "Disabled"), *_PROVIDERS)),
+    Setting("MEMCAL_FALLBACK_MODEL", "fallback_model", "Fallback model",
+            "Model on the fallback provider; empty uses that provider's default.",
+            "provider", kind="combo"),
+    Setting("MEMCAL_WHATSAPP_AUTOSTART", "whatsapp_autostart", "Open WhatsApp for dream",
+            "Open WhatsApp hidden before dream collects sources. Never opens from doctor.",
+            "collect", kind="bool"),
+    Setting("MEMCAL_WHATSAPP_CLOSE_AFTER", "whatsapp_close_after", "Close WhatsApp after collection",
+            "Quit after collection only if Memcal opened it. An already-running app stays open.",
+            "collect", kind="bool"),
+    Setting("MEMCAL_WHATSAPP_WAIT_SECONDS", "whatsapp_wait_seconds", "WhatsApp startup wait",
+            "Maximum time to wait for the local message database after opening WhatsApp.",
+            "collect", kind="int", minimum=0, maximum=300, unit="seconds"),
+    Setting("MEMCAL_UNRESOLVED_ACTIVE_DAYS", "unresolved_active_days", "Recent unnamed senders",
+            "Hide unnamed handles with no activity in this many days; new activity brings "
+            "them back. The archive and identity history are preserved.",
+            "collect", kind="int", minimum=1, maximum=365, unit="days"),
+
     # ------------------------------------------------------------------ provider --
     Setting("MEMCAL_LLM_PROVIDER", "llm_provider", "Provider",
             "Every application model call goes through this. Changing it also changes "
@@ -601,6 +622,16 @@ def prepare(cfg: Config, changes: dict) -> dict[str, tuple[str, object]]:
     for key, raw in changes.items():
         planned[key] = coerce(BY_KEY[key], raw, provider=check_text(provider))
     _check_models_served(cfg, check_text(provider), planned)
+    fallback = check_text(changes.get("MEMCAL_FALLBACK_PROVIDER", cfg.fallback_provider)).lower()
+    fallback_model = check_text(changes.get("MEMCAL_FALLBACK_MODEL", cfg.fallback_model))
+    if fallback:
+        from . import llm
+        if fallback == check_text(provider).lower():
+            raise SettingsError("Fallback provider must differ from the primary provider")
+        if fallback_model and llm.belongs_elsewhere(fallback, fallback_model):
+            raise SettingsError("Fallback model belongs to a different provider")
+        if not (fallback_model or llm.PROVIDER_DEFAULT_MODELS.get(fallback)):
+            raise SettingsError("Set a fallback model for this provider")
     return planned
 
 

@@ -26,6 +26,22 @@ For local `chatdb` ingestion, a sent message in a direct chat is associated with
 that chat's sole counterpart even when its own sender handle is absent. A chat
 with two other participants is treated as a group, preserving conversation routing.
 
+## Fixing local database access
+
+`memcal doctor` and `memcal sources` attempt a read-only query of `chat.db` and
+show the actual permission steps when it fails. File existence alone does not
+prove that macOS permits the database to be opened.
+
+1. Open System Settings → Privacy & Security → Full Disk Access.
+2. Add and enable `~/.memcal/memcal.app` (Finder's Go to Folder can open `~/.memcal`).
+3. Quit and reopen Memcal, then run `memcal doctor` again.
+
+If the app wrapper is missing, run `memcal schedule install` from the installed
+checkout first. If running Python without the wrapper, enable the terminal or
+agent app that launches it. The terminal's grant and the scheduled Memcal app's
+grant are separate; doctor checks the scheduled requester too. Calendar consent
+does not grant Messages access.
+
 ## Choosing and tuning the backend
 
 | Setting | Values | Default | What it does |

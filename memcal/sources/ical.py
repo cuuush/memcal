@@ -1353,6 +1353,10 @@ function migrate(store, wanted, apply) {
 }
 
 function request(store) {
+  // macOS does not present a second consent dialog for an existing decision.
+  const initial = status();
+  if (FULL_ACCESS.includes(initial)) return {granted: true, answered: true};
+  if (initial !== 0) return {granted: false, answered: true};
   let answered = false, granted = false;
   const done = function (ok, _err) { granted = ok; answered = true; };
   try {
@@ -1369,6 +1373,8 @@ function request(store) {
   // unanswered request reports itself and setup prints the manual grant steps.
   const deadline = $.NSDate.dateWithTimeIntervalSinceNow(45);
   while (!answered && $.NSDate.date.compare(deadline) < 0) {
+    const current = status();
+    if (current !== 0) return {granted: FULL_ACCESS.includes(current), answered: true};
     $.NSRunLoop.currentRunLoop.runModeBeforeDate(
       $.NSDefaultRunLoopMode, $.NSDate.dateWithTimeIntervalSinceNow(0.25));
   }

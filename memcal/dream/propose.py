@@ -290,10 +290,18 @@ TODO_DIFF_V2 = {
 WIKI_DIFF_V2 = {
     **BUNDLE_DIFF["properties"]["wiki"]["items"],
     "required": (BUNDLE_DIFF["properties"]["wiki"]["items"]["required"]
-                 + ["cites"]),
+                 + ["cites", "subject", "subject_role", "durability", "claim_kind",
+                    "note_key", "note_text", "note_previous"]),
     "properties": {
         **BUNDLE_DIFF["properties"]["wiki"]["items"]["properties"],
         "cites": _CITES,
+        "subject": {**_STR, "description": "The person/entity the claim is ABOUT, not automatically its speaker."},
+        "subject_role": {"type": ["string", "null"], "enum": ["speaker", "recipient", "named", None]},
+        "durability": {"type": ["string", "null"], "enum": ["lasting", "temporary", "administrative", "uncertain", None]},
+        "claim_kind": {"type": ["string", "null"], "enum": ["residence", "contact", "relationship", "preference", "background", "context", "plan", "administrative", None]},
+        "note_key": {**_STR, "description": "Stable key for one freeform context paragraph (e.g. employer-background)."},
+        "note_text": {**_STR, "description": "Complete new prose for that key; empty deletes it. Never replace the page."},
+        "note_previous": {**_STR, "description": "Exact existing paragraph; null only when adding a new key."},
     },
 }
 

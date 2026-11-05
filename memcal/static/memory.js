@@ -344,6 +344,28 @@ export function renderWikiProfile(page, holder, reload) {
     holder.append(box);
   }
 
+  if (page.body) {
+    const prose = el("div", "wikiprose");
+    prose.style.whiteSpace = "pre-wrap";
+    prose.textContent = page.body;
+    holder.append(prose);
+  }
+  for (const note of (page.context || [])) {
+    const box = el("div", "wikifact");
+    box.append(el("div", "bname", note.key));
+    const prose = el("div", "wikiprose");
+    prose.style.whiteSpace = "pre-wrap";
+    prose.textContent = note.value;
+    box.append(prose);
+    if ((note.sources || []).length) {
+      const details = el("details", "wikievidence");
+      details.append(el("summary", null, "Source"));
+      for (const line of note.sources) details.append(citeRow(line));
+      box.append(details);
+    }
+    holder.append(box);
+  }
+
   const facts = page.facts || [];
   if (facts.length) {
     holder.append(el("div", "bname", "What it knows"));
@@ -422,7 +444,11 @@ export function renderWikiProfile(page, holder, reload) {
   const enc = page.encounters || {};
   if (enc.count) {
     holder.append(el("div", "bname",
-      `Seen at ${enc.count} past event${enc.count === 1 ? "" : "s"}`));
+      "Shared history"));
+    holder.append(el("p", "muted",
+      `${enc.count} recorded past activit${enc.count === 1 ? "y" : "ies"}` +
+      ((enc.recent || []).length ? ` · most recent ${enc.recent[0].date}` : "") +
+      ". Based on recorded attendance or observations."));
     if ((enc.by_activity || []).length) {
       const chips = el("div", "wikialiases");
       for (const a of enc.by_activity)
@@ -444,7 +470,7 @@ export function renderWikiProfile(page, holder, reload) {
     }
   }
 
-  if (!facts.length && !(page.open_questions || []).length && !enc.count) {
+  if (!page.body && !(page.context || []).length && !facts.length && !(page.open_questions || []).length && !enc.count) {
     // A page with only prose the user typed. Fall back to the rendered markdown rather than
     // drawing an empty shell.
     const pre = el("pre"); pre.textContent = page.page || ""; holder.append(pre);

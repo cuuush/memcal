@@ -429,6 +429,7 @@ def launchd_memcal_call(cfg: Config, *, label: str, stem: str,
     # Per-call nonce: a timed-out orphan's late write must not poison the next
     # call, and concurrent invocations must not clobber each other's files.
     nonce = uuid.uuid4().hex[:12]
+    label = f"{label}-{nonce}"
     plist = cfg.home / f"{stem}-{nonce}.plist"
     result = cfg.home / f"{stem}-{nonce}-result.json"
     argv = launch_through(cfg, [python, "-m", "memcal", *memcal_argv,
@@ -618,6 +619,8 @@ exec >> "$LOG" 2>&1
 
 cd "{PROJECT_ROOT}" || exit 1
 
+: > "{cfg.home / 'nightly.last-attempt'}" || exit 1
+
 # `memcal schedule run` forces the owed path.
 VERDICT="${{MEMCAL_RUN_NOW:-}}"
 if [ "$VERDICT" != "owed" ]; then
@@ -662,7 +665,7 @@ echo "=== $(date '+%Y-%m-%d %H:%M:%S')  nightly ==="
 INGEST=$?
 
 # Dream reads the newly collected traffic.
-"$PY" -m memcal dream --mode nightly
+"$PY" -m memcal dream --mode nightly --no-ingest
 DREAM=$?
 
 echo "=== $(date '+%Y-%m-%d %H:%M:%S')  done (ingest $INGEST, dream $DREAM) ==="
@@ -708,7 +711,9 @@ def render_plist(cfg: Config, *, hour: int = DEFAULT_HOUR, minute: int = DEFAULT
 def _launchctl(*args: str, runner=subprocess.run) -> tuple[int, str]:
     """One `launchctl` verb, as (exit code, what it said)."""
     try:
-        proc = runner(["launchctl", *args], capture_output=True, text=True)
+        proc = runner(["launchctl", *args], capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        return 124, "launchctl did not answer within 10 seconds"
     except OSError as exc:
         return 127, f"launchctl is unavailable on this host: {exc}"
     return proc.returncode, (proc.stdout + proc.stderr).strip()
@@ -765,6 +770,10 @@ def install(cfg: Config, *, hour: int = DEFAULT_HOUR, minute: int = DEFAULT_MINU
         plistlib.dump(render_plist(cfg, hour=hour, minute=minute), fh)
     out.append(f"wrote {path}")
 
+    # A reinstall acknowledges historical failures until a fresh invocation runs.
+    installed_stamp = cfg.home / "nightly.installed"
+    installed_stamp.touch()
+
     # Replacing an existing agent means booting the old one out first; a bootstrap
     # over a loaded label fails with "service already loaded" and changes nothing.
     _launchctl("bootout", f"{_domain()}/{LABEL}")
@@ -773,6 +782,7 @@ def install(cfg: Config, *, hour: int = DEFAULT_HOUR, minute: int = DEFAULT_MINU
         # Older macOS, or a domain that will not take a bootstrap.
         code, message = _launchctl("load", "-w", str(path))
     if code != 0:
+        installed_stamp.unlink(missing_ok=True)
         out.append(f"launchctl refused it: {message or code}")
     else:
         out.append(f"loaded {LABEL} — next run {next_run(hour, minute)}, "
@@ -979,10 +989,21 @@ def status(cfg: Config, *, runner=subprocess.run) -> dict:
                                f"back to python3 on PATH; reinstall to re-pin")
                 break
 
+    installed_stamp = cfg.home / "nightly.installed"
+    attempt = cfg.home / "nightly.last-attempt"
+    waiting = installed_stamp.exists() and (
+        not attempt.exists() or attempt.stat().st_mtime < installed_stamp.stat().st_mtime)
+    for line in listing.splitlines():
+        if line.strip().startswith("runs ="):
+            try:
+                waiting = waiting and int(line.split("=")[-1]) == 0
+            except ValueError:
+                waiting = False
+
     # launchd's stderr, where jobs that cannot start report the cause.
     err = cfg.home / "launchd.err"
     startup_error = ""
-    if err.exists():
+    if err.exists() and (not waiting or err.stat().st_mtime >= installed_stamp.stat().st_mtime):
         startup_error = err.read_text(encoding="utf-8", errors="replace").strip()[-400:]
         if startup_error and not warning:
             warning = f"launchd could not start the job: {startup_error.splitlines()[-1]}"
@@ -993,7 +1014,7 @@ def status(cfg: Config, *, runner=subprocess.run) -> dict:
         exited_with = int(str(last_exit).strip())
     except (TypeError, ValueError):
         exited_with = 0
-    if not warning and exited_with != 0:
+    if not warning and exited_with != 0 and not waiting:
         warning = (f"the last run exited {last_exit} — the job is installed but not "
                    f"working; see {log_path(cfg)}")
 
@@ -1015,6 +1036,7 @@ def status(cfg: Config, *, runner=subprocess.run) -> dict:
         "owed": due.isoformat(timespec="seconds") if due else None,
         "why": why,
         "last_exit": last_exit,
+        "awaiting_run": waiting,
         "startup_error": startup_error,
         "tail": tail,
     }

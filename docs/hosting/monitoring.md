@@ -7,7 +7,11 @@ memcal doctor
 ```
 
 Reports across Store, Sources, Extraction, Schedule, and Calendar — what is
-wrong, and what to type about it.
+wrong, and what to type about it. Findings print as checks complete, with progress
+before source and scheduled-app probes. `--verbose` includes passing checks;
+`--json` emits one clean JSON result without progress text. Protected-source
+failures include the Full Disk Access steps rather than pointing back to another
+command with the same missing explanation.
 
 ## Runs and volume
 

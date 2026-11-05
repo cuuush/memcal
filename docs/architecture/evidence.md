@@ -50,3 +50,10 @@ refused rather than quietly treated as run time. The values a row is created
 holding record their own founding evidence time, so the first correction cannot
 erase what dream just established with an arbitrarily old source, and a clear must
 clear the same evidence bar a replacement would.
+
+Dream question attribution and conferencing links use the lines cited for that claim,
+rather than unrelated traffic in a bundle. Email bundles cannot retrieve group-chat
+context; restored neighboring context alone cannot create a new event or question.
+Trip end dates require a cited boundary assessment: a departure for an outing during
+a stay does not end the stay. Removing one imported calendar copy preserves a shared
+event while another copy remains active.

@@ -116,6 +116,21 @@ person. Do not create empty pages or infer relationships. Page `me` is the user:
 they state about themselves belongs on page `me`, and that slot or alias write creates
 the page when none exists yet.
 
+For each slot or context claim, identify `subject`, `subject_role`, `durability`,
+and `claim_kind` before choosing the page. The subject is who the words describe:
+"this is your account" is about the recipient even when `me` says it. Do not use
+speaker identity as a shortcut for ownership. Cite the actual statement.
+Only lasting claims belong in profiles. A visit or temporary stay is not a residence;
+use `claim_kind: residence` only for explicit home/lives-in evidence. Keep visits and
+course plans in events or to-dos. Routine account alerts, benefits disclosures,
+statements, legal boilerplate and tautologies are administrative noise, not wiki facts.
+When a short slot would hide essential meaning, use `note_key` and `note_text` for a
+freeform context paragraph, for example what an employer or named project is and how
+it relates to this person. Include only sourced context; never guess an expansion.
+Use a stable note key and the exact existing paragraph in `note_previous` (null for a
+new one). Replace or remove just that paragraph; preserve other notes and hand-written
+prose. Null note fields mean no context edit; empty note_text deletes that key.
+
 THE agent STREAM IS THEM INSTRUCTING A MACHINE
 `me → assistant` is an instruction. Facts stated there are reliable; delegated work is
 work handed off, not work the user owes. Create a to-do only when the doer is them.

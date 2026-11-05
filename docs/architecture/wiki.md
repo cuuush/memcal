@@ -31,12 +31,33 @@ aliases, fact labels, values, and prose before an archive lookup.
 Legacy `preferences/` pages remain readable and migrate into `people/`; new writes
 use only people, places, or projects. Personal preferences belong on the user's page.
 
-## Slots, not blobs
+## Facts and context
 
 Durable facts belong on wiki pages; open obligations belong in to-dos. A slot fill
 is a small keyed write with provenance, applied per-slot when two bundles touch
 one page. Older installations may still contain legacy standing rows: their `S`
 handles remain readable for recovery, but new standing writes are rejected.
+
+Dream's v2 claim schema names the subject, its role in the statement, durability,
+and claim kind. An outgoing statement about its recipient cannot become a fact
+about the user. Temporary visits cannot fill a residence field; routine financial
+statements, account notices, course plans, and tautologies do not belong in profiles.
+Plans belong in events or to-dos. Older saved responses remain replayable, with
+per-field evidence precedence protecting later corrections and deleted facts.
+
+For explanations that need prose, pages have a **Context** section containing named
+paragraphs alongside Facts and hand-written introductory text. For example, a
+paragraph can explain what a named employer does and how it relates to someone.
+Dream supplies `note_key`, the full `note_text`, and the exact `note_previous` value
+it read, plus message citations. It replaces only that paragraph. Empty text removes
+it; null fields leave it alone. Conflicting edits and stale evidence are rejected.
+Context keeps source IDs and history, participates in wiki search and model context,
+and appears in both the web profile and agent page detail.
+
+The web profile's **Shared history** shows recorded past attendance and observations,
+activity counts, and recent dated event links. Future observations and elapsed plans
+without attendance evidence are excluded; an event's date passing does not prove that
+someone attended it.
 
 ## Hand-editable
 

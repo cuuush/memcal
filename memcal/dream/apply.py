@@ -443,13 +443,13 @@ def _apply_diffs(conn: sqlite3.Connection, cfg: Config, proposals,
             # its lines; when the model pointed at nothing, the value's own best
             # lines decide rather than the bundle.
             cited = row.get("cite_ids") if isinstance(row, dict) else None
-            about = _claims(row, "value") if isinstance(row, dict) else []
+            about = (_claims(row, "value") + _claims(row, "note_text")) if isinstance(row, dict) else []
             slot_ids = ([i for i in (cited or ()) if isinstance(i, int)]
                         or _supporting_lines(bundle, about))
             for outcome in _apply_wiki(conn, cfg, row, source=source, seen=seen_slots,
                                        evidence_ts=_wiki_evidence_ts(bundle, row),
                                        commit=False, archive_ids=slot_ids):
-                if outcome[0] == "slot":
+                if outcome[0] in {"slot", "context"}:
                     note("wiki", outcome, "wiki:", cites=slot_ids, about=about,
                          generation=(row.get("_generation_id")
                                      if isinstance(row, dict) else None))
@@ -1251,8 +1251,8 @@ def _wiki_evidence_ts(bundle: Bundle, row: dict) -> str | None:
     """
     if not isinstance(row, dict):
         return None
-    value = _clean(row.get("value"))
-    if not _clean(row.get("slot")) or not value:
+    value = _clean(row.get("value")) or _clean(row.get("note_text"))
+    if not value:
         return _newest(bundle) if bundle.items else None
     cited = row.get("cite_ids") if isinstance(row.get("cite_ids"), list) else None
     return _evidence_ts(bundle, cited, [value])
@@ -1305,6 +1305,46 @@ def _ts_not_newer(older: str, newer: str) -> bool:
         return str(older) <= str(newer)
 
 
+def _wiki_claim_rejection(conn, cfg, slug, section, row, archive_ids):
+    """A structured claim must name its subject, scope and exact evidence."""
+    # Old saved responses predate the claim contract and remain replayable.
+    if "durability" not in row:
+        return None
+    if not (row.get("slot") or row.get("note_key")):
+        return None
+    if row.get("durability") != "lasting" or row.get("claim_kind") not in {
+            "residence", "contact", "relationship", "preference", "background", "context"}:
+        return "temporary plans, administrative notices and uncertain claims do not belong in a profile"
+    subject = _clean(row.get("subject"))
+    if not subject or not archive_ids or conn is None:
+        return "a profile claim needs a named subject and cited messages"
+    target = wiki.resolve_self_page(conn, cfg.wiki_dir, subject) or db.slugify(subject)
+    if wiki.canonical(cfg.wiki_dir, target) != slug:
+        return "the claim's subject does not match the page"
+    role = row.get("subject_role")
+    if role not in {"speaker", "recipient", "named"}:
+        return "the subject's role in the cited statement is missing"
+    lines = [conn.execute("SELECT * FROM archive WHERE id = ?", (i,)).fetchone() for i in archive_ids]
+    lines = [line for line in lines if line is not None]
+    if not lines:
+        return "the cited messages are missing"
+    try:
+        self_page = wiki.self_slug(conn, cfg.wiki_dir)
+    except wiki.SelfAmbiguous:
+        return "resolve the ambiguous user page before recording a personal claim"
+    if role == "speaker":
+        speakers = {self_page if line["from_me"] else wiki.canonical(
+            cfg.wiki_dir, db.slugify(line["person"] or line["handle"] or "")) for line in lines}
+        if slug not in speakers:
+            return "the cited speaker is not this page's subject"
+    if role == "recipient" and slug == self_page and all(line["from_me"] for line in lines):
+        return "an outgoing statement about its recipient is not a fact about the user"
+    if section == "people" and str(row.get("slot") or "").lower() in {"location", "where they live", "residence", "home", "city"}:
+        if row.get("claim_kind") != "residence":
+            return "a residence requires explicit evidence of where the person lives, not a visit"
+    return None
+
+
 def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None = None,
                 evidence_ts: str | None = None, commit: bool = True,
                 archive_ids: list[int] | None = None):
@@ -1335,7 +1375,11 @@ def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None =
         slug = self_target if self_target is not None else db.slugify(page)
     else:
         slug = db.slugify(page)
+    slug = wiki.canonical(cfg.wiki_dir, slug)
     section = resolve_section(conn, cfg, slug, _clean(row.get("section")))
+    rejection = _wiki_claim_rejection(conn, cfg, slug, section, row, archive_ids)
+    if rejection:
+        return [("rejected-claim", f"{slug}: {rejection}")]
     slot, value = _clean(row.get("slot")), _clean(row.get("value"))
     question = _clean(row.get("question"))
     alias = _clean(row.get("alias"))
@@ -1344,7 +1388,9 @@ def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None =
     made_self = False
 
     if slot and value:
-        if len(value) > MAX_SLOT_VALUE:
+        if slot.casefold().strip() == value.casefold().strip():
+            out.append(("rejected-tautology", f"{slug}.{slot} repeats its own label"))
+        elif len(value) > MAX_SLOT_VALUE:
             out.append(("rejected-verbose",
                         f"{slug}.{slot} value too long ({len(value)} chars)"))
         else:
@@ -1354,8 +1400,7 @@ def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None =
                 existing = wiki.read(cfg.wiki_dir, slug)
                 if existing is not None:
                     previous = (existing.slots.get(slot) or {}).get("value")
-                if (evidence_ts is not None and previous is not None
-                        and previous != value):
+                if evidence_ts is not None and previous != value:
                     current_ts = _wiki_slot_current_ts(conn, cfg, slug, slot)
                     if current_ts is not None and _ts_not_newer(evidence_ts, current_ts):
                         # Older than the decision it would revise: a direct
@@ -1376,6 +1421,20 @@ def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None =
                     if before is None or conn.total_changes != before:
                         out.append(("slot", f"{slug}.{slot} = {value}",
                                     f"{slug}.{slot.lower()}"))
+
+    note_key = _clean(row.get("note_key"))
+    if note_key and row.get("note_text") is not None:
+        try:
+            changed = wiki.set_context(
+                cfg.wiki_dir, slug, note_key, row["note_text"],
+                previous=row.get("note_previous"), source=source, conn=conn,
+                section=section, commit=commit, archive_ids=archive_ids,
+                evidence_ts=evidence_ts)
+            if changed:
+                made_self = True
+                out.append(("context", f"{slug}: updated {note_key}", f"{slug}.context:{note_key.lower()}"))
+        except ValueError as exc:
+            out.append(("rejected-context", f"{slug}: {exc}"))
 
     if alias and not _is_a_name(alias):
         out.append(("rejected-alias", f"{slug}: {alias!r} is not a name"))

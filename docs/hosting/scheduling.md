@@ -32,7 +32,11 @@ for the same night. `memcal schedule status` reports when a retry is owed.
 
 `memcal update` regenerates an installed job script and reloads launchd. To repair
 it separately, run `memcal schedule install` from your normal installation. An
-existing pending pass remains owed through update or reinstall.
+existing pending pass remains owed through update or reinstall. Reinstall acknowledges
+the previous exit warning while waiting for a fresh invocation. Missing scripts,
+unloaded jobs and fresh startup failures still report immediately; a new failed
+invocation restores the warning. Collection runs once before nightly extraction,
+which uses `--no-ingest` to avoid pulling the same sources again.
 
 Daytime collection between passes is model-free; dream stays nightly. See
 [Daytime freshness](../architecture/freshness.md) and [Dream](../architecture/dream.md).

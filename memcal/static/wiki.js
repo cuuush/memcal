@@ -53,6 +53,7 @@ function card(page, isSelf) {
     card.append(el("div", "wikicardans", page.answers.join(" · ")));
   const facts = `${page.facts} fact${page.facts === 1 ? "" : "s"}`;
   const bits = [facts];
+  if (page.context) bits.push(`${page.context} context paragraph${page.context === 1 ? "" : "s"}`);
   if (page.questions) bits.push(`${page.questions} open`);
   if ((page.aliases || []).length) bits.push(`${page.aliases.length} alias${page.aliases.length === 1 ? "" : "es"}`);
   card.append(el("div", "wikicardmeta", bits.join(" · ")));

@@ -262,10 +262,12 @@ def collect_work(conn: sqlite3.Connection, cfg: Config, job: _Job) -> dict:
     Takes this store's collection lock first, so a scheduled tick racing a manual
     `ingest` gets an explicit busy result instead of a second concurrent fetch.
     """
-    from . import lock
+    from . import lock, sources
 
     try:
-        with lock.held(cfg):
+        from .sources import whatsapp
+        with lock.held(cfg), whatsapp.desktop_session(
+                cfg, enabled="whatsapp" not in sources.disabled_set(cfg), report=job.say):
             return _collect_inner(conn, cfg, job)
     except lock.Busy as exc:
         job.say(f"busy: {exc} — try again shortly")

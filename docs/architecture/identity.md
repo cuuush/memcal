@@ -27,6 +27,12 @@ memcal who --confirm 3  # accept a merge, or act on a doubt
 and every known person in one request, so a handle is matched against the whole
 roster rather than judged alone.
 
+Unnamed handles with no inbound source activity in the last 21 days are hidden from
+`who`, `review`, doctor's warning, and the model naming queue. Set
+`MEMCAL_UNRESOLVED_ACTIVE_DAYS` (1–365) to change the window. New activity brings a
+handle back. Source timestamps determine recency even when old messages are imported
+today; the archive, naming history, and explicit ignore decisions are preserved.
+
 ## Assumed, not decided
 
 What the model concludes is provisional: merges take effect immediately, are

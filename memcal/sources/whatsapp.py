@@ -6,6 +6,10 @@ import glob
 import hashlib
 import os
 import sqlite3
+import subprocess
+import sys
+import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -63,6 +67,43 @@ def store_path(explicit: str | None = None) -> Path | None:
         for hit in sorted(glob.glob(os.path.expanduser(pattern))):
             return Path(hit)
     return None
+
+
+@contextmanager
+def desktop_session(cfg, *, enabled=True, report=print, runner=subprocess.run,
+                    monotonic=time.monotonic, sleep=time.sleep):
+    """Own only an app we opened, and always release it after collection."""
+    opened = False
+    try:
+        try:
+            if enabled and cfg.whatsapp_autostart and sys.platform == "darwin":
+                running = runner(["pgrep", "-x", "WhatsApp"], capture_output=True, timeout=5)
+                if running.returncode == 1:
+                    result = runner(["open", "-g", "-j", "-a", "WhatsApp"],
+                                    capture_output=True, text=True, timeout=10)
+                    opened = result.returncode == 0
+                    if not opened:
+                        report("WhatsApp could not open; check the desktop installation")
+                if running.returncode == 0 or opened:
+                    report("Waiting for WhatsApp's local database…")
+                    deadline = monotonic() + max(0, min(300, cfg.whatsapp_wait_seconds))
+                    while True:
+                        usable, detail = WhatsAppSource().check(cfg)
+                        if usable or monotonic() >= deadline:
+                            if not usable:
+                                report(detail)
+                            break
+                        sleep(min(0.5, max(0, deadline - monotonic())))
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            report(f"WhatsApp startup failed: {exc}")
+        yield
+    finally:
+        if opened and cfg.whatsapp_close_after:
+            try:
+                runner(["osascript", "-e", 'tell application "WhatsApp" to quit'],
+                       capture_output=True, timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
+                report("WhatsApp did not close; quit it manually when convenient")
 
 
 def to_iso(value) -> str:
@@ -397,9 +438,14 @@ class WhatsAppSource(Source):
             return False, ("WhatsApp desktop not installed or never signed in — "
                            "no ChatStorage.sqlite in ~/Library/Group Containers/")
         try:
-            src = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-            n = src.execute("SELECT count(*) FROM ZWAMESSAGE").fetchone()[0]
-            src.close()
+            src = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
+            try:
+                n = src.execute("SELECT count(*) FROM ZWAMESSAGE").fetchone()[0]
+            finally:
+                src.close()
         except sqlite3.Error as exc:
-            return False, f"found {path.name} but could not read it: {exc}"
+            return False, (f"found {path.name} but could not read it: {exc}. Open WhatsApp and "
+                           "sign in. If it still fails, enable memcal.app in System Settings → "
+                           "Privacy & Security → Full Disk Access, then reopen memcal. "
+                           "Optional: enable Open WhatsApp for dream in Settings.")
         return True, f"{n} messages in {path.parent.name}"

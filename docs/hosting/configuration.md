@@ -28,6 +28,8 @@ to configure just `provider`, `imessage`, `brief`, `collect`, `dream`, `merge`,
 | Key | Default | Meaning |
 |---|---|---|
 | `MEMCAL_LLM_PROVIDER` | `codex` | `codex`, `claude-code`, `antigravity`, `grok`, `openrouter`, or `openai-compatible` |
+| `MEMCAL_FALLBACK_PROVIDER` | empty (disabled) | Optional second provider after a primary completion fails |
+| `MEMCAL_FALLBACK_MODEL` | fallback provider default | Explicit model ID for the second provider |
 | `MEMCAL_OPENAI_BASE_URL` | empty | API base URL for `openai-compatible`, such as `https://host/v1` |
 | `MEMCAL_PROPOSE_MODEL` | provider native | Night-traffic proposer — the main cost |
 | `MEMCAL_SWEEP_MODEL` | provider native | Stale-row and question revisitor |
@@ -64,6 +66,25 @@ and web search are all switched off. The packed prompt rides in a temp file
 (`--prompt-file`) so a large propose wave never crosses the shell argument limit;
 the output schema is passed inline as the `--json-schema` literal.
 
+### Optional fallback
+
+Configure the primary and fallback independently in Settings (or the store `.env`):
+
+```dotenv
+MEMCAL_LLM_PROVIDER=codex
+MEMCAL_FALLBACK_PROVIDER=openrouter
+MEMCAL_FALLBACK_MODEL=openai/gpt-6-luna
+OPENROUTER_API_KEY=your-key
+```
+
+Fallback is off by default. Enabling it permits the same prompt and source messages
+to be sent to the second provider, with that provider's charges and privacy terms.
+It runs once after the primary transport exhausts its retries or timeout; successful
+primary calls keep using the primary. The fallback model must belong to the fallback
+provider. Clear `MEMCAL_FALLBACK_PROVIDER` to disable it. Failed fallback calls remain
+errors, and usage includes both providers. Configure `MEMCAL_LLM_COMMAND_TIMEOUT` to
+control how long a CLI request can take before fallback.
+
 ### Brief
 
 | Key | Default | Meaning |
@@ -85,6 +106,10 @@ the output schema is passed inline as the `--json-schema` literal.
 | `MEMCAL_IMESSAGE_FALLBACK` | on | With the BlueBubbles backend, read local `chat.db` when the server is unreachable; off = hard failure |
 | `MEMCAL_BLUEBUBBLES_LOCATION` | `auto` | `auto` (infer from URL), `local`, or `remote` — decides whether the app may be opened |
 | `MEMCAL_BLUEBUBBLES_AUTOSTART` | on | Open a down **local** BlueBubbles server (hidden) during the nightly pass |
+| `MEMCAL_WHATSAPP_AUTOSTART` | off | Open WhatsApp hidden before collection (including dream's source pull) |
+| `MEMCAL_WHATSAPP_CLOSE_AFTER` | on | Close after collection only when Memcal opened it |
+| `MEMCAL_WHATSAPP_WAIT_SECONDS` | `30` (0–300) | Maximum wait for the local WhatsApp database |
+| `MEMCAL_UNRESOLVED_ACTIVE_DAYS` | `21` (1–365) | Hide inactive unnamed senders from naming queues and diagnostics |
 | `MEMCAL_ITEM_BUDGET` | `20000` | Lines per pass |
 | `MEMCAL_ITEMS_PER_ENTITY` | `2000` | Lines per bundle |
 | `MEMCAL_COLD_START_WAVES` | `4` (1–20) | Wave count for large first passes |

@@ -377,7 +377,9 @@ class TestEveryConfigKnobHasAReader(unittest.TestCase):
         calls = "\n".join(
             (ROOT / "memcal" / "dream" / part).read_text(encoding="utf-8")
             for part in ("propose.py", "merge.py", "sweep.py"))
-        # `assertTrue` rather than `assertIn`: the haystack is three whole modules and
+        # Cross-provider fallback selects its model at the shared client factory.
+        calls += (ROOT / "memcal" / "llm.py").read_text(encoding="utf-8")
+        # `assertTrue` rather than `assertIn`: the haystack is whole modules and
         # `assertIn` prints it.
         for name in models:
             self.assertTrue(f"cfg.{name}" in calls,

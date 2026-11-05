@@ -41,6 +41,8 @@ class Config:
     # Codex or Antigravity authentication; OpenRouter needs an API key, which is why it
     # is not the default — a fresh install works from a login the user already has.
     llm_provider: str = "codex"
+    fallback_provider: str = ""
+    fallback_model: str = ""
     openai_base_url: str = ""
     claude_command: str = "claude"
     codex_command: str = "codex"
@@ -128,6 +130,11 @@ class Config:
     # down. Only ever launches an app installed on this Mac for a local server; a remote
     # server is never launched. Gated further by `imessage_backend`/`bluebubbles_location`.
     bluebubbles_autostart: bool = True
+
+    whatsapp_autostart: bool = False
+    whatsapp_close_after: bool = True
+    whatsapp_wait_seconds: int = 30
+    unresolved_active_days: int = 21
 
     # Number of execution waves to split cold-start ingestion into, allowing intermediate
     # state resolution across independent threads.
@@ -248,6 +255,12 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
     cfg = Config(home=home_path, env=env)
     for name, attr, cast in (
         ("MEMCAL_LLM_PROVIDER", "llm_provider", str),
+        ("MEMCAL_FALLBACK_PROVIDER", "fallback_provider", str),
+        ("MEMCAL_FALLBACK_MODEL", "fallback_model", str),
+        ("MEMCAL_WHATSAPP_AUTOSTART", "whatsapp_autostart", _flag),
+        ("MEMCAL_WHATSAPP_CLOSE_AFTER", "whatsapp_close_after", _flag),
+        ("MEMCAL_WHATSAPP_WAIT_SECONDS", "whatsapp_wait_seconds", int),
+        ("MEMCAL_UNRESOLVED_ACTIVE_DAYS", "unresolved_active_days", int),
         ("MEMCAL_OPENAI_BASE_URL", "openai_base_url", str),
         ("MEMCAL_CLAUDE_COMMAND", "claude_command", str),
         ("MEMCAL_CODEX_COMMAND", "codex_command", str),

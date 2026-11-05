@@ -30,7 +30,7 @@ ALIAS_RE = re.compile(r"^-\s+(?P<name>.+?)\s*$")
 
 #: Heading text -> which part of the page the lines under it belong to.
 HEADINGS = {"## facts": "facts", "## open questions": "questions",
-            "## also known as": "aliases"}
+            "## also known as": "aliases", "## context": "notes"}
 
 
 @dataclass
@@ -45,11 +45,19 @@ class Page:
     #: Other names for the same entity. Every one of them resolves to this page, so
     #: nothing can open a second one for a name we already know is this person.
     aliases: list[str] = field(default_factory=list)
+    notes: dict[str, dict] = field(default_factory=dict)
 
     def render(self) -> str:
         lines = [f"# {self.title or self.slug}", ""]
         if self.body.strip():
             lines += [self.body.strip(), ""]
+        if self.notes:
+            lines += ["## Context", ""]
+            for key, info in self.notes.items():
+                bits = [x for x in (info.get("source"), info.get("ts")) if x]
+                bits += [f"#{i}" for i in info.get("lines", [])]
+                lines += [f"### {key}", "", info.get("value", ""),
+                          "<!-- " + " ".join(bits) + " -->", ""]
         if self.aliases:
             lines += ["## Also known as", ""]
             lines += [f"- {name}" for name in self.aliases]
@@ -345,6 +353,8 @@ def merge(wiki_dir: Path, keep: str, drop: str, *, source: str = "merge") -> Pag
 
     for slot, info in doomed.slots.items():
         survivor.slots.setdefault(slot, {**info, "source": info.get("source") or source})
+    for key, info in doomed.notes.items():
+        survivor.notes.setdefault(key, info)
     for question in doomed.questions:
         if question not in survivor.questions:
             survivor.questions.append(question)
@@ -377,12 +387,28 @@ def parse(path: Path, slug: str, section: str) -> Page:
 def _parse_content(content: str, path: Path, slug: str, section: str) -> Page:
     page = Page(slug=slug, section=section, path=path)
     current = "body"
+    note_key = None
     body: list[str] = []
     for line in content.splitlines():
         if line.startswith("# ") and not page.title:
             page.title = line[2:].strip()
             continue
         low = line.strip().lower()
+        if current == "notes" and line.startswith("### "):
+            note_key = line[4:].strip()
+            page.notes[note_key] = {"value": "", "lines": []}
+            continue
+        if current == "notes" and note_key and not line.startswith("## "):
+            info = page.notes[note_key]
+            if line.strip().startswith("<!-- ") and line.strip().endswith(" -->"):
+                tokens = line.strip()[5:-4].split()
+                info["lines"] = [int(t[1:]) for t in tokens if LINE_REF_RE.match(t)]
+                rest = [t for t in tokens if not LINE_REF_RE.match(t)]
+                info["source"] = rest[0] if rest else None
+                info["ts"] = rest[1] if len(rest) > 1 else None
+            else:
+                info["value"] = (info["value"] + "\n" + line).strip("\n")
+            continue
         if low.startswith("## "):
             current = HEADINGS.get(low, "body")
             if current == "body":
@@ -445,14 +471,15 @@ def record_raw_edit(conn, page: Page, text: str, *, source: str = "you") -> None
     the transaction.
     """
     before = page.path.read_text(encoding="utf-8") if page.path.exists() else ""
-    old_slots = (_parse_content(before, page.path, page.slug, page.section).slots
-                 if before else {})
-    new_slots = _parse_content(text, page.path, page.slug, page.section).slots
-    for slot_name, info in new_slots.items():
-        old_value = (old_slots.get(slot_name) or {}).get("value")
-        if old_value != info.get("value"):
-            record_slot_change(conn, page.slug, slot_name, old_value,
-                               info.get("value"), source=source)
+    old_page = _parse_content(before, page.path, page.slug, page.section)
+    new_page = _parse_content(text, page.path, page.slug, page.section)
+    for prefix, old, new in (("", old_page.slots, new_page.slots),
+                             ("context:", old_page.notes, new_page.notes)):
+        for key in old.keys() | new.keys():
+            old_value, new_value = (old.get(key) or {}).get("value"), (new.get(key) or {}).get("value")
+            if old_value != new_value:
+                record_slot_change(conn, page.slug, prefix + key, old_value,
+                                   new_value, source=source)
 
 
 def _write_rendered(path: Path, content: str) -> None:
@@ -656,6 +683,38 @@ def set_slot(wiki_dir: Path, slug: str, slot: str, value: str, *,
         return page
 
 
+def set_context(wiki_dir: Path, slug: str, key: str, text: str, *, previous: str | None,
+                source: str, conn, section="people", commit=True,
+                archive_ids=None, evidence_ts=None) -> bool:
+    """Replace one cited paragraph only if the version the writer read still exists."""
+    key, text = key.strip().lower(), text.strip()
+    if not key or len(key) > 80 or "\n" in key or len(text) > 4000:
+        raise ValueError("context needs a short key and at most 4000 characters")
+    if "<!--" in text or any(line.startswith(("# ", "## ", "### ")) for line in text.splitlines()):
+        raise ValueError("context must be prose, without page headings or metadata comments")
+    with _wiki_write(conn, wiki_dir, commit=commit):
+        page = _page_for_write(conn, wiki_dir, slug, section)
+        old = (page.notes.get(key) or {}).get("value")
+        if old == text or old is None and not text:
+            return False
+        if old != previous:
+            raise ValueError("context changed since it was read; read the page again")
+        history = slot_history(conn, page.slug, "context:" + key)
+        if history and evidence_ts:
+            latest = history[-1]
+            if db.parse_ts(evidence_ts) <= db.parse_ts(latest["evidence_ts"] or latest["changed_at"]):
+                raise ValueError("context keeps its newer correction")
+        if text:
+            page.notes[key] = {"value": text, "source": source, "ts": db.today().isoformat(),
+                               "lines": list(archive_ids or [])}
+        else:
+            page.notes.pop(key, None)
+        record_slot_change(conn, page.slug, "context:" + key, old, text or None,
+                           source=source, evidence_ts=evidence_ts)
+        _stage_page(conn, wiki_dir, page)
+    return True
+
+
 def slot_claimed_by_another(conn, page: str, slot: str, source: str | None) -> bool:
     """Has another writer already set this slot? Mirrors `events._claimed_by_another`."""
     if conn is None:
@@ -773,6 +832,8 @@ def migrate_preferences(wiki_dir: Path, conn=None) -> list[str]:
                     record_slot_change(conn, slug, slot, info.get("value"),
                                        current.get("value"),
                                        source="migrate-preferences")
+            for key, info in incoming.notes.items():
+                survivor.notes.setdefault(key, info)
             for question in incoming.questions:
                 if question not in survivor.questions:
                     survivor.questions.append(question)
@@ -1078,6 +1139,10 @@ def search_facts(wiki_dir: Path, query: str, limit: int = 10) -> list[dict]:
             matched.append("value")
         if needle in (page.body or "").casefold():
             matched.append("body")
+        context_hits = {key: info for key, info in page.notes.items()
+                        if needle in key.casefold() or needle in info.get("value", "").casefold()}
+        if context_hits:
+            matched.append("context")
         if not matched:
             continue
         hits.append({
@@ -1088,6 +1153,7 @@ def search_facts(wiki_dir: Path, query: str, limit: int = 10) -> list[dict]:
                              "source": info.get("source"),
                              "ts": info.get("ts")}
                       for slot, info in page.slots.items()},
+            "context": context_hits,
             "provenance": {slot: {"source": (page.slots[slot] or {}).get("source"),
                                   "ts": (page.slots[slot] or {}).get("ts")}
                            for slot in matched_slots},
@@ -1099,7 +1165,7 @@ def search_facts(wiki_dir: Path, query: str, limit: int = 10) -> list[dict]:
 
 def is_material(page: Page) -> bool:
     """Whether a page has earned its file and prompt space."""
-    return bool(page.slots or page.aliases or page.questions or (page.body or "").strip())
+    return bool(page.notes or page.slots or page.aliases or page.questions or (page.body or "").strip())
 
 
 def encounter_summary(conn, page: Page, *, limit: int = 6) -> dict:
@@ -1109,8 +1175,8 @@ def encounter_summary(conn, page: Page, *, limit: int = 6) -> dict:
     matched = []
     for row in conn.execute(
         """SELECT * FROM events
-            WHERE status != 'declined' AND (status = 'happened' OR kind = 'observed')
-            ORDER BY date DESC, id DESC"""
+            WHERE date <= ? AND status != 'declined' AND (status = 'happened' OR kind = 'observed')
+            ORDER BY date DESC, id DESC""", (db.today().isoformat(),)
     ):
         people = db.jload(row["participants"], [])
         people.append(row["subject"])
@@ -1146,6 +1212,13 @@ def profile(conn, wiki_dir: Path, slug: str, *, context: int = 0) -> dict | None
                                 context=context)
         for slot in page.slots
     }
+    def context_sources(key, info):
+        if info.get("lines"):
+            lines = [trace.line(conn, line_id) for line_id in info["lines"]]
+            return [{**line, "evidence": True} for line in lines if line]
+        return trace.source_rows(conn, "wiki", f"{page.slug}.context:{key}",
+                                 context=0, cited_only=True)
+
     # The latest write behind each slot: which bundle it came out of, and the
     # call/run behind that bundle. This is what turns "40 lines it came from"
     # into "line 12, from bundle abc123, read in run 5". The bundle id is the
@@ -1179,6 +1252,10 @@ def profile(conn, wiki_dir: Path, slug: str, *, context: int = 0) -> dict | None
         # Same slot list the brief index prints, so the two cannot disagree.
         "answers": list(page.slots),
         "facts": [{"slot": name, **info} for name, info in page.slots.items()],
+        "body": page.body,
+        "context": [{"key": key, **info,
+                     "sources": context_sources(key, info)}
+                    for key, info in page.notes.items()],
         # Archive line ids cited in the markdown comment itself, so the file
         # alone names its lines without a database lookup.
         "cited_ids": {slot: list((info or {}).get("lines") or [])

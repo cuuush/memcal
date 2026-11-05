@@ -27,7 +27,7 @@ from .dream import bundle as bundle_stage
 from .dream import propose as propose_stage
 from .dream.run import dream
 from . import sources
-from .sources import ical
+from .sources import ical, whatsapp
 from .llm import LLMError
 
 WEEKDAYS = {"mon": 0, "tue": 1, "tues": 1, "wed": 2, "weds": 2, "thu": 3, "thur": 3,
@@ -887,7 +887,7 @@ def cmd_who(args) -> int:
         for line in pairs:
             print(line)
 
-    rows = identity.unresolved(conn, limit=args.limit)
+    rows = identity.unresolved(conn, limit=args.limit, active_days=cfg.unresolved_active_days)
     if not rows:
         if not pairs and not open_assumptions and not doubts:
             print("(no unresolved handles)")
@@ -1062,7 +1062,8 @@ def cmd_ingest(args) -> int:
         chosen = wanted
 
     try:
-        with lock.held(cfg):
+        with lock.held(cfg), whatsapp.desktop_session(
+                cfg, enabled=any(s.name == "whatsapp" for s in chosen)):
             return _ingest_locked(args, cfg, conn, chosen, due=due)
     except lock.Busy as exc:
         print(f"ingest: {exc} — try again shortly", file=sys.stderr)
@@ -1229,6 +1230,24 @@ def cmd_reminders(args) -> int:
 
 def cmd_ical(args) -> int:
     """Request or report macOS Calendar permission for the real requester."""
+    if args.action == "probe" and args.result:
+        # The consent worker must answer independently of the store's SQLite lock.
+        # Its caller records the result after the system dialog has completed.
+        cfg = config.load(getattr(args, "home", None))
+        if args.ek == "request":
+            ok, message = ical.request_calendar_access()
+        elif args.ek == "where":
+            ok, message = ical.account_status(cfg)
+        else:
+            ok, message = ical.permission_status()
+        from pathlib import Path
+        target = Path(args.result)
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"ok": ok, "message": message}), encoding="utf-8")
+        temporary.replace(target)
+        return 0 if ok else 1
+    if args.action == "setup":
+        print("Starting Calendar permission setup…", flush=True)
     cfg, conn = open_ctx(args)
     if args.action == "probe":
         # `--ek` runs inside the temporary launchd agent, where these in-process
@@ -1325,8 +1344,12 @@ def cmd_ical(args) -> int:
             conn.close()
             return 2
 
+    conn.commit()
+    print("Checking Calendar automation access (up to 45 seconds)…", flush=True)
     if installed:
         ok, message = schedule.calendar_permission_probe(cfg)
+        if ok:
+            db.set_meta(conn, "ical.permission.nightly", db.now())
         print(("ok " if ok else "-- ") + message)
     else:
         ok, message = ical.permission_status()
@@ -1347,12 +1370,22 @@ def cmd_ical(args) -> int:
         print("Requesting Calendars access for memcal — answer the system dialog…",
               flush=True)
         granted, message = schedule.eventkit_call(cfg, "request", timeout=90)
-        print(("ok " if granted else "-- ") + message)
+        print(("ok " if granted else "-- ") + message, flush=True)
+        if granted:
+            db.set_meta(conn, "ical.eventkit.verified", db.now())
+        else:
+            conn.execute("DELETE FROM meta WHERE key = 'ical.eventkit.verified'")
+            conn.commit()
         if granted:
             # 75 > the inner 60s `_account_call`, itself over the 45s JXA bound:
             # a slow answer reports instead of racing the inner call.
+            print("Checking the calendar account (up to 75 seconds)…", flush=True)
             where_ok, where = schedule.eventkit_call(cfg, "where", timeout=75)
-            print(("ok " if where_ok else "-- ") + where)
+            print(("ok " if where_ok else "-- ") + where, flush=True)
+            if not where_ok:
+                conn.execute("DELETE FROM meta WHERE key = 'ical.eventkit.verified'")
+                conn.commit()
+            granted = granted and where_ok
         ok = ok and granted
     conn.close()
     return 0 if ok else 1
@@ -1461,7 +1494,8 @@ def _ingest_all_for_dream(args, cfg: Config, conn: sqlite3.Connection) -> None:
           "Checking sources…", flush=True)
     ingest_args = argparse.Namespace(limit=1000, rounds=sources.DEFAULT_ROUNDS)
     try:
-        with lock.held(cfg):
+        with lock.held(cfg), whatsapp.desktop_session(
+                cfg, enabled=any(s.name == "whatsapp" for s in chosen)):
             _ingest_locked(ingest_args, cfg, conn, chosen, due=False, compact=not verbose)
     except lock.Busy as exc:
         print(f"ingest: {exc} — skipping the pull, dreaming over what is already here",
@@ -1692,9 +1726,9 @@ def cmd_review(args) -> int:
         for todo in stale[:args.limit]:
             print(f"  {handle('todo', todo.id):>5}  {todo.one_line()}")
 
-    unknown = identity.unresolved(conn, limit=args.limit)
+    unknown = identity.unresolved(conn, limit=args.limit, active_days=cfg.unresolved_active_days)
     if unknown:
-        print(f"\n# unresolved handles ({len(identity.unresolved(conn, limit=10000))})")
+        print(f"\n# unresolved handles ({len(identity.unresolved(conn, limit=10000, active_days=cfg.unresolved_active_days))})")
         for row in unknown[:5]:
             guess = identity.guess_person(conn, row) or ""
             print(f"  {row['handle']:22} x{row['count']:<4} {guess}")
@@ -1896,7 +1930,7 @@ NOISY_HANDLE = 25
 
 def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
                     home_was_missing: bool = False,
-                    brief_was_missing: bool = False) -> list[Finding]:
+                    brief_was_missing: bool = False, progress=None) -> list[Finding]:
     """Everything doctor knows, as data. `cmd_doctor` only renders it.
 
     Split out so `--json` is the same answer rather than a second one, and so a check can
@@ -1904,7 +1938,12 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
     its printout, so it never was.
     """
     out: list[Finding] = []
-    add = lambda *a, **k: out.append(Finding(*a, **k))  # noqa: E731
+    def add(*args, **kwargs):
+        finding = Finding(*args, **kwargs)
+        out.append(finding)
+        if progress:
+            progress(finding)
+
 
     # -- Store ---------------------------------------------------------------
     if home_was_missing:
@@ -1950,9 +1989,9 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
     # with no name attached is a person whose every row is filed under a numeral, and
     # bundling by entity cannot join any of them up. Thresholding on the raw total made
     # this warn permanently, which is the same as not warning.
-    loud = [row for row in identity.unresolved(conn, limit=10000)
+    loud = [row for row in identity.unresolved(conn, limit=10000, active_days=cfg.unresolved_active_days)
             if (row["count"] or 0) >= NOISY_HANDLE]
-    total = len(identity.unresolved(conn, limit=10000))
+    total = len(identity.unresolved(conn, limit=10000, active_days=cfg.unresolved_active_days))
     if loud:
         top = ", ".join(f"{r['handle']} (x{r['count']})" for r in loud[:3])
         add("Store", "unresolved handles", WARN,
@@ -1967,6 +2006,8 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
     fresh = {row["channel"]: row for row in archive.freshness(conn, cfg)}
     off = sources.disabled_set(cfg)
     for source in sources.all_sources(cfg):
+        if progress:
+            progress(f"Checking source {source.name}…")
         usable, message = source.check(cfg)
         seen = fresh.get(source.name)
         age = db.age_phrase(seen["newest"]) if seen and seen["newest"] else "never"
@@ -1978,14 +2019,14 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
             add("Sources", source.name, FAIL, f"{_ago(seen['newest'])} behind — but reachable right now",
                 fix="memcal ingest --stale   # the daytime tick also retries this on its interval")
         elif source.name in behind:
-            add("Sources", source.name, FAIL, f"{age} behind — {message[:70]}",
-                fix=f"fix the connector above, then `memcal ingest {source.name}`")
+            add("Sources", source.name, FAIL, f"{age} behind — {message}",
+                fix=f"{message} Then run memcal ingest {source.name}")
         elif not usable:
             status = WARN if source.in_all else SKIP
             login = f"memcal login {source.name}"
             fix = login if login in message else \
                 f"memcal sources         # what {source.name} still needs"
-            note = _one_line(message)
+            note = message if source.name in {"imessage", "whatsapp"} else _one_line(message)
             if source.name.lower() in off:
                 note += " — disabled, skipped by `ingest all`"
             add("Sources", source.name, status, note,
@@ -2016,6 +2057,10 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
     add("Extraction", "provider", OK if provider_ok else FAIL,
         f"{cfg.llm_provider} — {provider_detail}",
         fix="" if provider_ok else "memcal setup")
+    if cfg.fallback_provider:
+        fallback_ok, fallback_detail = llm.fallback_status(cfg)
+        add("Extraction", "fallback", OK if fallback_ok else FAIL, fallback_detail,
+            fix="" if fallback_ok else "configure the fallback provider and credentials in Settings")
     add("Extraction", "models", INFO,
         f"propose={cfg.propose_model} sweep={cfg.sweep_model}")
 
@@ -2072,6 +2117,8 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
         f"~{textclean.estimate_tokens(propose_stage.build_prefix(conn, cfg))} tokens, cached per run")
 
     # -- Schedule ------------------------------------------------------------
+    if progress:
+        progress("Checking schedule and scheduled-app source access…")
     state = schedule.status(cfg)
     if not state["installed"]:
         add("Schedule", "nightly", WARN, "not installed",
@@ -2174,6 +2221,8 @@ def cmd_doctor(args) -> int:
     # open_ctx() creates the home and database as a side effect. Notice the state
     # before opening it so a first `memcal doctor` does not claim the store was
     # already healthy when it was the command that initialized it.
+    if not getattr(args, "json", False):
+        print("Checking Memcal…", flush=True)
     cfg = config.load(getattr(args, "home", None))
     home_was_missing = not cfg.home.exists()
     brief_was_missing = not cfg.brief_path.exists()
@@ -2188,31 +2237,30 @@ def cmd_doctor(args) -> int:
     if brief_was_missing:
         brief.write(conn, cfg)
 
+    json_mode = getattr(args, "json", False)
+    shown_section = None
+
+    def show(item):
+        nonlocal shown_section
+        if isinstance(item, str):
+            print(item, file=sys.stderr, flush=True)
+            return
+        if item.section != shown_section:
+            shown_section = item.section
+            print(f"\n{item.section}", flush=True)
+        if getattr(args, "verbose", False) or item.bad or item.status == INFO:
+            print(f"  {MARKS[item.status]} {item.name}: {item.detail}", flush=True)
+            if item.fix:
+                print(f"    → {item.fix}", flush=True)
+
     found = doctor_findings(conn, cfg, home_was_missing=home_was_missing,
-                            brief_was_missing=brief_was_missing)
-    if getattr(args, "json", False):
+                            brief_was_missing=brief_was_missing,
+                            progress=None if json_mode else show)
+    if json_mode:
         emit_json([{"section": f.section, "name": f.name, "status": f.status,
                     "detail": f.detail, "fix": f.fix} for f in found])
         return 1 if any(f.bad for f in found) else 0
-
     problems = [f for f in found if f.bad]
-    width = max((len(f.name) for f in found), default=10) + 2
-    for section in SECTIONS:
-        rows = [f for f in found if f.section == section]
-        if not rows:
-            continue
-        # Quiet by default; `--verbose` shows the full inventory.
-        shown = rows if getattr(args, "verbose", False) else [
-            f for f in rows if f.bad or f.status == INFO]
-        bad_here = sum(1 for f in rows if f.bad)
-        headline = f"{bad_here} problem{'s' if bad_here != 1 else ''}" if bad_here \
-            else f"ok ({len(rows)} checks)"
-        print(f"\n{section:<14}{headline}")
-        for finding in shown:
-            print(f"  {MARKS[finding.status]} {finding.name:<{width}}{finding.detail}")
-            if finding.fix:
-                print(f"    {'':<{width}}→ {finding.fix}")
-
     if not problems:
         print(f"\nAll {len(found)} checks pass. Nothing to do.")
         return 0

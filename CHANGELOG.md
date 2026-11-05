@@ -1,11 +1,30 @@
 ## [Unreleased]
 
+### Added
+
+- Optional provider/model fallback with independent configuration and combined usage.
+- Configurable hidden WhatsApp startup, bounded readiness wait, and cleanup after collection.
+- Cited freeform wiki context paragraphs with per-paragraph edits, conflict checks,
+  source history, and search alongside structured facts.
+
 ### Changed
+
+- Doctor streams findings and progress as checks complete; JSON output remains clean.
+- Unnamed senders age out of queues and diagnostics after configurable inactivity.
+- Wiki profiles show shared history with dated attendance evidence and contextual prose.
 
 - Personal-calendar imports remain available as scheduling context and direct record
   detail, while the brief and web event lists show learned plans and subscribed events.
 
 ### Fixed
+
+- Calendar consent completes from authorization changes when callbacks are missing;
+  repeat setup recognizes existing grants and consent workers avoid database locks.
+- Protected-source diagnostics include actionable Full Disk Access instructions.
+- Schedule reinstall suppresses acknowledged old failures until a fresh invocation,
+  and nightly extraction no longer collects sources twice.
+- Wiki extraction distinguishes the subject from the speaker, rejects temporary
+  residence claims and administrative noise, and protects deleted facts from replay.
 
 - Dream question attribution uses the question's cited messages, preventing unrelated
   group context from adding the wrong speaker to a question.

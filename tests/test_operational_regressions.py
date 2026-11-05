@@ -2857,7 +2857,7 @@ class TestTheNightlyJobCouldNotReportFailing(Base):
         # it has a header of its own.
         tail = script[script.index("""echo "=== $(date '+%Y-%m-%d %H:%M:%S')  nightly"""):]
         tail = tail.replace('"$PY" -m memcal ingest all', f"(exit {ingest})")
-        tail = tail.replace('"$PY" -m memcal dream --mode nightly', f"(exit {dream})")
+        tail = tail.replace('"$PY" -m memcal dream --mode nightly --no-ingest', f"(exit {dream})")
         return subprocess.run(["sh", "-c", tail], capture_output=True).returncode
 
     def test_a_failing_dream_is_reported(self):
