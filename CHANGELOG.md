@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.8.6] - 2026-11-05
+
 ### Fixed
 
 - Checkout updates preserve unrelated untracked local outputs instead of rejecting
