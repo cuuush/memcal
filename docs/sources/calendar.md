@@ -8,6 +8,12 @@ memcal ical setup
 memcal ical status
 ```
 
+Calendar reads, publishing, recurring events, and Reminders use the local bridge
+to `memcal.app`, including when `memcal dream` runs from a terminal. Consent belongs
+to Memcal, shared with nightly work. Your terminal does not need permission to
+control Calendar. If macOS names the terminal in a pending prompt, decline it and
+run `memcal ical setup` after updating.
+
 Events you create in personal calendars are retained as scheduling context for
 matching and interpreting messages. They stay out of the brief and web event lists;
 direct record detail remains available. Plans learned from messages and subscribed
@@ -29,3 +35,5 @@ Temporary consent workers return their result without opening or migrating the
 Memcal database, so an open store transaction cannot hold up a completed dialog.
 If setup times out, the error names the requester and manual settings steps; do not
 reset all privacy permissions. Calendar data and Automation are separate grants.
+For Automation, enable **memcal → Calendar** in System Settings → Privacy & Security
+→ Automation. The bridge never retries an unsuccessful request from the terminal.

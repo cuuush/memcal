@@ -70,7 +70,7 @@ def store_path(explicit: str | None = None) -> Path | None:
 
 
 @contextmanager
-def desktop_session(cfg, *, enabled=True, report=print, runner=subprocess.run,
+def desktop_session(cfg, *, enabled=True, background=False, report=print, runner=subprocess.run,
                     monotonic=time.monotonic, sleep=time.sleep):
     """Own only an app we opened, and always release it after collection."""
     from .. import bridge
@@ -81,7 +81,9 @@ def desktop_session(cfg, *, enabled=True, report=print, runner=subprocess.run,
     opened = False
     try:
         try:
-            if enabled and cfg.whatsapp_autostart and sys.platform == "darwin":
+            autostart = cfg.whatsapp_autostart and (
+                not background or cfg.whatsapp_autostart_background)
+            if enabled and autostart and sys.platform == "darwin":
                 running = runner(["pgrep", "-x", "WhatsApp"], capture_output=True, timeout=5)
                 if running.returncode == 1:
                     result = runner(["open", "-g", "-j", "-a", "WhatsApp"],

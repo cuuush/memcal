@@ -1028,6 +1028,9 @@ def cmd_ingest(args) -> int:
     cfg, conn = open_ctx(args)
     stale = bool(getattr(args, "stale", False))
     due = bool(getattr(args, "due", False))
+    if due and schedule.disabled_path(cfg).exists():
+        print("scheduled work is disabled — run `memcal enable` to resume")
+        return 0
     if stale and due:
         print("ingest: --due and --stale cannot be combined", file=sys.stderr)
         return 2
@@ -1065,7 +1068,7 @@ def cmd_ingest(args) -> int:
 
     try:
         with lock.held(cfg), whatsapp.desktop_session(
-                cfg, enabled=any(s.name == "whatsapp" for s in chosen)):
+                cfg, background=due, enabled=any(s.name == "whatsapp" for s in chosen)):
             return _ingest_locked(args, cfg, conn, chosen, due=due)
     except lock.Busy as exc:
         print(f"ingest: {exc} — try again shortly", file=sys.stderr)
@@ -1107,7 +1110,7 @@ def _ingest_locked(args, cfg: Config, conn: sqlite3.Connection, chosen: list,
                 unavailable.append(source.name)
                 continue
         report = sources.catch_up(source, conn, cfg, limit=args.limit,
-                                  rounds=args.rounds, collection_id=collection_id)
+                                  rounds=args.rounds, collection_id=collection_id, background=due)
         if not compact or report.error or report.more:
             print(report.summary(), flush=True)
         elif report.archived:
@@ -1209,9 +1212,9 @@ def cmd_reminders(args) -> int:
             # dialog waits, and silence there reads as a hang.
             print("Requesting Reminders access — answer the system dialog…",
                   flush=True)
-            ok, message = ical.request_reminders_access()
+            ok, message = ical.request_reminders_access(cfg=cfg)
         else:
-            payload = ical._reminder_call("status", name or "")
+            payload = ical._reminder_call("status", name or "", cfg=cfg)
             try:
                 reminder_status = int(payload.get("status") or 0)
             except (TypeError, ValueError):
@@ -1276,11 +1279,11 @@ def cmd_ical(args) -> int:
         # Its caller records the result after the system dialog has completed.
         cfg = config.load(getattr(args, "home", None))
         if args.ek == "request":
-            ok, message = ical.request_calendar_access()
+            ok, message = ical.request_calendar_access(cfg=cfg)
         elif args.ek == "where":
             ok, message = ical.account_status(cfg)
         else:
-            ok, message = ical.permission_status()
+            ok, message = ical.permission_status(cfg=cfg)
         from pathlib import Path
         target = Path(args.result)
         temporary = target.with_suffix(".tmp")
@@ -1295,11 +1298,11 @@ def cmd_ical(args) -> int:
         # calls already carry the nightly identity. From a terminal they would
         # resolve to the terminal's instead — see `launchd_memcal_call`.
         if args.ek == "request":
-            ok, message = ical.request_calendar_access()
+            ok, message = ical.request_calendar_access(cfg=cfg)
         elif args.ek == "where":
             ok, message = ical.account_status(cfg)
         else:
-            ok, message = ical.permission_status()
+            ok, message = ical.permission_status(cfg=cfg)
         # Only a real EventKit check stamps EventKit verification: `where` with
         # publishing off answers without touching EventKit at all, and the bare
         # probe checks the Apple Events path instead.
@@ -1368,7 +1371,7 @@ def cmd_ical(args) -> int:
         conn.close()
         return 0 if (nightly if installed else interactive) else 1
 
-    target = "nightly launchd job" if installed else "current interactive launcher"
+    target = "Memcal app bridge (shared by interactive and nightly work)"
     print(
         f"Calendar permission setup will now make one live request from the {target}.\n"
         "macOS may show up to two consent dialogs: Calendar data and Automation.\n"
@@ -1385,6 +1388,14 @@ def cmd_ical(args) -> int:
             conn.close()
             return 2
 
+    from . import bridge
+    if not bridge.available(cfg) and not bridge.in_helper():
+        for line in schedule.build_app_bundle(cfg):
+            print(line, flush=True)
+        if not bridge.available(cfg):
+            print("Memcal app bridge is unavailable; run `memcal permissions setup`.")
+            conn.close()
+            return 1
     conn.commit()
     print("Checking Calendar automation access (up to 45 seconds)…", flush=True)
     if installed:
@@ -1393,14 +1404,10 @@ def cmd_ical(args) -> int:
             db.set_meta(conn, "ical.permission.nightly", db.now())
         print(("ok " if ok else "-- ") + message)
     else:
-        ok, message = ical.permission_status()
+        ok, message = ical.permission_status(cfg=cfg)
         if ok:
             db.set_meta(conn, "ical.permission.interactive", db.now())
-        print(("ok " if ok else "-- ") + f"interactive requester: {message}")
-        print(
-            "The nightly schedule is not installed. After `memcal schedule install`, "
-            "run this setup command again for its launchd requester."
-        )
+        print(("ok " if ok else "-- ") + f"Memcal app requester: {message}")
     if (cfg.publish_calendar or "").strip():
         # A second, separate macOS permission. Reading the calendar goes through Apple
         # Events; *naming the account* to create memcal's calendar in goes through
@@ -1859,6 +1866,10 @@ def cmd_schedule(args) -> int:
         return 0
 
     st = schedule.status(cfg)
+    if st.get("disabled"):
+        print("scheduled work disabled — nightly Dream and periodic source checks are stopped")
+        print("Run `memcal enable` to resume.")
+        return 0
     if not st["installed"]:
         print("nightly    not installed — `memcal schedule install`")
         return 1
@@ -1881,6 +1892,26 @@ def cmd_schedule(args) -> int:
     elif st["log"] is None:
         print("log        (nothing yet — it has not run)")
     return 0 if st["loaded"] else 1
+
+
+def _set_scheduling(args, enabled: bool) -> int:
+    # This must work even when the store is locked or cannot open.
+    cfg = config.load(getattr(args, "home", None))
+    try:
+        for line in schedule.set_enabled(cfg, enabled):
+            print(line, flush=True)
+    except (OSError, RuntimeError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_disable(args) -> int:
+    return _set_scheduling(args, False)
+
+
+def cmd_enable(args) -> int:
+    return _set_scheduling(args, True)
 
 
 def cmd_models(args) -> int:
@@ -2166,7 +2197,9 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
     if progress:
         progress("Checking schedule and scheduled-app source access…")
     state = schedule.status(cfg)
-    if not state["installed"]:
+    if state.get("disabled"):
+        add("Schedule", "nightly", OK, "disabled — run `memcal enable` to resume")
+    elif not state["installed"]:
         add("Schedule", "nightly", WARN, "not installed",
             fix="memcal schedule install")
     else:
@@ -2177,10 +2210,10 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
             or (f"{state['label']} daily at {when}, next {state['next']}"
                 if state["loaded"] else f"{state['label']} is installed but not loaded"),
             fix="memcal schedule install" if bad else "")
-    add("Schedule", "last pass", OK if state["installed"] else WARN,
-        state["why"] if state["installed"]
+    add("Schedule", "last pass", OK if state["installed"] or state.get("disabled") else WARN,
+        state["why"] if state["installed"] or state.get("disabled")
         else "no schedule, so nothing collects or extracts on its own",
-        fix="" if state["installed"] else "memcal schedule install")
+        fix="" if state["installed"] or state.get("disabled") else "memcal schedule install")
 
     verdict, detail = schedule.bundle_health(cfg)
     if verdict == "ok":
@@ -2385,7 +2418,7 @@ COMMAND_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Write to it", ("remember", "add", "todo", "done", "ask", "answer", "note",
                      "series", "status", "rm")),
     ("People and facts", ("page", "pages", "alias", "merge", "who")),
-    ("Feed it", ("ingest", "sources", "dream", "review", "schedule")),
+    ("Feed it", ("ingest", "sources", "dream", "review", "schedule", "disable", "enable")),
     ("The gate", ("gatecheck", "senders", "mail", "top", "block")),
     ("Set up and check", ("setup", "update", "init", "openclaw", "doctor", "permissions", "stats", "trace",
                           "models", "ical", "reminders", "completion")),
@@ -2814,6 +2847,11 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--no-open", action="store_true", help="don't open a browser")
         s.set_defaults(func=cmd_web)
 
+    for command, help_text, handler in (("disable", "stop and disable scheduled work", cmd_disable),
+                                        ("enable", "resume scheduled work", cmd_enable)):
+        s = sub.add_parser(command, help=help_text)
+        s.set_defaults(func=handler)
+
     s = sub.add_parser("schedule", help="run the dream pass every night (launchd)")
     s.add_argument("action", nargs="?", default="status",
                    choices=["status", "install", "uninstall", "run", "due"],
@@ -2886,18 +2924,18 @@ def _expand_bare_handle(argv: list[str], choices) -> list[str]:
 #: it (and so cannot depend on it); the rest are bare invocations with no work to do.
 #: Every other subcommand re-execs through the bundle when one is built — including
 #: read-only ones, at the cost of one fork+exec — so there is one Calendar identity.
-_NO_APP_COMMANDS = {None, "schedule", "update", "help", "completion"}
+_NO_APP_COMMANDS = {None, "schedule", "disable", "enable", "update", "help", "completion"}
 
 
 def _maybe_reexec_under_app(args, argv: list[str]) -> None:
-    """Re-run this invocation through memcal.app so its Calendar access is attributed
-    to memcal, not to the terminal or interpreter that launched it.
+    """Keep the existing CLI bundle wrapper for its child processes.
 
-    This is what unifies every context — a manual `memcal ingest`, the web server, the
-    nightly job — under one macOS identity and therefore one Calendar grant. It is a
-    no-op when already under the bundle (the launcher sets `MEMCAL_APP`), when no
-    bundle is built, or for the commands that must not depend on it. Only reached for a
-    real shell invocation; `main(argv=...)` callers (the tests) never re-exec.
+    Direct re-exec does not detach a terminal's responsible-process identity.
+    Protected reads and Calendar operations use the launchd app bridge even when
+    MEMCAL_APP is set here. The independent launchd worker sets
+    MEMCAL_HELPER_CONTEXT; only it may run those operations directly.
+
+    Only reached for a real shell invocation; explicit argv callers never re-exec.
     """
     if not schedule._is_macos():
         return

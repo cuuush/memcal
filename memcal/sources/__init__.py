@@ -153,7 +153,7 @@ DEFAULT_ROUNDS = 25
 def catch_up(source: Source, conn, cfg, *, limit: int = 1000,
              rounds: int = DEFAULT_ROUNDS,
              progress: Callable[[str], None] | None = None,
-             collection_id: int | None = None) -> IngestReport:
+             collection_id: int | None = None, background: bool = False) -> IngestReport:
     """Ingest repeatedly until the source reports no further records or rounds exhaust.
 
     `limit` sets page size per request. Ingest continues while the source indicates
@@ -174,7 +174,7 @@ def catch_up(source: Source, conn, cfg, *, limit: int = 1000,
         if progress:
             progress("Reading protected source through memcal.app…")
         return bridge.collect(conn, cfg, source.name, limit=limit, rounds=rounds,
-                              collection_id=collection_id)
+                              collection_id=collection_id, background=background)
 
     try:
         accepted = inspect.signature(source.run).parameters

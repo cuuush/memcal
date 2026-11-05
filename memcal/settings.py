@@ -100,7 +100,13 @@ SETTINGS: tuple[Setting, ...] = (
             "Model on the fallback provider; empty uses that provider's default.",
             "provider", kind="combo"),
     Setting("MEMCAL_WHATSAPP_AUTOSTART", "whatsapp_autostart", "Open WhatsApp for dream",
-            "Open WhatsApp hidden before dream collects sources. Never opens from doctor.",
+            "Open WhatsApp hidden for dream, nightly, or explicit collection. "
+            "Background checks leave the app closed by default; doctor never opens it.",
+            "collect", kind="bool"),
+    Setting("MEMCAL_WHATSAPP_AUTOSTART_BACKGROUND", "whatsapp_autostart_background",
+            "Open WhatsApp during background checks",
+            "Also open WhatsApp on periodic message checks when automatic startup is enabled. "
+            "Off by default; background checks can read the database without opening the app.",
             "collect", kind="bool"),
     Setting("MEMCAL_WHATSAPP_CLOSE_AFTER", "whatsapp_close_after", "Close WhatsApp after collection",
             "Quit after collection only if Memcal opened it. An already-running app stays open.",

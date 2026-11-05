@@ -132,6 +132,7 @@ class Config:
     bluebubbles_autostart: bool = True
 
     whatsapp_autostart: bool = False
+    whatsapp_autostart_background: bool = False
     whatsapp_close_after: bool = True
     whatsapp_wait_seconds: int = 30
     unresolved_active_days: int = 21
@@ -258,6 +259,7 @@ def load(home: str | os.PathLike[str] | None = None) -> Config:
         ("MEMCAL_FALLBACK_PROVIDER", "fallback_provider", str),
         ("MEMCAL_FALLBACK_MODEL", "fallback_model", str),
         ("MEMCAL_WHATSAPP_AUTOSTART", "whatsapp_autostart", _flag),
+        ("MEMCAL_WHATSAPP_AUTOSTART_BACKGROUND", "whatsapp_autostart_background", _flag),
         ("MEMCAL_WHATSAPP_CLOSE_AFTER", "whatsapp_close_after", _flag),
         ("MEMCAL_WHATSAPP_WAIT_SECONDS", "whatsapp_wait_seconds", int),
         ("MEMCAL_UNRESOLVED_ACTIVE_DAYS", "unresolved_active_days", int),

@@ -1,5 +1,24 @@
 ## [Unreleased]
 
+## [0.8.8] - 2026-11-05
+
+### Added
+
+- `memcal disable` stops and persistently disables scheduled Dream and periodic
+  collection without removing the app, grants, or data. `memcal enable` resumes them.
+  Disabled scheduling survives updates and schedule reinstall.
+
+### Fixed
+
+- Calendar snapshots, publishing, recurring events, account management, and Reminders
+  use the Memcal app bridge during interactive work, including `memcal dream`.
+  Apple Events and EventKit requests belong to `memcal.app`, shared with nightly
+  work. Failed bridge requests never fall back to the calling terminal. Calendar
+  scan progress and partial-read safeguards are preserved across the bridge.
+- Periodic due-source checks read WhatsApp's database without reopening the desktop
+  app by default. Automatic startup for Dream, nightly, and explicit collection
+  remains configurable; background startup now requires its own explicit opt-in.
+
 ## [0.8.7] - 2026-11-05
 
 ### Fixed

@@ -108,6 +108,27 @@ class TestAppBridgeCollectionLifecycle(BridgeBase):
         self.assertEqual(count, 1)
         self.assertEqual(identity.resolve(self.conn, '+12025550123'), 'Avery')
 
+    def test_background_collection_preserves_no_launch_policy_across_bridge(self):
+        from memcal.sources.base import IngestReport
+        self.cfg.whatsapp_autostart = True
+        original_collect = sources.catch_up
+        original_session = whatsapp.desktop_session
+        runner = mock.Mock(side_effect=AssertionError('background collection opened WhatsApp'))
+        def session(*args, **kwargs):
+            self.assertTrue(kwargs['background'])
+            return original_session(*args, runner=runner, **kwargs)
+        def read_in_app(*args, **kwargs):
+            self.assertTrue(os.environ.get('MEMCAL_HELPER_CONTEXT'))
+            return IngestReport(channel='whatsapp')
+        with mock.patch.object(schedule, 'launchd_memcal_call', side_effect=self.loopback), \
+             mock.patch.object(whatsapp.sys, 'platform', 'darwin'), \
+             mock.patch.object(whatsapp, 'desktop_session', side_effect=session), \
+             mock.patch.object(sources, 'catch_up', side_effect=read_in_app):
+            result = original_collect(whatsapp.WhatsAppSource(), self.conn, self.cfg,
+                                      background=True, limit=2, rounds=1)
+        self.assertIsNone(result.error)
+        runner.assert_not_called()
+
 
 class TestBridgeBoundaryFailures(BridgeBase):
     def test_busy_transactions_are_not_committed_or_sent_to_another_process(self):
@@ -144,7 +165,7 @@ class TestBridgeBoundaryFailures(BridgeBase):
             path = Path(temporary) / 'request.json'
             path.write_text('{}')
             path.chmod(0o644)
-            with mock.patch.dict(os.environ, {'MEMCAL_APP': '1'}), \
+            with mock.patch.dict(os.environ, {'MEMCAL_APP': '1', 'MEMCAL_HELPER_CONTEXT': '1'}), \
                  mock.patch.object(db, 'connect', side_effect=AssertionError('store opened')):
                 with self.assertRaisesRegex(bridge.BridgeError, 'private'):
                     bridge.worker(self.cfg, path, Path(temporary) / 'reply.json')
@@ -155,7 +176,7 @@ class TestBridgeBoundaryFailures(BridgeBase):
             request.write_text('{}')
             request.chmod(0o600)
             outside = self.cfg.home / 'outside.json'
-            with mock.patch.dict(os.environ, {'MEMCAL_APP': '1'}):
+            with mock.patch.dict(os.environ, {'MEMCAL_APP': '1', 'MEMCAL_HELPER_CONTEXT': '1'}):
                 with self.assertRaisesRegex(bridge.BridgeError, 'private store request directory'):
                     bridge.worker(self.cfg, request, outside)
             self.assertFalse(outside.exists())

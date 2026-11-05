@@ -130,6 +130,22 @@ class TestWhatsAppCollectionOwnsOnlyItsLaunch(Base):
         self.assertEqual(runner.call_args_list[1].args[0][:3], ['open', '-g', '-j'])
         self.assertEqual(runner.call_args.args[0][0], 'osascript')
 
+    def test_background_checks_do_not_launch_or_close_the_desktop_app(self):
+        runner = mock.Mock(side_effect=AssertionError('background check touched desktop app'))
+        with whatsapp.desktop_session(self.cfg, background=True, runner=runner):
+            pass
+        runner.assert_not_called()
+
+    def test_background_startup_requires_separate_explicit_opt_in(self):
+        self.cfg.whatsapp_autostart_background = True
+        runner = mock.Mock(side_effect=[subprocess.CompletedProcess([], 1),
+                                       subprocess.CompletedProcess([], 0),
+                                       subprocess.CompletedProcess([], 0)])
+        with whatsapp.desktop_session(self.cfg, background=True, runner=runner, report=lambda _: None):
+            pass
+        self.assertEqual(runner.call_args_list[1].args[0][0], 'open')
+        self.assertEqual(runner.call_args.args[0][0], 'osascript')
+
     def test_already_open_app_and_disabled_launch_are_never_closed(self):
         runner = mock.Mock(return_value=subprocess.CompletedProcess([], 0))
         with whatsapp.desktop_session(self.cfg, runner=runner, report=lambda _: None):

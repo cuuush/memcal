@@ -985,9 +985,9 @@ def _ok(request_id, result) -> dict:
 
 
 def _reexec_under_app() -> None:
-    """Run the MCP server through memcal.app, like the CLI, so the calendar tools the
-    agent calls read and write under memcal's identity. No-op when already under the
-    bundle or when none is built."""
+    """Keep the CLI-compatible bundle wrapper. Calendar tools still use the launchd
+    app bridge: direct re-exec retains the host's responsible-process identity.
+    No-op when already under the bundle or when none is built."""
     if os.environ.get("MEMCAL_APP") == "1":
         return
     from . import schedule  # noqa: PLC0415 - avoid importing launchd code at module load

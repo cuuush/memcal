@@ -14,7 +14,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, time as clock_time, timedelta
 
-from .. import archive, db, events, gate, presentation, series, threads, todos, trace
+from .. import archive, bridge, db, events, gate, presentation, series, threads, todos, trace
 from . import base, providers, register
 from .spec import Source, SourceError
 
@@ -172,12 +172,13 @@ function run() {
 """
 
 
-def permission_status(*, runner=subprocess.run) -> tuple[bool, str]:
+def permission_status(*, cfg=None, runner=subprocess.run) -> tuple[bool, str]:
     """Make the smallest real Calendar read; this is also what triggers first access."""
     if _unavailable(runner):
         return False, "macOS osascript is unavailable"
     try:
-        done = runner(
+        transport = bridge.calendar_runner(cfg, runner)
+        done = transport(
             ["osascript", "-l", "JavaScript", "-e", PROBE_JXA],
             capture_output=True,
             text=True,
@@ -187,7 +188,9 @@ def permission_status(*, runner=subprocess.run) -> tuple[bool, str]:
         return False, "Calendar permission check timed out (a prompt may be waiting)"
     except OSError as exc:
         return False, f"could not run Calendar permission check: {exc}"
-    requester = f"{sys.executable} → /usr/bin/osascript → Calendar.app"
+    requester = ("memcal.app → /usr/bin/osascript → Calendar.app"
+                 if bridge.in_helper() or transport is not runner else
+                 f"{sys.executable} → /usr/bin/osascript → Calendar.app")
     if done.returncode:
         detail = (done.stderr or done.stdout or "access denied").strip()
         return False, (
@@ -261,11 +264,20 @@ class Snapshot:
         return not self.unreadable
 
 
-def _calendar_snapshot(start: str, end: str, *, progress=None,
+def _calendar_snapshot(start: str, end: str, *, cfg=None, progress=None,
                        opener=subprocess.Popen) -> Snapshot:
     """The whole window, in one osascript call that says how far through it is."""
     if _unavailable(opener):
         raise SourceError("macOS osascript is unavailable")
+    if opener is _REAL_TRANSPORT[1] and not bridge.in_helper():
+        from .. import config, schedule
+        if schedule._is_macos():
+            try:
+                result = bridge.calendar_call(cfg or config.load(), "snapshot", [start, end],
+                                              progress=progress)
+            except OSError as exc:
+                raise SourceError(f"could not read Calendar through memcal.app: {exc}") from exc
+            return Snapshot(items=result["items"], unreadable=tuple(result["unreadable"]))
     tail: list[str] = []
     with tempfile.TemporaryFile() as sink:
         try:
@@ -1647,13 +1659,13 @@ class ReminderError(RuntimeError):
     """Reminders would not take it, or was never authorized to be asked."""
 
 
-def _reminder_call(verb: str, *args: str, runner=subprocess.run,
+def _reminder_call(verb: str, *args: str, cfg=None, runner=subprocess.run,
                    timeout: int = 120) -> dict:
     """One Reminders verb, as JSON. Mirrors `_account_call` deliberately."""
     if _unavailable(runner):
         raise ReminderError("macOS osascript is unavailable")
     try:
-        done = runner(["osascript", "-l", "JavaScript", "-e", REMINDERS_JXA, verb, *args],
+        done = bridge.calendar_runner(cfg, runner)(["osascript", "-l", "JavaScript", "-e", REMINDERS_JXA, verb, *args],
                       capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         raise ReminderError(f"Reminders did not answer the {verb} request") from exc
@@ -1671,7 +1683,7 @@ def _reminder_call(verb: str, *args: str, runner=subprocess.run,
     return payload
 
 
-def request_reminders_access(*, runner=subprocess.run) -> tuple[bool, str]:
+def request_reminders_access(*, cfg=None, runner=subprocess.run) -> tuple[bool, str]:
     """Ask macOS for Reminders access. **Opens a consent dialog** — setup only.
 
     Separate from Calendar in every way that matters: its own entity type, its own TCC
@@ -1679,7 +1691,7 @@ def request_reminders_access(*, runner=subprocess.run) -> tuple[bool, str]:
     that discovers this at 3am has already lost.
     """
     try:
-        payload = _reminder_call("request", "", runner=runner, timeout=90)
+        payload = _reminder_call("request", "", cfg=cfg, runner=runner, timeout=90)
     except ReminderError as exc:
         return False, f"Reminders access failed: {exc}"
     if payload.get("granted"):
@@ -1702,7 +1714,7 @@ def publish_reminder(cfg, todo, *, runner=subprocess.run) -> dict:
         return {}
     spec = {"title": todo.text, "due": todo.remind_at, "uid": todo.reminder_uid or "",
             "notes": f"memcal · {todo.event_title}" if todo.event_title else "memcal"}
-    return _reminder_call("put", name, json.dumps(spec), runner=runner)
+    return _reminder_call("put", name, json.dumps(spec), cfg=cfg, runner=runner)
 
 
 def retract_reminder(cfg, todo, *, runner=subprocess.run) -> dict:
@@ -1715,20 +1727,20 @@ def retract_reminder(cfg, todo, *, runner=subprocess.run) -> dict:
     if not name or not todo.reminder_uid:
         return {}
     return _reminder_call("drop", name, json.dumps({"uid": todo.reminder_uid}),
-                          runner=runner)
+                          cfg=cfg, runner=runner)
 
 
 class CalendarAccountError(RuntimeError):
     """EventKit would not say where the calendar lives, or would not put it there."""
 
 
-def _account_call(verb: str, *args: str, runner=subprocess.run,
+def _account_call(verb: str, *args: str, cfg=None, runner=subprocess.run,
                   timeout: int = 120) -> dict:
     """One EventKit verb, as JSON. Raises `CalendarAccountError` with what macOS said."""
     if _unavailable(runner):
         raise CalendarAccountError("macOS osascript is unavailable")
     try:
-        done = runner(["osascript", "-l", "JavaScript", "-e", ACCOUNT_JXA, verb, *args],
+        done = bridge.calendar_runner(cfg, runner)(["osascript", "-l", "JavaScript", "-e", ACCOUNT_JXA, verb, *args],
                       capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         raise CalendarAccountError(f"Calendar did not answer the {verb} request") from exc
@@ -1748,7 +1760,7 @@ def _account_call(verb: str, *args: str, runner=subprocess.run,
     return payload
 
 
-def request_calendar_access(*, runner=subprocess.run) -> tuple[bool, str]:
+def request_calendar_access(*, cfg=None, runner=subprocess.run) -> tuple[bool, str]:
     """Ask macOS for EventKit access. **Opens a consent dialog** — `ical setup` only.
 
     Separate from `permission_status`, which tests the *Apple Events* path the scan uses.
@@ -1760,7 +1772,7 @@ def request_calendar_access(*, runner=subprocess.run) -> tuple[bool, str]:
         # Just past the JXA's own 45s bound: long enough to answer a dialog that
         # did appear, short enough that a dialog that never appears is a report,
         # not a hang.
-        answer = _account_call("request", runner=runner, timeout=60)
+        answer = _account_call("request", cfg=cfg, runner=runner, timeout=60)
     except CalendarAccountError as exc:
         return False, f"Calendar (EventKit) access failed: {exc}"
     if answer.get("granted") and int(answer.get("status") or 0) in EK_FULL_ACCESS:
@@ -1805,7 +1817,7 @@ def account_status(cfg, *, runner=subprocess.run) -> tuple[bool, str]:
     if not name:
         return True, "publishing is off (publish_calendar is empty)"
     try:
-        where = _account_call("where", name, runner=runner, timeout=60)
+        where = _account_call("where", name, cfg=cfg, runner=runner, timeout=60)
     except CalendarAccountError as exc:
         return False, f"could not read Calendar accounts: {exc}"
     if int(where.get("status") or 0) not in EK_FULL_ACCESS:
@@ -1840,7 +1852,7 @@ def ensure_icloud_calendar(cfg, *, runner=subprocess.run) -> dict:
     name = (getattr(cfg, "publish_calendar", "") or "").strip()
     if not name:
         raise CalendarAccountError("no calendar to create (publish_calendar is empty)")
-    return _account_call("ensure", name, runner=runner)
+    return _account_call("ensure", name, cfg=cfg, runner=runner)
 
 
 def migrate_to_icloud(conn: sqlite3.Connection, cfg, *, dry_run: bool = True,
@@ -1853,7 +1865,7 @@ def migrate_to_icloud(conn: sqlite3.Connection, cfg, *, dry_run: bool = True,
     try:
         # Always planned first, even when applying, because the plan is what the safety
         # check below reads and it has to be read before anything is deleted.
-        plan = _account_call("migrate", name, "plan", runner=runner, timeout=300)
+        plan = _account_call("migrate", name, "plan", cfg=cfg, runner=runner, timeout=300)
     except CalendarAccountError as exc:
         return [f"calendar  could not migrate '{name}': {exc}"]
     if not plan.get("local"):
@@ -1882,7 +1894,7 @@ def migrate_to_icloud(conn: sqlite3.Connection, cfg, *, dry_run: bool = True,
                 f"memcal published {expected} event(s) into it. Nothing was changed."]
 
     try:
-        result = _account_call("migrate", name, "apply", runner=runner, timeout=300)
+        result = _account_call("migrate", name, "apply", cfg=cfg, runner=runner, timeout=300)
     except CalendarAccountError as exc:
         return [f"calendar  could not migrate '{name}': {exc}"]
     moved = [item for item in result.get("moved") or [] if isinstance(item, dict)]
@@ -2045,10 +2057,10 @@ def _event_window(event) -> tuple[str, str, bool]:
     return begins.isoformat(timespec="seconds"), ends.isoformat(timespec="seconds"), False
 
 
-def _write_event(name: str, spec: dict, *, runner=subprocess.run) -> dict:
+def _write_event(name: str, spec: dict, *, cfg=None, runner=subprocess.run) -> dict:
     """One `PUBLISH_JXA` call. `{"missing": True}` means the calendar is not there yet."""
     try:
-        done = runner(["osascript", "-l", "JavaScript", "-e", PUBLISH_JXA, name,
+        done = bridge.calendar_runner(cfg, runner)(["osascript", "-l", "JavaScript", "-e", PUBLISH_JXA, name,
                        json.dumps(spec)], capture_output=True, text=True, timeout=60)
     except subprocess.TimeoutExpired as exc:
         raise PublishError("Calendar.app did not answer within a minute") from exc
@@ -2099,7 +2111,7 @@ def publish(conn: sqlite3.Connection, cfg, event, *, runner=subprocess.run) -> d
         # phone at the door this is the difference between a mystery and a plan.
         "description": _published_note(event, inferred_names=inferred_names),
     }
-    written = _write_event(name, spec, runner=runner)
+    written = _write_event(name, spec, cfg=cfg, runner=runner)
     if written.get("missing"):
         # The calendar does not exist yet, or the user deleted it. Make it *in iCloud* —
         # the scripting interface would have made a local one, which is the whole defect
@@ -2110,7 +2122,7 @@ def publish(conn: sqlite3.Connection, cfg, event, *, runner=subprocess.run) -> d
         except CalendarAccountError as exc:
             raise PublishError(f"no calendar named '{name}' and it could not be "
                                f"created in iCloud: {exc}") from exc
-        written = _write_event(name, spec, runner=runner)
+        written = _write_event(name, spec, cfg=cfg, runner=runner)
         if written.get("missing"):
             raise PublishError(f"Calendar.app cannot see the '{name}' calendar even "
                                "after it was created in iCloud")
@@ -2213,10 +2225,10 @@ def publish_series(conn: sqlite3.Connection, cfg, rule, *,
         "location": publish_location(rule.location, rule.join_url),
         "notes": "Added by memcal.",
     }
-    written = _account_call("repeat", name, json.dumps(spec), runner=runner)
+    written = _account_call("repeat", name, json.dumps(spec), cfg=cfg, runner=runner)
     if written.get("missing"):
         ensure_icloud_calendar(cfg, runner=runner)
-        written = _account_call("repeat", name, json.dumps(spec), runner=runner)
+        written = _account_call("repeat", name, json.dumps(spec), cfg=cfg, runner=runner)
     if written.get("missing"):
         raise PublishError(f"Calendar cannot see the '{name}' calendar even after it "
                            "was created in iCloud")
@@ -2307,7 +2319,7 @@ def retract_series(conn: sqlite3.Connection, cfg, slug: str, *,
         return []
     try:
         done = _account_call("unrepeat", name, json.dumps({"uid": known["event_uid"]}),
-                             runner=runner)
+                             cfg=cfg, runner=runner)
     except CalendarAccountError as exc:
         return [f"calendar  could not retract the {slug} schedule: {exc}"]
     if done.get("error"):
@@ -2464,7 +2476,7 @@ def retract_unpublishable(conn: sqlite3.Connection, cfg, *, dry_run: bool = True
             log.append(f"calendar  would remove {title} from {name} — {why}")
             continue
         try:
-            done = runner(["osascript", "-l", "JavaScript", "-e", RETRACT_JXA, name,
+            done = bridge.calendar_runner(cfg, runner)(["osascript", "-l", "JavaScript", "-e", RETRACT_JXA, name,
                            row["event_uid"]], capture_output=True, text=True, timeout=60)
         except (subprocess.TimeoutExpired, OSError) as exc:
             log.append(f"calendar  could not remove {title}: {exc}")
@@ -2526,7 +2538,7 @@ class ICalSource(Source):
         report.progress = bar = base.phased(report.progress, SNAPSHOT_PHASES)
         if bar:
             bar("asking Calendar.app for the window", phase="checking")
-        snapshot = _calendar_snapshot(lower.isoformat(), upper.isoformat(), progress=bar)
+        snapshot = _calendar_snapshot(lower.isoformat(), upper.isoformat(), cfg=cfg, progress=bar)
         items = snapshot.items
         # Partiful's calendar file omits host names, while its public event and profile
         # pages expose them. Enrich before revision comparison so existing rows are

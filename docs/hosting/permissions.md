@@ -16,16 +16,20 @@ The same helper appears in **Settings → Full Disk Access** in the web UI. It r
 `~/.memcal/memcal.app` and opens the system pane when approval is needed. You enable
 that app and complete any macOS confirmation yourself. Full Disk Access covers
 other apps' protected data as well as the sources enabled in Memcal. Calendar and
-Automation consent are separate.
+Automation consent are separate and also belong to `memcal.app`. Calendar snapshots,
+event publishing, recurring events, and Reminders all use the same app bridge; use
+`memcal ical setup` and `memcal reminders setup --yes` for their respective consent.
 
 ## How the bridge works
 
 Each request starts a fresh worker through launchd under the existing Memcal app
 identity. It shares the app identity used by the nightly job. Already-running
 scheduled workers read directly, while interactive callers delegate source checks,
-Messages/WhatsApp collection, and Contacts refresh to the app.
+Messages/WhatsApp collection, Contacts refresh, and Calendar/Reminders operations to
+the app. Calendar reads forward progress while the app works.
 
-The protocol allows only those operations. It accepts no arbitrary shell command,
+The protocol allows only fixed source operations and built-in Calendar/Reminders
+scripts with validated arguments. It accepts no arbitrary script, shell command,
 SQL, or source path. Request and response files live in a per-call directory readable
 only by the current user and are removed afterward. Source ingestion and its cursors
 stay in the app process; callers receive collection reports and continue using the
@@ -35,6 +39,10 @@ the complete collection rather than reopening it for every page.
 A failed or timed-out bridge request reports an error; it does not ask for broader
 terminal permissions. The next request starts a new worker. Archive identities and
 stored cursors make retries safe.
+
+Starting the app binary directly from a terminal does not give that process an
+independent macOS permission identity. The bridge starts workers through launchd;
+only those workers execute Apple Events and EventKit calls directly.
 
 ## Setup and rechecking
 

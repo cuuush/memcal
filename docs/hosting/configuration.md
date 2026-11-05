@@ -106,7 +106,8 @@ control how long a CLI request can take before fallback.
 | `MEMCAL_IMESSAGE_FALLBACK` | on | With the BlueBubbles backend, read local `chat.db` when the server is unreachable; off = hard failure |
 | `MEMCAL_BLUEBUBBLES_LOCATION` | `auto` | `auto` (infer from URL), `local`, or `remote` — decides whether the app may be opened |
 | `MEMCAL_BLUEBUBBLES_AUTOSTART` | on | Open a down **local** BlueBubbles server (hidden) during the nightly pass |
-| `MEMCAL_WHATSAPP_AUTOSTART` | off | Open WhatsApp hidden before collection (including dream's source pull) |
+| `MEMCAL_WHATSAPP_AUTOSTART` | off | Open WhatsApp hidden for dream, nightly, or explicit collection |
+| `MEMCAL_WHATSAPP_AUTOSTART_BACKGROUND` | off | Also allow opening during periodic `ingest --due` message checks; requires autostart |
 | `MEMCAL_WHATSAPP_CLOSE_AFTER` | on | Close after collection only when Memcal opened it |
 | `MEMCAL_WHATSAPP_WAIT_SECONDS` | `30` (0–300) | Maximum wait for the local WhatsApp database |
 | `MEMCAL_UNRESOLVED_ACTIVE_DAYS` | `21` (1–365) | Hide inactive unnamed senders from naming queues and diagnostics |

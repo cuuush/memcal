@@ -393,6 +393,47 @@ def pending_path(cfg: Config) -> Path:
     return cfg.home / "nightly.pending"
 
 
+def disabled_path(cfg: Config) -> Path:
+    return cfg.home / "nightly.disabled"
+
+
+def set_enabled(cfg: Config, enabled: bool) -> list[str]:
+    """Persistently control scheduled work without removing the app or its grants."""
+    if not _is_macos():
+        raise RuntimeError("Scheduled job controls require macOS launchd")
+    cfg.ensure_dirs()
+    if not enabled:
+        # Also guards generated scripts if launchd cannot be contacted immediately.
+        disabled_path(cfg).touch()
+        problems = []
+        for label in (LABEL, *RETIRED_LABELS):
+            target = f"{_domain()}/{label}"
+            code, detail = _launchctl("disable", target)
+            if code:
+                problems.append(f"could not disable {label}: {detail or code}")
+            code, detail = _launchctl("bootout", target)
+            if code and _launchctl("print", target)[0] == 0:
+                problems.append(f"could not stop {label}: {detail or code}")
+        if problems:
+            raise RuntimeError("; ".join(problems))
+        return ["Scheduled work disabled — nightly Dream and periodic source checks are stopped.",
+                "Run `memcal enable` to resume. Manual commands and the web UI still work."]
+
+    code, detail = _launchctl("enable", f"{_domain()}/{LABEL}")
+    if code:
+        raise RuntimeError(f"could not enable scheduling: {detail or code}")
+    disabled_path(cfg).unlink(missing_ok=True)
+    if not plist_path().exists():
+        return ["Scheduling enabled; run `memcal schedule install` to install the job."]
+    if _launchctl("print", f"{_domain()}/{LABEL}")[0] != 0:
+        code, detail = _launchctl("bootstrap", _domain(), str(plist_path()))
+        if code:
+            disabled_path(cfg).touch()
+            _launchctl("disable", f"{_domain()}/{LABEL}")
+            raise RuntimeError(f"could not resume scheduling: {detail or code}")
+    return ["Scheduled work enabled — periodic source checks and nightly Dream will resume."]
+
+
 def log_path(cfg: Config) -> Path:
     return cfg.home / "nightly.log"
 
@@ -416,6 +457,7 @@ def pinned_python(cfg: Config) -> str:
 
 def launchd_memcal_call(cfg: Config, *, label: str, stem: str,
                           memcal_argv: list[str], timeout: int = 45, work_dir: Path | None = None,
+                          on_poll=None,
                           ) -> tuple[dict | None, str]:
     """Run one memcal invocation as a temporary launchd agent; return its payload.
 
@@ -460,6 +502,8 @@ def launchd_memcal_call(cfg: Config, *, label: str, stem: str,
             return None, f"could not start launchd job {label}: {message or code}"
         deadline = time.monotonic() + max(1, timeout)
         while time.monotonic() < deadline:
+            if on_poll is not None:
+                on_poll()
             if result.exists():
                 try:
                     return json.loads(result.read_text(encoding="utf-8")), identity
@@ -602,6 +646,8 @@ set -u
 
 export PATH={shlex.quote(runtime_path())}
 export MEMCAL_HOME="{cfg.home}"
+# `memcal disable` keeps scheduled work off through updates and reboots.
+if [ -e {shlex.quote(str(disabled_path(cfg)))} ]; then exit 0; fi
 PY="{python}"
 LOG="{log_path(cfg)}"
 STAMP="{stamp_path(cfg)}"
@@ -780,6 +826,12 @@ def install(cfg: Config, *, hour: int = DEFAULT_HOUR, minute: int = DEFAULT_MINU
     # Replacing an existing agent means booting the old one out first; a bootstrap
     # over a loaded label fails with "service already loaded" and changes nothing.
     _launchctl("bootout", f"{_domain()}/{LABEL}")
+    if disabled_path(cfg).exists():
+        _launchctl("disable", f"{_domain()}/{LABEL}")
+        out.extend(_retire_agents(cfg))
+        out.append("scheduling remains disabled — run `memcal enable` to resume")
+        out.append(f"log {log_path(cfg)}")
+        return out
     code, message = _launchctl("bootstrap", _domain(), str(path))
     if code != 0:
         # Older macOS, or a domain that will not take a bootstrap.
@@ -923,6 +975,8 @@ def owed(cfg: Config, *, now: datetime | None = None) -> tuple[datetime | None, 
     The window is one night wide: a machine off for a week runs one pass when it comes
     back, not seven, and a pass at 08:00 does not leave tonight's 03:00 looking served.
     """
+    if disabled_path(cfg).exists():
+        return None, "scheduled work is disabled — run `memcal enable` to resume"
     now = now or db.now_dt()
     if not plist_path().exists():
         return None, "the job is not installed, so nothing is due"
@@ -948,6 +1002,7 @@ def owed(cfg: Config, *, now: datetime | None = None) -> tuple[datetime | None, 
 
 
 def status(cfg: Config, *, runner=subprocess.run) -> dict:
+    disabled = disabled_path(cfg).exists()
     installed = plist_path().exists()
     scheduled = None
     if installed:
@@ -1024,8 +1079,11 @@ def status(cfg: Config, *, runner=subprocess.run) -> dict:
     # Reported, not warned about: an owed pass is picked up by the next wake-up.
     due, why = owed(cfg)
     started = last_started(cfg)
+    if disabled:
+        warning = None
     return {
         "warning": warning,
+        "disabled": disabled,
         "installed": installed,
         "loaded": loaded,
         "label": LABEL,
@@ -1034,7 +1092,7 @@ def status(cfg: Config, *, runner=subprocess.run) -> dict:
         "log": str(log) if log.exists() else None,
         "at": scheduled,
         "every": effective_interval(cfg),
-        "next": next_run(*scheduled) if scheduled else None,
+        "next": next_run(*scheduled) if scheduled and not disabled else None,
         "last_start": started.isoformat(timespec="seconds") if started else None,
         "owed": due.isoformat(timespec="seconds") if due else None,
         "why": why,
@@ -1050,6 +1108,9 @@ def run_now(cfg: Config, *, force: bool = True) -> int:
 
     `force` overrides the script's own owed check.
     """
+    if disabled_path(cfg).exists():
+        print("scheduled work is disabled — run `memcal enable` first, or run `memcal dream` manually")
+        return 1
     script = script_path(cfg)
     if not script.exists():
         print("not installed — run `memcal schedule install` first")
