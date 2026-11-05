@@ -59,8 +59,10 @@ def _source_update(root: Path) -> None:
     if (root / ".git").is_file():
         raise UpdateError("this is a development worktree; run memcal update from "
                           "the installed checkout")
-    if git("status", "--porcelain", "--untracked-files=normal"):
-        raise UpdateError(f"{root} has local changes; commit or stash them, then retry")
+    # Local outputs are not source edits. Let Git preserve unrelated untracked
+    # files and reject path collisions during the fast-forward below.
+    if git("status", "--porcelain", "--untracked-files=no"):
+        raise UpdateError(f"{root} has tracked local changes; commit or stash them, then retry")
     try:
         branch = git("symbolic-ref", "--quiet", "--short", "HEAD")
     except UpdateError as exc:
@@ -97,7 +99,7 @@ def _source_update(root: Path) -> None:
         print(f"Tracking {upstream}", flush=True)
     old = git("rev-parse", "--short", "HEAD")
     if behind:
-        git("merge", "--ff-only", upstream)
+        git("merge", "--ff-only", "--no-overwrite-ignore", upstream)
     new = git("rev-parse", "--short", "HEAD")
     print(f"Source: {old} → {new}" if behind else f"Source already current: {new}",
           flush=True)

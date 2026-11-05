@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Fixed
+
+- Checkout updates preserve unrelated untracked local outputs instead of rejecting
+  them. Tracked edits and local-file collisions, including ignored files, still stop
+  the update before source or launcher changes.
+
 ## [0.8.5] - 2026-11-05
 
 ### Added

@@ -79,3 +79,20 @@ If your installation predates `memcal update`, bootstrap it once with `git pull
 
 Next: [Configuration](configuration.md) for every knob, [Scheduling](scheduling.md)
 for the nightly job.
+
+`memcal update` allows unrelated untracked files such as local output directories.
+Tracked source edits must still be committed or stashed first. Git stops the update
+if an upstream file would overwrite an untracked or ignored local file; local work
+is preserved, and the launcher is refreshed only after a successful fast-forward.
+
+If an older updater stops on untracked files before it can download this fix, use a
+single manual fast-forward in the installed checkout, then rerun the updater:
+
+```bash
+git -C /path/to/memcal fetch origin
+git -C /path/to/memcal merge --ff-only --no-overwrite-ignore origin/main
+memcal update
+```
+
+A file collision still stops the fast-forward; move that local file somewhere safe
+before retrying. Do not discard local outputs to make an update pass.

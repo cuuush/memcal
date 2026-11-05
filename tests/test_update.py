@@ -139,6 +139,60 @@ class TestCheckoutUpdates(unittest.TestCase):
         self.refresh()
 
 
+class TestUntrackedCheckoutUpdateSafety(unittest.TestCase):
+    setUp = TestCheckoutUpdates.setUp
+    git = TestCheckoutUpdates.git
+    publish = TestCheckoutUpdates.publish
+    refresh = TestCheckoutUpdates.refresh
+
+    def test_unrelated_local_outputs_survive_a_fast_forward_and_repeat_update(self):
+        output = self.checkout / "tools" / "local-output" / "result.txt"
+        output.parent.mkdir(parents=True)
+        output.write_bytes(b"local results that must survive\x00\xff")
+        original = output.read_bytes()
+        self.publish()
+        self.refresh()
+        self.assertEqual((self.checkout / "memcal/cli.py").read_text(), "REVISION = 2\n")
+        self.assertEqual(output.read_bytes(), original)
+        self.refresh()
+        self.assertEqual(output.read_bytes(), original)
+
+    def test_untracked_collision_stops_before_source_or_launcher_changes(self):
+        local = self.checkout / "new-file.txt"
+        local.write_text("local work\n")
+        old = self.git(self.checkout, "rev-parse", "HEAD")
+        (self.author / "new-file.txt").write_text("upstream work\n")
+        self.git(self.author, "add", "new-file.txt")
+        self.git(self.author, "commit", "-m", "new upstream file")
+        self.git(self.author, "push")
+        with self.assertRaisesRegex(update.UpdateError, "would be overwritten"):
+            self.refresh()
+        self.assertEqual(local.read_text(), "local work\n")
+        self.assertEqual(self.git(self.checkout, "rev-parse", "HEAD"), old)
+        self.assertFalse((self.checkout / "install-args.txt").exists())
+
+    def test_ignored_collision_is_preserved_too(self):
+        local = self.checkout / "install-args.txt"
+        local.write_text("ignored local work\n")
+        old = self.git(self.checkout, "rev-parse", "HEAD")
+        (self.author / "install-args.txt").write_text("upstream file\n")
+        self.git(self.author, "add", "-f", "install-args.txt")
+        self.git(self.author, "commit", "-m", "track previously ignored path")
+        self.git(self.author, "push")
+        with self.assertRaisesRegex(update.UpdateError, "would be overwritten"):
+            self.refresh()
+        self.assertEqual(local.read_text(), "ignored local work\n")
+        self.assertEqual(self.git(self.checkout, "rev-parse", "HEAD"), old)
+
+    def test_staged_source_edits_still_stop_the_update(self):
+        (self.checkout / "new-file.txt").write_text("staged work\n")
+        self.git(self.checkout, "add", "new-file.txt")
+        with self.assertRaisesRegex(update.UpdateError, "tracked local changes"):
+            self.refresh()
+        self.assertEqual((self.checkout / "new-file.txt").read_text(), "staged work\n")
+        self.assertFalse((self.checkout / "install-args.txt").exists())
+
+
 class TestPackageUpdates(unittest.TestCase):
     def test_homebrew_retries_in_user_site_only_for_pep668(self):
         with mock.patch.object(update, "_run", side_effect=[
