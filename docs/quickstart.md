@@ -47,6 +47,22 @@ memcal doctor
 memcal brief
 ```
 
+## Approve macOS sources
+
+Messages, WhatsApp, and Contacts use a local bridge to `memcal.app`, which owns
+Full Disk Access. Calendar uses the same app for Automation and Calendar data
+access; your terminal or agent does not need these grants.
+
+```bash
+memcal permissions setup    # prepare the app and guide Full Disk Access approval
+memcal ical setup           # request Calendar access from the Memcal app
+```
+
+Enable `memcal.app` when prompted. Calendar publishing also needs Calendar data
+access; Reminders publishing has its own setup. See the
+[permission helper](hosting/permissions.md), [Calendar](sources/calendar.md), and
+[Publishing](hosting/publishing.md).
+
 ## First ingest
 
 See which connectors are available, then pull from one source with a small limit
@@ -72,6 +88,21 @@ memcal schedule install
 ```
 
 On Linux, this command prints cron instructions instead of installing a launchd job.
+
+The macOS job also checks for new source records every five minutes by default.
+Those periodic checks make no model calls and leave WhatsApp closed unless you
+explicitly enable background startup. Closing the web UI does not stop the job.
+
+To stop macOS scheduled work and resume it later:
+
+```bash
+memcal disable             # stops nightly Dream and periodic checks
+memcal schedule status     # confirms scheduling is disabled
+memcal enable              # resumes the installed job
+```
+
+The disabled state persists across logins and updates. Your data, app permissions,
+and manual commands remain available. See [Scheduling](hosting/scheduling.md).
 
 ## Connect an agent
 

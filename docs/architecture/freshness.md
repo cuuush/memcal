@@ -56,6 +56,12 @@ status, so a quiet source reads as checked, not as broken —
 and a source silent since yesterday gets an honest coverage warning, not "nothing
 changed." Explicit exclusions and mutes are preserved throughout.
 
+On macOS, periodic checks read WhatsApp's existing local database without opening
+the desktop app by default. Automatic startup for Dream and explicit collection
+is configured separately from startup during background checks. See
+[WhatsApp](../sources/whatsapp.md). `memcal disable` stops periodic checks and
+scheduled Dream until `memcal enable`; closing the web UI alone does not stop them.
+
 ## Nominate, don't decide
 
 Activity links start from exact associations: an event's supporting evidence

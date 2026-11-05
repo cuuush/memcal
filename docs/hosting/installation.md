@@ -62,9 +62,11 @@ For a pip installation, it installs the latest code directly from
 be on PATH. Existing Slack and Telegram extras are upgraded too.
 
 Both paths run the newly installed code to migrate the existing store and refresh
-its saved brief. On macOS, an installed scheduler is regenerated and reloaded,
-including the app wrapper, while preserving its scheduled time and pending retry.
-An update does not enable scheduling on a store that did not have it. Use
+its saved brief. On macOS, an installed scheduler is regenerated, including the app
+wrapper, while preserving its scheduled time and pending retry. Enabled scheduling
+is reloaded; scheduling stopped with `memcal disable` stays disabled until
+`memcal enable`. An update does not install scheduling on a store that did not have
+it. Use
 `memcal --home /path/to/store update` to select the store to refresh.
 
 Linked Hermes and OpenClaw plugins and MCP servers use the updated code on their

@@ -48,7 +48,8 @@
 | `senders` / `top` / `block` | Email gate table, always-pass senders, hard blocks |
 | `gatecheck` | Gate pass/reject inspection |
 | `dream` | The pass with compact progress (`--verbose` for details; `--dry-run`, `--retry`, `--redo`, `--rounds`, `--no-sweep`) |
-| `schedule` | Nightly job (`status`, `install`, `run`, `due`) |
+| `schedule` | macOS nightly job (`status`, `install`, `uninstall`, `run`, `due`) |
+| `disable` / `enable` | Stop or resume macOS scheduled Dream and periodic source checks |
 
 ## Inspect and administer
 
@@ -58,6 +59,8 @@
 | `doctor` | What is wrong, and what to type about it |
 | `models` | Priced model list on OpenRouter; provider/default/in-use elsewhere |
 | `setup` / `init` | Provider/model setup; store init |
+| `update` | Update the installation and refresh its store and installed scheduler |
+| `permissions` | Guide Full Disk Access approval and verify protected source reads through the app |
 | `ui` | Web UI (loopback) |
 | `ical` / `reminders` | macOS access and publishing setup |
 | `openclaw` | OpenClaw integration install/status |
@@ -73,3 +76,22 @@ memcal permissions setup --no-open --json
 
 The [Full Disk Access helper](../hosting/permissions.md) verifies the Memcal app bridge,
 reveals `memcal.app`, and opens System Settings only for explicit setup. Status is passive; no store initialization or model call.
+
+Calendar and Reminders use the app bridge too. Run `memcal ical setup` for Calendar
+Automation and, when publishing is enabled, Calendar data access. Run
+`memcal reminders setup --yes` for Reminders publishing. These grants belong to
+`memcal.app`; the calling terminal or agent does not need them. See
+[Calendar setup](../sources/calendar.md) and [Publishing](../hosting/publishing.md).
+
+## Stop and resume scheduled work (macOS)
+
+```bash
+memcal disable
+memcal schedule status
+memcal enable
+```
+
+Disabling stops the installed scheduled job and keeps it disabled across logins,
+restarts, updates, and schedule reinstall. It preserves the app, permissions, and
+data. Manual commands and the web UI remain available. Closing a terminal or the web
+UI alone does not stop scheduling. See [Scheduling](../hosting/scheduling.md).

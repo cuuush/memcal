@@ -41,4 +41,7 @@ retain the original failure, and identify the replacement run.
 ## Schedule
 
 `memcal schedule status` shows loaded state, next run, last pass, and exit —
-plus whether a pass is currently owed. See [Scheduling](scheduling.md).
+plus whether a pass is currently owed. After `memcal disable`, it reports that
+scheduled work is disabled and shows `memcal enable` as the way to resume. Doctor
+treats intentionally disabled scheduling as a healthy state. Updates and schedule
+reinstall preserve it. See [Scheduling](scheduling.md).

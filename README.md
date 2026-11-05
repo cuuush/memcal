@@ -60,7 +60,8 @@ See the [MCP guide](https://cuuush.github.io/memcal/clients/mcp/) for client con
 - `memcal review` shows recent changes and open questions. Answer a question using its displayed handle, for example `memcal answer Q12 "your answer"`.
 - `memcal open E42` shows a record, its changes, and cited source messages. Use `memcal activity E42` to see newer or uncited conversation traffic.
 - `memcal schedule install` installs the macOS scheduler; `memcal schedule status` checks it. Reinstall the schedule after changing runtime locations.
-- `memcal update` updates a checkout or pip installation from GitHub, upgrades dependencies, migrates the store, and refreshes the brief and installed scheduler. Local edits or unpublished commits stop a checkout update. Restart running UI and agent sessions afterward.
+- `memcal disable` stops macOS scheduled Dream and periodic message checks until `memcal enable`. The disabled state survives logins and updates; the app, permissions, data, and manual commands stay available. Closing the web UI alone does not stop scheduling.
+- `memcal update` updates a checkout or pip installation from GitHub, upgrades dependencies, migrates the store, and refreshes the brief and installed scheduler. Disabled scheduling stays disabled. Tracked edits or unpublished commits stop a checkout update; unrelated untracked outputs are preserved. Restart running UI and agent sessions afterward.
 
 Run `memcal setup --advanced` for model, brief, Dream, and publishing settings, or `memcal setup --section imessage` to revisit a section. See [configuration](docs/hosting/configuration.md) for provider and model options, including OpenAI-compatible endpoints.
 
