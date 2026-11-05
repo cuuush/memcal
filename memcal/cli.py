@@ -324,6 +324,8 @@ def _cmd_setup(args) -> int:
     print(f"models    propose={ready.propose_model} sweep={ready.sweep_model} "
           f"match={ready.match_model}")
     print(f"runtime   {detail}")
+    if schedule._is_macos():
+        print("local source access: memcal permissions setup (guided Full Disk Access check)")
     if not ok:
         print("setup was saved, but the selected runtime is not available", file=sys.stderr)
         return 1
@@ -1228,6 +1230,39 @@ def cmd_reminders(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_permissions(args) -> int:
+    """Guide Full Disk Access approval without opening or migrating the store."""
+    from . import permissions
+    cfg = config.load(getattr(args, "home", None))
+    json_mode = getattr(args, "json", False)
+    if not json_mode:
+        print("Checking protected source access for this host and the scheduled app…", flush=True)
+    if args.action == "setup":
+        state = permissions.setup(cfg, target=args.target, open_ui=not args.no_open)
+    else:
+        state = permissions.status(cfg)
+    if json_mode:
+        emit_json(state)
+    else:
+        print(state["detail"], flush=True)
+        for name, check in state.get("interactive", {}).items():
+            mark = "ok" if check.get("ok") is True else "unverified" if check.get("ok") is None else "denied"
+            print(f"  interactive {name}: {mark} — {check.get('detail', '')}", flush=True)
+        if state.get("scheduled"):
+            print("  scheduled: " + state["scheduled"]["detail"], flush=True)
+        if state.get("app"):
+            print("  app: " + state["app"], flush=True)
+        for n, step in enumerate(state.get("steps", []), 1):
+            print(f"  {n}. {step}", flush=True)
+        for note in state.get("notes", []):
+            print(note, flush=True)
+        if state.get("error"):
+            print(state["error"], file=sys.stderr, flush=True)
+        if args.action == "status" and state.get("target"):
+            print("Run memcal permissions setup for the guided helper.", flush=True)
+    return 1 if state.get("error") or not state.get("target_ready", state["ready"]) else 0
+
+
 def cmd_ical(args) -> int:
     """Request or report macOS Calendar permission for the real requester."""
     if args.action == "probe" and args.result:
@@ -2023,11 +2058,11 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
                 fix="memcal ingest --stale   # the daytime tick also retries this on its interval")
         elif source.name in behind:
             add("Sources", source.name, FAIL, f"{age} behind — {message}",
-                fix=f"memcal ingest {source.name}   # after the access steps above")
+                fix="memcal permissions setup   # opens the Full Disk Access helper")
         elif not usable:
             status = WARN if source.in_all else SKIP
             login = f"memcal login {source.name}"
-            fix = (f"memcal ingest {source.name}   # after the access steps above"
+            fix = ("memcal permissions setup   # opens the Full Disk Access helper"
                    if source.name in {"imessage", "whatsapp"} else
                    login if login in message else
                    f"memcal sources         # what {source.name} still needs")
@@ -2159,7 +2194,8 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
 
     if state['installed']:
         access, detail = schedule.source_access_health(cfg)
-        remedy = (f"System Settings → Privacy & Security → Full Disk Access → enable "
+        remedy = (f"memcal permissions setup --target memcal; "
+                  f"System Settings → Privacy & Security → Full Disk Access → enable "
                   f"memcal.app ({schedule.app_path(cfg)}); the terminal's permission is separate")
         if access == WARN:
             remedy = ('memcal schedule install' if schedule.bundle_health(cfg)[0] != 'ok'
@@ -2170,7 +2206,7 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
             add("Schedule", "interactive requester", INFO,
                 "scheduled memcal.app can read " + ", ".join(interactive_denied)
                 + "; the current interactive host cannot",
-                fix="enable Full Disk Access for the terminal/agent launching this command, "
+                fix="memcal permissions setup --target host; enable Full Disk Access for the terminal/agent launching this command, "
                     "then quit and reopen that app; Memcal's scheduled grant already works")
 
     kind = "nightly" if state["installed"] else "interactive"
@@ -2347,7 +2383,7 @@ COMMAND_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("People and facts", ("page", "pages", "alias", "merge", "who")),
     ("Feed it", ("ingest", "sources", "dream", "review", "schedule")),
     ("The gate", ("gatecheck", "senders", "mail", "top", "block")),
-    ("Set up and check", ("setup", "update", "init", "openclaw", "doctor", "stats", "trace",
+    ("Set up and check", ("setup", "update", "init", "openclaw", "doctor", "permissions", "stats", "trace",
                           "models", "ical", "reminders", "completion")),
 )
 
@@ -2666,6 +2702,15 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("sources", help="list sources and whether each is usable")
     s.add_argument("--json", action="store_true", help="machine-readable output")
     s.set_defaults(func=cmd_sources)
+
+    s = sub.add_parser("permissions", help="guide and verify macOS Full Disk Access")
+    s.add_argument("action", nargs="?", default="status", choices=["status", "setup"],
+                   help="status checks source reads; setup opens guided macOS approval")
+    s.add_argument("--target", choices=["auto", "memcal", "host"], default="auto",
+                   help="which requester to guide; auto compares scheduled and interactive access")
+    s.add_argument("--no-open", action="store_true", help="show setup steps without opening macOS settings")
+    s.add_argument("--json", action="store_true", help="emit requester checks and setup steps as JSON")
+    s.set_defaults(func=cmd_permissions)
 
     s = sub.add_parser("ical", help="check/request macOS Calendar access")
     s.add_argument("action", nargs="?", default="status",

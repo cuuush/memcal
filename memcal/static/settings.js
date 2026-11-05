@@ -759,6 +759,54 @@ async function loadProbe() {
   if (!probe.error && state.view === "settings") renderProbe(probe);
 }
 
+function renderPermissions(access) {
+  const box = $("#setpermissions");
+  box.innerHTML = "";
+  if (!access.supported) return;
+  box.append(el("h2", null, "Full Disk Access"));
+  const card = el("div", "card");
+  card.append(el("p", "note", access.detail));
+  if (access.scheduled) card.append(el("p", "note", `Scheduled app: ${access.scheduled.detail}`));
+  if (access.app) card.append(el("p", "setpathv", `App to enable: ${access.app}`));
+  if ((access.steps || []).length) {
+    const steps = el("ol");
+    for (const step of access.steps) steps.append(el("li", null,
+      step.startsWith("Run memcal permissions status")
+        ? "After approving, choose Recheck source access below." : step));
+    card.append(steps);
+  }
+  const actions = el("div", "row");
+  if (!access.ready) {
+    const open = el("button", "btn", "Open Full Disk Access helper");
+    open.onclick = async () => {
+      open.disabled = true;
+      const result = await api("/api/permissions", {target: access.selected_target || "auto"});
+      open.disabled = false;
+      if (!result.error) renderPermissions(result);
+    };
+    actions.append(open);
+  }
+  const check = el("button", "btn", "Recheck source access");
+  check.onclick = () => loadPermissions();
+  actions.append(check);
+  card.append(actions);
+  if (access.error) card.append(el("p", "setwarn", access.error));
+  box.append(card);
+}
+
+async function loadPermissions() {
+  const box = $("#setpermissions");
+  box.innerHTML = '<div class="empty">checking protected source access…</div>';
+  const result = await api("/api/permissions");
+  if (state.view !== "settings") return;
+  if (result.error) {
+    box.textContent = result.error;
+    return;
+  }
+  renderPermissions(result);
+}
+
+
 /* Refresh model choices before saving a provider change. */
 async function refreshSuggestions(providerName) {
   render();
@@ -800,4 +848,5 @@ export async function loadSettings() {
   page = out;
   render();
   loadProbe();
+  loadPermissions();
 }

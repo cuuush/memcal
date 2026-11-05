@@ -64,6 +64,7 @@ nav:
   - Hosting:
       - Installation: hosting/installation.md
       - Configuration: hosting/configuration.md
+      - Full Disk Access: hosting/permissions.md
       - Scheduling: hosting/scheduling.md
       - Publishing: hosting/publishing.md
       - Monitoring: hosting/monitoring.md

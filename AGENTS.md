@@ -34,6 +34,7 @@ cd memcal
 ./install.sh                 # PATH launcher; --nightly also schedules the 3am dream pass (macOS launchd only — never pass it on Linux)
 export PATH="$HOME/.local/bin:$PATH"
 memcal doctor
+memcal permissions setup     # macOS: guide protected-source approval; Linux opens nothing
 memcal setup                 # provider + model → ~/.memcal/.env
 memcal brief
 ```

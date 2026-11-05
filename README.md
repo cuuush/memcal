@@ -30,7 +30,7 @@ Setup walks you through your provider and sources. For Codex via OAuth, sign in 
 and cleanup, and recent unnamed-sender windows are configurable in Settings; see
 [Configuration](docs/hosting/configuration.md).
 
-Memcal is built first for **macOS**, where it can use Messages, Calendar, and launchd scheduling. iMessage reads the local Messages database by default and requires Full Disk Access for the process running Memcal. See [iMessage setup](docs/sources/imessage.md) for BlueBubbles and permission details. Email, MCP, and optional chat integrations also work on Linux; install Slack support with `pip install 'memcal[slack]'`.
+Memcal is built first for **macOS**, where it can use Messages, Calendar, and launchd scheduling. iMessage reads the local Messages database by default and requires Full Disk Access for the process running Memcal. Use `memcal permissions setup` for guided macOS approval and read checks, or open Settings → Full Disk Access in the web UI. See the [permission helper](docs/hosting/permissions.md) and [iMessage setup](docs/sources/imessage.md) for details. Email, MCP, and optional chat integrations also work on Linux; install Slack support with `pip install 'memcal[slack]'`.
 
 Memcal reads sensitive personal data and sends selected source text to your configured model provider. Read the [privacy notes](https://cuuush.github.io/memcal/privacy/) before connecting real accounts.
 

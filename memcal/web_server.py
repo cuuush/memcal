@@ -229,6 +229,11 @@ class Handler(BaseHTTPRequestHandler):
         if not url.path.startswith("/api/"):
             return self._send({"error": "not found"}, 404)
 
+        if url.path == "/api/permissions":
+            try:
+                return self._send(self._api_get(url.path, query, None))
+            except Exception as exc:
+                return self._send({"error": f"{type(exc).__name__}: {exc}"}, 500)
         conn = self._conn()
         try:
             self._send(self._api_get(url.path, query, conn))
@@ -333,6 +338,9 @@ class Handler(BaseHTTPRequestHandler):
             if query.get("live") == "1":
                 roster = web_settings.live_roster(self.cfg, wanted)
             return web_settings.page(self.cfg, conn, wanted, roster)
+        if path == "/api/permissions":
+            from . import permissions
+            return permissions.guide(self.cfg, permissions.status(self.cfg))
         if path == "/api/settings_probe":
             # Split off the parts that can open a socket or start a subprocess, so the
             # settings page draws immediately and fills in what it had to go and ask.
@@ -373,6 +381,15 @@ class Handler(BaseHTTPRequestHandler):
         except RequestBodyError as exc:
             return self._send({"error": str(exc)}, exc.status)
 
+        if url.path == "/api/permissions":
+            from . import permissions
+            target = payload.get("target", "auto")
+            if target not in permissions.TARGETS:
+                return self._send({"error": "target must be auto, memcal or host"}, 400)
+            try:
+                return self._send(permissions.setup(self.cfg, target=target))
+            except Exception as exc:
+                return self._send({"error": f"{type(exc).__name__}: {exc}"}, 500)
         conn = self._conn()
         try:
             if url.path == "/api/sender":

@@ -111,3 +111,7 @@ interactive source check fails, the scheduled grant is already working: enable F
 Disk Access for the terminal/agent running that command, then quit and reopen that
 app. Doctor states this distinction explicitly; reinstalling the schedule cannot
 change the interactive host's privacy grant.
+
+Use `memcal permissions setup` or **Settings → Full Disk Access** in the web UI for
+[guided approval and rechecking](../hosting/permissions.md). The helper opens the
+system pane and reveals the right app; macOS keeps approval in your hands.

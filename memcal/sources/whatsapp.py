@@ -444,7 +444,7 @@ class WhatsAppSource(Source):
             finally:
                 src.close()
         except sqlite3.Error as exc:
-            return False, (f"found {path.name} but could not read it: {exc}. Open WhatsApp and "
+            return False, (f"found {path.name} but could not read it: {exc}. Run memcal permissions setup. Open WhatsApp and "
                            "sign in. If it still fails, enable memcal.app in System Settings → "
                            "Privacy & Security → Full Disk Access, then reopen memcal. "
                            "If the scheduled probe passes, the interactive terminal/agent "

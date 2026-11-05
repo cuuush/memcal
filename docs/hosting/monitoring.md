@@ -11,7 +11,9 @@ wrong, and what to type about it. Findings print as checks complete, with progre
 before source and scheduled-app probes. `--verbose` includes passing checks;
 `--json` emits one clean JSON result without progress text. Protected-source
 failures include the Full Disk Access steps rather than pointing back to another
-command with the same missing explanation.
+command with the same missing explanation. `memcal permissions setup` opens the
+[Full Disk Access helper](permissions.md), which compares the interactive host and
+the scheduled app before choosing which requester needs approval.
 
 ## Runs and volume
 

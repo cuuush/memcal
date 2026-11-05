@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Added
+
+- Guided Full Disk Access setup through `memcal permissions setup` and the web Settings
+  page, with separate interactive/scheduled probes, exact app reveal, explicit system
+  approval steps, and rechecking without opening the Memcal database.
+
 ## [0.8.4] - 2026-11-05
 
 ### Added

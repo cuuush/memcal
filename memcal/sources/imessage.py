@@ -281,7 +281,7 @@ def available() -> bool:
 
 def access_help(cfg) -> str:
     from .. import schedule
-    return (f"cannot read {CHAT_DB}. Open System Settings → Privacy & Security → "
+    return (f"cannot read {CHAT_DB}. Run memcal permissions setup for guided help. Open System Settings → Privacy & Security → "
             f"Full Disk Access, add and enable memcal.app ({schedule.app_path(cfg)}), "
             "then quit and reopen memcal. macOS may attribute an interactive command to "
             "its terminal or agent app even through the wrapper: if the scheduled "
