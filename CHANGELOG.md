@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.8.4] - 2026-11-05
+
 ### Added
 
 - Optional provider/model fallback with independent configuration and combined usage.
