@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+## [0.8.9] - 2026-11-05
+
+### Fixed
+
+- Calendar permission status and doctor report the shared Memcal app verification
+  rather than separate terminal and nightly grants. Setup uses the same helper
+  with or without a schedule, and failed Automation checks clear saved success.
+  EventKit checks no longer mark Calendar Automation as verified.
+
 ## [0.8.8] - 2026-11-05
 
 ### Added

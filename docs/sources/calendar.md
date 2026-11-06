@@ -14,6 +14,13 @@ to Memcal, shared with nightly work. Your terminal does not need permission to
 control Calendar. If macOS names the terminal in a pending prompt, decline it and
 run `memcal ical setup` after updating.
 
+`memcal ical status` reports the app's last saved Automation and EventKit checks
+without opening a consent dialog. The same Automation check applies before and
+after installing, disabling, or enabling the schedule. A failed live Automation
+check clears its saved success; EventKit verification stays separate. Older
+nightly check records remain usable, but an older terminal-only check does not
+verify the app. Use `memcal ical setup` for a fresh check.
+
 Events you create in personal calendars are retained as scheduling context for
 matching and interpreting messages. They stay out of the brief and web event lists;
 direct record detail remains available. Plans learned from messages and subscribed

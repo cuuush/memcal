@@ -1308,10 +1308,10 @@ def cmd_ical(args) -> int:
         # probe checks the Apple Events path instead.
         checked_eventkit = args.ek == "request" or (
             args.ek == "where" and bool((cfg.publish_calendar or "").strip()))
-        if ok:
-            db.set_meta(conn, f"ical.permission.{args.context}", db.now())
-            if checked_eventkit:
-                db.set_meta(conn, "ical.eventkit.verified", db.now())
+        if not args.ek:
+            ical.record_automation_check(conn, ok)
+        if ok and checked_eventkit:
+            db.set_meta(conn, "ical.eventkit.verified", db.now())
         elif checked_eventkit:
             # A real check just ran and failed — access was revoked or never
             # granted — so drop the stamp rather than trusting it to its TTL.
@@ -1351,25 +1351,19 @@ def cmd_ical(args) -> int:
         conn.close()
         return 0
 
-    installed = schedule.status(cfg)["installed"]
     if args.action == "status":
-        interactive = db.get_meta(conn, "ical.permission.interactive")
-        nightly = db.get_meta(conn, "ical.permission.nightly")
+        verified = ical.automation_verified(conn)
         print("Calendar permission status (passive; no macOS dialogs):")
-        print(f"  interactive  last verified {interactive}" if interactive else
-              "  interactive  not verified")
-        if installed:
-            print(f"  nightly      last verified {nightly}" if nightly else
-                  "  nightly      not verified")
-        else:
-            print("  nightly      schedule not installed")
+        print(f"  memcal.app   Automation last verified {verified}" if verified else
+              "  memcal.app   Automation not verified")
+        print("  shared by interactive commands and scheduled work")
         if (cfg.publish_calendar or "").strip():
             ek = db.get_meta(conn, "ical.eventkit.verified")
             print(f"  eventkit     last verified {ek}" if ek else
                   "  eventkit     not verified")
         print("Run `memcal ical setup` for a live check.")
         conn.close()
-        return 0 if (nightly if installed else interactive) else 1
+        return 0 if verified else 1
 
     target = "Memcal app bridge (shared by interactive and nightly work)"
     print(
@@ -1398,16 +1392,9 @@ def cmd_ical(args) -> int:
             return 1
     conn.commit()
     print("Checking Calendar automation access (up to 45 seconds)…", flush=True)
-    if installed:
-        ok, message = schedule.calendar_permission_probe(cfg)
-        if ok:
-            db.set_meta(conn, "ical.permission.nightly", db.now())
-        print(("ok " if ok else "-- ") + message)
-    else:
-        ok, message = ical.permission_status(cfg=cfg)
-        if ok:
-            db.set_meta(conn, "ical.permission.interactive", db.now())
-        print(("ok " if ok else "-- ") + f"Memcal app requester: {message}")
+    ok, message = schedule.calendar_permission_probe(cfg)
+    ical.record_automation_check(conn, ok)
+    print(("ok " if ok else "-- ") + message)
     if (cfg.publish_calendar or "").strip():
         # A second, separate macOS permission. Reading the calendar goes through Apple
         # Events; *naming the account* to create memcal's calendar in goes through
@@ -2246,10 +2233,9 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
                 "memcal.app can read protected sources but a source bridge check failed",
                 fix="memcal update; retry the command to reconnect to the app bridge")
 
-    kind = "nightly" if state["installed"] else "interactive"
-    verified = db.get_meta(conn, f"ical.permission.{kind}")
+    verified = ical.automation_verified(conn)
     add("Schedule", "calendar permission", OK if verified else WARN,
-        f"{kind} last verified {verified}" if verified else f"{kind} not verified",
+        f"memcal.app last verified {verified}" if verified else "memcal.app not verified",
         fix="" if verified else "memcal ical setup       # opens macOS consent dialogs")
 
     # -- Calendar ------------------------------------------------------------

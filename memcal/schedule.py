@@ -533,12 +533,12 @@ def calendar_permission_probe(cfg: Config, *, timeout: int = 45) -> tuple[bool, 
         if identity.startswith("could not start"):
             return False, identity
         return False, (
-            f"nightly launchd Calendar check timed out ({identity}); "
+            f"Memcal app Calendar check timed out ({identity}); "
             "a permission prompt may still be waiting"
         )
     ok = bool(payload.get("ok"))
     detail = str(payload.get("message") or "no detail")
-    return ok, f"nightly launchd requester ({identity}): {detail}"
+    return ok, f"Memcal app requester ({identity}): {detail}"
 
 
 def _protected_sources(cfg: Config) -> list[str]:

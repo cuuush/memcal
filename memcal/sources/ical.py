@@ -1146,6 +1146,25 @@ EK_VIRTUAL_SOURCE = "VIRTUAL_APP_SOURCE_UUID"
 EVENTKIT_VERIFIED_TTL_DAYS = 30
 
 
+def automation_verified(conn: sqlite3.Connection) -> str | None:
+    """Last app-owned Automation check, independent of schedule installation.
+
+    Earlier nightly checks already ran through the app helper. An old interactive
+    stamp alone may describe a terminal grant, so it cannot verify the app.
+    """
+    return (db.get_meta(conn, "ical.permission.app")
+            or db.get_meta(conn, "ical.permission.nightly"))
+
+
+def record_automation_check(conn: sqlite3.Connection, granted: bool) -> None:
+    if granted:
+        db.set_meta(conn, "ical.permission.app", db.now())
+    else:
+        conn.execute("DELETE FROM meta WHERE key IN (?, ?, ?)",
+                     ("ical.permission.app", "ical.permission.nightly", "ical.permission.interactive"))
+        conn.commit()
+
+
 def eventkit_verified(conn: sqlite3.Connection) -> tuple[bool, str]:
     """Whether setup's EventKit stamp is present and still within its TTL.
 

@@ -362,6 +362,14 @@ class TestASuiteThatIsGreenOnlyOnAMac(unittest.TestCase):
             passing = self._findings(answer)["Calendar/account"]
             self.assertEqual(passing.status, cli.OK)
 
+    def test_doctor_uses_the_shared_app_automation_check_with_or_without_schedule(self):
+        ical.record_automation_check(self.conn, True)
+        for installed in (True, False):
+            finding = self._findings(lambda *_a, **_kw: (0, ''), installed=installed)[
+                'Schedule/calendar permission']
+            self.assertEqual(finding.status, cli.OK)
+            self.assertIn('memcal.app last verified', finding.detail)
+
     def test_the_doctor_stops_trusting_a_stale_eventkit_stamp(self):
         """The stamp is a memory of a grant, not the grant: past its TTL it fails
         and names setup again instead of passing forever."""
