@@ -9,15 +9,18 @@ memcal todos
 memcal done T7
 ```
 
-## Wake conditions, not just dates
+## Wake conditions
 
-Some to-dos wake on the world rather than the calendar: ask about the toll-by-mail
-thing once Rowan is back from Italy. When ingestion writes something that satisfies
-the condition, the to-do surfaces:
+Use `--when` to save a condition for a to-do.
 
 ```bash
 memcal todo "Ask Rowan about the toll letter" --when "Rowan back from Italy" --who rowan
 ```
+
+Set `MEMCAL_SEMANTIC_WAKES=1` or enable **Semantic wake checks** in Settings to
+have Dream check these conditions. Dream can raise a follow-up question when
+it finds a cited message sent after the to-do opened. The to-do stays open
+until you confirm completion.
 
 ## Closure is conversational
 

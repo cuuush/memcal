@@ -135,7 +135,7 @@ class TestACommandToAMachineIsNotACommitmentHeMade(unittest.TestCase):
         self.assertNotIn("→", rendered)
 
     def test_a_row_with_no_such_field_renders_as_before(self):
-        """`live.remember` and the benchmark both hand `Bundle` rows built by hand."""
+        """Live writes can hand-build a `Bundle` from archive rows."""
         bundle = Bundle(entity="person:me", items=[{
             "channel": "imessage", "thread": "chat1", "person": "me", "handle": None,
             "from_me": 1, "ts": "2026-08-18T09:58:00-04:00", "text": "on my way",

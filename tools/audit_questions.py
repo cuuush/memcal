@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from memcal import config, db, todos, trace                       # noqa: E402
+from memcal import config, db, todos                              # noqa: E402
 from memcal.dream import apply as apply_stage                     # noqa: E402
 from memcal.dream.bundle import Bundle                            # noqa: E402
 
@@ -117,7 +118,11 @@ def report_coverage(cover: dict) -> list[str]:
 def main() -> int:
     home = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else None
     cfg = config.load(home)
-    conn = db.open_db(cfg.db_path)
+    try:
+        conn = db.connect(cfg.db_path, read_only=True)
+    except sqlite3.OperationalError as exc:
+        print(f"Cannot open store {cfg.db_path}: {exc}", file=sys.stderr)
+        return 1
     rows = conn.execute(
         "SELECT id, key, text, written_by, about_event FROM questions"
         " WHERE status='open' ORDER BY id").fetchall()

@@ -68,18 +68,18 @@ def cross(days: list[date], hours: list, zones: list) -> list[tuple]:
 
 
 def run(day: date, tests: list[str], hour: int | None = None,
-        zone: str | None = None) -> tuple[int, list[str]]:
+        zone: str | None = None) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     pin = day.isoformat() if hour is None else f"{day.isoformat()}T{hour:02d}:00"
     env = {**os.environ, "MEMCAL_TODAY": pin, "PYTHONWARNINGS": "ignore"}
     if zone:
         env["TZ"] = zone
-    cmd = [sys.executable, "-m", "unittest"]
+    cmd = [sys.executable, "-m", "unittest", "-b"]
     cmd += [f"tests.{t}" for t in tests] if tests else ["discover", "-s", "tests"]
     proc = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True)
     failed = sorted({m.group(2) for m in
                      (OUTCOME_RE.match(line) for line in proc.stderr.splitlines())
                      if m})
-    return proc.returncode, failed
+    return proc, failed
 
 
 def main() -> int:
@@ -122,13 +122,20 @@ def main() -> int:
         moments = [(day, hour, zone)
                    for day in days for hour in hours for zone in zones]
     red: dict[str, list[str]] = {}
+    worker_failures = 0
     for day, hour, zone in moments:
-        code, failed = run(day, args.tests, hour, zone)
+        proc, failed = run(day, args.tests, hour, zone)
         when = (f"{day} {day.strftime('%a')}"
                 + (f" {hour:02d}:00" if hour is not None else "")
                 + (f" {zone}" if zone else ""))
-        mark = "ok " if code == 0 else "RED"
-        print(f"{mark} {when}  {'green' if not failed else str(len(failed)) + ' red'}")
+        if proc.returncode == 0:
+            print(f"ok  {when}  green")
+        elif not failed:
+            worker_failures += 1
+            print(f"RED {when}  unittest exited with status {proc.returncode}")
+            print((proc.stderr or proc.stdout).rstrip())
+        else:
+            print(f"RED {when}  {len(failed)} red")
         for test in failed:
             print(f"      {test}")
             red.setdefault(test, []).append(when)
@@ -138,6 +145,7 @@ def main() -> int:
         print(f"\n{len(red)} test(s) depend on the {axis} the suite runs:")
         for test, on in sorted(red.items(), key=lambda kv: -len(kv[1])):
             print(f"  {test}  ({len(on)}/{len(moments)} {axis}s, first {on[0]})")
+    if red or worker_failures:
         return 1
     print(f"\nall {len(moments)} moment(s) green")
     return 0

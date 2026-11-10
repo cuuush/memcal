@@ -46,5 +46,6 @@ It becomes a [question](architecture/questions.md): kept with its evidence,
 retried as traffic arrives, asked about instead of guessed.
 
 **How is Memcal evaluated?**
-Correctness regressions run as isolated unittests. Comparative memory-system
-benchmarking lives in the separate PACBench project.
+Memcal checks product behavior with isolated Python unittests. Run them with
+`python3 -m unittest discover -b -s tests` from the checkout. Comparative
+memory-system benchmarks run in the separate PACBench project.

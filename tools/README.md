@@ -3,18 +3,7 @@
 The CLI and web UI own normal operation. This directory only keeps diagnostics that
 still answer a question those surfaces cannot.
 
-**One rule decides whether something belongs here: a tool is either a lab instrument
-you will run again, or it was a one-shot and belongs in git history.** A one-shot
-repair that has already been applied is worse than useless once it is done — it is
-destructive if re-run, and it makes the directory look like a place where the answer
-might be, which costs a reading every time. Eleven of them were deleted on 2026-08-05;
-`git log --diff-filter=D -- tools/` has them all, with the commit that explains what
-each was for.
-
-A probe whose finding is already captured in the README or a regression test is a one-shot.
-A probe that is
-the *only* check on a code path the unit tests deliberately stub is an instrument, and
-stays however long ago it was written.
+Keep reusable diagnostics here. Run comparative memory-system benchmarks in PACBench.
 
 ## Reading what happened
 
@@ -28,10 +17,8 @@ stays however long ago it was written.
   only, never message text, which is what makes a private corpus checkable in a public
   repository. Run it after a run adds calls: the estimate must stay above the real
   count, and the guard test in `tests/test_core.py` is what fails when it drifts.
-- `probe_page.py` — what `memcal_open_page` actually returns for one slug, and how many
-  tokens of it. Read-only against the live store. "The page read is too bare / too
-  noisy" is a claim with a number attached, and this is where the number comes from:
-  the résumé slot came back with three lines of small talk and no structured facts.
+- `probe_page.py` — print a wiki profile as raw JSON and show its size. Opens
+  the configured database read-only.
 
 ## Gate and extraction quality
 
@@ -44,12 +31,6 @@ stays however long ago it was written.
   the only place that would say so.
 - `audit_duplicates.py` — rows that are the same occasion under two names.
 - `probe_affinity.py` — which conversations look like one occasion, without a model.
-- `probe_reasoning.py` — measure a model's real reasoning spend before setting its
-  `ENDPOINTS` entry. Reads `completion_tokens_details.reasoning_tokens`, never the
-  length of the returned reasoning text: OpenAI shows a summary and encrypts the rest,
-  so the visible text undercounted by 5.5x on the one bundle it was checked against —
-  in the one direction that truncates a request and loses the whole call.
-- `probe_nightly.py` — what the scheduled pass would do right now.
 
 ## The one probe that touches a real calendar
 
@@ -91,7 +72,7 @@ stays however long ago it was written.
   repo, and **its output reaches a phone**. Run it by hand *without* `--mark` to see what
   the agent would be handed; `--mark` records the poke and snoozes it (preserved for
   terminal use and the old flow; the new flow marks on delivery instead). Publishing setup is
-  documented under [Apple Calendar and Reminders](../README.md#apple-calendar-and-reminders).
+  documented under [Publishing](../docs/hosting/publishing.md).
 
 ## Reading the tracker
 

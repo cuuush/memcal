@@ -26,6 +26,3 @@
 - **Review weekly.** `memcal review` plus the History page: what it wrote, what it
   asks, what it could not resolve. Ten minutes here prevents zombie to-dos and
   stale pages.
-- **Test behavior locally, compare systems in PACBench.** Memcal uses isolated
-  unittests for correctness; the separate PACBench project owns memory-system
-  evaluation.

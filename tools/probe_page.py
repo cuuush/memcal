@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only probe: what `memcal_open_page` actually returns for one slug.
-
-A lab instrument. It opens the live store read-only and prints the profile payload
-byte-for-byte plus its size, so "the page read is too bare / too noisy" can be measured
-instead of asserted.
+"""Print the raw wiki profile data and its size from an existing store.
 
     python3 tools/probe_page.py casey-morgan
 """
@@ -11,6 +7,7 @@ instead of asserted.
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -22,7 +19,11 @@ from memcal import config, db, wiki  # noqa: E402
 def main() -> int:
     slug = sys.argv[1] if len(sys.argv) > 1 else "casey-morgan"
     cfg = config.load()
-    conn = db.open_db(cfg.db_path)
+    try:
+        conn = db.connect(cfg.db_path, read_only=True)
+    except sqlite3.OperationalError as exc:
+        print(f"Cannot open store {cfg.db_path}: {exc}", file=sys.stderr)
+        return 1
     try:
         payload = wiki.profile(conn, cfg.wiki_dir, slug)
     finally:

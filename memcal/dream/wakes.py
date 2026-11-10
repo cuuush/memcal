@@ -16,11 +16,8 @@ asleep. The call or failure is recorded through the normal trace path.
 
 from __future__ import annotations
 
-import json
-import re
 import sqlite3
 from dataclasses import dataclass
-from pathlib import Path
 
 from .. import calls, db, todos, trace
 from ..config import Config
@@ -45,8 +42,8 @@ waiter whether those lines entail the condition is now true:
               mere discussion ("flights are expensive"), or anything said
               before the waiter opened.
 
-One waiter's lines come from one conversation only. Never combine lines across
-waiters. Cite the supporting line tags (e.g. "L2") for every satisfied waiter;
+Each candidate block is a separate conversation. Use lines from one block only
+for each decision. Cite the supporting line tags (e.g. "L2") for every satisfied waiter;
 an empty cite list means not satisfied. You may wake a waiter; you may not
 close, drop, or amend anything. Unsure means not satisfied.\
 """
@@ -72,9 +69,6 @@ WAKES_SCHEMA = {
     },
 }
 
-EVAL_FIXTURE = Path(__file__).with_name("wake_eval.json")
-
-
 @dataclass
 class WakeCandidate:
     todo: todos.Todo
@@ -88,34 +82,44 @@ def find_candidates(conn: sqlite3.Connection, bundles,
             for todo, bundle in todos.find_wake_candidates(conn, bundles, since=since)]
 
 
-def load_eval_cases() -> list[dict]:
-    """The checked-in entailment/negation/delay/paraphrase eval set."""
-    return json.loads(EVAL_FIXTURE.read_text(encoding="utf-8"))
-
-
-def build_suffix(candidates: list[WakeCandidate]) -> str:
-    """Each waiter with only its own candidate bundles' lines."""
+def _render_candidates(candidates: list[WakeCandidate]) -> tuple[
+        str, dict[str, dict[str, tuple[int, int]]]]:
+    """Render fresh lines and index each tag by waiter, bundle, and archive ID."""
     parts: list[str] = []
+    citations: dict[str, dict[str, tuple[int, int]]] = {}
     by_todo: dict[str, list[WakeCandidate]] = {}
     for candidate in candidates:
         by_todo.setdefault(candidate.todo.key, []).append(candidate)
     for key in sorted(by_todo):
         todo = by_todo[key][0].todo
-        parts.append(f"WAITER {todo.key} | {todo.text}")
-        parts.append(f"  waiting on: {todo.wake_condition}")
-        for candidate in by_todo[key]:
+        try:
+            opened = db.parse_ts(todo.opened_at, strict=True)
+        except ValueError:
+            continue
+        blocks = []
+        lines = {}
+        for index, candidate in enumerate(by_todo[key]):
             bundle = candidate.bundle
-            entity = str(getattr(bundle, "entity", "?"))
-            label = str(getattr(bundle, "label", entity) or entity)
-            parts.append(f"  candidate from BUNDLE {entity} ({label}):")
-            for index, row in enumerate(getattr(bundle, "items", []) or [], start=1):
+            block = []
+            for row in bundle.items:
                 try:
-                    text = str(row["text"] or "").strip().replace("\n", " ")
-                except (KeyError, IndexError, TypeError):
-                    text = ""
-                if text:
-                    parts.append(f"    L{index} {text}")
-    return "\n".join(parts)
+                    said = db.parse_ts(row["ts"], strict=True)
+                except ValueError:
+                    continue
+                body = " ".join(str(row["text"] or "").splitlines()).strip()
+                if body and said > opened:
+                    tag = f"L{len(lines) + 1}"
+                    lines[tag] = (index, int(row["id"]))
+                    block.append(f"    {tag} {body}")
+            if block:
+                blocks.append(f"  candidate from BUNDLE {bundle.entity} ({bundle.label}):")
+                blocks.extend(block)
+        if lines:
+            citations[key] = lines
+            parts.append(f"WAITER {todo.key} | {todo.text}")
+            parts.append(f"  waiting on: {todo.wake_condition}")
+            parts.extend(blocks)
+    return "\n".join(parts), citations
 
 
 def _ceiling(suffix: str) -> int:
@@ -139,22 +143,13 @@ def _bundle_refs(candidates: list[WakeCandidate]) -> list[dict]:
     return list(seen.values())
 
 
-_LTAG_RE = re.compile(r"[Ll]\s*#?\s*(\d+)")
-
-
-def _resolve_cites(bundle: object, cites: list) -> list[int]:
-    """Line tags the decision quoted → archive ids, best effort."""
-    tags: list[str] = []
-    for cite in cites or ():
-        for match in _LTAG_RE.finditer(str(cite or "")):
-            tags.append(f"L{match.group(1)}")
-    cite_fn = getattr(bundle, "cite", None)
-    if not callable(cite_fn):
+def _resolve_cites(lines: dict[str, tuple[int, int]], cites: list[str]) -> list[int]:
+    if any(cite.strip().upper() not in lines for cite in cites):
         return []
-    try:
-        return [int(i) for i in (cite_fn(tags) or [])]
-    except (TypeError, ValueError, KeyError, IndexError):
+    resolved = [lines[cite.strip().upper()] for cite in cites]
+    if len({index for index, _ in resolved}) != 1:
         return []
+    return list(dict.fromkeys(archive_id for _, archive_id in resolved))
 
 
 def _valid_decision(item) -> tuple[str, bool, list] | None:
@@ -184,10 +179,9 @@ def evaluate(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
     candidates = find_candidates(conn, bundles, since=since)
     if not candidates:
         return [], []
-    by_key: dict[str, list[WakeCandidate]] = {}
-    for candidate in candidates:
-        by_key.setdefault(candidate.todo.key, []).append(candidate)
-    suffix = build_suffix(candidates)
+    suffix, citations = _render_candidates(candidates)
+    if not citations:
+        return [], []
     ceiling = _ceiling(suffix)
     model = str(getattr(cfg, WAKE_MODEL_ATTR, "") or "")
     label = _label(candidates)
@@ -237,8 +231,11 @@ def evaluate(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
             problems.append(f"wakes: {key} claims satisfied with no cites; "
                             f"it stays asleep")
             continue
-        group = by_key.get(key)
-        if not group:
+        if key not in citations:
+            continue
+        archive_ids = _resolve_cites(citations[key], cites)
+        if not archive_ids:
+            problems.append(f"wakes: {key} cites must name lines from one candidate bundle")
             continue
         todo = todos.get(conn, key)
         if todo is None or todo.status != "open" or not todo.wake_condition:
@@ -247,8 +244,6 @@ def evaluate(client: CompletionClient, conn: sqlite3.Connection, cfg: Config,
             continue
         if since and str(todo.opened_at or "") >= str(since):
             continue
-        archive_ids = [aid for candidate in group
-                       for aid in _resolve_cites(candidate.bundle, cites)]
         todos.mark_woken(conn, todo)
         trace.stamp(conn, kind="todo", ref=todo.key, verb="woke",
                     entity=f"wakes:{len(archive_ids)} line(s)", stage="wakes",

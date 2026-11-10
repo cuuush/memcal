@@ -2566,6 +2566,39 @@ class TestTheZoneSweepDoesNotMultiplyTwoSeparableAxes(unittest.TestCase):
             clock_sweep.offset_changes("Mars/Olympus", [date(2026, 1, 1)]), [])
 
 
+class TestClockSweepWorkerFailure(unittest.TestCase):
+    def test_worker_failure_without_a_unittest_summary_fails_the_sweep(self):
+        argv = ["clock_sweep.py", "--dates", "2026-08-20"]
+        worker = subprocess.CompletedProcess([], 2, "", "worker failed to start")
+        with (mock.patch.object(sys, "argv", argv),
+              mock.patch.object(clock_sweep.subprocess, "run", return_value=worker),
+              mock.patch("sys.stdout", new_callable=io.StringIO) as output):
+            self.assertEqual(clock_sweep.main(), 1)
+        self.assertIn("worker failed to start", output.getvalue())
+        self.assertNotIn("green", output.getvalue())
+
+
+class TestReadOnlyDiagnosticStores(Base):
+    def test_diagnostics_do_not_initialize_a_missing_store(self):
+        root = Path(__file__).resolve().parent.parent
+        home = self.cfg.home / "missing store"
+        for tool in ("probe_page.py", "audit_questions.py"):
+            with self.subTest(tool=tool):
+                proc = subprocess.run(
+                    [sys.executable, str(root / "tools" / tool)],
+                    cwd=root, env={**os.environ, "MEMCAL_HOME": str(home)},
+                    capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+                self.assertIn("Cannot open store", proc.stderr)
+                self.assertFalse(home.exists())
+
+    def test_read_only_connection_preserves_row_access_and_refuses_writes(self):
+        with contextlib.closing(db.connect(self.cfg.db_path, read_only=True)) as reader:
+            self.assertEqual(reader.execute("SELECT 1 AS value").fetchone()["value"], 1)
+            with self.assertRaises(sqlite3.OperationalError):
+                reader.execute("CREATE TABLE unexpected_write (id INTEGER)")
+
+
 class TestASuiteThatIsGreenOnlyInOneTimeZone(unittest.TestCase):
     """Keep the timezone sweep able to run the suite under every UTC offset."""
 
@@ -3000,10 +3033,7 @@ class TestOneColumnHeldThreeTimeFormats(Base):
 
     def setUp(self):
         super().setUp()
-        # These fixtures publish a rule whose first occurrence is deliberately seven
-        # days ahead.  The benchmark module runs before this one under discovery and
-        # pins its own scenario day, so borrowing that process-global clock can make
-        # the rule look already expired.  The test's calendar is its own fixture.
+        # Pin the clock so the rule's first occurrence is seven days ahead.
         db.set_today("2026-08-20")
         self.addCleanup(db.set_today, None)
 

@@ -164,9 +164,7 @@ class Config:
     same_event_tokens: int = 2
     same_event_poor_tokens: int = 1
 
-    # Semantic wake evaluation for waiter to-dos. Off until the wake entailment
-    # eval set passes; while off, the post-apply wake stage makes no model call
-    # and leaves waiters asleep.
+    # Optional model check for wake conditions during Dream.
     semantic_wakes: bool = False
 
     # Let dream invent a name for a thread from an otherwise-nameless sender when it

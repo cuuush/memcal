@@ -1,51 +1,16 @@
-<!--
-  A version's one sentence is its tag message, its entries are its commit subjects, and
-  its issue list is its commit bodies. Three facts, each written exactly once. Put
-  `Closes #N` in the *commit body*, not only here — `tools/changelog.py` reads it out of
-  the commit range when a version is cut.
--->
+## Change
 
-## What was assumed, and what was actually true
+<!-- Describe the issue, the user-visible impact, and what changed. -->
 
-<!-- The defect as the gap between the two. Not the symptom. -->
+## Verification
 
-## The class that stops it coming back
-
-<!--
-  An issue closes referencing the unittest class that stops it recurring. The class is
-  the fix; the issue is the record that it was once true. Closing without a class is
-  allowed only when the thing cannot reproduce deterministically — and then say so here.
-
-  Test class names are the bug they were written for: add a class rather than extending
-  an old one, because the names are the changelog.
--->
-
-`Test...`
-
-## Watched failing
-
-<!--
-  A guard that cannot be shown failing is not a guard. Paste the failure message each
-  new test gave against the unfixed code.
-
-  If the red is weak — a TypeError because your new API did not exist yet, rather than a
-  statement about behaviour — say so, and mutate the *fixed* code instead to prove the
-  test is load-bearing. Guards have passed against broken code here more than once: an
-  AST check defeated by its own docstring, a JXA check defeated by a comment, and five
-  fixtures that would have gone green against a feature that had been removed.
--->
-
-## Numbers, before and after
-
-- suite:
-- `benchmark_temporal.py --layer integration`:
+<!-- List the focused regression tests and the result of the buffered full suite.
+     For documentation changes, include the result of mkdocs build --strict.
+     If you ran a comparative evaluation in PACBench, link the run here. -->
 
 ## Checklist
 
-- [ ] Not a band-aid: the fix is not new prompt text, and not rule N+1 on a hand-grown list. If it is rung 4, the body says why it could not go lower.
-- [ ] New columns are in `db.ADDED_COLUMNS` **and** in `upsert`'s INSERT — `schema.sql` alone never reaches an existing store.
-- [ ] Tests say what day it is (`db.today()` / `db.set_today`), never a literal date.
-- [ ] `if __name__ == "__main__": unittest.main()` is at the very end of the file.
-- [ ] Nothing that writes outside this process defaults to on.
-- [ ] A known-bad row in the live store was repaired, not preserved — or there was none, and the query showing that is in the body.
-- [ ] Dev notes went on the `docs/` page they belong to. No new file, no dated narrative section.
+- [ ] New schema columns are registered in `db.ADDED_COLUMNS` and covered by the relevant writes.
+- [ ] Tests use isolated stores and pin time when behavior depends on it.
+- [ ] External writes remain opt-in.
+- [ ] User-facing changes are documented in `CHANGELOG.md` under Unreleased.

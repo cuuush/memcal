@@ -1,11 +1,8 @@
 """Deciding which conversations are about the same thing, without asking a model.
 
-Everything here is a pure function over rows, so unlike the outcome benchmarks it is
-exactly reproducible: same input, same answer, every run, no cost. That is the reason
-this layer is worth having tests for rather than only benchmark numbers — the stochastic
-part of the pipeline can then be measured against a grouping that is known to be stable.
+These tests exercise deterministic grouping over synthetic message rows.
 
-Run: python3 -m unittest discover -s tests -v
+Run: python3 -m unittest -b tests.test_affinity
 """
 
 from __future__ import annotations

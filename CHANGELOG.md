@@ -1,5 +1,18 @@
 ## [Unreleased]
 
+### Fixed
+
+- Dream wakes a waiting to-do only when its citations resolve to messages from
+  one candidate bundle that were sent after the to-do opened.
+- The clock sweep reports failed test workers even if they exit before printing
+  a unittest result. The wiki profile and question diagnostics open the store
+  read-only.
+
+### Removed
+
+- The leftover wake evaluation fixture and scripts for measuring model reasoning
+  and comparing nightly packing strategies. Comparative evaluation belongs in PACBench.
+
 ## [0.8.9] - 2026-11-05
 
 ### Fixed

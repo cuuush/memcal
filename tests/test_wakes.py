@@ -1,8 +1,6 @@
 """Semantic wake evaluation: entailment decides, candidates never write.
 
-Deterministic throughout — a fake CompletionClient stands in for the model.
-The paid model layer is never run here; the checked-in eval fixture documents
-the entailment/negation/delay/paraphrase contract it will grade later.
+A fake CompletionClient exercises the stage without calling a provider.
 """
 
 from __future__ import annotations
@@ -32,9 +30,11 @@ TODO_TEXT = "Give Rowan back their EZ-Pass"
 class FakeEntailment(llm.CompletionClient):
     """Scripted stand-in for the entailment call. Answers what it is told."""
 
-    def __init__(self, answers=None, *, fail=False, malformed=False, cut_off=False):
+    def __init__(self, answers=None, *, cites=("L1",), fail=False, malformed=False,
+                 cut_off=False):
         super().__init__()
         self.answers = dict(answers or {})
+        self.cites = list(cites)
         self.fail = fail
         self.malformed = malformed
         self.cut_off = cut_off
@@ -49,7 +49,7 @@ class FakeEntailment(llm.CompletionClient):
         else:
             decisions = [
                 {"todo_key": key, "satisfied": bool(satisfied),
-                 "cites": ["L1"] if satisfied else []}
+                 "cites": self.cites if satisfied else []}
                 for key, satisfied in self.answers.items()
             ]
             data = {"decisions": decisions}
@@ -62,11 +62,11 @@ class WakeBase(Base):
         super().setUp()
         self.cfg.semantic_wakes = True
 
-    def spool(self, entity: str, texts: list[str]) -> None:
+    def spool(self, entity: str, texts: list[str], *, ts: str | None = None) -> None:
         for index, text in enumerate(texts):
             aid = archive.append(
                 self.conn, channel="imessage", external_id=f"{entity}:{index}:{text[:12]}",
-                ts=db.now(), text=text, thread="t", person=entity.split(":")[-1],
+                ts=ts or db.now(), text=text, thread=entity, person=entity.split(":")[-1],
                 from_me=False, gated=True, gate_reason="temporal")
             archive.spool_add(self.conn, aid, entity)
         self.conn.commit()
@@ -234,51 +234,56 @@ class TestStageDisabledByDefault(WakeBase):
         self.assertIsNone(self.woke_at(todo.key))
 
 
-class TestEvalFixtureRunner(WakeBase):
-    def test_each_fixture_case_resolves_as_labeled(self):
-        import tempfile
+class TestWakeEvidence(WakeBase):
+    def test_only_the_cited_bundle_is_recorded(self):
+        todo = self.open_waiter()
+        self.spool("thread:imessage:first", ["Rowan is still in Italy"])
+        supporting_text = "Rowan landed back from Italy"
+        self.spool("thread:imessage:second", [supporting_text])
+        bundles = sorted(self.bundles(), key=lambda bundle: bundle.entity)
+        client = FakeEntailment({todo.key: True}, cites=["L2"])
 
-        cases = wakes_stage.load_eval_cases()
-        self.assertGreaterEqual(len(cases), 8)
-        categories = {case["category"] for case in cases}
-        self.assertTrue({"entailment", "negation", "delay", "paraphrase"} <= categories)
-        for case in cases:
-            with self.subTest(case=case["name"]):
-                tmp = tempfile.TemporaryDirectory()
-                self.addCleanup(tmp.cleanup)
-                cfg = Config(home=Path(tmp.name))
-                cfg.ensure_dirs()
-                cfg.semantic_wakes = True
-                conn = db.open_db(cfg.db_path)
-                try:
-                    key = f"todo:eval-{case['name']}"
-                    todos.open_todo(conn, f"eval {case['name']}",
-                                    key=key, wake_condition=case["wake_condition"])
-                    conn.execute(
-                        "UPDATE todos SET opened_at = ? WHERE key = ?",
-                        ((db.today() - timedelta(days=1)).isoformat() + "T08:05:00", key))
-                    for index, line in enumerate(case["lines"]):
-                        aid = archive.append(
-                            conn, channel="imessage",
-                            external_id=f"eval-{case['name']}-{index}", ts=db.now(),
-                            text=line, thread="t", person="Rowan Vale",
-                            from_me=False, gated=True, gate_reason="temporal")
-                        archive.spool_add(conn, aid, "person:Rowan Vale")
-                    conn.commit()
-                    bundles = bundle_stage.build(conn)
-                    client = FakeEntailment({key: case["expected"]})
-                    woken, problems = wakes_stage.maybe_wake(
-                        conn, cfg, bundles, since=db.now(), run_id=None, client=client)
-                    self.assertEqual(problems, [])
-                    if case["expected"]:
-                        self.assertEqual([t.key for t in woken], [key])
-                        self.assertIsNotNone(todos.get(conn, key).woke_at)
-                        self.assertEqual(todos.get(conn, key).status, "open")
-                    else:
-                        self.assertEqual(woken, [])
-                        self.assertIsNone(todos.get(conn, key).woke_at)
-                finally:
-                    conn.close()
+        woken, problems = wakes_stage.maybe_wake(
+            self.conn, self.cfg, bundles, since=db.now(), client=client)
+
+        self.assertIn(f"L2 {supporting_text}", client.calls[0]["suffix"])
+        self.assertEqual([item.key for item in woken], [todo.key])
+        self.assertEqual(problems, [])
+        evidence = self.conn.execute(
+            "SELECT a.text FROM evidence e JOIN archive a ON a.id = e.archive_id "
+            "WHERE e.kind = 'todo' AND e.ref = ?", (todo.key,))
+        self.assertEqual([row["text"] for row in evidence], [supporting_text])
+        self.assertEqual(wakes_stage.maybe_wake(
+            self.conn, self.cfg, bundles, since=db.now(), client=client), ([], []))
+        self.assertEqual(len(client.calls), 1)
+
+    def test_unknown_and_cross_bundle_citations_leave_waiter_asleep(self):
+        todo = self.open_waiter()
+        self.spool("thread:imessage:first", ["Rowan is still in Italy"])
+        self.spool("thread:imessage:second", ["Rowan just landed"])
+        bundles = sorted(self.bundles(), key=lambda bundle: bundle.entity)
+        for cites in (["L999"], ["L1", "L999"], ["L1", "L2"]):
+            with self.subTest(cites=cites):
+                woken, problems = wakes_stage.maybe_wake(
+                    self.conn, self.cfg, bundles, since=db.now(),
+                    client=FakeEntailment({todo.key: True}, cites=cites))
+                self.assertEqual(woken, [])
+                self.assertTrue(problems)
+                self.assertIsNone(self.woke_at(todo.key))
+
+    def test_pre_open_traffic_cannot_support_a_wake(self):
+        todo = self.open_waiter()
+        old_text = "Rowan landed back from Italy"
+        self.spool("thread:imessage:first", [old_text],
+                   ts=(db.today() - timedelta(days=2)).isoformat() + "T12:00:00")
+        client = FakeEntailment({todo.key: True})
+
+        woken, problems = wakes_stage.maybe_wake(
+            self.conn, self.cfg, self.bundles(), since=db.now(), client=client)
+
+        self.assertEqual((woken, problems), ([], []))
+        self.assertEqual(client.calls, [])
+        self.assertIsNone(self.woke_at(todo.key))
 
 
 if __name__ == "__main__":

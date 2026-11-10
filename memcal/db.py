@@ -20,14 +20,19 @@ SCHEMA = Path(__file__).with_name("schema.sql")
 BUSY_TIMEOUT_MS = 30_000
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path, timeout=BUSY_TIMEOUT_MS / 1000)
+def connect(db_path: Path, *, read_only: bool = False) -> sqlite3.Connection:
+    target = db_path
+    if read_only:
+        target = db_path.resolve().as_uri() + "?mode=ro"
+    else:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(target, uri=read_only, timeout=BUSY_TIMEOUT_MS / 1000)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     # Keep the web UI readable during ingestion.
-    with contextlib.suppress(sqlite3.Error):        # a read-only or network FS may refuse
-        conn.execute("PRAGMA journal_mode = WAL")
+    if not read_only:
+        with contextlib.suppress(sqlite3.Error):
+            conn.execute("PRAGMA journal_mode = WAL")
     conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
     return conn
 

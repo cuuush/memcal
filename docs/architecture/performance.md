@@ -32,12 +32,10 @@ worth more than a week of real numbers.
 
 ## Latency shape
 
-Prepared answers read the brief: immediate. Flagged items add one bounded
-activity read. Nothing in the turn path waits on extraction, consolidation, or
-history-wide search. Response latency, source reads, driver and provider model
-calls, and nightly processing cost are recorded separately, so a slow correct
-answer and an immediate correct answer are never confused. See
-PACBench, maintained as a separate project.
+An agent can answer from the prepared brief and use a bounded activity read
+for flagged items. Memcal records Dream's model usage and processing time in
+run history. PACBench measures answer latency and compares memory systems
+in a separate project.
 
 ## Backends
 

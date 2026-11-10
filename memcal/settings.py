@@ -319,9 +319,8 @@ SETTINGS: tuple[Setting, ...] = (
             "the title is all the evidence there is.",
             "merge", kind="int", minimum=1, maximum=8, unit="words"),
     Setting("MEMCAL_SEMANTIC_WAKES", "semantic_wakes", "Semantic wake checks",
-            "Judge waiter wake conditions with a model entailment check instead of "
-            "word overlap. Off until the wake eval set passes; while off, the "
-            "post-apply wake stage makes no model call and waiters stay asleep.",
+            "Let Dream ask the model whether new messages satisfy a to-do's wake "
+            "condition. Disabled by default.",
             "dream", kind="bool"),
     Setting("MEMCAL_DREAM_NAMING", "dream_naming", "Name unknown senders",
             "When dream draws a row from a thread whose sender has no name — a bare "

@@ -1,10 +1,11 @@
 # Contributing
 
-Python 3.11 or newer. Declare dependencies
-in `pyproject.toml` and update `install.sh` so a normal install remains sufficient.
+Use Python 3.11 or newer. Declare dependencies in `pyproject.toml`, which
+`install.sh` reads for checkout installs.
 
 ```bash
 git clone https://github.com/cuuush/memcal && cd memcal
+python3 -m pip install -e .
 python3 -m unittest discover -b -s tests
 ```
 
@@ -27,11 +28,10 @@ Key requirements:
 ## Testing flow
 
 - Run the smallest relevant unittest modules while iterating, then the full suite before handoff.
-- The full suite runs fastest through `python3 tools/run_tests.py`, which fans the modules
-  across cores in separate processes (roughly 5x quicker than `unittest discover`, and stricter
-  isolation). `python3 -m unittest discover -b -s tests` remains the equivalent single-process run.
-  Pass module names to either to scope a run: `python3 tools/run_tests.py test_core test_web`.
-- Comparative memory-system evaluation lives in the separate PACBench project.
+- Use `python3 -m unittest -b tests.test_core` for a focused run and
+  `python3 -m unittest discover -b -s tests` before handoff. For parallel checks
+  during development, run `python3 tools/run_tests.py` with optional module names.
+- Run comparative memory-system benchmarks in the separate PACBench project.
 - Live provider checks use synthetic data in temporary stores; run them only when
   evaluating model behavior with an authorized provider.
 - **Test class names describe the behavior under test.** New failure modes require dedicated test classes
@@ -40,8 +40,8 @@ Key requirements:
   or explicit `db.set_today` bindings released during teardown. Tests never query the system clock directly.
   Pins with explicit timezone offsets retain them; naive pins use the local offset
   on the pinned date, including daylight-saving transitions.
-  `tools/clock_sweep.py` verifies behavior across dates, hours, and time zones ranging from UTC-5 to UTC+14;
-  `--cross` is the cheap shape and the one to reach for, `--zones` the full grid.
+  `tools/clock_sweep.py --cross` checks dates and time zones on separate axes and
+  includes daylight-saving transitions. Use `--zones` for the full date-by-zone grid.
 - **Entry points reside at the end of test modules.** Test files place `if __name__ == "__main__": unittest.main()`
   at the end of the file to prevent premature termination during test discovery.
 
@@ -58,17 +58,15 @@ User-facing setup and operation live in `docs/` (published to GitHub Pages)
 with a short pointer in `README.md`. Keep durable explanations there rather
 than in isolated logs or dated narrative sections.
 
-The site is built locally and served from the `gh-pages` branch — there is no
-CI deploy. After changing anything under `docs/` (or `mkdocs.yml`), publish
-with:
+Check changes to `docs/` or `mkdocs.yml` with a strict local build.
 
 ```bash
 pip install -e '.[docs]'
-mkdocs gh-deploy          # builds the site and pushes it to gh-pages
+mkdocs build --strict
 ```
 
-GitHub Pages is configured to deploy from the `gh-pages` branch (`/` root).
-Use `mkdocs serve` to preview locally before deploying.
+Use `mkdocs serve` to preview locally. To publish, run `mkdocs gh-deploy`.
+That builds and pushes the site to the `gh-pages` branch, which GitHub Pages serves.
 
 ## Citing code from an issue or a report
 

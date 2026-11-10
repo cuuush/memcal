@@ -3,15 +3,17 @@
 ## Preview, then run
 
 ```bash
-memcal dream --dry-run   # bundles, size, estimated cost — calls nothing
+memcal dream --dry-run   # estimate cost for queued traffic without model calls
 memcal dream             # run the pass
 memcal dream --rounds 3  # repeat until the spool drains
 memcal dream --no-sweep  # skip the final cheap sweep
 memcal dream --mode nightly --model gpt-6-luna
 ```
 
-`--limit` caps the item budget per pass; `--redo` un-claims processed items for
-reprocessing (merge-on-key, so corrections are not duplicated).
+`--limit` caps the item budget per pass. `--redo` returns processed items to the
+queue for reprocessing. `--dry-run` skips collection and model calls, but still
+runs local preparation and records an estimate in History. Use `--no-ingest`
+to process queued items in a real run without collecting more first.
 
 ## Resume or retry a pass that failed
 

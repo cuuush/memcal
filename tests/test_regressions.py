@@ -1384,10 +1384,7 @@ class TestAnInvitationWasJustAnotherMaybe(Base):
 
 
 class TestACapacityRefusalWasTreatedAsAFault(Base):
-    """`_post` gave every retryable status the same six attempts and ~15s of backoff.
-    That is right for a 500 and useless for a busy hour: gpt-5.6-sol hit a 429 on day 3
-    of a benchmark run, exhausted the budget, and four bundles were left unread — which
-    grades identically to the model reading the traffic and understanding none of it."""
+    """Capacity responses get a longer retry budget than server faults."""
 
     def setUp(self):
         super().setUp()
@@ -1428,8 +1425,6 @@ class TestACapacityRefusalWasTreatedAsAFault(Base):
         self.assertGreater(calls["n"], 6)
 
     def test_a_fault_is_not_a_queue(self):
-        """Trying harder does not fix a 500, and a benchmark that spends half an hour
-        finding that out is worse than one that says so."""
         client, calls, llm = self._client(500)
         with self.assertRaises(llm.LLMError):
             client._post("/x", {}, capacity_budget=600.0)
@@ -1443,12 +1438,7 @@ class TestACapacityRefusalWasTreatedAsAFault(Base):
 
 
 class TestARicherTitleMadeASecondRow(Base):
-    """`ical` writes no participants, so `find_match` tier 1 — which needs overlapping
-    participants — can never fire for a feed row, and an identical title slug was the
-    only thing that ever joined one. A model that wrote a *better* title than the
-    calendar's therefore got a duplicate: gpt-5.6-terra produced "Jack's 30th birthday"
-    beside the feed's "Jack's 30th" in three trials out of three, and the one duplicate
-    row cost five separate benchmark checks."""
+    """Match a richer conversation title to a participant-free calendar import."""
 
     def _feed_row(self, title="Jack's 30th", on=None):
         row, _ = events.upsert(self.conn, {

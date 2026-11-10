@@ -5000,8 +5000,7 @@ class TestRun5LostSixBundles(Base):
             self.assertIn(bid, suffix)
         self.assertIn("`reviewed`", suffix)
 
-    def test_v1_still_routes_by_echoed_header_for_comparison(self):
-        # v1 stays runnable, or the benchmark has nothing to measure against.
+    def test_v1_still_routes_by_echoed_header(self):
         self.cfg.prompt_version = "v1"
         routed = propose_stage._route(
             self.group,
@@ -5064,14 +5063,7 @@ class TestCallsAreKeptOnDisk(Base):
 
 
 class TestTheClockCanBePinned(Base):
-    """A multi-day benchmark has to be able to be Tuesday.
-
-    Not cosmetic. Four behaviours read the clock and decide something structural with
-    it: `upsert`'s written_today freeze, `_crosses_today`, the spool horizon, and the
-    brief window. Two passes run a minute apart in real time both believe they are the
-    same day, so day one's rows stay revisable when production would have frozen them —
-    a benchmark without a pinned clock measures a path that never runs.
-    """
+    """Pin time when verifying event freezes, wiki timestamps, and the brief window."""
 
     def tearDown(self):
         db.set_today(None)
@@ -5163,14 +5155,7 @@ class TestTheClockCanBePinned(Base):
 
 
 class TestTheWireFormatIsAKnob(Base):
-    """What a bundle looks like to the model is a variable, not a taste.
-
-    The corpus a benchmark feeds in is neutral — who said what, where, when — and the
-    question "does it do better without `(imessage)` on all 45 lines" is answered by
-    re-rendering the same records under another format. Two things every format owes
-    the code rather than the reader: the `BUNDLE <entity>` head, and one line per
-    message.
-    """
+    """All supported formats preserve the bundle header and each message."""
 
     def _bundle(self, channel="imessage", n=3):
         for index in range(n):
