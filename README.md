@@ -7,9 +7,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-cuuush.github.io-brightgreen)](https://cuuush.github.io/memcal/)
 
-Memcal gives your agent a memory of your plans, conversations, and commitments. It brings together sources such as iMessage, email, WhatsApp, and calendars, then uses a nightly **Dream** pass to update events and other memories as things change.
+Most memory systems for agents like OpenClaw or Hermes (Mem0, Hindsight) are good at saving things like preferences and observations, but fail at personal assistant tasks, like remembering you have a dentist appointment next Friday. Memcal attempts to bridge this gap by enabling an agent to maintain its own internal calendar of your life. On top of that, a nightly fact-gathering stage will scan sources like iMessage, email, WhatsApp, iCal, and more to automatically update the agent calendar.
 
-Ask “What's my weekend looking like?” and your agent can recall a possible dinner with a friend, a community event, or a family visit—even when those plans started in different conversations.
+With Memcal, you can ask an agent, “What’s my weekend looking like?” and it will remember that your friend is free for dinner Saturday night, that the nonprofit you follow is having a member day, or even that your family is coming into town...
 
 ![A vague plan becomes a confirmed event with participants](docs/assets/demo-chat.png)
 
