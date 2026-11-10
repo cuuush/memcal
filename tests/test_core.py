@@ -6326,23 +6326,39 @@ class TestTwoClassesWithOneNameAreOneClass(Base):
 
 class TestALoopOverNothingIsAlwaysGreen(Base):
 
-    LITERAL = (ast.List, ast.Tuple, ast.Set, ast.Dict, ast.Constant, ast.JoinedStr)
-    #: Iteration helpers that are empty exactly when what they wrap is.
-    WRAPPERS = ("enumerate", "zip", "sorted", "reversed", "range", "tuple", "list", "set")
+    WRAPPERS = {"enumerate", "sorted", "reversed", "tuple", "list", "set"}
 
     def _literal_locals(self, fn) -> set[str]:
-        """Names bound to a literal in this function — `blocked = ("a@b", …)`."""
-        return {ast.unparse(t) for node in ast.walk(fn)
-                if isinstance(node, ast.Assign) and isinstance(node.value, self.LITERAL)
-                for t in node.targets if isinstance(t, ast.Name)}
+        assignments = {}
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        assignments.setdefault(target.id, []).append(node.value)
+        return {name for name, values in assignments.items()
+                if all(self._cannot_be_empty(value, set()) for value in values)}
 
     def _cannot_be_empty(self, node, names) -> bool:
-        if isinstance(node, self.LITERAL):
-            return True
-        if isinstance(node, ast.Name) and node.id in names:
-            return True
-        if isinstance(node, ast.Call) and ast.unparse(node.func) in self.WRAPPERS:
-            return bool(node.args) and self._cannot_be_empty(node.args[0], names)
+        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            return any(not isinstance(item, ast.Starred) for item in node.elts)
+        if isinstance(node, ast.Dict):
+            return any(key is not None for key in node.keys)
+        if isinstance(node, ast.Constant):
+            return isinstance(node.value, (str, bytes)) and bool(node.value)
+        if isinstance(node, ast.Name):
+            return node.id in names
+        if isinstance(node, ast.Call):
+            name = ast.unparse(node.func)
+            if name == "range":
+                try:
+                    return bool(range(*(ast.literal_eval(arg) for arg in node.args)))
+                except (ValueError, TypeError):
+                    return False
+            if name == "zip":
+                return bool(node.args) and all(self._cannot_be_empty(arg, names)
+                                               for arg in node.args)
+            if name in self.WRAPPERS:
+                return bool(node.args) and self._cannot_be_empty(node.args[0], names)
         return False
 
     def _asserts(self, node):
@@ -6409,6 +6425,16 @@ class TestALoopOverNothingIsAlwaysGreen(Base):
         self.assertTrue(self._cannot_be_empty(fn.body[1].iter, names))
         self.assertFalse(self._cannot_be_empty(
             ast.parse("conn.execute('select 1')").body[0].value, names))
+
+
+    def test_empty_literals_and_wrappers_do_not_exempt_a_loop(self):
+        for expr in ("[]", "()", "{}", "''", "[*items]", "range(0)", "range(4, 2)",
+                     "zip([1], [])", "list([])"):
+            with self.subTest(expr=expr):
+                fn = ast.parse(f"def test_x(self):\n    rows = {expr}\n"
+                               "    for row in rows:\n        self.assertTrue(row)\n").body[0]
+                names = self._literal_locals(fn)
+                self.assertFalse(self._cannot_be_empty(fn.body[1].iter, names))
 
 
 class TestNoTestCanReachTheRealCalendar(Base):

@@ -1,8 +1,4 @@
-"""The settings surface: what it lists, what it refuses, and what a save actually does.
-
-Everything here is deterministic — no model, no server socket, no launchd. The HTTP
-layer is a thin wrapper over these functions, so testing the functions tests the tab.
-"""
+"""Settings schema, validation, and persistence."""
 
 from __future__ import annotations
 
@@ -15,8 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from memcal import (config, db, llm, settings, web, web_server,  # noqa: E402
-                    web_settings)
+from memcal import config, db, llm, settings, web, web_settings  # noqa: E402
 from memcal.config import Config  # noqa: E402
 from memcal.dream import bundle as bundle_stage  # noqa: E402
 from memcal.dream import instructions  # noqa: E402
@@ -548,26 +543,8 @@ class TestDisabledSourcesCanBeToggled(Base):
         self.assertFalse(by_name["slack"]["enabled"])
         self.assertTrue(by_name["groupme"]["enabled"])
 
-    def test_the_tab_has_toggles_and_no_longer_says_where_these_live(self):
-        source = web_server.frontend_source()
-        self.assertNotIn("Where these live", source)
-        for needle in ("Configuration files", "function saveSource", '"switch"',
-                       "Nightly automation", "setcardk"):
-            with self.subTest(needle=needle):
-                self.assertIn(needle, source)
 
-
-class TestTheTabIsWiredIntoThePage(unittest.TestCase):
-    """The schema is only reachable if the shell, the router and the module agree."""
-
-    def test_the_shell_has_the_tab_and_the_module_that_draws_it(self):
-        source = web_server.frontend_source()
-        for needle in ('data-view="settings"', 'id="view-settings"', "loadSettings",
-                       "/api/settings", "/api/settings_probe", 'id="setbar"',
-                       'id="setq"', 'id="setgroups"', "function combobox", "function stageChips"):
-            with self.subTest(needle=needle):
-                self.assertIn(needle, source)
-
+class TestSettingsWriterCompatibility(unittest.TestCase):
     def test_the_facade_re_exports_the_settings_surface(self):
         self.assertIs(web.settings_page, web_settings.page)
         self.assertIs(web.save_settings, web_settings.save)

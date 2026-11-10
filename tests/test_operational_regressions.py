@@ -2599,20 +2599,17 @@ class TestReadOnlyDiagnosticStores(Base):
                 reader.execute("CREATE TABLE unexpected_write (id INTEGER)")
 
 
-class TestASuiteThatIsGreenOnlyInOneTimeZone(unittest.TestCase):
-    """Keep the timezone sweep able to run the suite under every UTC offset."""
+class TestClockSweepWorkerTimeZone(unittest.TestCase):
+    def test_worker_receives_the_requested_zone_and_clock_pin(self):
+        worker = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch.object(clock_sweep.subprocess, "run", return_value=worker) as run:
+            clock_sweep.run(date(2026, 8, 20), [], hour=19, zone="Asia/Tokyo")
+        env = run.call_args.kwargs["env"]
+        self.assertEqual(env["TZ"], "Asia/Tokyo")
+        self.assertEqual(env["MEMCAL_TODAY"], "2026-08-20T19:00")
 
-    def test_the_instrument_can_still_sweep_zones(self):
-        """A guard on the tool, in the spirit of `TestNoTestCanReachTheRealCalendar`
-        asserting it still has something to check. If `--zones` is ever removed, this
-        axis goes back to being invisible and nothing else would say so."""
-        sweep = (Path(__file__).resolve().parent.parent / "tools" / "clock_sweep.py")
-        source = sweep.read_text(encoding="utf-8")
-        self.assertIn("--zones", source)
-        self.assertIn('env["TZ"] = zone', source,
-                      "the zone has to reach the subprocess, or --zones is decorative")
-        self.assertIn("UTC", source, "UTC is the one a CI runner uses")
 
+class TestCalendarRoundTripFixtures(unittest.TestCase):
     def test_the_calendar_round_trip_no_longer_asks_the_machine(self):
         """The narrow version, on the class it happened to: its fixtures must build
         their offset rather than state it.
@@ -2821,19 +2818,15 @@ class TestAToolCanBeAdvertisedAndUnreachable(Base):
         server.conn, server.cfg = self.conn, self.cfg
         return server
 
-    def test_every_advertised_tool_actually_routes(self):
-        """The property both bugs violated, over whatever `TOOLS` says today."""
+    def test_advertised_tools_return_a_response_with_empty_arguments(self):
         server = self._server()
-        unroutable = []
+        self.assertTrue(mcp_server.TOOLS)
         for tool in mcp_server.TOOLS:
-            try:
-                server.call(tool["name"], {})
-            except (ValueError, UnboundLocalError) as exc:
-                if "unknown tool" in str(exc) or isinstance(exc, UnboundLocalError):
-                    unroutable.append(f"{tool['name']}: {type(exc).__name__} {exc}")
-            except Exception:
-                pass          # a real handler objecting to empty args is fine
-        self.assertEqual([], unroutable)
+            name = tool["name"]
+            with self.subTest(tool=name):
+                response = server.call(name, {})
+                self.assertIsInstance(response, str)
+                self.assertTrue(response.strip())
 
     def test_memcal_open_reaches_the_one_assembler(self):
         """`detail.open_handle` is what the CLI, the web UI and Hermes all read. This
@@ -2917,62 +2910,25 @@ class TestTheNightlyJobCouldNotReportFailing(Base):
         self.assertIn('exit "$STATUS"', lines)
 
 
-class TestAFinishedJobLookedBusyForTwentyFiveSeconds(unittest.TestCase):
-    """`job.done = True` was set bare in a `finally`, without the lock and without a bump.
+class TestFinishedWebJobNotifiesListeners(Base):
+    def test_start_job_announces_completion_and_advances_the_version(self):
+        with mock.patch.dict(web_jobs._JOBS, clear=True):
+            with mock.patch.object(threading, "Thread") as worker:
+                receipt = web_jobs.start_job("probe", lambda *_: {"worked": True}, self.cfg)
 
-    Every other mutator on `_Job` — `say`, `plan`, `step` — increments `version` and
-    calls `notify_all`. This one changed the flag and woke nobody, so
-    `wait_for_change` returned only on its 25-second timeout: the Gather/Dream button
-    stayed disabled and the bar stayed mid-flight for 25s after the work had finished.
+            _, job = web_jobs.find_job(receipt["job"])
+            before = job.snapshot()
+            self.assertFalse(before["done"])
+            with mock.patch.object(job.changed, "notify_all",
+                                   wraps=job.changed.notify_all) as notify:
+                worker.call_args.kwargs["target"]()
 
-    The error path was worse. `job.error` is also set silently, so a job that had failed
-    looked identical to one still running, for the same 25 seconds.
-    """
+            notify.assert_called_once_with()
+            after = job.wait_for_change(before["version"], timeout=0)
+            self.assertTrue(after["done"])
+            self.assertGreater(after["version"], before["version"])
+            self.assertEqual(after["result"], {"worked": True})
 
-    def test_the_done_frame_arrives_when_the_job_does(self):
-        job = web_jobs._Job("probe")
-        frames, start = [], time.monotonic()
-
-        def reader():
-            seen = 0
-            for _ in range(3):
-                snap = job.wait_for_change(seen, timeout=5.0)
-                frames.append((time.monotonic() - start, snap["done"]))
-                seen = snap["version"]
-                if snap["done"]:
-                    return
-
-        thread = threading.Thread(target=reader)
-        thread.start()
-        time.sleep(0.1)
-        with job.lock:                      # exactly what `start_job.run` does now
-            job.done = True
-            job._bump()
-        thread.join(timeout=8)
-
-        self.assertTrue(frames, "the reader never woke at all")
-        elapsed, done = frames[-1]
-        self.assertTrue(done)
-        self.assertLess(elapsed, 2.0,
-                        "the finished job was not announced; it timed out instead")
-
-    def test_finishing_bumps_the_version(self):
-        """The mechanical half: a reader that missed the frame can still tell."""
-        job = web_jobs._Job("probe")
-        before = job.version
-        with job.lock:
-            job.done = True
-            job._bump()
-        self.assertGreater(job.version, before)
-
-    def test_start_job_sets_it_under_the_lock(self):
-        """Read as text, because the bug is what the line does *not* do and only the
-        source says so."""
-        source = Path(web_jobs.__file__).read_text(encoding="utf-8")
-        run = source[source.index("def start_job("):]
-        run = run[:run.index("\ndef ")]
-        self.assertIn("job._bump()", run)
-        self.assertNotIn("\n            job.done = True\n\n", run)
 
 class TestASpanThatEndsBeforeItStartsDeletesItselfFromTheBrief(Base):
 

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -59,16 +62,70 @@ class TestOpenClawArchivesOnlyInboundTurn(unittest.TestCase):
 
 
 class TestOpenClawPackageShape(unittest.TestCase):
-    def test_plugin_has_prompt_and_inbound_hooks(self):
+    def test_manifest_declares_the_shipped_entry_point(self):
         root = config.PROJECT_ROOT / "integrations" / "openclaw"
         manifest = json.loads((root / "openclaw.plugin.json").read_text())
         package = json.loads((root / "package.json").read_text())
-        source = (root / "index.ts").read_text()
-
         self.assertEqual(manifest["id"], "memcal")
         self.assertEqual(package["openclaw"]["extensions"], ["./index.ts"])
-        self.assertIn('"before_prompt_build"', source)
-        self.assertIn('"message_received"', source)
+        self.assertTrue((root / "index.ts").is_file())
+
+
+class TestOpenClawHooksReachTheStore(unittest.TestCase):
+    def test_registered_hooks_inject_context_and_archive_inbound_turns(self):
+        node = shutil.which("node")
+        if not node or subprocess.run([node, "--experimental-strip-types", "--version"],
+                                      capture_output=True, timeout=5).returncode != 0:
+            self.skipTest("Node with native TypeScript support is required")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cfg = config.load(root / "store")
+            conn = db.open_db(cfg.db_path)
+            try:
+                todos.open_todo(conn, "Pack a picnic basket")
+            finally:
+                conn.close()
+
+            source = config.PROJECT_ROOT / "integrations" / "openclaw"
+            shutil.copyfile(source / "index.ts", root / "index.ts")
+            sdk = root / "node_modules" / "openclaw"
+            sdk.mkdir(parents=True)
+            (sdk / "package.json").write_text(json.dumps({
+                "type": "module", "exports": {"./plugin-sdk/plugin-entry": "./entry.js"},
+            }), encoding="utf-8")
+            (sdk / "entry.js").write_text(
+                "export const definePluginEntry = entry => entry;\n", encoding="utf-8")
+            (root / "exercise.mjs").write_text("""
+import assert from "node:assert/strict";
+import plugin from "./index.ts";
+
+const [pythonCommand, memcalSrc, memcalHome] = process.argv.slice(2);
+const hooks = new Map();
+plugin.register({
+  pluginConfig: {pythonCommand, memcalSrc, memcalHome},
+  on: (name, callback) => hooks.set(name, callback),
+  logger: {warn: message => assert.fail(message)},
+});
+const context = await hooks.get("before_prompt_build")({prompt: "What is on my list?"}, {});
+assert.match(context.appendContext, /Pack a picnic basket/);
+await hooks.get("message_received")(
+  {content: "The picnic is Saturday", messageId: "picnic-1"},
+  {sessionKey: "agent:sample:chat"});
+""", encoding="utf-8")
+            proc = subprocess.run(
+                [node, "--experimental-strip-types", "exercise.mjs",
+                 sys.executable, str(config.PROJECT_ROOT), str(cfg.home)],
+                cwd=root, capture_output=True, text=True, timeout=20)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
+            conn = db.open_db(cfg.db_path)
+            try:
+                rows = conn.execute("SELECT text, addressed_to FROM archive WHERE channel = 'agent'")
+                self.assertEqual([tuple(row) for row in rows],
+                                 [("The picnic is Saturday", "machine")])
+            finally:
+                conn.close()
 
 
 class TestOpenClawSetupRegistersBothBoundaries(unittest.TestCase):

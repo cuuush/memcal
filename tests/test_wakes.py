@@ -101,8 +101,8 @@ class TestCandidatePassNeverWritesWokeAt(WakeBase):
         self.assertIsNone(self.woke_at(todo.key))
 
 
-class TestNegationDoesNotWake(WakeBase):
-    def test_not_back_stays_asleep(self):
+class TestRejectedWakeDecision(WakeBase):
+    def test_rejection_keeps_a_nominated_waiter_asleep(self):
         todo = self.open_waiter()
         self.spool("person:Rowan Vale", ["Rowan is not back from Italy yet"])
         self.assertTrue(todos.find_wake_candidates(self.conn, self.bundles(), since=db.now()))
@@ -114,19 +114,8 @@ class TestNegationDoesNotWake(WakeBase):
         self.assertIsNone(self.woke_at(todo.key))
 
 
-class TestDelayDoesNotWake(WakeBase):
-    def test_extended_trip_stays_asleep(self):
-        todo = self.open_waiter()
-        self.spool("person:Rowan Vale", ["extended the Italy trip another week"])
-        woken, _ = wakes_stage.maybe_wake(
-            self.conn, self.cfg, self.bundles(), since=db.now(), run_id=None,
-            client=FakeEntailment({todo.key: False}))
-        self.assertEqual(woken, [])
-        self.assertIsNone(self.woke_at(todo.key))
-
-
-class TestParaphraseWakesWithSupportingContext(WakeBase):
-    def test_landed_at_jfk_wakes_and_never_closes(self):
+class TestAcceptedWakeDecision(WakeBase):
+    def test_acceptance_with_a_valid_citation_wakes_without_closing(self):
         todo = self.open_waiter()
         self.spool("person:Rowan Vale",
                    ["Rowan landed at JFK this morning, back from Rome", "welcome home!"])
@@ -140,8 +129,8 @@ class TestParaphraseWakesWithSupportingContext(WakeBase):
         self.assertEqual(current.status, "open")
 
 
-class TestCrossBundleWordsDoNotJointlySatisfy(WakeBase):
-    def test_split_words_across_conversations_stay_asleep(self):
+class TestWakePromptSeparatesConversations(WakeBase):
+    def test_messages_appear_under_separate_bundle_headers(self):
         todo = self.open_waiter()
         self.spool("person:Rowan Vale", ["Rowan said hi"])
         self.spool("person:Travel", ["Italy flights are expensive"])

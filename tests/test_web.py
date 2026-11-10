@@ -1,19 +1,19 @@
-"""The diagnostic surface, and the two decisions it is allowed to make.
-
-Everything here is deterministic — no model, no server socket. The HTTP layer is a
-thin wrapper over these functions, so testing the functions tests the page.
-"""
+"""Web data, request routing, and browser behavior against temporary stores."""
 
 from __future__ import annotations
 
 import ast
+import io
 import json
 import plistlib
 import sys
 import tempfile
+import threading
 import unittest
 from datetime import timedelta
+from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -1520,13 +1520,44 @@ class TestAFailedPassCanBeRetried(Base):
         self.assertTrue(last["retryable"])
         self.assertIn("refused", last["error"])
 
-    def test_the_page_offers_the_retry_and_the_server_routes_it(self):
-        source = web_server.frontend_source()
-        for needle in ("/api/dream_retry", "retryDream", "retrybtn", 'id="dretry"',
-                       'id="runretry"', 'id="routcome"', "outcome_label"):
-            self.assertIn(needle, source, needle)
-        self.assertIn("/api/dream_retry", Path(web_server.__file__).read_text())
+class TestDreamRetryRequest(Base):
+    def test_post_retries_the_requested_run(self):
+        self.conn.execute(
+            "INSERT INTO runs(id, started_at, finished_at, mode, bundles, items, error) "
+            "VALUES(2, ?, ?, 'web', 1, 1, 'provider unavailable')", (db.now(), db.now()))
+        aid = self.mail("sample@example.test", "read by run 2", gated=True, reason="temporal")
+        self.conn.execute("UPDATE spool SET processed_at = ?, run_id = 2 WHERE archive_id = ?",
+                          (db.now(), aid))
+        self.conn.commit()
 
+        handler = object.__new__(web_server.Handler)
+        handler.cfg = self.cfg
+        handler.origin = "http://127.0.0.1:8765"
+        handler.csrf_token = "retry-test-token"
+        handler.path = "/api/dream_retry"
+        body = b'{"run": 2}'
+        handler.headers = {
+            "Host": "127.0.0.1:8765",
+            "Origin": handler.origin,
+            "Cookie": f"{web_server.CSRF_COOKIE}={handler.csrf_token}",
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
+        }
+        handler.rfile = io.BytesIO(body)
+        handler._send = mock.Mock()
+        with mock.patch.object(web_jobs, "start_job", return_value={"job": "dream-1"}) as start:
+            handler.do_POST()
+
+        handler._send.assert_called_once_with({"job": "dream-1", "retry_of": 2, "claimed": 1})
+        kind, work, cfg = start.call_args.args
+        self.assertEqual(kind, "dream")
+        self.assertIs(cfg, self.cfg)
+        with mock.patch.object(web_jobs, "dream_work", return_value={}):
+            result = work(self.conn, cfg, web_jobs._Job(kind))
+        self.assertEqual(result, {"retry_of": 2, "requeued": 1, "too_old": 0})
+
+
+class TestDreamRetryPresentation(Base):
     def test_only_the_dream_tab_starts_a_retry(self):
         static = Path(web_server.STATIC_DIR)
         runs = (static / "runs.js").read_text()
@@ -1547,25 +1578,85 @@ class TestAFailedPassCanBeRetried(Base):
             self.assertNotIn("kind=dream", body, name)
 
 
-class TestTheBundleListDoesNotBuryThePage(Base):
-    """Large bundle previews remain out of the Dream controls' way."""
+class TestBrowserSettingsAndDream(Base):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from playwright.sync_api import Error, sync_playwright
+        except ImportError:
+            raise unittest.SkipTest("install Playwright to run browser tests") from None
+        playwright = sync_playwright().start()
+        cls.addClassCleanup(playwright.stop)
+        try:
+            cls.browser = playwright.chromium.launch()
+        except Error as exc:
+            if "Executable doesn't exist" not in str(exc):
+                raise
+            raise unittest.SkipTest("install Playwright Chromium to run browser tests") from None
+        cls.addClassCleanup(cls.browser.close)
 
-    def test_the_bundles_are_folded_away_and_scroll_inside_themselves(self):
-        page = Path(web_server.PAGE).read_text()
-        css = (Path(web_server.STATIC_DIR) / "styles.css").read_text()
-        # A <details> with no `open`, so the list starts folded.
-        opening = page.split('id="dbundlebox"')[0].rsplit("<details", 1)[1]
-        self.assertNotIn(" open", opening)
-        self.assertIn('id="dbundles" class="bundlescroll"', page)
-        rule = css.split(".bundlescroll {")[1].split("}")[0]
-        self.assertIn("max-height", rule)
-        self.assertIn("overflow-y: auto", rule)
+    def setUp(self):
+        super().setUp()
 
-    def test_opening_a_bundle_by_id_opens_the_box_it_is_folded_into(self):
-        """Scrolling to a card inside a closed <details> scrolls to nothing."""
-        script = (Path(web_server.STATIC_DIR) / "dream.js").read_text()
-        body = script.split("function flashBundle")[1].split("\n}")[0]
-        self.assertIn("dbundlebox", body)
+        def handler(*args):
+            return web_server.Handler(*args, cfg=self.cfg, origin=self.origin,
+                                      csrf_token="browser-test-token")
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.origin = f"http://127.0.0.1:{server.server_port}"
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.02})
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(thread.join)
+        self.addCleanup(server.shutdown)
+        self.page = self.browser.new_page()
+        self.page.set_default_timeout(4000)
+        self.addCleanup(self.page.close)
+
+    def tearDown(self):
+        self.doCleanups()
+        super().tearDown()
+
+    def test_settings_route_loads_and_saves_the_source_toggle(self):
+        from playwright.sync_api import expect
+        from memcal import config, sources
+
+        def probe(route):
+            route.fulfill(json={"sources": [{
+                "name": "slack", "usable": True, "in_all": True,
+                "enabled": sources.is_enabled(self.cfg, "slack"),
+            }]})
+
+        # Source and permission checks can contact external services.
+        self.page.route("**/api/settings_probe", probe)
+        self.page.route("**/api/permissions", lambda route: route.fulfill(json={}))
+        self.page.goto(f"{self.origin}/#settings")
+        switch = self.page.get_by_role("switch", name="disable slack")
+        expect(switch).to_have_attribute("aria-checked", "true", timeout=4000)
+
+        with self.page.expect_response(
+                lambda response: response.url.endswith("/api/settings")
+                and response.request.method == "POST") as saved:
+            switch.click()
+
+        self.assertTrue(saved.value.ok)
+        self.assertEqual(sources.disabled_set(config.load(self.cfg.home)), {"slack"})
+        expect(self.page.get_by_role("switch", name="enable slack")).to_have_attribute(
+            "aria-checked", "false", timeout=4000)
+
+    def test_clicking_a_request_bundle_opens_its_collapsed_container(self):
+        from playwright.sync_api import expect
+
+        self.mail("sample@example.test", "Planning a picnic Friday", gated=True, reason="temporal")
+        self.page.goto(f"{self.origin}/#dream")
+        self.page.get_by_text("Input preview", exact=True).click()
+        bundle_box = self.page.locator("#dbundlebox")
+        expect(bundle_box).to_have_js_property("open", False, timeout=4000)
+        self.page.locator("#dreqs .rider").click()
+
+        expect(bundle_box).to_have_js_property("open", True, timeout=4000)
+        expect(bundle_box.locator("details.bundle")).to_have_js_property("open", True, timeout=4000)
+
 
 class TestGuessedNamesReachTheWebUI(Base):
     """Dream's guessed sender names must read as guesses everywhere, not just the brief."""

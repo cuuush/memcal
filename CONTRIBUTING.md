@@ -32,6 +32,16 @@ Key requirements:
   `python3 -m unittest discover -b -s tests` before handoff. For parallel checks
   during development, run `python3 tools/run_tests.py` with optional module names.
 - Run comparative memory-system benchmarks in the separate PACBench project.
+- Run the browser regressions with Playwright and its Chromium runtime. The
+  OpenClaw hook regression needs Node with native TypeScript support. These
+  checks skip when their runtimes are missing.
+
+  ```bash
+  python3 -m pip install playwright
+  python3 -m playwright install chromium --only-shell
+  python3 -m unittest -b tests.test_web.TestBrowserSettingsAndDream tests.test_openclaw
+  ```
+
 - Live provider checks use synthetic data in temporary stores; run them only when
   evaluating model behavior with an authorized provider.
 - **Test class names describe the behavior under test.** New failure modes require dedicated test classes
