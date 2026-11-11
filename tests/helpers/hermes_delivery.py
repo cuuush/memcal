@@ -27,7 +27,7 @@ def load(name, path):
 from agent.memory_manager import MemoryManager
 
 
-class TestUndeliveredMemcalContext(unittest.TestCase):
+class _HermesDeliveryCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -99,25 +99,24 @@ class TestUndeliveredMemcalContext(unittest.TestCase):
         self.manager.sync_all(user, "Synthetic answer", session_id=session, messages=messages)
         self.assertTrue(self.manager.flush_pending(timeout=3))
 
+
+class TestUndeliveredMemcalContext(_HermesDeliveryCase):
     def test_rendering_alone_does_not_acknowledge_delivery(self):
         self.assertIn("MEMCAL SNAPSHOT", self.ask())
         self.assertIn("MEMCAL SNAPSHOT", self.ask())
 
-    def test_completed_api_context_allows_compact_current_confirmation(self):
+    def test_completed_api_context_suppresses_unchanged_snapshot(self):
         first = self.ask()
         self.complete(first)
         second = self.ask()
-        self.assertIn("MEMCAL CURRENT", second)
-        self.assertNotIn("MEMCAL SNAPSHOT", second)
-        self.assertEqual(first.split("[id=", 1)[1].split("]", 1)[0],
-                         second.split("[id=", 1)[1].split("]", 1)[0])
+        self.assertEqual("", second)
 
     def test_timeout_cannot_make_late_snapshot_disappear_on_retry(self):
         self.complete(self.ask())
         self.change_brief()
         warning, busy, calls = self.run_timeout()
-        # Unmodified Hermes drops timed-out results; absence is an explicit
-        # missing-confirmation state in the Memcal protocol.
+        # Hermes drops timed-out results. Silence cannot establish freshness,
+        # but it must never acknowledge a snapshot that was not delivered.
         self.assertEqual(warning, "")
         self.assertEqual(busy, "")
         # Hermes versions may skip the retry or admit a second bounded call.
@@ -126,11 +125,11 @@ class TestUndeliveredMemcalContext(unittest.TestCase):
         recovery = self.ask()
         self.assertIn("Check the new poker address", recovery)
         self.complete(recovery)
-        self.assertIn("MEMCAL CURRENT", self.ask())
+        self.assertEqual("", self.ask())
 
-    def test_absent_confirmation_never_means_current_in_provider_instructions(self):
+    def test_silence_never_means_current_in_provider_instructions(self):
         block = self.provider.system_prompt_block()
-        self.assertIn("MEMCAL CURRENT", block)
+        self.assertIn("Silence is not proof of freshness", block)
         self.assertIn("call memcal_refresh", block)
         self.assertNotIn("always current", block)
         self.assertNotIn("turn without one is normal", block)
@@ -195,7 +194,7 @@ class TestUndeliveredMemcalContext(unittest.TestCase):
         second = self.ask()
         self.assertIn("MEMCAL SNAPSHOT", second)
         self.complete(second)
-        self.assertIn("MEMCAL CURRENT", self.ask())
+        self.assertEqual("", self.ask())
         self.provider.on_session_switch("first", reason="compression")
         self.assertIn("MEMCAL SNAPSHOT", self.ask())
 
@@ -209,7 +208,7 @@ class TestUndeliveredMemcalContext(unittest.TestCase):
     def test_acknowledgement_is_scoped_to_one_session(self):
         self.complete(self.ask())
         self.assertIn("MEMCAL SNAPSHOT", self.ask("second"))
-        self.assertIn("MEMCAL CURRENT", self.ask())
+        self.assertEqual("", self.ask())
 
     def test_legacy_callback_without_api_context_repeats_safely(self):
         first = self.ask()
@@ -228,6 +227,26 @@ class TestUndeliveredMemcalContext(unittest.TestCase):
 
     def test_subagent_receives_no_personal_context(self):
         self.provider._agent_context = "subagent"
+        self.assertEqual(self.ask(), "")
+
+
+class TestSilentMemcalUserTurns(_HermesDeliveryCase):
+    def test_unchanged_turn_reaches_api_with_original_user_text(self):
+        from agent.turn_context import compose_user_api_content, substitute_api_content
+        self.complete(self.ask())
+        user = "What else should we discuss?"
+        context = self.manager.prefetch_all(user, session_id="first")
+        self.assertEqual(context, "")
+        sidecar = compose_user_api_content(user, context, "")
+        self.assertIsNone(sidecar)
+        wire = {"role": "user", "content": user, "api_content": sidecar}
+        substitute_api_content(wire)
+        self.assertEqual(wire, {"role": "user", "content": user})
+        # A later store update is still delivered exactly once after acknowledgement.
+        self.change_brief()
+        update = self.ask()
+        self.assertIn("Check the new poker address", update)
+        self.complete(update)
         self.assertEqual(self.ask(), "")
 
 

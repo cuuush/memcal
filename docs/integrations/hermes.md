@@ -10,9 +10,10 @@ hermes memory setup
 
 ## Every turn
 
-- **Inject** — `prefetch()` renders a fresh brief plus up to three mentioned wiki
-  pages. A changed brief is injected as `MEMCAL SNAPSHOT`; an unchanged turn
-  carries a compact `MEMCAL CURRENT` confirmation instead. A snapshot is
+- **Inject** — `prefetch()` reads local state without collecting sources or calling
+  a model. The first brief and later changes arrive as `MEMCAL SNAPSHOT`; an
+  unchanged brief adds nothing to the user turn. Up to three wiki pages named in
+  the query can still be recalled independently of brief changes. A snapshot is
   deduplicated only once it has been observed in delivered context, so a timed-out
   or discarded render never suppresses the next one, and compression re-emits. If
   rendering fails, `MEMCAL UNAVAILABLE` replaces the snapshot rather than leaving a
@@ -33,6 +34,21 @@ hermes memory setup
 checkout. Freshness hints travel on the prefetch path, so long-running sessions
 receive current context — including next-day turns, resumes, and compression —
 without a second injection copy. See [Daytime freshness](../architecture/freshness.md).
+
+Hermes caches the provider's system block for the conversation, so it contains
+stable instructions rather than the changing brief. Snapshot updates use Hermes's
+model-facing user-message context; the original user text is preserved. Unchanged
+turns need no brief context at all. Since Hermes can also skip or time out a read,
+silence does not verify freshness: the assistant uses `memcal_refresh` before
+claiming current plans on a turn without a snapshot.
+Hermes skips prefetch for bare greetings and acknowledgements, so the initial
+snapshot arrives on the first substantive turn rather than a greeting like “hi”.
+
+Periodic collection runs separately when scheduling is enabled (default due
+interval: five minutes). New messages can change activity or coverage notices in
+the brief, causing an update on the next turn. Nightly Dream consolidates messages
+into stored plans and facts. Messages that do not change the rendered brief do
+not trigger a duplicate snapshot.
 
 The default snapshot reaches 30 days ahead and includes month/year lookup guidance.
 To confirm a guessed sender name, use the Conversations page or the CLI; Hermes

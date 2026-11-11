@@ -855,15 +855,16 @@ class MemcalMemoryProvider(MemoryProvider):
 
         Hermes builds this block once for prompt caching. Putting brief.md here made a
         multi-day conversation keep the version from its first turn, and compaction
-        could drop the only copy. `prefetch()` is the per-turn, replaceable surface.
+        could drop the only copy. `prefetch()` delivers the initial brief and updates.
         """
         return (
             "# Memcal\n\n"
             "Memcal drops a `MEMCAL SNAPSHOT` covering the next 30 days by default into the conversation and "
-            "refreshes it whenever it changes. An unchanged turn carries `MEMCAL CURRENT` "
-            "with the matching snapshot id. Use prepared memory as current only when this "
-            "turn contains a snapshot or that matching confirmation. If neither arrived, "
-            "or `MEMCAL UNAVAILABLE` appears, call memcal_refresh before claiming current "
+            "refreshes it whenever it changes. An unchanged brief adds nothing to the "
+            "user turn. The latest snapshot remains available as previously prepared context. "
+            "Silence is not proof of freshness: Hermes may also skip or time out a memory read. "
+            "If this turn has no snapshot, or `MEMCAL UNAVAILABLE` appears, "
+            "call memcal_refresh before claiming current "
             "plans; if refresh fails, disclose that you only have older context. "
             "The newest snapshot supersedes older snapshots completely. "
             "Rows are things that were mentioned, not necessarily commitments.\n\n"
@@ -976,10 +977,8 @@ class MemcalMemoryProvider(MemoryProvider):
                 out.append(block)
                 if generation == self._context_generation:
                     self._pending_snapshots[effective_sid] = (digest, block)
-            else:
-                out.append(f"MEMCAL CURRENT {stamp} [id={digest}]")
-                if effective_sid == self._session_id:
-                    self._last_snapshot_hash = last
+            elif effective_sid == self._session_id:
+                self._last_snapshot_hash = last
         # Wiki pages are query-driven, not a snapshot: inject them whenever this
         # turn named someone, independent of the brief-change gate above.
         # Mention-based recall stays for other pages; self facts already in the

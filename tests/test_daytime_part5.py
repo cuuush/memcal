@@ -142,6 +142,43 @@ class _HermesBase(unittest.TestCase):
         return row["id"] if row else None
 
 
+class TestCollectedActivityUpdatesSilentBrief(_HermesBase):
+    def delivered(self):
+        query = "What is planned?"
+        result = self.provider.prefetch(query)
+        self.provider._acknowledge_snapshot([
+            {"role": "user", "content": query, "api_content": query + "\n\n" + result}
+        ], self.provider._session_id)
+        return result
+
+    def test_collection_changes_snapshot_without_waiting_for_dream(self):
+        conn = self.conn()
+        try:
+            source = self.collect(conn, "initial", "Board games Saturday at 8?", "games group")
+            event, _ = self.mlive.add_event(
+                conn, self.cfg, title="Board games", when="2026-09-12",
+                origin=self.mlive.Origin.of("test", cited=[source]))
+            first = self.delivered()
+            self.assertIn("MEMCAL SNAPSHOT", first)
+            self.assertNotIn("New activity", first)
+            self.assertEqual(self.delivered(), "")
+
+            self.collect(conn, "change", "Moved to Sunday at 7", "games group")
+            update = self.delivered()
+            self.assertIn("MEMCAL SNAPSHOT", update)
+            self.assertIn("New activity", update)
+            self.assertEqual(self.delivered(), "")
+            # Redelivery of the same source message must not produce another update.
+            self.collect(conn, "change", "Moved to Sunday at 7", "games group")
+            self.assertEqual(self.delivered(), "")
+            # Collection flags activity; it does not extract a changed plan.
+            self.assertEqual(conn.execute(
+                "SELECT date FROM events WHERE key = ?", (event.key,)).fetchone()["date"],
+                "2026-09-12")
+        finally:
+            conn.close()
+
+
 class TestOldSessionsGetToday(_HermesBase):
     def test_next_day_turn_supersedes_with_hints(self):
         conn = self.conn()
@@ -169,7 +206,7 @@ class TestOldSessionsGetToday(_HermesBase):
         self.provider._acknowledge_snapshot([
             {"role": "user", "content": "query", "api_content": "query\n\n" + second}
         ], self.provider._session_id)
-        self.assertIn("MEMCAL CURRENT", self.provider.prefetch("and where?"))
+        self.assertEqual("", self.provider.prefetch("and where?"))
 
     def test_resume_reemits_and_failure_warns(self):
         self.provider.on_turn_start(1, "hi")

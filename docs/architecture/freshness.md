@@ -125,19 +125,22 @@ unconfirmed opportunity or an event past the Later cap still surfaces its traffi
 Hints travel on the existing per-turn prefetch path, not a second copy in a cached
 system prompt: the current brief and freshness hints arrive before the assistant
 answers a substantive turn, with the user's original message kept separate from
-injected context. A changed brief is re-injected as a `MEMCAL SNAPSHOT`; an
-unchanged turn carries a compact `MEMCAL CURRENT` confirmation with the matching
-snapshot id instead. Prepared memory counts as current only when the turn carries
-one or the other — so a snapshot is deduplicated only once it has actually been
-observed in delivered context, and a render that timed out or was discarded never
-suppresses the next one. Same-session next-day turns, resumed sessions, and short
-follow-ups ("and where?") all receive the latest snapshot, which supersedes older
-snapshots and assistant summaries; compression re-emits it, since a generated
-summary may not preserve the exact brief and its warnings. If neither a snapshot
-nor a confirmation arrives — or prefetch fails and a compact freshness-unavailable
-warning replaces the snapshot — the assistant refreshes before claiming current
-plans; silently falling back to a stale one is unacceptable. A cheap brief-refresh
-read covers adapters without reliable per-turn injection.
+injected context. Hermes injects the first brief and later changes as a
+`MEMCAL SNAPSHOT`; an unchanged brief adds nothing to the user turn. A snapshot is
+deduplicated only once it has actually been observed in delivered context, so a
+render that timed out or was discarded never suppresses the next one. Next-day
+turns and newly collected activity can change the brief and trigger an update.
+Resumed sessions with a delivered snapshot keep it; compression re-emits it,
+since a generated summary may not preserve the exact brief and its warnings.
+The newest snapshot supersedes older snapshots and assistant summaries. Mentioned
+wiki pages can still be recalled independently of the brief-change gate.
+
+Hermes can also skip or time out prefetch, so silence does not prove the previous
+snapshot is still current. On a turn without a new snapshot — or when a compact
+freshness-unavailable warning replaces it — the assistant refreshes before
+claiming current plans. The system block holds stable instructions; Hermes caches
+it rather than rebuilding it with each brief update. OpenClaw's separate adapter
+still supplies a fresh context block on every prompt build.
 
 ## Keep assistant prose out of evidence
 

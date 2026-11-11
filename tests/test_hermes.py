@@ -301,7 +301,7 @@ class TestHermesProvider(unittest.TestCase):
 
         # Nothing changed between turns → no new snapshot block.
         second = self._delivered(provider, "still there?")
-        self.assertIn("MEMCAL CURRENT", second)
+        self.assertEqual("", second)
         self.assertNotIn("MEMCAL SNAPSHOT", second)
 
         # A change turns the hash over and the snapshot returns.
@@ -323,7 +323,7 @@ class TestHermesProvider(unittest.TestCase):
         conn.close()
 
         self.assertIn("Session boundary snapshot", self._delivered(provider, "hi"))
-        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again"))
+        self.assertEqual("", self._delivered(provider, "again"))
         provider.on_session_switch("test-2")
         self.assertIn("Session boundary snapshot", self._delivered(provider, "hi"))
 
@@ -344,8 +344,8 @@ class TestHermesProvider(unittest.TestCase):
         self.assertIn("MEMCAL SNAPSHOT", first_b)
         self.assertIn("Concurrent sessions snapshot", first_b)
         # Per-session suppression still holds on the repeat.
-        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again?", session_id="sess-A"))
-        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again?", session_id="sess-B"))
+        self.assertEqual("", self._delivered(provider, "again?", session_id="sess-A"))
+        self.assertEqual("", self._delivered(provider, "again?", session_id="sess-B"))
 
     def test_resume_branch_does_not_duplicate_the_snapshot(self):
         provider = self._ready()
@@ -357,16 +357,16 @@ class TestHermesProvider(unittest.TestCase):
         conn.close()
 
         self.assertIn("Resume branch snapshot", self._delivered(provider, "hi"))
-        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again"))
+        self.assertEqual("", self._delivered(provider, "again"))
         # Branch continuing the same conversation inherits suppression.
         provider.on_session_switch("test-branch", parent_session_id="test",
                                    reset=False)
-        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "hi again"))
+        self.assertEqual("", self._delivered(provider, "hi again"))
         # A genuine restart re-emits.
         provider.on_session_switch("test-fresh", reset=True)
         self.assertIn("Resume branch snapshot", self._delivered(provider, "hi"))
         # And an end->start bracket without a switch re-emits too.
-        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again"))
+        self.assertEqual("", self._delivered(provider, "again"))
         provider.on_session_end([])
         self.assertIn("Resume branch snapshot", self._delivered(provider, "hi"))
 
@@ -384,11 +384,11 @@ class TestHermesProvider(unittest.TestCase):
         conn.close()
 
         self.assertIn("Compression snapshot", self._delivered(provider, "hi"))
-        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again"))   # suppressed while in context
+        self.assertEqual("", self._delivered(provider, "again"))   # suppressed while in context
         provider.on_session_switch("test", reset=False, reason="compression")
         self.assertIn("Compression snapshot", self._delivered(provider, "after compaction"))
         # Unchanged brief still deduplicates once it has been re-emitted.
-        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "short follow-up"))
+        self.assertEqual("", self._delivered(provider, "short follow-up"))
 
     def test_child_session_compression_reemits_the_snapshot(self):
         # Child-session compression forks a new id off the parent; neither may
@@ -402,7 +402,7 @@ class TestHermesProvider(unittest.TestCase):
         conn.close()
 
         self.assertIn("Child compression snapshot", self._delivered(provider, "hi"))
-        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "again"))
+        self.assertEqual("", self._delivered(provider, "again"))
         provider.on_session_switch("test-compacted", parent_session_id="test",
                                    reset=False, reason="compression")
         self.assertIn("Child compression snapshot",
@@ -428,7 +428,7 @@ class TestHermesProvider(unittest.TestCase):
         first = self._delivered(provider, "what is coming up?")
         self.assertIn("MEMCAL SNAPSHOT", first)
         # Nothing changed between turns → no new snapshot block.
-        self.assertIn("MEMCAL CURRENT", self._delivered(provider, "still there?"))
+        self.assertEqual("", self._delivered(provider, "still there?"))
 
         db.set_today(start + timedelta(days=1))
         third = self._delivered(provider, "and now?")

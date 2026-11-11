@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Changed
+
+- Hermes injects the brief on the first substantive turn and when its contents change,
+  without adding a confirmation to unchanged user turns. Compression and failed
+  delivery still cause a fresh snapshot; mentioned wiki pages remain available.
+
 ## [0.8.10] - 2026-11-11
 
 ### Fixed
