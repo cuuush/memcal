@@ -59,8 +59,9 @@ Key requirements:
 
 - Reference an issue in a commit when one exists; creating an issue is not part of the development gate.
 - Add notable user-facing changes to the `Unreleased` section of `CHANGELOG.md`.
-- Releases follow Semantic Versioning. The changelog heading, `pyproject.toml` version,
-  release commit, and annotated `vX.Y.Z` tag must agree.
+- Releases increment the final numeric component, such as `0.8.9` to `0.8.10`.
+  The changelog heading, `pyproject.toml` version, runtime version, release commit,
+  and annotated `vX.Y.Z` tag must agree.
 
 ## Documentation
 

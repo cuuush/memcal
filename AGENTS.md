@@ -246,9 +246,10 @@ narratives here.
 
 - User-facing changes go under `CHANGELOG.md` `Unreleased` (Added/Changed/Fixed/Removed
   headings, omit empties) as part of the change. Never bump the version per change. When
-  asked to release, pick from Unreleased (major = breaking/removal, minor = new feature,
-  patch = fixes only), then: move entries under `## [X.Y.Z] - YYYY-MM-DD`, restore empty
-  Unreleased, set the same version in `pyproject.toml`, commit, annotated `vX.Y.Z` tag.
+  asked to release, increment the final numeric component (for example, 0.8.9 to
+  0.8.10). Move entries under `## [X.Y.Z] - YYYY-MM-DD`, restore empty Unreleased,
+  set the same version in `pyproject.toml` and `memcal/__init__.py`, commit, and
+  create an annotated `vX.Y.Z` tag.
   Never tag first (a test enforces changelog/version/tag agreement).
 - Bump the version only as part of an explicit release, never automatically — not when
   merging a branch, shipping a feature, or "to line up the next tag". If unsure whether

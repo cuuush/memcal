@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.8.10] - 2026-11-11
+
 ### Fixed
 
 - Dream wakes a waiting to-do only when its citations resolve to messages from
