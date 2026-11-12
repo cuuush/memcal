@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.8.11] - 2026-11-12
+
 ### Added
 
 - Stable-release updates with staged import checks, private SQLite-aware recovery
