@@ -15,7 +15,16 @@
   than development branch heads; development updates require `--dev`.
 - Privacy and local-model documentation now describe actual context expansion,
   remote fallback behavior and the host agent's separate data handling.
+- `memcal doctor` warns when nightly scheduling is disabled and shows how to
+  resume it. Missing Slack tokens suggest signing in or disabling Slack in
+  Settings; unavailable disabled sources are skipped instead of warned about.
+- `memcal who` also hides inactive identity assumptions, doubts, and duplicate-name
+  suggestions using the recent-sender window (21 days by default). New incoming
+  activity brings entries back without deleting identity history.
 
+### Changed
+
+- Shell completion generation stays available but is hidden from the main CLI help.
 
 ## [0.8.10] - 2026-11-11
 
