@@ -371,7 +371,7 @@ class TestBacklogDisclosesUnrepresentedThreads(_Base):
         src = self.collect("chat", "src", "poker still on?", "friends")
         live.update_event(self.conn, self.cfg, poker.key, note="plan",
                           origin=live.Origin.of("test", cited=[src]))
-        self.collect("chat", "new", "rooftop party this Sunday at 7pm?", "friends")
+        self.collect("chat", "new", "poker on October 1 moved to 7pm?", "friends")
         full = brief.render(self.conn, self.cfg)
         self.assertNotIn("[UNREVIEWED:", full)
         self.assertIn("New activity: chat/friends", full)

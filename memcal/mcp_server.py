@@ -184,10 +184,11 @@ TOOLS = [
     {
         "name": "memcal_activity",
         "description": (
-            "Page pending messages behind one plan when memcal_open's whole-thread "
-            "view is truncated — the correction, not a keyword search. Start with "
-            "memcal_open, which already carries the thread with [ids] to cite; use "
-            "this only to page past a cap. Reading changes nothing; cite the [ids] "
+            "Read pending source messages nominated for this entry's freshness "
+            "warning. Open stored details with memcal_open first, then judge "
+            "whether these messages change the entry. Unrestricted context is "
+            "available through archive and conversation reads. Reading changes "
+            "nothing; cite the [ids] "
             "in a memcal_update (prefer field_sources when fields differ), or "
             "acknowledge them with memcal_reviewed when the stored row still "
             "stands. Takes a brief handle like E46."),
@@ -658,7 +659,7 @@ class Server:
             except (TypeError, ValueError):
                 return "limit must be a number"
             page = activity_mod.read(self.conn, kind, ref, cursor=cursor,
-                                     limit=limit)
+                                     limit=limit, relevant_only=True)
             weak = activity_mod.associations(self.conn, kind, ref)["weak"]
             return activity_mod.format_read(
                 page, weak, label=str(args.get("handle", "")).strip())

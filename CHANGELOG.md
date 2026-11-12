@@ -17,6 +17,9 @@
 
 ### Fixed
 
+- Freshness warnings and agent activity reads select messages about the particular
+  entry rather than all newer traffic in its conversation. Ambiguous or unrelated
+  input remains available for review without marking every linked plan stale.
 - SQLite maintenance locks release safely when Hermes worker connections are
   garbage-collected on another thread.
 - Updates now default to published PyPI versions and matching Git tags rather

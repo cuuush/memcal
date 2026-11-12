@@ -13,11 +13,11 @@ at once. Running a dream pass on every incoming message would be both expensive 
 a model call per message — and largely wasted, since most turns touch nothing that
 changed.
 
-So the daytime path spends no model calls at all. It collects, and it *flags* that
-a plan's source thread has new activity — without deciding what that activity
-means. The live intelligence is the assistant, not a miniature dream: when a
-question lands on a flagged plan, the assistant reads the few messages behind it
-and answers from them.
+So the daytime path spends no model calls at all. It collects and retrieves
+entry-specific activity candidates without deciding what they mean. A newer
+message in a supporting conversation alone does not make a plan stale. The live
+intelligence is the assistant: when a question lands on a flagged plan, it reads
+the candidate messages and judges whether they change that plan.
 
 Say the brief shows soccer practice today, but its group chat is flagged. Asked
 "do we still have practice?", the assistant opens the thread, sees it was
@@ -70,12 +70,20 @@ broader links, bounded deterministic retrieval over known people, thread names, 
 distinctive terms nominates candidates. A shared participant alone never marks
 every event involving that person as changed.
 
-The signal means **"new activity in a source associated with this event,"** not
+Warnings require a topic match, a source-relative date that distinguishes the
+entry, or a short follow-up with nearby, unambiguous entry context. Explicit
+topicless changes can nominate a sole live plan in their source conversation;
+several possible plans stay ambiguous. Repeated entries with the same topic are
+distinguished by the dates in the message. A shared sender or conversation alone
+never flags every entry it supports.
+
+The signal means **"new messages nominated for this entry,"** not
 "this event moved." The assistant or the nightly model judges whether the messages
 are a correction, a new occurrence, non-attendance, or unrelated chatter. No
 inferred date, location, status, identity merge, or source priority belongs in the
-detector. Strong thread links sit beside the known item; weaker possible
-associations sit in a bounded activity section.
+detector. Unmatched messages remain in the archive and review backlog. Only
+exact reviewed or nominated line ids count toward a rendered entry's coverage;
+an entry's hint cannot hide another invitation in the same conversation.
 
 ## Track what was actually reviewed
 
@@ -108,8 +116,11 @@ across enough distinct days appends a short line asking you to confirm or rename
 it (`MEMCAL_FRESHNESS_GUESS_NUDGE_DAYS`); a quiet one is left to age out.
 
 A bounded activity reader returns original text with sender, source time, arrival
-time, and provenance — paginated, with omissions disclosed — so the assistant
-never has to invent a keyword search for a flagged thread. Freshness metadata
+time, and provenance — paginated, with omissions disclosed. Agent and CLI reads
+select the same entry candidates as the warning, so a correction cannot be buried
+behind pages of unrelated chatter. Calendar revisions retain their exact item
+family identity. Unrestricted source context remains available through archive
+and conversation reads. Freshness metadata
 survives brief trimming beside its event: an event and its warning trim as one
 unit, and if a warning that stood in for a thread's backlog is dropped by the
 token budget, the completeness claim goes with it and a compact `[coverage

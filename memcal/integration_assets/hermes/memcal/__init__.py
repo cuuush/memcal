@@ -370,10 +370,10 @@ UPDATE_EVENT = {
 ACTIVITY = {
     "name": "memcal_activity",
     "description": (
-        "Page pending messages behind one plan when memcal_open's whole-thread "
-        "view is truncated — the correction, not a keyword search. Start with "
-        "memcal_open, which already carries the thread with line ids to cite; "
-        "use this only to page past a cap. Reading "
+        "Read pending source messages nominated for this entry's freshness "
+        "warning. Open stored details with memcal_open first, then judge "
+        "whether these messages change the entry. Unrestricted context is "
+        "available through archive and conversation reads. Reading "
         "changes nothing; cite the line ids in a memcal_update (prefer "
         "field_sources when fields have different supports), or acknowledge them "
         "with memcal_reviewed when the stored row still stands. Brief lines carry "
@@ -1350,7 +1350,8 @@ class MemcalMemoryProvider(MemoryProvider):
                 limit = max(1, min(50, int(args.get("limit") or 20)))
             except (TypeError, ValueError):
                 return json.dumps({"error": "cursor and limit must be numbers"})
-            page = activity_mod.read(conn, kind, ref, cursor=cursor, limit=limit)
+            page = activity_mod.read(conn, kind, ref, cursor=cursor, limit=limit,
+                                     relevant_only=True)
             weak = activity_mod.associations(conn, kind, ref)["weak"]
             return json.dumps({
                 "handle": args.get("handle", ""), "kind": kind, "ref": ref,
