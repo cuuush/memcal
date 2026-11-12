@@ -11,10 +11,12 @@ hermes memory setup
 ## Every turn
 
 - **Inject** — `prefetch()` reads local state without collecting sources or calling
-  a model. The first brief and later changes arrive as `MEMCAL SNAPSHOT`; an
-  unchanged brief adds nothing to the user turn. Up to three wiki pages named in
-  the query can still be recalled independently of brief changes. A snapshot is
-  deduplicated only once it has been observed in delivered context, so a timed-out
+  a model. The first brief, changed brief contents, and newly collected source
+  messages arrive as `MEMCAL SNAPSHOT`. Unchanged state adds nothing to the user
+  turn. Up to three wiki pages named in the query can still be recalled
+  independently of brief changes. A snapshot is
+  deduplicated only once it has been observed in delivered context, including
+  image-containing turns and their text projections on resume, so a timed-out
   or discarded render never suppresses the next one, and compression re-emits. If
   rendering fails, `MEMCAL UNAVAILABLE` replaces the snapshot rather than leaving a
   stale one standing.
@@ -38,17 +40,23 @@ without a second injection copy. See [Daytime freshness](../architecture/freshne
 Hermes caches the provider's system block for the conversation, so it contains
 stable instructions rather than the changing brief. Snapshot updates use Hermes's
 model-facing user-message context; the original user text is preserved. Unchanged
-turns need no brief context at all. Since Hermes can also skip or time out a read,
-silence does not verify freshness: the assistant uses `memcal_refresh` before
-claiming current plans on a turn without a snapshot.
+turns need no brief context at all. On Hermes hosts exposing
+`agent.memory_provider.PREFETCH_FAILURE_CONTEXT`, failed, timed-out, or busy reads
+produce `MEMORY UNAVAILABLE`. An ordinary unchanged turn reuses the latest
+snapshot without calling `memcal_refresh`; an unavailable notice requires a
+refresh before claiming current plans. Older hosts silently discard failed
+reads, so Memcal keeps the conservative refresh rule on those versions.
 Hermes skips prefetch for bare greetings and acknowledgements, so the initial
 snapshot arrives on the first substantive turn rather than a greeting like “hi”.
 
 Periodic collection runs separately when scheduling is enabled (default due
 interval: five minutes). New messages can change activity or coverage notices in
 the brief, causing an update on the next turn. Nightly Dream consolidates messages
-into stored plans and facts. Messages that do not change the rendered brief do
-not trigger a duplicate snapshot.
+into stored plans and facts. The change detector tracks the newest collected
+source arrival as well as brief text, so a new message still triggers an update
+when displayed activity counts are capped or an unlinked-backlog notice is
+already present. Redelivery of the same source item and archival of ordinary
+user turns do not trigger updates.
 
 The default snapshot reaches 30 days ahead and includes month/year lookup guidance.
 To confirm a guessed sender name, use the Conversations page or the CLI; Hermes

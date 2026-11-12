@@ -25,6 +25,7 @@ def load(name, path):
 
 
 from agent.memory_manager import MemoryManager
+from agent import memory_provider as memory_api
 
 
 class _HermesDeliveryCase(unittest.TestCase):
@@ -117,8 +118,12 @@ class TestUndeliveredMemcalContext(_HermesDeliveryCase):
         warning, busy, calls = self.run_timeout()
         # Hermes drops timed-out results. Silence cannot establish freshness,
         # but it must never acknowledge a snapshot that was not delivered.
-        self.assertEqual(warning, "")
-        self.assertEqual(busy, "")
+        if getattr(memory_api, "PREFETCH_FAILURE_CONTEXT", ""):
+            self.assertIn("MEMORY UNAVAILABLE", warning)
+            self.assertIn("MEMORY UNAVAILABLE", busy)
+        else:
+            self.assertEqual(warning, "")
+            self.assertEqual(busy, "")
         # Hermes versions may skip the retry or admit a second bounded call.
         # Neither timed-out result was delivered, so recovery must still resend.
         self.assertIn(calls, (1, 2))
@@ -129,7 +134,13 @@ class TestUndeliveredMemcalContext(_HermesDeliveryCase):
 
     def test_silence_never_means_current_in_provider_instructions(self):
         block = self.provider.system_prompt_block()
-        self.assertIn("Silence is not proof of freshness", block)
+        if getattr(memory_api, "PREFETCH_FAILURE_CONTEXT", ""):
+            self.assertIn("do not call memcal_refresh just because", block)
+            self.assertIn("MEMORY UNAVAILABLE", block)
+            self.assertNotIn("If this turn has no snapshot", block)
+        else:
+            self.assertIn("cannot distinguish an unchanged read from a timeout", block)
+            self.assertIn("If this turn has no snapshot", block)
         self.assertIn("call memcal_refresh", block)
         self.assertNotIn("always current", block)
         self.assertNotIn("turn without one is normal", block)
@@ -161,7 +172,7 @@ class TestUndeliveredMemcalContext(_HermesDeliveryCase):
         self.complete(self.ask())
         self.change_brief()
         with patch.object(self.provider, "prefetch", side_effect=RuntimeError("synthetic")):
-            self.assertEqual(self.ask(), "")
+            self.assertEqual(self.ask(), getattr(memory_api, "PREFETCH_FAILURE_CONTEXT", ""))
         self.assertIn("MEMCAL SNAPSHOT", self.ask())
 
     def test_user_or_assistant_echo_is_neither_delivery_nor_new_evidence(self):
@@ -228,6 +239,47 @@ class TestUndeliveredMemcalContext(_HermesDeliveryCase):
     def test_subagent_receives_no_personal_context(self):
         self.provider._agent_context = "subagent"
         self.assertEqual(self.ask(), "")
+
+
+class TestMultimodalMemcalDelivery(_HermesDeliveryCase):
+    def test_multimodal_delivery_suppresses_unchanged_followup(self):
+        from types import SimpleNamespace
+        from agent.turn_context import _append_multimodal_context
+        first = self.ask()
+        message = {"role": "user", "content": [
+            {"type": "text", "text": "Where is poker?"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,synthetic"}},
+        ]}
+        _append_multimodal_context(SimpleNamespace(), message, first, "", preflight_compressed=False)
+        self.complete(first, messages=[message, {"role": "assistant", "content": "Synthetic answer"}])
+        self.assertEqual(self.ask(), "")
+
+    def test_resumed_multimodal_text_projection_acknowledges_delivery(self):
+        from types import SimpleNamespace
+        from agent.turn_context import _append_multimodal_context
+        from agent.session_persistence import _durable_content
+        first = self.ask()
+        message = {"role": "user", "content": [
+            {"type": "text", "text": "Where is poker?"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,synthetic"}},
+        ]}
+        _append_multimodal_context(SimpleNamespace(), message, first, "", preflight_compressed=False)
+        message["content"] = _durable_content(message["content"])
+        self.complete(first, messages=[message, {"role": "assistant", "content": "Synthetic answer"}])
+        self.assertEqual(self.ask(), "")
+
+    def test_multimodal_user_echo_does_not_acknowledge_delivery(self):
+        from types import SimpleNamespace
+        from agent.turn_context import _append_multimodal_context
+        first = self.ask()
+        message = {"role": "user", "content": [
+            {"type": "text", "text": "Where is poker?\n" + first},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,synthetic"}},
+        ]}
+        # No recalled memory was delivered: the only snapshot is in the user's text.
+        _append_multimodal_context(SimpleNamespace(), message, "", "", preflight_compressed=False)
+        self.complete(first, messages=[message, {"role": "assistant", "content": "Synthetic answer"}])
+        self.assertIn("MEMCAL SNAPSHOT", self.ask())
 
 
 class TestSilentMemcalUserTurns(_HermesDeliveryCase):

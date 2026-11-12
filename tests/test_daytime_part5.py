@@ -178,6 +178,45 @@ class TestCollectedActivityUpdatesSilentBrief(_HermesBase):
         finally:
             conn.close()
 
+    def test_new_source_arrivals_update_even_when_hint_count_is_capped(self):
+        conn = self.conn()
+        try:
+            source = self.collect(conn, "initial", "Board games Saturday at 8?", "games group")
+            self.mlive.add_event(
+                conn, self.cfg, title="Board games", when="2026-09-12",
+                origin=self.mlive.Origin.of("test", cited=[source]))
+            for number in range(100):
+                self.collect(conn, f"activity-{number}", "More games discussion", "games group")
+            first = self.delivered()
+            self.assertIn("99+", first)
+            self.assertEqual(self.delivered(), "")
+            self.collect(conn, "correction", "Cancelled: the venue is closed", "games group")
+            update = self.delivered()
+            self.assertIn("MEMCAL SNAPSHOT", update)
+            self.assertIn("99+", update)
+            self.assertNotEqual(first, update)
+            self.assertEqual(self.delivered(), "")
+            self.collect(conn, "correction", "Cancelled: the venue is closed", "games group")
+            self.assertEqual(self.delivered(), "")
+            # Archiving the next user turn is not external source activity.
+            self.provider.on_turn_start(1, "Please explain this code")
+            self.assertEqual(self.delivered(), "")
+            # A message arriving after render must not be marked as delivered
+            # merely because the capped text is identical.
+            original_render = self.mbrief.render
+
+            def arrive_after_render(*args, **kwargs):
+                rendered = original_render(*args, **kwargs)
+                self.collect(conn, "late", "The replacement venue is open", "games group")
+                return rendered
+
+            with mock.patch.object(self.mbrief, "render", side_effect=arrive_after_render):
+                self.assertEqual(self.delivered(), "")
+            self.assertIn("MEMCAL SNAPSHOT", self.delivered())
+            self.assertEqual(self.delivered(), "")
+        finally:
+            conn.close()
+
 
 class TestOldSessionsGetToday(_HermesBase):
     def test_next_day_turn_supersedes_with_hints(self):

@@ -54,8 +54,9 @@ python3 -m memcal.mcp_server
 
 See the [MCP guide](https://cuuush.github.io/memcal/clients/mcp/) for client configuration. Agents can also look beyond the brief with tools such as `memcal_list_month(month="2026-10")` and `memcal_list_days(when="2026-01-01", days=365)`.
 
-In Hermes, the brief arrives on the first substantive turn and when its contents change;
-an unchanged brief adds nothing to subsequent user turns. Periodic collection
+In Hermes, the brief arrives on the first substantive turn and when its contents
+or collected sources change; unchanged state adds nothing to subsequent user
+turns. Periodic collection
 (when scheduling is enabled, due every five minutes by default) can surface new
 message activity before nightly Dream consolidates it. The system instructions
 stay fixed; brief updates use Hermes's model-facing user context. Mentioned wiki
