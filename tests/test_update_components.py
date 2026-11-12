@@ -56,14 +56,15 @@ class TestUpdateUsesFreshCodeAndGitHub(unittest.TestCase):
         self.assertEqual(args.kwargs["env"]["PYTHONPATH"], "/tmp/source")
         self.assertEqual(args.kwargs["env"]["MEMCAL_HOME"], "/tmp/store")
 
-    def test_pip_updates_from_github_and_upgrades_existing_chat_extras(self):
+    def test_pip_updates_from_published_version_and_preserves_existing_chat_extras(self):
         with mock.patch.object(update, "_run") as run, \
              mock.patch.object(update, "_verify"), \
              mock.patch.object(update, "_chat_extras", return_value=["slack", "telegram"]):
-            update._package_update()
+            update._package_update("0.8.10")
         command = run.call_args.args[0]
-        self.assertEqual(command[-1], "memcal[slack,telegram] @ " + update.GITHUB_SOURCE)
-        self.assertIn("eager", command)
+        self.assertEqual(command[-1], "memcal[slack,telegram]==0.8.10")
+        self.assertIn("only-if-needed", command)
+        self.assertNotIn("--force-reinstall", command)
 
 
 if __name__ == "__main__":

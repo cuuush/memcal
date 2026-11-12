@@ -50,51 +50,18 @@ memcal ui           # the web UI on 127.0.0.1:8765
 memcal update
 ```
 
-For a checkout, this fetches its configured upstream, advances it with a fast-forward,
-and upgrades dependencies and the existing launcher with the same Python interpreter.
-Local edits, unpublished commits, or a development worktree stop the update with an
-explanation. A default branch missing its upstream is reconnected automatically;
-other branches require explicit tracking. It does not run ingestion or change your
-saved provider settings.
+The default updater targets a published stable PyPI version, or its matching Git
+release tag for checkout installations. Development branch updates require the
+explicit `--dev` option. Stop running UI and agent sessions before updating.
 
-For a pip installation, it installs the latest code directly from
-`https://github.com/cuuush/memcal` using the Python that runs the command; Git must
-be on PATH. Existing Slack and Telegram extras are upgraded too.
+Updates stage-check the release, take a private store snapshot, refresh the store
+and managed integrations, and preserve recovery information on failure. Local
+tracked edits and development worktrees are refused; local integration edits are
+not overwritten. Restart your hosts after a successful update.
 
-Both paths run the newly installed code to migrate the existing store and refresh
-its saved brief. On macOS, an installed scheduler is regenerated, including the app
-wrapper, while preserving its scheduled time and pending retry. Enabled scheduling
-is reloaded; scheduling stopped with `memcal disable` stays disabled until
-`memcal enable`. An update does not install scheduling on a store that did not have
-it. Use
-`memcal --home /path/to/store update` to select the store to refresh.
-
-Linked Hermes and OpenClaw plugins and MCP servers use the updated code on their
-next start. Restart running UI or agent sessions afterward; for OpenClaw, run
-`openclaw gateway restart`.
-The update command can repair missing application dependencies because it loads
-before the rest of Memcal.
-
-If your installation predates `memcal update`, bootstrap it once with `git pull
---ff-only` and `./install.sh --no-init` in the installed checkout, or
-`python3 -m pip install --upgrade memcal` for a pip installation.
+See [Updates and recovery](../updates.md) for exact behavior, backup privacy,
+limitations and non-destructive recovery instructions. Use
+`memcal --home /path/to/store update` to select a store.
 
 Next: [Configuration](configuration.md) for every knob, [Scheduling](scheduling.md)
 for the nightly job.
-
-`memcal update` allows unrelated untracked files such as local output directories.
-Tracked source edits must still be committed or stashed first. Git stops the update
-if an upstream file would overwrite an untracked or ignored local file; local work
-is preserved, and the launcher is refreshed only after a successful fast-forward.
-
-If an older updater stops on untracked files before it can download this fix, use a
-single manual fast-forward in the installed checkout, then rerun the updater:
-
-```bash
-git -C /path/to/memcal fetch origin
-git -C /path/to/memcal merge --ff-only --no-overwrite-ignore origin/main
-memcal update
-```
-
-A file collision still stops the fast-forward; move that local file somewhere safe
-before retrying. Do not discard local outputs to make an update pass.

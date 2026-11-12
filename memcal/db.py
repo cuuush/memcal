@@ -20,13 +20,43 @@ SCHEMA = Path(__file__).with_name("schema.sql")
 BUSY_TIMEOUT_MS = 30_000
 
 
+class _StoreConnection(sqlite3.Connection):
+    _maintenance_fd = None
+
+    def _release_maintenance(self):
+        if self._maintenance_fd is not None:
+            from .update_safety import release
+            release(self._maintenance_fd)
+            self._maintenance_fd = None
+
+    def close(self):
+        super().close()
+        self._release_maintenance()
+
+    def __del__(self):
+        # SQLite's native deallocator closes the database even when collection
+        # happens on another thread. Calling close() here would incorrectly run
+        # Python's same-thread guard and emit an unraisable exception.
+        self._release_maintenance()
+
+
 def connect(db_path: Path, *, read_only: bool = False) -> sqlite3.Connection:
     target = db_path
     if read_only:
         target = db_path.resolve().as_uri() + "?mode=ro"
     else:
         db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(target, uri=read_only, timeout=BUSY_TIMEOUT_MS / 1000)
+    from .update_safety import acquire, release, BYPASS
+    bypass = os.environ.get(BYPASS) == str(db_path.parent.resolve())
+    fd = None if bypass or read_only else acquire(db_path.parent)
+    try:
+        conn = sqlite3.connect(target, uri=read_only, timeout=BUSY_TIMEOUT_MS / 1000,
+                               factory=_StoreConnection)
+        conn._maintenance_fd = fd
+    except BaseException:
+        if fd is not None:
+            release(fd)
+        raise
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     # Keep the web UI readable during ingestion.

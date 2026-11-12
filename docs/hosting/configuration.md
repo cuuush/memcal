@@ -54,7 +54,34 @@ working. See [OpenAI's GPT-6 Luna model documentation](https://developers.openai
 For `openai-compatible`, set `MEMCAL_OPENAI_BASE_URL`, `OPENAI_COMPAT_API_KEY`, and
 an explicit model ID. This backend sends standard chat-completion requests with
 the requested JSON schema, without OpenRouter routing or cache fields. HTTPS is
-required except for local development endpoints on localhost.
+required except for HTTP endpoints on `localhost`, `127.0.0.1`, or `::1`.
+
+### Local model server
+
+Run an OpenAI-compatible server that supports chat completions and the requested
+JSON-schema response format, with the model loaded locally. For example, put these
+values in the store `.env`, replacing the model ID with one your server serves:
+
+```dotenv
+MEMCAL_LLM_PROVIDER=openai-compatible
+MEMCAL_OPENAI_BASE_URL=http://127.0.0.1:11434/v1
+OPENAI_COMPAT_API_KEY=local-placeholder
+MEMCAL_PROPOSE_MODEL=local-model-id
+MEMCAL_SWEEP_MODEL=local-model-id
+MEMCAL_MATCH_MODEL=local-model-id
+MEMCAL_FALLBACK_PROVIDER=
+```
+
+A nonempty API key is required by the client even if your local server does not
+validate it; use a non-secret placeholder only for a server that needs no real
+credential. Set all three stage models explicitly. The base URL includes `/v1`;
+Memcal appends `/chat/completions`. Server compatibility and model quality still
+need verification before processing real accounts.
+
+Ensure no higher-precedence configuration enables a remote endpoint or fallback.
+For local-only model processing, the server must not forward prompts remotely.
+Read the [privacy caveats](../privacy.md#using-a-truly-local-model), including
+expanded context and the separate model configuration of your host agent.
 
 Grok Build is installed with `npm i -g @xai-official/grok` (or the installer at
 `https://x.ai/cli/install.sh`); `grok --oauth` signs in through the browser. Avoid

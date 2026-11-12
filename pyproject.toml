@@ -55,7 +55,9 @@ namespaces = false
 
 [tool.setuptools.package-data]
 memcal = ["schema.sql", "webui.html", "macos/icon.png", "macos/launcher.c",
-          "static/*.css", "static/*.js", "static/*.png"]
+          "static/*.css", "static/*.js", "static/*.png",
+          "integration_assets/hermes/memcal/*.py",
+          "integration_assets/openclaw/*.json", "integration_assets/openclaw/*.ts"]
 
 # Third-party sources advertise themselves here:
 #   [project.entry-points."memcal.sources"]

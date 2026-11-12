@@ -17,9 +17,14 @@ from agent.memory_provider import MemoryProvider
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MEMCAL_HOME = Path.home() / ".memcal"
+try:
+    _runtime = json.loads(Path(__file__).with_name("memcal-runtime.json").read_text())
+except (OSError, ValueError):
+    _runtime = {}
+
+DEFAULT_MEMCAL_HOME = Path(_runtime.get("home") or Path.home() / ".memcal")
 # Where the memcal package lives, so we can import it without installing it.
-DEFAULT_MEMCAL_SRC = Path.home() / "code" / "memcal"
+DEFAULT_MEMCAL_SRC = Path(_runtime.get("source") or Path.home() / "code" / "memcal")
 
 
 _loaded_mtime = 0.0

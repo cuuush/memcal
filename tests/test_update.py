@@ -194,21 +194,17 @@ class TestUntrackedCheckoutUpdateSafety(unittest.TestCase):
 
 
 class TestPackageUpdates(unittest.TestCase):
-    def test_homebrew_retries_in_user_site_only_for_pep668(self):
-        with mock.patch.object(update, "_run", side_effect=[
-                update.UpdateError("externally-managed-environment"), ""]) as run, \
-                mock.patch.object(update, "_verify") as verify, \
-                mock.patch.object(sys, "prefix", "system"), \
-                mock.patch.object(sys, "base_prefix", "system"):
-            update._package_update()
-        self.assertEqual(run.call_args_list[0].args[0][:3], [sys.executable, "-m", "pip"])
-        self.assertEqual(run.call_args_list[1].args[0][-2:], ["--user", "--break-system-packages"])
-        verify.assert_called_once_with()
+    def test_externally_managed_python_is_not_bypassed(self):
+        with mock.patch.object(update, "_run", side_effect=update.UpdateError("externally-managed-environment")) as run:
+            with self.assertRaisesRegex(update.UpdateError, "externally-managed"):
+                update._package_update("0.8.10")
+        self.assertEqual(run.call_count, 1)
+        self.assertNotIn("--break-system-packages", run.call_args.args[0])
 
     def test_network_failure_does_not_retry_with_different_install_scope(self):
         with mock.patch.object(update, "_run", side_effect=update.UpdateError("network down")) as run:
             with self.assertRaisesRegex(update.UpdateError, "network down"):
-                update._package_update()
+                update._package_update("0.8.10")
         self.assertEqual(run.call_count, 1)
 
     def test_regular_cli_help_and_dispatch_include_update(self):
