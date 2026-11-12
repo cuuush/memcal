@@ -7,6 +7,13 @@
 - Packaged Hermes and OpenClaw assets, managed setup/refresh commands and refresh
   during updates, with checks that preserve locally edited integration files.
 
+### Changed
+
+- Hermes injects the brief on the first substantive turn and when its contents
+  or collected sources change,
+  without adding a confirmation to unchanged user turns. Compression and failed
+  delivery still cause a fresh snapshot; mentioned wiki pages remain available.
+
 ### Fixed
 
 - SQLite maintenance locks release safely when Hermes worker connections are
@@ -15,6 +22,15 @@
   than development branch heads; development updates require `--dev`.
 - Privacy and local-model documentation now describe actual context expansion,
   remote fallback behavior and the host agent's separate data handling.
+
+- Hermes snapshot delivery recognizes image-containing turns and their resumed
+  text projections, while quoted user snapshots do not acknowledge delivery.
+- Newly collected messages trigger a snapshot even when activity counts are
+  capped or backlog notices are unchanged. Same-item redelivery and ordinary
+  agent/CLI turns do not trigger updates.
+- Hermes hosts with explicit prefetch failure notices reuse unchanged snapshots
+  without a refresh call on every current-plan question. Older hosts retain the
+  conservative fallback rather than mistaking a timeout for unchanged state.
 
 
 ## [0.8.10] - 2026-11-11

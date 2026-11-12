@@ -91,7 +91,7 @@ hermes memory setup
 Symlink the **package directory** `integrations/hermes/memcal`, not the parent.
 Set `MEMCAL_SRC` to this checkout if import fails (Hermes may default to
 `~/code/memcal`). Hermes uses prefetch instead of `memcal_brief` and does not expose `memcal_name`.
-Done when: `MEMCAL SNAPSHOT` / `MEMCAL CURRENT` inject and **21** tools list.
+Done when: `MEMCAL SNAPSHOT` injects initially and when changed and **21** tools list.
 
 ## OpenClaw
 

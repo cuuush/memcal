@@ -105,7 +105,7 @@ Symlink the **`integrations/hermes/memcal` package directory** (not the parent
 `hermes/` folder). Set `MEMCAL_SRC` to this checkout if import fails (Hermes may
 default to `~/code/memcal`).
 
-Verify: `MEMCAL SNAPSHOT` / `MEMCAL CURRENT` inject; **21** tools list (`memcal_open`,
+Verify: `MEMCAL SNAPSHOT` injects initially and when changed; **21** tools list (`memcal_open`,
 `memcal_open_source`, typed writes, … — prefetch replaces `memcal_brief`).
 
 Details: https://cuuush.github.io/memcal/integrations/hermes/
