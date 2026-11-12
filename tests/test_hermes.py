@@ -636,10 +636,12 @@ class TestHermesUnifiedOpenRouting(unittest.TestCase):
         self.addCleanup(db.set_today, None)
         host = ModuleType("agent.memory_provider")
         host.MemoryProvider = object
+        agent = ModuleType("agent")
+        agent.memory_provider = host
         spec = importlib.util.spec_from_file_location(
             "_memcal_hermes_routing", PLUGIN / "memcal" / "__init__.py")
         module = importlib.util.module_from_spec(spec)
-        with mock.patch.dict(sys.modules, {"agent.memory_provider": host}):
+        with mock.patch.dict(sys.modules, {"agent": agent, "agent.memory_provider": host}):
             spec.loader.exec_module(module)
         self.provider = module.MemcalMemoryProvider()
         self.provider._cfg = self.cfg
