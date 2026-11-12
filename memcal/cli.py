@@ -387,6 +387,7 @@ def _prune_stale_openclaw_plugins(path=None) -> list[str]:
 def cmd_openclaw(args) -> int:
     """Install or inspect the native prompt hook plus memcal's stdio MCP server."""
     cfg = config.load(getattr(args, "home", None))
+    from . import integrations
     plugin = config.PROJECT_ROOT / "integrations" / "openclaw"
     if args.action == "status":
         stale = _prune_stale_openclaw_plugins()
@@ -414,6 +415,13 @@ def cmd_openclaw(args) -> int:
     for gone in _prune_stale_openclaw_plugins():
         print(f"pruned stale plugin link {gone}")
 
+    if not plugin.is_dir():
+        try:
+            plugin = integrations.prepare("openclaw", cfg.home)
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+
     mcp = json.dumps({
         "command": sys.executable,
         "args": ["-m", "memcal.mcp_server"],
@@ -438,6 +446,36 @@ def cmd_openclaw(args) -> int:
     print("\nOpenClaw now has fresh memcal context and the memcal MCP tools.")
     print("Restart the OpenClaw gateway before the next agent turn:")
     print("  openclaw gateway restart && memcal openclaw status")
+    return 0
+
+
+def cmd_hermes(args) -> int:
+    """Install or refresh the packaged Hermes memory provider."""
+    from pathlib import Path
+    from . import integrations
+    cfg = config.load(getattr(args, "home", None))
+    target = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / "plugins" / "memcal"
+    if target.exists() and not target.is_symlink():
+        print(f"refusing to replace existing directory {target}", file=sys.stderr)
+        return 1
+    if not args.yes:
+        try:
+            answer = input(f"Link MemCal memory provider at {target}? [y/N] ")
+        except EOFError:
+            answer = ""
+        if answer.strip().lower() not in ("y", "yes"):
+            print("nothing changed")
+            return 1
+    try:
+        plugin = integrations.prepare("hermes", cfg.home)
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.is_symlink():
+        target.unlink()
+    target.symlink_to(plugin, target_is_directory=True)
+    print(f"Hermes provider linked at {target}. Run hermes memory setup and restart Hermes.")
     return 0
 
 
@@ -2498,13 +2536,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("update", help="update this installation and refresh its launcher")
     from . import update
-    s.set_defaults(func=lambda args: update.run(home=args.home) if args.home else update.run())
+    s.add_argument("--dev", action="store_true", help="explicitly follow development source instead")
+    s.add_argument("--restore-backup", help="snapshot directory to recover")
+    s.add_argument("--restore-to", help="new, nonexistent recovery destination")
+    def dispatch_update(args):
+        argv = ["--home", args.home] if args.home else []
+        argv.append("update")
+        if args.dev:
+            argv.append("--dev")
+        if args.restore_backup:
+            argv.extend(["--restore-backup", args.restore_backup])
+        if args.restore_to:
+            argv.extend(["--restore-to", args.restore_to])
+        return update.main(argv)
+    s.set_defaults(func=dispatch_update)
 
     s = sub.add_parser("openclaw", help="install or inspect the OpenClaw integration")
-    s.add_argument("action", nargs="?", default="status", choices=["status", "setup"],
+    s.add_argument("action", nargs="?", default="status", choices=["status", "setup", "refresh"],
                    help="status, or setup to link the plugin and register MCP")
     s.add_argument("--yes", action="store_true", help="setup without confirmation")
     s.set_defaults(func=cmd_openclaw)
+
+    s = sub.add_parser("hermes", help="install or refresh the Hermes memory provider")
+    s.add_argument("action", choices=["setup", "refresh"], help="install or refresh the managed Hermes provider")
+    s.add_argument("--yes", action="store_true", help="setup without confirmation")
+    s.set_defaults(func=cmd_hermes)
 
     s = sub.add_parser("open", help="read a handle (E286, T7, Q12) or wiki page, with cited evidence only")
     s.add_argument("ref", help="a brief handle, page name, recorded alias, or 'me'")

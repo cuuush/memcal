@@ -63,6 +63,7 @@ nav:
       - Custom plugins: sources/custom.md
   - Hosting:
       - Installation: hosting/installation.md
+      - Updates and recovery: updates.md
       - Configuration: hosting/configuration.md
       - Full Disk Access: hosting/permissions.md
       - Scheduling: hosting/scheduling.md

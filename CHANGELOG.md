@@ -1,5 +1,22 @@
 ## [Unreleased]
 
+### Added
+
+- Stable-release updates with staged import checks, private SQLite-aware recovery
+  snapshots, maintenance coordination and non-destructive restore to a new store.
+- Packaged Hermes and OpenClaw assets, managed setup/refresh commands and refresh
+  during updates, with checks that preserve locally edited integration files.
+
+### Fixed
+
+- SQLite maintenance locks release safely when Hermes worker connections are
+  garbage-collected on another thread.
+- Updates now default to published PyPI versions and matching Git tags rather
+  than development branch heads; development updates require `--dev`.
+- Privacy and local-model documentation now describe actual context expansion,
+  remote fallback behavior and the host agent's separate data handling.
+
+
 ## [0.8.10] - 2026-11-11
 
 ### Fixed

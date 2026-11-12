@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -46,9 +47,13 @@ export default definePluginEntry({
   description: "Fresh personal context and inbound-turn archival for memcal",
   register(api) {
     const configured = (api.pluginConfig ?? {}) as PluginConfig;
-    const source = configured.memcalSrc ?? resolve(api.rootDir ?? ".", "..", "..");
-    const home = configured.memcalHome ?? process.env.MEMCAL_HOME ?? resolve(homedir(), ".memcal");
-    const python = configured.pythonCommand ?? "python3";
+    let runtime: { source?: string; home?: string; python?: string } = {};
+    try {
+      runtime = JSON.parse(readFileSync(resolve(api.rootDir ?? ".", "memcal-runtime.json"), "utf8"));
+    } catch { /* Checkout installs need no generated runtime descriptor. */ }
+    const source = configured.memcalSrc ?? runtime.source ?? resolve(api.rootDir ?? ".", "..", "..");
+    const home = configured.memcalHome ?? runtime.home ?? process.env.MEMCAL_HOME ?? resolve(homedir(), ".memcal");
+    const python = configured.pythonCommand ?? runtime.python ?? "python3";
 
     const enabledFor = (agentId?: string) => !configured.agentId || configured.agentId === agentId;
     const sessionAgent = (sessionKey?: string) => sessionKey?.match(/^agent:([^:]+)/)?.[1];

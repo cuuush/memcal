@@ -4,9 +4,21 @@ The native memory-provider integration. Thin by design: the memory system is the
 resident process, the agent is transient.
 
 ```bash
-ln -s /path/to/memcal/integrations/hermes/memcal ~/.hermes/plugins/memcal
+memcal hermes setup --yes
 hermes memory setup
 ```
+
+Both PyPI and checkout installs include the provider. Setup copies the versioned
+provider into `MEMCAL_HOME/integrations/hermes/memcal` and links it into
+`HERMES_HOME/plugins/memcal` (default `~/.hermes`). It records the installed
+MemCal source path and store without editing Hermes configuration. An existing
+non-symlink plugin directory is never replaced.
+
+After a direct `pip install --upgrade memcal`, run `memcal hermes refresh --yes`
+and restart Hermes. `memcal update` refreshes existing managed copies automatically.
+Locally edited managed files are preserved and refresh reports the conflict.
+For a live checkout link, the original `integrations/hermes/memcal` path remains
+available; set `MEMCAL_SRC` to the checkout when using it manually.
 
 ## Every turn
 
