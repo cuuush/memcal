@@ -114,8 +114,9 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("MEMCAL_WHATSAPP_WAIT_SECONDS", "whatsapp_wait_seconds", "WhatsApp startup wait",
             "Maximum time to wait for the local message database after opening WhatsApp.",
             "collect", kind="int", minimum=0, maximum=300, unit="seconds"),
-    Setting("MEMCAL_UNRESOLVED_ACTIVE_DAYS", "unresolved_active_days", "Recent unnamed senders",
-            "Hide unnamed handles with no activity in this many days; new activity brings "
+    Setting("MEMCAL_UNRESOLVED_ACTIVE_DAYS", "unresolved_active_days", "Recent identity activity",
+            "Hide unnamed handles, identity doubts, and duplicate-name suggestions in "
+            "memcal who with no incoming activity in this many days; new activity brings "
             "them back. The archive and identity history are preserved.",
             "collect", kind="int", minimum=1, maximum=365, unit="days"),
 

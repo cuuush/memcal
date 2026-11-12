@@ -503,10 +503,26 @@ def confirm(conn: sqlite3.Connection, assumption_id: int) -> str | None:
     return said
 
 
-def assumptions(conn: sqlite3.Connection, state: str = "assumed") -> list[sqlite3.Row]:
-    return conn.execute(
+def assumptions(conn: sqlite3.Connection, state: str = "assumed", *,
+                active_days: int | None = None) -> list[sqlite3.Row]:
+    rows = conn.execute(
         "SELECT * FROM identity_assumptions WHERE state = ? ORDER BY id", (state,)
     ).fetchall()
+    if active_days is None:
+        return rows
+    handles, people = identity.recent_senders(conn, active_days=active_days)
+
+    def active(row):
+        if row["kind"] == "name":
+            return identity.normalize(row["also"]) in handles
+        moved = set(db.jload(row["handles_moved"], []))
+        if row["state"] == "assumed":
+            # The folded name is gone from the archive; follow the actual handles
+            # it moved rather than activity by an unrelated surviving namesake.
+            return bool(moved & handles) if moved else row["keep"] in people
+        return row["also"] in people and (not row["keep"] or row["keep"] in people)
+
+    return [row for row in rows if active(row)]
 
 
 def mark_not_person(conn: sqlite3.Connection, handle: str, label: str = "",
