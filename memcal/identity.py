@@ -376,11 +376,36 @@ def merge_candidates(conn: sqlite3.Connection) -> list[tuple[str, str]]:
     return sorted(found)
 
 
-def candidate_lines(conn: sqlite3.Connection) -> list[str]:
+def recent_senders(conn: sqlite3.Connection, *, active_days: int) -> tuple[set[str], set[str]]:
+    """Handles and names with recent incoming messages, using source timestamps."""
+    cutoff = (db.now_dt() - timedelta(days=max(1, active_days))).isoformat()
+    handles, people = set(), set()
+    for row in conn.execute(
+            "SELECT DISTINCT a.handle, a.person, h.person AS linked_person FROM archive a"
+            " LEFT JOIN handles h ON h.handle = a.handle"
+            " WHERE a.from_me = 0 AND julianday(a.ts) >= julianday(?)", (cutoff,)):
+        if row["handle"]:
+            handles.add(row["handle"])
+        people.update(name for name in (row["person"], row["linked_person"]) if name)
+    # A newly queued sender may not have an archived message yet. Once source
+    # history exists, processing that history again must not refresh activity.
+    handles.update(row["handle"] for row in conn.execute(
+        "SELECT u.handle FROM unresolved u WHERE julianday(u.last_seen) >= julianday(?)"
+        " AND NOT EXISTS (SELECT 1 FROM archive a WHERE a.handle = u.handle AND a.from_me = 0)",
+        (cutoff,)))
+    return handles, people
+
+
+def candidate_lines(conn: sqlite3.Connection, *, active_days: int | None = None) -> list[str]:
     """`merge_candidates` rendered for a human who came looking."""
     lines = []
     spoken = _spoken_in(conn)
+    active = recent_senders(conn, active_days=active_days)[1] if active_days is not None else None
     for short, long_ in merge_candidates(conn):
+        # Keep all historical names in the ambiguity checks above; only filter
+        # their presentation, so an inactive namesake still prevents a false match.
+        if active is not None and not {short, long_} <= active:
+            continue
         where_short = ", ".join(sorted({s for s, _t in spoken[short]}))
         where_long = ", ".join(sorted({s for s, _t in spoken[long_]}))
         lines.append(f"  {short} ({where_short})  ==  {long_} ({where_long})?")

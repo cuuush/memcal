@@ -901,7 +901,7 @@ def cmd_who(args) -> int:
               + (f", dropped {dropped} non-person handle(s)" if dropped else ""))
 
     # Already-merged assumptions; each line carries the number that undoes it.
-    open_assumptions = whois.assumptions(conn)
+    open_assumptions = whois.assumptions(conn, active_days=cfg.unresolved_active_days)
     if open_assumptions:
         print(f"\n# assumed to be one person ({len(open_assumptions)}) — already merged")
         print("  memcal who --split <n> to undo one; --confirm <n> to stop asking")
@@ -910,7 +910,7 @@ def cmd_who(args) -> int:
                   f"   {_one_line(row['why'] or '', 46)}")
 
     # Unresolved doubts; only the user can settle these.
-    doubts = whois.assumptions(conn, state="unsure")
+    doubts = whois.assumptions(conn, state="unsure", active_days=cfg.unresolved_active_days)
     if doubts:
         print(f"\n# not sure ({len(doubts)}) — nothing was done about these")
         print("  memcal who --confirm <n> to act on one; --split <n> to say no")
@@ -920,7 +920,7 @@ def cmd_who(args) -> int:
                   f"   {_one_line(row['why'] or '', 44)}")
 
     # Candidate name pairs shown for manual linking; nothing merges on its own.
-    pairs = identity.candidate_lines(conn)
+    pairs = identity.candidate_lines(conn, active_days=cfg.unresolved_active_days)
     if pairs:
         print(f"\n# possibly one person, on two platforms ({len(pairs)})")
         print("  memcal who <handle> <name> to link one; nothing merges on its own")
@@ -2122,12 +2122,14 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
             add("Sources", source.name, FAIL, f"{age} behind — {message}",
                 fix="memcal permissions setup   # opens the Full Disk Access helper")
         elif not usable:
-            status = WARN if source.in_all else SKIP
+            status = WARN if source.in_all and source.name.lower() not in off else SKIP
             login = f"memcal login {source.name}"
             fix = ("memcal permissions setup   # opens the Full Disk Access helper"
                    if source.name in {"imessage", "whatsapp"} else
                    login if login in message else
                    f"memcal sources         # what {source.name} still needs")
+            if source.name == "slack" and not cfg.secret("SLACK_TOKEN", "slack"):
+                fix = "memcal login slack, or disable Slack in the web UI's Settings source list"
             note = message if source.name in {"imessage", "whatsapp"} else _one_line(message)
             if source.name.lower() in off:
                 note += " — disabled, skipped by `ingest all`"
@@ -2223,7 +2225,9 @@ def doctor_findings(conn: sqlite3.Connection, cfg: Config, *,
         progress("Checking schedule and scheduled-app source access…")
     state = schedule.status(cfg)
     if state.get("disabled"):
-        add("Schedule", "nightly", OK, "disabled — run `memcal enable` to resume")
+        add("Schedule", "nightly", WARN, "disabled — nightly Dream is not running",
+            fix="memcal enable" if state["installed"]
+            else "memcal enable, then memcal schedule install")
     elif not state["installed"]:
         add("Schedule", "nightly", WARN, "not installed",
             fix="memcal schedule install")
@@ -2445,14 +2449,14 @@ COMMAND_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Feed it", ("ingest", "sources", "dream", "review", "schedule", "disable", "enable")),
     ("The gate", ("gatecheck", "senders", "mail", "top", "block")),
     ("Set up and check", ("setup", "update", "init", "openclaw", "doctor", "permissions", "stats", "trace",
-                          "models", "ical", "reminders", "completion")),
+                          "models", "ical", "reminders")),
 )
 
 #: Commands that work and are not listed. Two names for one thing is the shape of a
 #: confusing CLI — `ui` and `web` were both in the visible list, doing the same job,
 #: with `web` labelled "the same server, under its original name" — so the older name
 #: keeps working and stops being a choice anybody has to make.
-HIDDEN_COMMANDS = frozenset({"web", "standing", "forget", "bridge-worker"})
+HIDDEN_COMMANDS = frozenset({"web", "standing", "forget", "bridge-worker", "completion"})
 
 #: The top of `--help`. A list of forty verbs answers "what is there" and never answers
 #: "what do I type", and the second question is the one somebody opening a terminal

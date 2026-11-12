@@ -142,6 +142,82 @@ class _HermesBase(unittest.TestCase):
         return row["id"] if row else None
 
 
+class TestCollectedActivityUpdatesSilentBrief(_HermesBase):
+    def delivered(self):
+        query = "What is planned?"
+        result = self.provider.prefetch(query)
+        self.provider._acknowledge_snapshot([
+            {"role": "user", "content": query, "api_content": query + "\n\n" + result}
+        ], self.provider._session_id)
+        return result
+
+    def test_collection_changes_snapshot_without_waiting_for_dream(self):
+        conn = self.conn()
+        try:
+            source = self.collect(conn, "initial", "Board games Saturday at 8?", "games group")
+            event, _ = self.mlive.add_event(
+                conn, self.cfg, title="Board games", when="2026-09-12",
+                origin=self.mlive.Origin.of("test", cited=[source]))
+            first = self.delivered()
+            self.assertIn("MEMCAL SNAPSHOT", first)
+            self.assertNotIn("New activity", first)
+            self.assertEqual(self.delivered(), "")
+
+            self.collect(conn, "change", "Moved to Sunday at 7", "games group")
+            update = self.delivered()
+            self.assertIn("MEMCAL SNAPSHOT", update)
+            self.assertIn("New activity", update)
+            self.assertEqual(self.delivered(), "")
+            # Redelivery of the same source message must not produce another update.
+            self.collect(conn, "change", "Moved to Sunday at 7", "games group")
+            self.assertEqual(self.delivered(), "")
+            # Collection flags activity; it does not extract a changed plan.
+            self.assertEqual(conn.execute(
+                "SELECT date FROM events WHERE key = ?", (event.key,)).fetchone()["date"],
+                "2026-09-12")
+        finally:
+            conn.close()
+
+    def test_new_source_arrivals_update_even_when_hint_count_is_capped(self):
+        conn = self.conn()
+        try:
+            source = self.collect(conn, "initial", "Board games Saturday at 8?", "games group")
+            self.mlive.add_event(
+                conn, self.cfg, title="Board games", when="2026-09-12",
+                origin=self.mlive.Origin.of("test", cited=[source]))
+            for number in range(100):
+                self.collect(conn, f"activity-{number}", "More games discussion", "games group")
+            first = self.delivered()
+            self.assertIn("99+", first)
+            self.assertEqual(self.delivered(), "")
+            self.collect(conn, "correction", "Cancelled: the venue is closed", "games group")
+            update = self.delivered()
+            self.assertIn("MEMCAL SNAPSHOT", update)
+            self.assertIn("99+", update)
+            self.assertNotEqual(first, update)
+            self.assertEqual(self.delivered(), "")
+            self.collect(conn, "correction", "Cancelled: the venue is closed", "games group")
+            self.assertEqual(self.delivered(), "")
+            # Archiving the next user turn is not external source activity.
+            self.provider.on_turn_start(1, "Please explain this code")
+            self.assertEqual(self.delivered(), "")
+            # A message arriving after render must not be marked as delivered
+            # merely because the capped text is identical.
+            original_render = self.mbrief.render
+
+            def arrive_after_render(*args, **kwargs):
+                rendered = original_render(*args, **kwargs)
+                self.collect(conn, "late", "The replacement venue is open", "games group")
+                return rendered
+
+            with mock.patch.object(self.mbrief, "render", side_effect=arrive_after_render):
+                self.assertEqual(self.delivered(), "")
+            self.assertIn("MEMCAL SNAPSHOT", self.delivered())
+            self.assertEqual(self.delivered(), "")
+        finally:
+            conn.close()
+
+
 class TestOldSessionsGetToday(_HermesBase):
     def test_next_day_turn_supersedes_with_hints(self):
         conn = self.conn()
@@ -169,7 +245,7 @@ class TestOldSessionsGetToday(_HermesBase):
         self.provider._acknowledge_snapshot([
             {"role": "user", "content": "query", "api_content": "query\n\n" + second}
         ], self.provider._session_id)
-        self.assertIn("MEMCAL CURRENT", self.provider.prefetch("and where?"))
+        self.assertEqual("", self.provider.prefetch("and where?"))
 
     def test_resume_reemits_and_failure_warns(self):
         self.provider.on_turn_start(1, "hi")

@@ -137,7 +137,7 @@ control how long a CLI request can take before fallback.
 | `MEMCAL_WHATSAPP_AUTOSTART_BACKGROUND` | off | Also allow opening during periodic `ingest --due` message checks; requires autostart |
 | `MEMCAL_WHATSAPP_CLOSE_AFTER` | on | Close after collection only when Memcal opened it |
 | `MEMCAL_WHATSAPP_WAIT_SECONDS` | `30` (0–300) | Maximum wait for the local WhatsApp database |
-| `MEMCAL_UNRESOLVED_ACTIVE_DAYS` | `21` (1–365) | Hide inactive unnamed senders from naming queues and diagnostics |
+| `MEMCAL_UNRESOLVED_ACTIVE_DAYS` | `21` (1–365) | Hide inactive unnamed senders from naming queues and diagnostics, plus inactive identity assumptions, doubts, and duplicate-name suggestions in `memcal who`; new incoming activity brings them back |
 | `MEMCAL_ITEM_BUDGET` | `20000` | Lines per pass |
 | `MEMCAL_ITEMS_PER_ENTITY` | `2000` | Lines per bundle |
 | `MEMCAL_COLD_START_WAVES` | `4` (1–20) | Wave count for large first passes |

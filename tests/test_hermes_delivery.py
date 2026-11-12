@@ -7,7 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 HERMES = Path(os.environ.get("HERMES_TEST_SRC", str(Path.home() / ".hermes/hermes-agent")))
-PYTHON = HERMES / "venv/bin/python"
+PYTHON = Path(os.environ.get("HERMES_TEST_PYTHON", str(HERMES / "venv/bin/python")))
 
 
 @unittest.skipUnless(PYTHON.is_file(), "Hermes runtime not installed")
