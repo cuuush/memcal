@@ -64,7 +64,7 @@ class TestReconciledCoverageFitsBudget(ReviewBase):
                     src = self.collect("chat", "src", "Poker at 5 Oak", "friends")
                     live.update_event(conn, self.cfg, event.key, note="plan",
                                       origin=live.Origin.of("test", cited=[src]))
-                    self.collect("chat", "new", "Rooftop party this Sunday?", "friends")
+                    self.collect("chat", "new", "Poker moved to Sunday?", "friends")
                     removed = False
                     for cap in range(100, 481, 10):
                         self.cfg.brief_token_cap = cap

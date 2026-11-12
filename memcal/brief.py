@@ -120,7 +120,7 @@ FRESHNESS_HINT_FORMAT = (
 #: that never happened. The count is capped (HINT_COUNT_CAP) so a large
 #: never-reviewed thread cannot dominate the brief.
 FRESHNESS_HINT_UNREVIEWED_FORMAT = (
-    "  ↳ New activity: {where} — {count} message(s){extra} on a linked thread "
+    "  ↳ New activity: {where} — {count} message(s){extra} about this entry "
     "not yet reviewed. It may bear on this plan; open with "
     "memcal_open(ref={handle}) for stored details, then read the new messages with "
     "memcal_activity(handle={handle}) before giving current details."
@@ -232,7 +232,7 @@ def _thread_active_days(conn: sqlite3.Connection, channel: str, thread: str) -> 
 
 
 def _freshness_hint(conn: sqlite3.Connection, cfg: Config, event) -> str | None:
-    """One compact warning when a plan's linked sources have new traffic.
+    """One compact warning for new messages nominated for this particular plan.
 
     Says the plan *may* have changed and names how to read the messages. It
     never invents a replacement date, address, or status. Calendar (UNTHREADED
@@ -240,9 +240,7 @@ def _freshness_hint(conn: sqlite3.Connection, cfg: Config, event) -> str | None:
     A never-reviewed plan still hints (with honest, capped copy); dropping it
     entirely hid legitimate new activity on the great majority of plans.
     """
-    found = activity.pending(
-        conn, "event", event.key, limit=3, strong_only=True,
-        conversational_only=True)
+    found = activity.event_pending(conn, event, limit=3)
     if not found["strong_total"]:
         return None
     first = found["strong"][0]

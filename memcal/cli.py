@@ -544,7 +544,7 @@ def cmd_activity(args) -> int:
         print(exc, file=sys.stderr)
         return 2
     page = activity_mod.read(conn, kind, ref, cursor=args.cursor or 0,
-                             limit=args.limit)
+                             limit=args.limit, relevant_only=True)
     weak = activity_mod.associations(conn, kind, ref)["weak"]
     print(activity_mod.format_read(page, weak, label=args.ref))
     return 0

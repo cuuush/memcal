@@ -35,6 +35,9 @@ from . import db
 #: not a link; participant plus a distinctive term still only nominates.
 WEAK_THREAD_CAP = 3
 
+#: Change words only nominate a referent; they never set status or dates.
+_CHANGE_WORDS = frozenset({"moved", "rescheduled", "cancelled", "canceled", "postponed"})
+
 #: Words too common to nominate on. Kept tiny on purpose: this list only
 #: narrows candidates, it never decides meaning.
 _COMMON_WORDS = frozenset({
@@ -567,6 +570,109 @@ def pending(conn: sqlite3.Connection, kind: str, ref: str,
             "reviewed": len(covered), "mark": reviewed_max(conn, kind, ref)}
 
 
+def event_pending(conn: sqlite3.Connection, event, *, limit: int = 50) -> dict:
+    """Nominate messages about this entry, rather than its whole conversation.
+
+    Topic and source-relative dates retrieve candidates; a short planning follow-up
+    can use a recent, unambiguous evidence anchor in that conversation. These are
+    nominations for the assistant, never a verdict that a plan changed. Unmatched
+    arrivals remain unreviewed and available to dream and archive readers.
+    """
+    from . import dates, events, gate  # noqa: PLC0415
+    from .dream.affinity import _tokens  # noqa: PLC0415
+    from .dream.bundle import CONTEXT_MINUTES, _NEEDS_REFERENT  # noqa: PLC0415
+
+    found = pending(conn, "event", event.key, limit=-1, strong_only=True,
+                    conversational_only=True)
+    if not found["strong"]:
+        return found
+
+    def topic_for(entry):
+        people = _tokens(" ".join(entry.participants or []))
+        return _tokens(" ".join((entry.title or "", entry.location or ""))) - people
+
+    # Include all entries in the supporting conversations when resolving a short
+    # follow-up. A conversation may support several plans, including past ones.
+    anchors, entries = {}, {}
+    for row in conn.execute(
+            """SELECT a.channel, a.thread, a.ts, e.ref FROM evidence e
+                 JOIN archive a ON a.id = e.archive_id
+                WHERE e.kind = 'event' AND (a.channel, a.thread) IN (
+                    SELECT src.channel, src.thread
+                      FROM evidence own JOIN archive src ON src.id = own.archive_id
+                     WHERE own.kind = 'event' AND own.ref = ?
+                )""",
+            (event.key,)):
+        anchors.setdefault((row["channel"], row["thread"] or ""), []).append(
+            (row["ts"], row["ref"]))
+        if row["ref"] not in entries:
+            entry = events.get(conn, row["ref"])
+            if entry:
+                entries[entry.key] = entry
+    relevant = []
+    for item in found["strong"]:
+        text = item["text"]
+        try:
+            said = db.parse_ts(item["ts"])
+        except (TypeError, ValueError):
+            said = None
+        named = {dates.resolve(dates.phrase_at(text, m), said)
+                 for m in dates.PHRASE_RE.finditer(text)} - {None}
+        scope = (item["channel"], item["thread"])
+        candidates = {ref: entries[ref] for _, ref in anchors.get(scope, [])
+                      if ref in entries and entries[ref].status not in ("declined", "happened")
+                      and (entries[ref].until or entries[ref].date)
+                      >= min(event.date, db.today().isoformat())}
+        tokens = _tokens(text)
+        without_dates = _tokens(dates.PHRASE_RE.sub("", text))
+        scores = {ref: len(topic_for(entry) & tokens) for ref, entry in candidates.items()}
+        best = max(scores.values(), default=0)
+        targets = {ref for ref, score in scores.items() if best and score == best}
+        dated = {ref for ref, entry in candidates.items()
+                 if any(entry.date <= day <= (entry.until or entry.date) for day in named)}
+        # Dates distinguish two occurrences of the same topic. A topic named
+        # explicitly takes precedence over a coincidentally shared day.
+        if targets:
+            if targets & dated:
+                targets &= dated
+        elif without_dates <= _CHANGE_WORDS:
+            targets = dated
+        matched = targets == {event.key}
+        # Existing planning signals only narrow a nearby referent. They must
+        # never turn any question or any traffic from a contact into a warning.
+        planning = (gate.TEMPORAL_RE.search(text) or gate.COMMIT_RE.search(text)
+                    or gate.AVAILABILITY_RE.search(text) or gate.INVITE_RE.search(text)
+                    or gate.SUBJECT_EVENT_RE.search(text))
+        # An explicit change with no named topic can nominate the sole live
+        # plan in its source conversation. With several plans it has no target;
+        # keep it in the backlog instead of flagging them all.
+        change = tokens & _CHANGE_WORDS
+        scoped_topic = topic_for(event) & _tokens(item["thread"])
+        if (not targets and change and set(candidates) == {event.key}
+                and (without_dates <= _CHANGE_WORDS or scoped_topic)):
+            matched = True
+        if (not targets and not matched and planning and said
+                and (_NEEDS_REFERENT.search(text) or scoped_topic)):
+            nearby = set()
+            for stamp, ref in anchors.get(scope, []):
+                try:
+                    age = (said - db.parse_ts(stamp)).total_seconds()
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= age <= CONTEXT_MINUTES * 60:
+                    nearby.add(ref)
+            matched = nearby == {event.key}
+        if matched:
+            relevant.append(item)
+            # Only a retrieved topic/date anchor extends the local context.
+            # No arbitrary chain of chatter can keep an old plan alive.
+            if targets == {event.key}:
+                anchors.setdefault(scope, []).append((item["ts"], event.key))
+    found["strong"] = relevant if limit < 0 else relevant[:limit]
+    found["strong_total"] = len(relevant)
+    return found
+
+
 #: How many tail lines one thread contributes to an open's whole-thread view.
 #: Matches `trace.conversation`'s default so the two cannot drift.
 THREAD_TAIL_LIMIT = 60
@@ -605,19 +711,37 @@ def thread_tail(conn: sqlite3.Connection, channel: str, thread: str, *,
 
 
 def read(conn: sqlite3.Connection, kind: str, ref: str, *,
-         cursor: int = 0, limit: int = 20) -> dict:
+         cursor: int = 0, limit: int = 20, relevant_only: bool = False) -> dict:
     """One bounded page of uncovered observations, in arrival order.
 
     `cursor` is an archive id; the next page passes back `next_cursor`.
     Already-covered observations are skipped even below the cursor, so a
     selective review never resurfaces what it acknowledged. Reading never
-    marks anything reviewed.
+    marks anything reviewed. Agent surfaces use `relevant_only` so the messages
+    behind an entry's warning cannot be buried behind pages of unrelated chat.
+    The unrestricted reader remains available for review accounting.
     """
     # Readers only consume strong associations; skip the weak-candidate scan.
     links = associations(conn, kind, ref, strong_only=True)
     covered = reviewed_ids(conn, kind, ref)
     base = baselines(conn, kind, ref)
     start = int(cursor or 0)
+    if relevant_only and kind == "event":
+        from . import events  # noqa: PLC0415
+        event = events.get(conn, ref)
+        if event:
+            nominated = event_pending(conn, event, limit=-1)["strong"]
+            # Calendar revisions have exact item-family identity already.
+            families = [link for link in links["strong"] if link.get("family")]
+            revisions, _ = _pending_rows(conn, families, covered, limit=-1,
+                                          after=start, baselines=base)
+            items = sorted([item for item in nominated if item["id"] > start] + revisions,
+                           key=lambda item: item["id"])
+            page = items[:limit]
+            return {"items": page, "reviewed": len(covered),
+                    "mark": reviewed_max(conn, kind, ref),
+                    "next_cursor": page[-1]["id"] if page else start,
+                    "omitted": max(0, len(items) - len(page)), "total": len(items)}
     items, total = _pending_rows(conn, links["strong"], covered,
                                  limit=limit + 1, after=start, baselines=base)
     omitted = max(0, total - len(items[:limit]))
@@ -630,52 +754,42 @@ def read(conn: sqlite3.Connection, kind: str, ref: str, *,
 
 def unlinked_backlog(conn: sqlite3.Connection, *, limit: int = 5,
                      represented: "set[str] | None" = None) -> list[dict]:
-    """Pending spool traffic in conversations no *rendered* plan is associated with.
+    """Pending spool traffic not accounted for by a rendered entry's review or hint.
 
     For broad questions ("anything fun this weekend?") so unreviewed material
     with no typed row yet cannot hide behind an exhaustive-coverage claim — and
     is never presented as a confirmed opportunity. Muted and ignored material
     stays out.
 
-    A thread counts as linked only when its evidence supports an event that is
-    actually surfaced — `represented` is the set of event keys the brief renders
-    (its selection, limits, children and filters already applied). Date-range
-    membership is not enough: an unconfirmed opportunity or an event past the
-    Later cap sits in range yet shows no hint, so a thread linked only to such an
-    event — or to a past event, a far-future one, or a non-event fact — must
-    still surface its new traffic here. With no set given, nothing is treated as
-    covered, so all unreviewed traffic is disclosed.
+    `represented` is the set of event keys the brief actually renders. Only
+    exact reviewed or nominated ids are accounted for: a hint about one plan
+    must not hide an unrelated invitation in the same conversation. Date-range
+    membership or a conversation link alone never establishes coverage.
     """
-    covered = represented or set()
-    associated = set()
-    for row in conn.execute(
-            """SELECT DISTINCT a.channel AS channel, coalesce(a.thread, '') AS thread,
-                      e.ref AS ref
-                 FROM evidence e
-                 JOIN archive a ON a.id = e.archive_id
-                WHERE a.thread IS NOT NULL AND e.kind = 'event'"""):
-        if row["ref"] in covered:
-            associated.add((row["channel"], row["thread"] or ""))
+    from . import events  # noqa: PLC0415
+    accounted = set()
+    for ref in represented or ():
+        event = events.get(conn, ref)
+        if event:
+            accounted.update(reviewed_ids(conn, "event", ref))
+            accounted.update(item["id"] for item in event_pending(conn, event, limit=-1)["strong"])
     from . import archive as archive_mod  # noqa: PLC0415
     internal = set(archive_mod.INTERNAL_STREAMS)
     rows = conn.execute(
-        """SELECT a.channel, a.thread, count(*) AS n, max(a.ts) AS newest
+        f"""SELECT a.id, a.channel, a.thread, a.ts
              FROM spool s JOIN archive a ON a.id = s.archive_id
-            WHERE s.processed_at IS NULL
-            GROUP BY a.channel, a.thread ORDER BY newest DESC""").fetchall()
-    out = []
+             {_HIDDEN_SCOPE}
+            WHERE s.processed_at IS NULL AND {_HIDDEN_FILTER}
+            ORDER BY a.ts DESC""").fetchall()
+    grouped = {}
     for row in rows:
         key = (row["channel"], row["thread"] or "")
-        if key in associated or not key[1] or key[0] in internal:
+        if row["id"] in accounted or not key[1] or key[0] in internal:
             continue
-        from . import threads  # noqa: PLC0415
-        if threads.is_muted(conn, key[0], key[1]):
-            continue
-        out.append({"channel": key[0], "thread": key[1], "waiting": row["n"],
-                    "newest": str(row["newest"] or "")[:16]})
-        if len(out) >= limit:
-            break
-    return out
+        entry = grouped.setdefault(key, {"channel": key[0], "thread": key[1], "waiting": 0,
+                                         "newest": str(row["ts"] or "")[:16]})
+        entry["waiting"] += 1
+    return list(grouped.values())[:limit]
 
 
 # --------------------------------------------------------------- surfaces --
