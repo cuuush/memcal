@@ -1,85 +1,110 @@
 # Hermes
 
-The native memory-provider integration. Thin by design: the memory system is the
-resident process, the agent is transient.
+Memcal can act as the memory provider for Hermes. It gives Hermes a snapshot of
+your plans and facts, tools to look up supporting context, and tools to update
+memory as you talk.
+
+## Before you start
+
+Install and set up Memcal and a current version of Hermes that supports memory
+plugins. Hermes is a separate application; Memcal does not install it. Run
+`memcal doctor` and `memcal brief` to check your Memcal installation. See
+[Installation](../hosting/installation.md) for requirements and first-run setup,
+and review the [privacy guide](../privacy.md) before connecting sources.
+
+## Connect Memcal to Hermes
+
+1. Install the provider using the same Memcal installation you normally run:
+
+    ```bash
+    memcal hermes setup
+    ```
+
+    Confirm the prompt. For a non-interactive install, use `memcal hermes setup
+    --yes` to skip it.
+
+2. Run `hermes memory setup`, select Memcal as the memory provider, and restart
+   Hermes.
+3. Start a conversation and ask a substantive question about your plans. Hermes
+   receives a `MEMCAL SNAPSHOT` on the first substantive turn; a greeting alone
+   does not trigger prefetch. Hermes should also have access to 20 Memcal tools.
+
+Setup works with both packaged and checkout installations. It copies the
+provider to `MEMCAL_HOME/integrations/hermes/memcal` and links it at
+`HERMES_HOME/plugins/memcal`. These homes default to `~/.memcal` and `~/.hermes`,
+respectively. Setup records the Memcal runtime and store but does not change
+Hermes configuration; the selection in step 2 is still required. It refuses to
+replace an existing non-symlink plugin directory.
+
+## Keep the provider up to date
+
+After a direct `pip install --upgrade memcal`, run the following and restart
+Hermes:
 
 ```bash
-memcal hermes setup --yes
-hermes memory setup
+memcal hermes refresh --yes
 ```
 
-Both PyPI and checkout installs include the provider. Setup copies the versioned
-provider into `MEMCAL_HOME/integrations/hermes/memcal` and links it into
-`HERMES_HOME/plugins/memcal` (default `~/.hermes`). It records the installed
-MemCal source path and store without editing Hermes configuration. An existing
-non-symlink plugin directory is never replaced.
+`memcal update` refreshes existing managed integration copies automatically.
+Refresh preserves locally edited managed files and reports a conflict instead
+of overwriting them. For a manual live checkout link, the provider also remains
+available at `integrations/hermes/memcal`; set `MEMCAL_SRC` to the checkout when
+using that link.
 
-After a direct `pip install --upgrade memcal`, run `memcal hermes refresh --yes`
-and restart Hermes. `memcal update` refreshes existing managed copies automatically.
-Locally edited managed files are preserved and refresh reports the conflict.
-For a live checkout link, the original `integrations/hermes/memcal` path remains
-available; set `MEMCAL_SRC` to the checkout when using it manually.
+## How memory reaches Hermes
 
-## Every turn
+On substantive turns, Memcal reads local state without collecting sources or
+calling a model. It supplies a snapshot on the first turn and when the brief or
+newly collected source messages change. Unchanged state adds no new snapshot;
+up to three wiki pages named in the query can still be recalled separately. The
+snapshot covers the next 30 days by default and includes guidance for looking up
+other dates. A snapshot is marked as delivered only after it appears in context;
+it can be sent again after compression or an unsuccessful delivery.
 
-The brief and provider instructions distinguish whole-week overviews (answer from
-the summary) from specific-event questions (open the record for details and new
-messages). The last successful Dream time describes consolidation, not complete
-coverage or review of later messages.
+Hermes keeps the provider's instructions stable for the conversation. Snapshot
+updates instead travel in model-facing user-message context, while the original
+user text is preserved. If a read fails, Memcal can supply `MEMCAL UNAVAILABLE`;
+compatible Hermes versions can also report `MEMORY UNAVAILABLE` for failed,
+timed-out, or busy reads. The provider instructs Hermes to refresh before
+claiming current plans after an unavailable notice. Older Hermes versions cannot
+always distinguish an unchanged read from a timeout, so the provider uses a
+more conservative refresh rule there.
 
-- **Inject** — `prefetch()` reads local state without collecting sources or calling
-  a model. The first brief, changed brief contents, and newly collected source
-  messages arrive as `MEMCAL SNAPSHOT`. Unchanged state adds nothing to the user
-  turn. Up to three wiki pages named in the query can still be recalled
-  independently of brief changes. A snapshot is
-  deduplicated only once it has been observed in delivered context, including
-  image-containing turns and their text projections on resume, so a timed-out
-  or discarded render never suppresses the next one, and compression re-emits. If
-  rendering fails, `MEMCAL UNAVAILABLE` replaces the snapshot rather than leaving a
-  stale one standing.
-- **Open** — `memcal_open` includes cited evidence, nearby context (up to 1,500
-  estimated tokens), and pending messages (up to 50 within 4,000 estimated tokens).
-  The sections are labeled separately. Only omitted pending messages need a
-  follow-up `memcal_activity` call; its cursor continues after the last shown
-  arrival. Reading never acknowledges a review or changes a plan.
-- **Archive** — `on_turn_start` / `sync_turn` file the clean user message under
-  the agent channel. Assistant replies, injected snapshots, and tool outputs are
-  excluded on these paths.
-- **Tools** — 20 schemas: reads (`memcal_open`,
-  `memcal_search_wiki`, `memcal_open_source`, `memcal_conversation`,
-  `memcal_list_days`, `memcal_list_month`, `memcal_search_archive`,
-  `memcal_activity`, `memcal_refresh`) and typed writes (`memcal_add`,
-  `memcal_update`, `memcal_schedule`, `memcal_move_once`, `memcal_merge`,
-  `memcal_drop`, `memcal_todo`, `memcal_answer`, `memcal_note`, `memcal_alias`,
-  `memcal_reviewed`), executed as code with same-transaction evidence.
-- **Session end** — the brief rewrites, so the next session starts current.
+A whole-week overview can be answered from the snapshot. For a specific event,
+Hermes is instructed to open the record for details and new messages. The last
+successful Dream time indicates consolidation, not complete coverage or review
+of later messages. See [Daytime freshness](../architecture/freshness.md) for
+more on how updates reach a running session.
 
-`MEMCAL_HOME` (default `~/.memcal`) and `MEMCAL_SRC` select the store and
-checkout. Freshness hints travel on the prefetch path, so long-running sessions
-receive current context — including next-day turns, resumes, and compression —
-without a second injection copy. See [Daytime freshness](../architecture/freshness.md).
+## What Hermes can do
 
-Hermes caches the provider's system block for the conversation, so it contains
-stable instructions rather than the changing brief. Snapshot updates use Hermes's
-model-facing user-message context; the original user text is preserved. Unchanged
-turns need no brief context at all. On Hermes hosts exposing
-`agent.memory_provider.PREFETCH_FAILURE_CONTEXT`, failed, timed-out, or busy reads
-produce `MEMORY UNAVAILABLE`. An ordinary unchanged turn reuses the latest
-snapshot without calling `memcal_refresh`; an unavailable notice requires a
-refresh before claiming current plans. Older hosts silently discard failed
-reads, so Memcal keeps the conservative refresh rule on those versions.
-Hermes skips prefetch for bare greetings and acknowledgements, so the initial
-snapshot arrives on the first substantive turn rather than a greeting like “hi”.
+- **Read memory:** `memcal_open` opens a record or wiki page. For a record it
+  includes cited evidence, nearby context (up to 1,500 estimated tokens), and
+  pending messages (up to 50 within 4,000 estimated tokens), in separate
+  sections. If needed messages were omitted, `memcal_activity` continues after
+  the last shown arrival. Reading does not acknowledge a review or change a plan.
+- **Search and refresh:** Hermes can use `memcal_search_wiki`,
+  `memcal_open_source`, `memcal_conversation`, `memcal_list_days`,
+  `memcal_list_month`, `memcal_search_archive`, `memcal_activity`, and
+  `memcal_refresh`.
+- **Update memory:** The typed tools `memcal_add`, `memcal_update`,
+  `memcal_schedule`, `memcal_move_once`, `memcal_merge`, `memcal_drop`,
+  `memcal_todo`, `memcal_answer`, `memcal_note`, `memcal_alias`, and
+  `memcal_reviewed` execute writes with evidence in the same transaction.
+  These writes change Memcal's memory, not Calendar.app events.
+- **Save conversation context:** Memcal archives clean user messages from Hermes
+  turns under the agent channel. Assistant replies, injected snapshots, and tool
+  outputs are excluded on these paths. The brief is rewritten at session end so
+  the next session starts current.
 
-Periodic collection runs separately when scheduling is enabled (default due
-interval: five minutes). New messages can change activity or coverage notices in
-the brief, causing an update on the next turn. Nightly Dream consolidates messages
-into stored plans and facts. The change detector tracks the newest collected
-source arrival as well as brief text, so a new message still triggers an update
-when displayed activity counts are capped or an unlinked-backlog notice is
-already present. Redelivery of the same source item and archival of ordinary
-user turns do not trigger updates.
+Hermes does not expose the MCP-only `memcal_name` tool. To confirm a guessed
+sender name, use the Conversations page or the CLI.
 
-The default snapshot reaches 30 days ahead and includes month/year lookup guidance.
-To confirm a guessed sender name, use the Conversations page or the CLI; Hermes
-does not currently expose the MCP-only `memcal_name` tool.
+## Source updates and Dream
+
+Source collection runs separately when scheduling is enabled (the default due
+interval is five minutes). New arrivals can change the brief or trigger another
+snapshot even when displayed activity counts are capped. Redelivery of the same
+source item and ordinary archived user turns do not trigger updates. Nightly
+Dream consolidates messages into stored plans and facts; collection alone does
+not mean every message has been reviewed.

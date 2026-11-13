@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- Clarified Hermes setup, verification, updates, and memory behavior.
+
 ## [0.8.12] - 2026-11-12
 
 ### Added
