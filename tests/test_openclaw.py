@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -12,7 +13,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from memcal import cli, config, db, harness, todos
+from memcal import cli, config, db, harness, mcp_server, todos
 
 
 class TestOpenClawContextIsFresh(unittest.TestCase):
@@ -37,6 +38,18 @@ class TestOpenClawContextIsFresh(unittest.TestCase):
         self.assertIn("Second typed snapshot", second)
         self.assertNotIn("First typed snapshot", second)
         self.assertNotEqual(first, second)
+
+
+class TestOpenClawGuidanceTools(unittest.TestCase):
+    def test_context_refers_only_to_advertised_mcp_tools(self):
+        with tempfile.TemporaryDirectory() as root:
+            context = harness.context(config.load(root), "What do I know about a person?")
+
+        self.assertIn("open it with memcal_open (accepts", context)
+        guidance = context.split("MEMCAL SNAPSHOT", 1)[0]
+        mentioned = set(re.findall(r"\bmemcal_[a-z_]+\b", guidance))
+        advertised = {tool["name"] for tool in mcp_server.TOOLS}
+        self.assertTrue(mentioned <= advertised, mentioned - advertised)
 
 
 class TestOpenClawArchivesOnlyInboundTurn(unittest.TestCase):

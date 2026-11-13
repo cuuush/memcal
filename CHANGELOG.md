@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- OpenClaw memory guidance now names the advertised tool for opening wiki pages.
+
 ### Changed
 
 - Clarified Hermes and OpenClaw setup, verification, updates, and memory behavior.

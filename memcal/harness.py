@@ -28,7 +28,7 @@ a source handle when its compact wording is insufficient, and use the memcal MCP
 for dates outside the window, source evidence, or typed writes.
 
 Facts already in the brief answer directly — including your facts in 'About you'.
-When the brief names a page but not the value, open it with memcal_open_page (accepts
+When the brief names a page but not the value, open it with memcal_open (accepts
 me, page names, recorded aliases); when the page is unknown, find it with
 memcal_search_wiki; only then search source messages with memcal_search_archive (when
 the wiki does not answer, or to inspect evidence behind a claim). Stored pages and
