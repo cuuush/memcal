@@ -25,9 +25,10 @@ and review the [privacy guide](../privacy.md) before connecting sources.
 
 2. Run `hermes memory setup`, select Memcal as the memory provider, and restart
    Hermes.
-3. Start a conversation and ask a substantive question about your plans. Hermes
-   receives a `MEMCAL SNAPSHOT` on the first substantive turn; a greeting alone
-   does not trigger prefetch. Hermes should also have access to 20 Memcal tools.
+3. Start a conversation and ask a question about your plans, such as “What is
+   on my calendar this week?” Hermes receives a `MEMCAL SNAPSHOT` on the first
+   message that is more than a greeting or acknowledgement. Empty messages and
+   slash commands also skip prefetch. Hermes should have access to 20 Memcal tools.
 
 Setup works with both packaged and checkout installations. It copies the
 provider to `MEMCAL_HOME/integrations/hermes/memcal` and links it at
@@ -53,7 +54,7 @@ using that link.
 
 ## How memory reaches Hermes
 
-On substantive turns, Memcal reads local state without collecting sources or
+For messages that trigger prefetch, Memcal reads local state without collecting sources or
 calling a model. It supplies a snapshot on the first turn and when the brief or
 newly collected source messages change. Unchanged state adds no new snapshot;
 up to three wiki pages named in the query can still be recalled separately. The

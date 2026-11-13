@@ -2,7 +2,7 @@
 
 ### Changed
 
-- Clarified Hermes setup, verification, updates, and memory behavior.
+- Clarified Hermes and OpenClaw setup, verification, updates, and memory behavior.
 
 ## [0.8.12] - 2026-11-12
 
