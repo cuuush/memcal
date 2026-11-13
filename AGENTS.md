@@ -30,7 +30,7 @@ real user install, `~/.memcal` is the store (`MEMCAL_HOME`).
 
 Prefer the released package, not development main, for user installations. Follow
 [`skills/memcal-install`](skills/memcal-install/SKILL.md) for an isolated Python
-virtual environment pinned to 0.8.11 and the exact MCP interpreter path.
+virtual environment pinned to 0.8.12 and the exact MCP interpreter path.
 Run `doctor`, then `setup`, then `brief` from that environment. Obtain approval
 before configuring accounts, source permissions, scheduling, or host integration.
 

@@ -35,14 +35,14 @@ with optional chat sources. There is no hosted HTTP MCP endpoint.
    their own network behavior and model configuration. Do not promise offline
    operation or that no data leaves the machine.
 
-## Stable install (0.8.11)
+## Stable install (0.8.12)
 
 Prefer the released PyPI package, not development `main`. Use an isolated virtual
 application environment instead of modifying system Python:
 
 ```bash
 python3 -m venv "$HOME/.local/share/memcal/venv"
-"$HOME/.local/share/memcal/venv/bin/python" -m pip install 'memcal==0.8.11'
+"$HOME/.local/share/memcal/venv/bin/python" -m pip install 'memcal==0.8.12'
 "$HOME/.local/share/memcal/venv/bin/memcal" doctor
 "$HOME/.local/share/memcal/venv/bin/memcal" setup
 "$HOME/.local/share/memcal/venv/bin/memcal" brief
@@ -78,7 +78,7 @@ same environment**, for example (replace `/absolute/path` with the actual path):
 Use absolute paths rather than assuming clients expand `~` or `${HOME}`. Merge
 this entry into existing configuration; preserve other servers. Restart the
 client, confirm MemCal tools are listed, and smoke-test `memcal_brief`. The
-0.8.11 `memcal` console command launches the CLI, **not** the MCP server.
+0.8.12 `memcal` console command launches the CLI, **not** the MCP server.
 
 Client locations and details: [MCP guide](https://cuuush.github.io/memcal/clients/mcp/).
 

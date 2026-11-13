@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.8.12] - 2026-11-12
+
 ### Added
 
 - Recurring schedules support multiple weekdays, custom day/week/month intervals,
@@ -12,7 +14,7 @@
 
 - Agent tools use `location` for places and video-call URLs, with `note` for other
   event details. Tool descriptions are shorter and use plain recurrence wording.
-- Updated the agent installation skill for stable 0.8.11, managed integrations,
+- Updated the agent installation skill for stable 0.8.12, managed integrations,
   explicit privacy/model-cost guidance, and its separate MIT-0 license.
 - Added the MCP Registry ownership marker to the package README; registry
   publication still requires a subsequent package release and verified launch metadata.
