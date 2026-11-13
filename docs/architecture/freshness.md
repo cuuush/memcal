@@ -100,7 +100,7 @@ inputs does.
 
 ```text
 〔E42〕 Sat 12 Sep  Poker night, 8pm — confirmed · Jordan's
-  ↳ New activity: signal/poker-group — 3 message(s) since this plan was reviewed. It may have changed; open with memcal_open(ref=E42) for stored details, then read the new messages with memcal_activity(handle=E42) before giving current details.
+  ↳ New activity: signal/poker-group — 3 message(s) since this plan was reviewed. It may have changed. For a specific-event question, open with memcal_open(ref=E42) for stored details and the new messages.
 [complete for Wed 9 Sep – Wed 16 Sep; look up anything outside that]
 ```
 
@@ -111,16 +111,17 @@ carries no warning; a source that has fallen behind shows its own `[STALE: …]`
 A hint never prints a raw number or opaque handle for its sender. A known sender
 shows by name; an unknown one that a nightly pass has [guessed a name
 for](identity.md#guessed-names) shows that name with a `maybe:` marker, so the hint
-reads as something without claiming certainty. A guess that keeps drawing hints
-across enough distinct days appends a short line asking you to confirm or rename
-it (`MEMCAL_FRESHNESS_GUESS_NUDGE_DAYS`); a quiet one is left to age out.
+reads as something without claiming certainty. Dream records high or low confidence
+with each new guess. Only an explicitly low-confidence guess that keeps drawing
+hints across enough distinct days can ask for confirmation, and only when identity
+matters (`MEMCAL_FRESHNESS_GUESS_NUDGE_DAYS`). Confident guesses and older guesses
+without a confidence assessment do not trigger a nudge.
 
-A bounded activity reader returns original text with sender, source time, arrival
-time, and provenance — paginated, with omissions disclosed. Agent and CLI reads
-select the same entry candidates as the warning, so a correction cannot be buried
-behind pages of unrelated chatter. Calendar revisions retain their exact item
-family identity. Unrestricted source context remains available through archive
-and conversation reads. Freshness metadata
+A record open includes bounded pending messages with sender, source time and arrival
+time, alongside separately labeled citations and nearby source context. Omitted
+messages carry a cursor for `memcal_activity`, so a normal open needs no second
+activity call. The assistant
+never has to invent a keyword search for a flagged thread. Freshness metadata
 survives brief trimming beside its event: an event and its warning trim as one
 unit, and if a warning that stood in for a thread's backlog is dropped by the
 token budget, the completeness claim goes with it and a compact `[coverage
@@ -132,6 +133,11 @@ brief actually renders, not date-range membership: a thread linked only to an
 unconfirmed opportunity or an event past the Later cap still surfaces its traffic.
 
 ## Reach long-running sessions
+
+The brief instructs the assistant to answer whole-week overviews from the summary
+without double-checking every flagged row. Questions about a specific event open
+that handle first. A last-successful-Dream timestamp describes consolidation,
+not a guarantee of exhaustive source coverage or review of later messages.
 
 Hints travel on the existing per-turn prefetch path, not a second copy in a cached
 system prompt: the current brief and freshness hints arrive before the assistant

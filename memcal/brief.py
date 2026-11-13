@@ -91,7 +91,11 @@ def render(conn: sqlite3.Connection, cfg: Config, ref: date | None = None,
         _facts_block(conn, cfg),
     ]
     text = "\n\n".join(b for b in blocks if b).rstrip() + "\n"
-    trimmed = _trim(legend(surface) + text, cfg.brief_token_cap, past_ids=past_ids,
+    guidance = ("[Use: whole-week overviews use this summary directly; do not open rows "
+                "just to double-check. For a specific event, open its handle first "
+                "for details and new messages.]\n" if surface != "cli" else "")
+    trimmed = _trim(legend(surface) + guidance + _dream_line(conn) + "\n\n" + text,
+                    cfg.brief_token_cap, past_ids=past_ids,
                     plan_ids=plan_ids)
     return _reconcile_coverage(conn, trimmed, cfg.brief_token_cap,
                                id_to_key=id_to_key, past_ids=past_ids, plan_ids=plan_ids)
@@ -110,9 +114,8 @@ HINT_COUNT_CAP = 99
 #: See docs/notes/freshness-gap-81.md.
 FRESHNESS_HINT_FORMAT = (
     "  ↳ New activity: {where} — {count} message(s){extra} since this plan was "
-    "reviewed. It may have changed; open with memcal_open(ref={handle}) "
-    "for stored details, then read the new messages with memcal_activity(handle={handle}) "
-    "before giving current details."
+    "reviewed. It may have changed. For a specific-event question, open with memcal_open(ref={handle}) "
+    "for stored details and the new messages."
 )
 
 #: Same flag for a plan that was never reviewed: the signal (a linked thread
@@ -121,17 +124,15 @@ FRESHNESS_HINT_FORMAT = (
 #: never-reviewed thread cannot dominate the brief.
 FRESHNESS_HINT_UNREVIEWED_FORMAT = (
     "  ↳ New activity: {where} — {count} message(s){extra} about this entry "
-    "not yet reviewed. It may bear on this plan; open with "
-    "memcal_open(ref={handle}) for stored details, then read the new messages with "
-    "memcal_activity(handle={handle}) before giving current details."
+    "not yet reviewed. It may bear on this plan. For a specific-event question, open with "
+    "memcal_open(ref={handle}) for stored details and the new messages."
 )
 
-#: Appended to a freshness hint when a guessed sender keeps proving relevant. Quiet
-#: guesses are never nudged — they age out — so this only fires once one has drawn hints
-#: across enough distinct days (MEMCAL_FRESHNESS_GUESS_NUDGE_DAYS).
+#: Only explicitly uncertain guesses can nudge, after enough distinct active
+#: days (MEMCAL_FRESHNESS_GUESS_NUDGE_DAYS). Confident and legacy guesses stay quiet.
 FRESHNESS_GUESS_NUDGE = (
-    " This sender's name is a guess; when this plan comes up, confirm or correct it "
-    "with memcal_name.")
+    " This sender's name is uncertain; ask the user to confirm it only if identity "
+    "matters to the answer.")
 
 #: Phone-ish / long opaque ids must never appear in a brief hint label.
 _PHONE_LIKE = re.compile(r"^\+?[\d\s\-().]{7,}$")
@@ -231,6 +232,17 @@ def _thread_active_days(conn: sqlite3.Connection, channel: str, thread: str) -> 
     return int(row["d"] or 0) if row else 0
 
 
+def _dream_line(conn: sqlite3.Connection) -> str:
+    row = conn.execute(
+        "SELECT finished_at, mode FROM runs WHERE finished_at IS NOT NULL"
+        " AND coalesce(error, '') = '' AND mode IN ('nightly', 'ondemand')"
+        " ORDER BY finished_at DESC, id DESC LIMIT 1").fetchone()
+    if not row:
+        return "[Dream: no successful completed run recorded; source coverage may be limited.]"
+    return (f"[Dream: last successful consolidation finished {row['finished_at']} "
+            f"({row['mode']}); newer messages may be unreviewed. Coverage warnings still apply.]")
+
+
 def _freshness_hint(conn: sqlite3.Connection, cfg: Config, event) -> str | None:
     """One compact warning for new messages nominated for this particular plan.
 
@@ -260,12 +272,11 @@ def _freshness_hint(conn: sqlite3.Connection, cfg: Config, event) -> str | None:
     hint = template.format(
         where=where, count=_format_hint_count(found["strong_total"]),
         extra=extra, handle=handle)
-    # A guess that keeps drawing hints across enough distinct days has earned a check:
-    # append the confirm nudge. A quiet guess never reaches the threshold and is left
-    # to age out silently.
+    # Persistence alone is not uncertainty. Only a low-confidence name assessment
+    # can earn a nudge; older guesses without one are never nagged about.
     channel, thread = first["channel"], first.get("thread") or ""
     nudge_days = getattr(cfg, "freshness_guess_nudge_days", 0)
-    if (nudge_days and _is_guessed_thread(conn, channel, thread)
+    if (nudge_days and threads.needs_name_confirmation(conn, channel, thread)
             and _thread_active_days(conn, channel, thread) >= nudge_days):
         hint += FRESHNESS_GUESS_NUDGE
     return hint
@@ -784,6 +795,10 @@ def _trim(text: str, token_cap: int, *, past_ids: set[int] | None = None,
             return squashed
         lines, out = collapsed, squashed
     if textclean.estimate_tokens(out) > token_cap:
+        # Very small custom budgets must still have room for the calendar header
+        # and fact pointers. Hermes also carries routing in its stable system
+        # block; drop the optional explanatory preamble before a last-resort cut.
+        lines = [line for line in lines if not line.startswith(("[Use:", "[Dream:"))]
         # A line-boundary cut keeps event/warning units whole and, since it never
         # cuts mid-line, an About-you value is dropped whole rather than bisected.
         out = _hard_cut(lines, token_cap)

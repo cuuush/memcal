@@ -497,6 +497,19 @@ def is_guessed_thread(conn: sqlite3.Connection, channel: str, thread: str) -> bo
     return len(rows) == 1 and identity.is_guessed(conn, rows[0]["handle"])
 
 
+def needs_name_confirmation(conn: sqlite3.Connection, channel: str, thread: str) -> bool:
+    """Only explicit uncertainty about the current lone sender can prompt a check."""
+    if not is_guessed_thread(conn, channel, thread):
+        return False
+    return bool(conn.execute(
+        "SELECT 1 FROM identity_assumptions i JOIN handles h ON h.handle = i.also"
+        " WHERE i.kind = 'name' AND i.state = 'unsure' AND i.keep = h.person"
+        " AND h.source LIKE '%:dream-guess' AND h.handle IN ("
+        " SELECT DISTINCT handle FROM archive WHERE channel = ?"
+        " AND coalesce(thread, '') = ? AND from_me = 0) LIMIT 1",
+        (channel, thread)).fetchone())
+
+
 def guessed_threads(conn: sqlite3.Connection,
                     keys: set[tuple] | None = None) -> set[tuple]:
     """Which (channel, thread) pairs are 1:1 guessed names, in two queries.

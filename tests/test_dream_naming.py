@@ -12,7 +12,7 @@ from collections import Counter
 
 from _support import Base
 
-from memcal import identity, llm
+from memcal import archive, db, identity, llm, threads, whois
 from memcal.dream import apply as apply_stage
 from memcal.dream import propose
 from memcal.dream.bundle import Bundle
@@ -95,6 +95,55 @@ class TestDreamNamesANamelessSender(Base):
 def _diff(bid, *, events=None, threads=None):
     return {"bundle": bid, "events": events or [], "todos": [], "wiki": [],
             "questions": [], "series": [], "threads": threads or []}
+
+
+class TestDreamNameConfidence(Base):
+    def name(self, confidence):
+        db.set_today("2032-03-04")
+        handle = "+18005550123"
+        aid = archive.append(self.conn, channel="imessage", external_id="sender",
+                             ts=db.now(), thread=handle, handle=handle,
+                             text="I can help with the studio booking")
+        self.conn.commit()
+        item = self.conn.execute("SELECT * FROM archive WHERE id=?", (aid,)).fetchone()
+        bundle = Bundle(entity=f"thread:imessage:{handle}", items=[item])
+        entry = {"channel": "imessage", "thread": handle, "name": "Studio booking", "why": "sender context"}
+        if confidence is not None:
+            entry["confidence"] = confidence
+        apply_stage._apply_thread_names(self.conn, self.cfg, bundle, {"threads": [entry]},
+                                        counts=Counter(), log=[])
+        self.conn.commit()
+        self.assertEqual(identity.resolve(self.conn, handle), "Studio booking")
+        return handle
+
+    def test_high_confidence_guess_stays_inferred_without_requesting_confirmation(self):
+        handle = self.name("high")
+        self.assertTrue(identity.is_guessed(self.conn, handle))
+        self.assertFalse(threads.needs_name_confirmation(self.conn, "imessage", handle))
+
+    def test_low_confidence_is_persisted_and_user_confirmation_clears_it(self):
+        handle = self.name("low")
+        self.assertTrue(threads.needs_name_confirmation(self.conn, "imessage", handle))
+        self.assertEqual(len(whois.assumptions(self.conn, state="unsure")), 1)
+        whois.settle_guess(self.conn, "Studio booking")
+        self.assertFalse(threads.needs_name_confirmation(self.conn, "imessage", handle))
+        self.assertEqual(whois.assumptions(self.conn, state="unsure"), [])
+
+    def test_legacy_guess_without_assessment_stays_quiet(self):
+        handle = self.name(None)
+        self.assertFalse(threads.needs_name_confirmation(self.conn, "imessage", handle))
+
+    def test_confidence_revision_updates_one_live_assumption(self):
+        handle = self.name("low")
+        identity.guess_name(self.conn, handle, "Studio booking", channel="imessage", confidence="high")
+        self.assertFalse(threads.needs_name_confirmation(self.conn, "imessage", handle))
+        self.assertEqual(whois.assumptions(self.conn, state="unsure"), [])
+        self.assertEqual(len(whois.assumptions(self.conn)), 1)
+        self.assertEqual(whois.assumptions(self.conn, state="superseded"), [])
+
+    def test_naming_schema_requires_an_explicit_confidence_choice(self):
+        self.assertIn("confidence", propose.THREAD_NAME_DIFF["required"])
+        self.assertEqual(propose.THREAD_NAME_DIFF["properties"]["confidence"]["enum"], ["high", "low"])
 
 
 class TestNameGapEnforcement(unittest.TestCase):

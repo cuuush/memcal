@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+### Fixed
+
+- Briefs distinguish whole-week overviews from specific-event questions and show
+  the last successful Dream consolidation time. Overviews use the summary directly;
+  specific questions open the relevant record.
+- Opening a record includes bounded pending messages and nearby source context,
+  with separate citation labels and pagination for omitted messages, so agents
+  no longer need both an open and an activity call for the same plan.
+- Sender-name confirmation nudges require an explicitly low-confidence guess;
+  confident and legacy guesses stay quiet. Dream records its confidence with
+  each new name guess.
+
 ## [0.8.11] - 2026-11-12
 
 ### Added

@@ -331,9 +331,9 @@ SETTINGS: tuple[Setting, ...] = (
             "dream", kind="bool"),
     Setting("MEMCAL_FRESHNESS_GUESS_NUDGE_DAYS", "freshness_guess_nudge_days",
             "Confirm a guessed name after",
-            "How many distinct days a guess-named sender must keep drawing freshness "
-            "hints before the hint asks you to confirm or rename it. Quiet guesses are "
-            "never asked about — they just age out. 0 never asks.",
+            "How many distinct days an explicitly low-confidence name guess must keep "
+            "drawing freshness hints before asking you to confirm it when identity "
+            "matters. Confident and legacy guesses stay quiet. 0 never asks.",
             "dream", kind="int", minimum=0, maximum=90, unit="days"),
 
     # ------------------------------------------------------------------- publish --

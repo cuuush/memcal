@@ -62,8 +62,10 @@ when activity has been omitted.
 
 The Upcoming block carries its coverage stamp — what period it is complete for — and
 flagged items carry activity warnings beside the last-confirmed plan. Prepared
-facts are the fast path when coverage supports them; for a flagged item, the
-assistant inspects the indicated activity before claiming current details. If
+facts are the fast path for whole-week overviews, without opening each flagged row.
+For a specific-event question, the assistant opens the record, which includes
+bounded new messages and source context. The brief names the last successful
+Dream consolidation time; later messages may still be unreviewed. If
 collection or lookup failed, it states the last known plan and the limit instead
 of presenting that plan as freshly verified. The brief is a starting point and indicates the limits of its coverage.
 

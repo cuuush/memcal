@@ -147,7 +147,8 @@ GUESS_HISTORY_KEEP = 5
 
 
 def guess_name(conn: sqlite3.Connection, handle: str, name: str | None, *,
-               channel: str, why: str = "", commit: bool = True) -> bool:
+               channel: str, why: str = "", confidence: str | None = None,
+               commit: bool = True) -> bool:
     """Record dream's best-effort name for an otherwise-nameless handle.
 
     The weakest evidence there is (`dream-guess`): a platform roster/profile name,
@@ -171,22 +172,29 @@ def guess_name(conn: sqlite3.Connection, handle: str, name: str | None, *,
                  " AND (person IS NULL OR person = '')", (clean, h))
     # One live guess per handle, but keep the trail: a refined guess supersedes the
     # prior one rather than erasing it, so where a name came from and how it was
-    # revised stays queryable (state='superseded'), while `memcal who` still shows only
-    # the one live 'assumed' guess. A same-name re-guess is a no-op, not a new row.
+    # revised stays queryable (state='superseded'), while `memcal who` shows the
+    # current assumed/unsure guess. A same-name re-guess never creates a new row.
+    # Reuse the existing uncertainty state rather than inventing a confidence
+    # score. Only an explicit low-confidence assessment earns a user prompt;
+    # legacy guesses have no such assessment and remain quiet.
+    state = "unsure" if confidence == "low" else "assumed"
     prior = conn.execute(
-        "SELECT keep FROM identity_assumptions WHERE kind = 'name' AND also = ?"
-        " AND state = 'assumed'", (h,)).fetchone()
+        "SELECT id, keep FROM identity_assumptions WHERE kind = 'name' AND also = ?"
+        " AND state IN ('assumed', 'unsure') ORDER BY id DESC LIMIT 1", (h,)).fetchone()
     if prior and prior["keep"] == clean:
+        if confidence in ("high", "low"):
+            conn.execute("UPDATE identity_assumptions SET state = ?, why = ? WHERE id = ?",
+                         (state, why or "", prior["id"]))
         if commit:
             conn.commit()
         return True
     conn.execute("UPDATE identity_assumptions SET state = 'superseded', decided_at = ?"
-                 " WHERE kind = 'name' AND also = ? AND state = 'assumed'",
+                 " WHERE kind = 'name' AND also = ? AND state IN ('assumed', 'unsure')",
                  (db.now(), h))
     conn.execute(
         "INSERT INTO identity_assumptions(kind, keep, also, why, state, source,"
-        " created_at) VALUES('name', ?, ?, ?, 'assumed', ?, ?)",
-        (clean, h, why or "", f"{(channel or 'cli')}:dream-guess", db.now()))
+        " created_at) VALUES('name', ?, ?, ?, ?, ?, ?)",
+        (clean, h, why or "", state, f"{(channel or 'cli')}:dream-guess", db.now()))
     # Keep a trail without letting it grow without bound: a churny sender that is
     # re-guessed nightly retains only its most recent revisions.
     conn.execute(

@@ -65,10 +65,11 @@ ones are folded onto a single spelling ("Costco" into "Costco Tire Center") so t
 two conversations join from then on; the fold is conservative (a shorter name only
 folds into a longer one that contains all its distinctive words) and reversible.
 
-Quiet guesses are left to age out. Only one that keeps drawing
-[freshness](freshness.md) hints across enough distinct days earns a short line
-asking to confirm or rename it — persistence, not a one-off, is what warrants the
-interruption. An assistant settles it in context with the `memcal_name` tool
+Dream labels each new guess with high or low confidence. Only an explicitly
+low-confidence guess that keeps drawing [freshness](freshness.md) hints across
+enough distinct days can ask for confirmation, and only when the sender's identity
+matters to the answer. High-confidence guesses and older guesses without an
+assessment stay quiet. An MCP assistant can settle it with the `memcal_name` tool
 (confirm the guess, or correct it) when the plan comes up, rather than out of the
 blue; `memcal who --confirm` / `memcal who <n> "Name"` do the same by hand. A
 revised guess supersedes the prior one and keeps the earlier spelling as history.

@@ -870,7 +870,8 @@ def _apply_thread_names(conn, cfg: Config, bundle, diff: dict, *,
         # commit=False: this runs inside apply_diffs' atomic BEGIN/commit unit, so the
         # naming rides that transaction rather than committing partial state mid-loop.
         if identity.guess_name(conn, handle, name, channel=channel,
-                               why=str(entry.get("why") or ""), commit=False):
+                               why=str(entry.get("why") or ""),
+                               confidence=entry.get("confidence"), commit=False):
             counts["name:guessed"] += 1
             log.append(f"label     {handle} → {presentation.as_guess(name)}")
 

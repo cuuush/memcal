@@ -65,13 +65,17 @@ QUESTION_DIFF = {
 THREAD_NAME_DIFF = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["channel", "thread", "name", "why"],
+    "required": ["channel", "thread", "name", "why", "confidence"],
     "properties": {
         "channel": {"type": "string", "description": "the conversation's channel"},
         "thread": {"type": "string", "description": "the conversation id as shown"},
         "name": {"type": "string",
                  "description": "a short human name for this otherwise-nameless sender"},
         "why": _STR,
+        "confidence": {"type": "string", "enum": ["high", "low"],
+                       "description": "high when the messages clearly establish this literal "
+                                      "sender label; low when the identity or label is uncertain. "
+                                      "Only low confidence may ask the user to verify it."},
     },
 }
 

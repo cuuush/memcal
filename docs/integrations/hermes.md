@@ -22,6 +22,11 @@ available; set `MEMCAL_SRC` to the checkout when using it manually.
 
 ## Every turn
 
+The brief and provider instructions distinguish whole-week overviews (answer from
+the summary) from specific-event questions (open the record for details and new
+messages). The last successful Dream time describes consolidation, not complete
+coverage or review of later messages.
+
 - **Inject** — `prefetch()` reads local state without collecting sources or calling
   a model. The first brief, changed brief contents, and newly collected source
   messages arrive as `MEMCAL SNAPSHOT`. Unchanged state adds nothing to the user
@@ -32,6 +37,11 @@ available; set `MEMCAL_SRC` to the checkout when using it manually.
   or discarded render never suppresses the next one, and compression re-emits. If
   rendering fails, `MEMCAL UNAVAILABLE` replaces the snapshot rather than leaving a
   stale one standing.
+- **Open** — `memcal_open` includes cited evidence, nearby context (up to 1,500
+  estimated tokens), and pending messages (up to 50 within 4,000 estimated tokens).
+  The sections are labeled separately. Only omitted pending messages need a
+  follow-up `memcal_activity` call; its cursor continues after the last shown
+  arrival. Reading never acknowledges a review or changes a plan.
 - **Archive** — `on_turn_start` / `sync_turn` file the clean user message under
   the agent channel. Assistant replies, injected snapshots, and tool outputs are
   excluded on these paths.

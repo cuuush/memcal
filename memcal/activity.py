@@ -463,6 +463,17 @@ _HIDDEN_FILTER = ("coalesce(t.decision, '') != 'mute'"
                   " AND coalesce(s.source, 'auto') != 'auto')")
 
 
+def visible_ids(conn: sqlite3.Connection, archive_ids) -> set[int]:
+    """Apply the activity reader's mute/explicit-ignore policy to context lines."""
+    ids = list(dict.fromkeys(int(aid) for aid in archive_ids))
+    if not ids:
+        return set()
+    placeholders = ",".join("?" * len(ids))
+    return {row["id"] for row in conn.execute(
+        f"SELECT a.id FROM archive a {_HIDDEN_SCOPE}"
+        f" WHERE a.id IN ({placeholders}) AND {_HIDDEN_FILTER}", ids)}
+
+
 def _pending_rows(conn: sqlite3.Connection, pairs: list[dict],
                    covered: set[int], *, limit: int,
                    after: int = 0,
@@ -816,7 +827,8 @@ def format_read(page: dict, weak: list[dict], *, label: str) -> str:
              + (f", {page['omitted']} omitted" if page["omitted"] else "")
              + f"; {page['reviewed']} already reviewed)"]
     if not page["items"]:
-        lines.append("(nothing new since the last review)")
+        lines.append("(pending messages omitted by output budget)" if page["total"]
+                     else "(nothing new since the last review)")
     for item in page["items"]:
         lines.append(f"[{item['id']}] {item['ts'][:16]} (collected {item['arrived'][:16]})"
                      f"  {item['channel']}/{item['thread']} · {item['who']}:")

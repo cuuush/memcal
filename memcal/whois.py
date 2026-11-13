@@ -344,7 +344,7 @@ def fold_guessed_names(conn: sqlite3.Connection) -> list[str]:
             # The fold moved the handles onto `target`; repoint any open name guess for
             # the old spelling too, so confirming it later cannot silently un-fold them.
             conn.execute("UPDATE identity_assumptions SET keep = ? WHERE kind = 'name'"
-                         " AND keep = ? AND state = 'assumed'", (target, name))
+                         " AND keep = ? AND state IN ('assumed', 'unsure')", (target, name))
             conn.commit()
             log.append(f"folded guess  {name} → {target}")
     return log
@@ -395,7 +395,7 @@ def settle_guess(conn: sqlite3.Connection, guess: str,
     placeholders = ",".join("?" * len(handles))
     conn.execute(
         "UPDATE identity_assumptions SET keep = ?, state = 'confirmed', decided_at = ?,"
-        f" source = 'you' WHERE kind = 'name' AND state = 'assumed' AND also IN ({placeholders})",
+        f" source = 'you' WHERE kind = 'name' AND state IN ('assumed', 'unsure') AND also IN ({placeholders})",
         (final, db.now(), *handles))
     conn.commit()
     return f"renamed {guess} → {final}" if fixed and final != guess else f"confirmed {final}"

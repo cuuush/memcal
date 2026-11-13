@@ -66,7 +66,8 @@ pages can still be recalled separately. See the [Hermes guide](docs/integrations
 
 - `memcal dream` collects and processes updates, then shows a summary. Add `--verbose` for details or `--dry-run` for a cost estimate without model calls.
 - `memcal review` shows recent changes and open questions. Answer a question using its displayed handle, for example `memcal answer Q12 "your answer"`.
-- `memcal open E42` shows a record, its changes, and cited source messages. Use `memcal activity E42` to see newer or uncited conversation traffic.
+- `memcal open E42` shows a record, its changes, cited messages, nearby source context, and up to 50 pending messages within a 4,000-token estimated budget. Nearby context has a separate 1,500-token budget. Omissions include a cursor for `memcal activity E42 --cursor <id>`; reading never marks messages reviewed.
+- Agents answer whole-week overviews from the brief, which shows the last successful Dream consolidation time. For a specific event, they open its handle to read the details and new messages. Source coverage warnings still apply.
 - `memcal schedule install` installs the macOS scheduler; `memcal schedule status` checks it. Reinstall the schedule after changing runtime locations.
 - `memcal disable` stops macOS scheduled Dream and periodic message checks until `memcal enable`. The disabled state survives logins and updates; the app, permissions, data, and manual commands stay available. Closing the web UI alone does not stop scheduling.
 - `memcal update` updates a checkout or pip installation from GitHub, upgrades dependencies, migrates the store, and refreshes the brief and installed scheduler. Disabled scheduling stays disabled. Tracked edits or unpublished commits stop a checkout update; unrelated untracked outputs are preserved. Restart running UI and agent sessions afterward.

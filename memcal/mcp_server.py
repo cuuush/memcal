@@ -33,8 +33,9 @@ TOOLS = [
             "Open a relevant brief handle or wiki page first when the brief omits a "
             "detail. Returns stored details, change history and linked evidence; "
             "check these before searching the archive. Accepts me, page names and "
-            "recorded aliases. Source excerpts contain only the cited lines responsible "
-            "for the record. Read pending changes separately with memcal_activity. "
+            "recorded aliases. Includes cited evidence, nearby source context and "
+            "bounded pending messages, labeled separately. Use memcal_activity "
+            "only to continue past an omitted-message cap. "
             "Takes the handle the brief prints in brackets, such as E258, T2, or "
             "Q12. Existing legacy S handles remain readable."),
         "inputSchema": {
@@ -184,11 +185,10 @@ TOOLS = [
     {
         "name": "memcal_activity",
         "description": (
-            "Read pending source messages nominated for this entry's freshness "
-            "warning. Open stored details with memcal_open first, then judge "
-            "whether these messages change the entry. Unrestricted context is "
-            "available through archive and conversation reads. Reading changes "
-            "nothing; cite the [ids] "
+            "Page pending messages behind one plan when memcal_open's pending-message "
+            "section is truncated. Start with "
+            "memcal_open, which already carries new messages with [ids] to cite; use "
+            "this only to page past a cap. Reading changes nothing; cite the [ids] "
             "in a memcal_update (prefer field_sources when fields differ), or "
             "acknowledge them with memcal_reviewed when the stored row still "
             "stands. Takes a brief handle like E46."),
