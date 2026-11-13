@@ -1,0 +1,16 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.cuuush/memcal",
+  "title": "MemCal",
+  "description": "Local memory and calendar tools for personal-assistant agents.",
+  "repository": {"url": "https://github.com/cuuush/memcal", "source": "github"},
+  "version": "0.8.11",
+  "packages": [{
+    "registryType": "pypi",
+    "identifier": "memcal",
+    "version": "0.8.11",
+    "runtimeHint": "uvx",
+    "packageArguments": [{"type": "positional", "value": "mcp"}],
+    "transport": {"type": "stdio"}
+  }]
+}

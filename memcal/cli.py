@@ -2448,7 +2448,7 @@ COMMAND_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("People and facts", ("page", "pages", "alias", "merge", "who")),
     ("Feed it", ("ingest", "sources", "dream", "review", "schedule", "disable", "enable")),
     ("The gate", ("gatecheck", "senders", "mail", "top", "block")),
-    ("Set up and check", ("setup", "update", "init", "openclaw", "doctor", "permissions", "stats", "trace",
+    ("Set up and check", ("setup", "update", "init", "openclaw", "mcp", "doctor", "permissions", "stats", "trace",
                           "models", "ical", "reminders")),
 )
 
@@ -2504,6 +2504,22 @@ def _install_grouped_help(p: argparse.ArgumentParser, sub) -> None:
     p.epilog = "\n".join(lines) + "\n"
     p.formatter_class = argparse.RawDescriptionHelpFormatter
     listing.clear()  # the epilog is the listing now; leaving both prints it twice
+
+
+def cmd_mcp(args) -> int:
+    """Run the same stdio server as python -m memcal.mcp_server."""
+    from . import mcp_server
+    previous = os.environ.get("MEMCAL_HOME")
+    if args.home is not None:
+        os.environ["MEMCAL_HOME"] = args.home
+    try:
+        return mcp_server.main()
+    finally:
+        if args.home is not None:
+            if previous is None:
+                os.environ.pop("MEMCAL_HOME", None)
+            else:
+                os.environ["MEMCAL_HOME"] = previous
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -2583,6 +2599,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--source-ids", default="",
                    help="archive line ids this review covered, e.g. '12 13'")
     s.set_defaults(func=cmd_reviewed)
+
+    s = sub.add_parser("mcp", help="serve MCP over stdio")
+    s.set_defaults(func=cmd_mcp)
 
     s = sub.add_parser("brief", help="print brief.md")
     s.add_argument("--write", action="store_true", help="also write it to disk")
