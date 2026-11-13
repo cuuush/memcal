@@ -692,13 +692,14 @@ def cmd_series(args) -> int:
             nxt = series.next_on(conn, rule)
             print(f"- {rule.title} [{rule.slug}] — {rule.phrase}"
                   + (f"; next {nxt.isoformat()}" if nxt else "")
-                  + (f" · join: {rule.join_url}" if rule.join_url else ""))
+                  + (f" · {rule.location or rule.join_url}" if rule.location or rule.join_url else ""))
         return 0
     try:
         rule, log = live.set_schedule(
             conn, cfg, args.which, cadence=args.every, weekday=args.on,
             day_of_month=args.day, time=args.at, location=args.where,
-            join_url=args.join, starting=args.starting, ended=args.ended)
+            join_url=args.join, starting=args.starting, ended=args.ended,
+            weekdays=args.weekdays, interval=args.interval, status=args.state)
     except live.LiveError as exc:
         print(f"{exc}")
         return 1
@@ -2632,7 +2633,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="commitment = you are expected; opportunity = you could")
     s.add_argument("--subject", default="me", help="whose row this is (default: me)")
     s.add_argument("--where",
-                   help="the place. A join link goes in the row's join_url, not here")
+                   help="the place, address, or video-call URL")
     s.add_argument("--status", default="mentioned",
                    choices=["mentioned", "tentative", "confirmed", "declined", "happened"],
                    help="how settled it is")
@@ -2664,12 +2665,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("series", help="read or move a recurring thing's schedule")
     s.add_argument("which", nargs="?", help="the recurring thing, e.g. 'tutoring'")
-    s.add_argument("--every", choices=list(series.CADENCES), help="how often")
+    s.add_argument("--every", choices=list(series.PUBLIC_CADENCES), help="how often")
+    s.add_argument("--weekdays", nargs="+", help="all repeating days, e.g. monday wednesday friday")
+    s.add_argument("--interval", type=int, help="repeat every N days/weeks/months")
+    s.add_argument("--state", choices=["active", "paused", "ended"], help="pause, resume, or stop, from --starting")
     s.add_argument("--on", help="day of the week, e.g. tuesday")
     s.add_argument("--day", type=int, help="day of the month, for --every monthly")
     s.add_argument("--at", help="HH:MM")
     s.add_argument("--where", help="where it happens, every time")
-    s.add_argument("--join", help="the link you attend through")
+    s.add_argument("--join", help=argparse.SUPPRESS)
     s.add_argument("--starting", help="the day the new schedule begins; "
                                       "omit for 'from now on'")
     s.add_argument("--ended", action="store_true",

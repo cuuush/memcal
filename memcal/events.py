@@ -236,11 +236,14 @@ class Event:
         if self.rsvp_url:
             # Keep the link even when declined: the invite remains actionable.
             tail.append(f"invite: {_short_url(self.rsvp_url)}")
-        if self.join_url:
-            # Render in full: a shortened join link is not pressable.
-            tail.append(f"join: {self.join_url}")
-        if self.location and not overview:
-            tail.append(self.location)
+        if self.join_url and overview:
+            tail.append(self.join_url)
+        if not overview:
+            where = self.location or ''
+            if self.join_url and self.join_url not in where:
+                where = (where + ' · ' if where else '') + self.join_url
+            if where:
+                tail.append(where)
         if self.note and not overview and self.note.casefold() not in head.casefold():
             # Keep occasion-specific details on the active row.
             tail.append(self.note)
@@ -679,12 +682,12 @@ def _inherit_from_series(conn: sqlite3.Connection, fields: dict) -> None:
         fields.setdefault("series", series)
         return
     fields.setdefault("series", series)
-    rule = conn.execute(
-        f"SELECT {', '.join(wanted)} FROM series WHERE slug = ?", (series,)).fetchone()
+    from . import series as series_mod
+    rule = series_mod.get(conn, series, on=fields['date'])
     if rule is not None:
         for name in list(wanted):
-            if rule[name]:
-                fields[name] = rule[name]
+            if getattr(rule, name):
+                fields[name] = getattr(rule, name)
                 wanted.remove(name)
     if not wanted:
         return

@@ -11,7 +11,10 @@ evidence: re-reading the statement that moved an event never duplicates it.
 memcal status E286 confirmed
 memcal todo "…" / memcal done T7
 memcal answer Q4 "Saturday — Jordan confirmed by text"
-memcal series poker-night --every fortnightly --on friday
+memcal series poker-night --every weekly --interval 2 --on friday
+memcal series practice --every weekly --weekdays monday wednesday friday --at 17:00
+memcal series practice --state paused --starting 2032-03-08
+memcal series practice --state active --starting 2032-03-22
 memcal alias jordan "Jord"
 memcal merge --apply jordan-smith jordan
 memcal rm E999          # never-real rows only — not for declined plans
@@ -21,16 +24,36 @@ memcal rm E999          # never-real rows only — not for declined plans
 
 | Tool | Corrects |
 |---|---|
-| `memcal_update` | Status, date/time, location, title, kind, add/remove participants; `""` clears only location, note, time, until, join_url, rsvp_url, series |
+| `memcal_update` | Status, date/time, location (including a video URL), title, kind, participants, and notes; `""` clears optional details |
 | `memcal_merge` | Two rows are one thing |
 | `memcal_drop` | Delete a never-real row (not for `declined`) |
-| `memcal_schedule` | The rule moved, not one date |
-| `memcal_move_once` | One week moved or skipped only |
+| `memcal_schedule` | One recurring rule: multiple weekdays, interval, dated changes, pause/resume/end |
+| `memcal_move_once` | Move or skip one occurrence, by event handle or series name plus `on` |
 | `memcal_todo` | With `done=true`, closes |
 | `memcal_answer` | Answers a question, stops asking |
 | `memcal_alias` | Binds another name to a page |
 
-## Precedence
+## Recurring events
+
+Use one `memcal_schedule` call for multiple weekly days, not one `memcal_add`
+per weekday. For example, `which="practice"`, `cadence="weekly"`,
+`weekdays=["monday", "wednesday", "friday"]`, and `time="17:00"` create one
+rule. `interval=3` repeats those days every three weeks. `location` accepts a
+place, address, or video-call URL; `note` on an event holds other freeform details.
+
+`starting` dates a schedule change without changing earlier occurrences. Use
+`status="paused"` to pause, `status="active"` to resume, or `status="ended"`
+to stop from that date. A pause and a later resume can be scheduled in advance.
+For one cancellation, call `memcal_move_once(which="practice", on="2032-03-05",
+cancelled=true)`; no replacement date is needed. To postpone that occurrence,
+give `to` instead. The surrounding schedule stays intact.
+
+When Calendar publishing is enabled, the rule is a native recurring event.
+Dated changes use bounded recurring segments; a single cancellation or move uses
+an exception to one occurrence. Earlier calendar history is preserved. Publishing
+remains disabled by default.
+
+## Evidence precedence
 
 Per field, on when evidence was *said*: a message written before your correction
 cannot revise the field you corrected, while genuinely newer evidence still can.

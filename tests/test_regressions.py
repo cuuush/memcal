@@ -2513,9 +2513,9 @@ class TestTheCalendarKnewTheCadenceAndNobodyRead(Base):
     def test_what_the_vocabulary_cannot_say_is_refused_not_approximated(self):
         """A schedule memcal projects wrongly is worse than one it declines to project.
         Twice a week is not "Tuesdays", and a yearly rule is not a cadence here."""
-        self.assertIsNone(ical.recurrence_rule("FREQ=WEEKLY;BYDAY=MO,WE"))
+        self.assertEqual(ical.recurrence_rule("FREQ=WEEKLY;BYDAY=MO,WE")["weekdays"], [0, 2])
         self.assertIsNone(ical.recurrence_rule("FREQ=YEARLY"))
-        self.assertIsNone(ical.recurrence_rule("FREQ=WEEKLY;INTERVAL=3;BYDAY=MO"))
+        self.assertEqual(ical.recurrence_rule("FREQ=WEEKLY;INTERVAL=3;BYDAY=MO")["interval"], 3)
         self.assertIsNone(ical.recurrence_rule(""))
 
     def test_an_edit_on_his_calendar_moves_the_rule(self):
@@ -2533,7 +2533,7 @@ class TestTheCalendarKnewTheCadenceAndNobodyRead(Base):
         row = events.search(self.conn, "Tutoring")[0]
         self.conn.execute("UPDATE events SET series = 'tutoring' WHERE id = ?", (row.id,))
         ical.learn_cadence(self.conn, item, events.get_by_id(self.conn, row.id))
-        self.assertEqual(series.get(self.conn, "tutoring").weekday, 1)
+        self.assertEqual(series.get(self.conn, "tutoring", on=self.d(2)).weekday, 1)
 
     def test_a_recurring_event_does_not_open_a_series_of_its_own(self):
         """A `series` row per recurring calendar entry would open a schedule for every
@@ -2660,21 +2660,23 @@ class TestAStandingAppointmentReachedTheCalendarAsOneDatedCopy(Base):
         ical.publish_schedules(self.conn, self.cfg, runner=run)
         self.assertEqual(len(calls), before)
 
-    def test_a_moved_schedule_updates_the_same_repeating_event(self):
+    def test_a_future_schedule_change_preserves_the_current_native_segment(self):
         self.cfg.publish_calendar = "memcal"
         self._rule()
         run, calls = self._runner([
-            '{"uid": "s-1", "calendar": "memcal", "created": true, "status": 3}',
-            '{"uid": "s-1", "calendar": "memcal", "created": false, "status": 3}',
+            '{"uid":"s-1","calendar":"memcal","created":true,"status":3}',
+            '{"uid":"s-1","calendar":"memcal","created":false,"status":3}',
+            '{"uid":"s-2","calendar":"memcal","created":true,"status":3}',
         ])
         ical.publish_schedules(self.conn, self.cfg, runner=run)
         self._rule(weekday=3, effective_on=self.d(7))
         ical.publish_schedules(self.conn, self.cfg, runner=run)
-        self.assertEqual(json.loads(calls[-1][-1])["uid"], "s-1")
-        rows = self.conn.execute(
-            "SELECT count(*) AS n FROM calendar_items WHERE event_key = 'series:tutoring'"
-        ).fetchone()
-        self.assertEqual(rows["n"], 1)
+        old, new = [json.loads(call[-1]) for call in calls[-2:]]
+        self.assertEqual(old['uid'], 's-1')
+        self.assertTrue(old['until'].startswith(self.d(6)))
+        self.assertEqual(new['uid'], '')
+        self.assertEqual(new['weekday'], 3)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM calendar_items WHERE event_key LIKE 'series:tutoring%'").fetchone()[0], 2)
 
     def test_memcals_own_repeating_event_is_not_read_back_fifty_times(self):
         """A recurring event arrives once per occurrence under one uid. Unguarded, one

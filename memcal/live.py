@@ -992,96 +992,115 @@ _WEEKDAY_WORDS = {
 
 def set_schedule(conn: sqlite3.Connection, cfg: Config, which: str, *,
                  cadence: str | None = None, weekday: str | int | None = None,
+                 weekdays: list[str | int] | None = None, interval: int | None = None,
                  day_of_month: int | None = None, time: str | None = None,
                  location: str | None = None, join_url: str | None = None,
                  starting: str | None = None, ended: bool = False,
-                 origin: Origin = actions.UNKNOWN,
+                 status: str | None = None, origin: Origin = actions.UNKNOWN,
                  ) -> tuple[series.Series, list[str]]:
-    """Create or update a recurring schedule, then project its occurrences."""
+    """Create or amend one series, with dated changes and explicit pause/resume."""
     slug = db.slugify(which or "")
     if not slug:
-        raise LiveError("which recurring thing? give its name, e.g. 'tutoring'")
-    known = series.get(conn, slug)
-    if known is None:
-        # Adopt existing rows with the same series slug when creating a rule.
-        row = conn.execute("SELECT title FROM events WHERE series = ? ORDER BY date DESC"
-                           " LIMIT 1", (slug,)).fetchone()
-        title = row["title"] if row else which.strip()
-    else:
-        title = known.title
+        raise LiveError("give the recurring event's name")
+    effective = db.parse_when(str(starting), strict=True)[0].isoformat() if starting else db.today().isoformat()
+    known = series.get(conn, slug, on=effective)
+    row = conn.execute("SELECT title FROM events WHERE series=? ORDER BY date DESC LIMIT 1", (slug,)).fetchone()
+    title = known.title if known else row['title'] if row else which.strip()
+    status = 'ended' if ended else status
+    if status and status not in series.STATUSES:
+        raise LiveError("status must be active, paused, or ended")
+    if known is None and status in ('paused', 'ended'):
+        raise LiveError(f"memcal has no recurring {which!r} to {status}")
 
-    if ended:
-        if known is None:
-            raise LiveError(f"memcal has no recurring {which!r} to end")
-        based_on = _version_of(conn, "series", slug)
-        pointer = _origin_pointer(conn, origin)
-        with _atomic(conn):
-            rule = series.end(conn, slug, written_by="live", commit=False)
-            if rule is not None and (rule.source or "") != pointer:
-                rule, _ = series.upsert(conn, {"slug": slug, "source": pointer},
-                                        written_by="live", commit=False)
-            _stamp_live(conn, "series", slug, "ended", origin=origin,
-                        fields={"status": ["active", "ended"]}, based_on=based_on,
-                        commit=False)
-        series.roll_forward(conn, slug=slug)
-        from .sources import ical
-        ical.publish_schedules(conn, cfg, slugs=[slug])
-        _refresh(conn, cfg)
-        return rule, [f"{title} is no longer recurring"]
+    def day_number(value):
+        result = _WEEKDAY_WORDS.get(value.strip().lower()) if isinstance(value, str) else value
+        if type(result) is not int or not 0 <= result <= 6:
+            raise LiveError(f"{value!r} is not a day of the week")
+        return result
 
-    if isinstance(weekday, str) and weekday.strip():
-        wanted = _WEEKDAY_WORDS.get(weekday.strip().lower())
-        if wanted is None:
-            raise LiveError(f"{weekday!r} is not a day of the week")
-        weekday = wanted
-    if cadence and str(cadence).strip().lower() not in series.CADENCES:
-        raise LiveError(f"cadence must be one of {', '.join(series.CADENCES)}")
-
-    fields = {"slug": slug, "title": title, "cadence": cadence, "weekday": weekday,
-              "day_of_month": day_of_month, "time": time, "location": location,
-              "join_url": join_url, "source": _origin_pointer(conn, origin)}
-    fields = {k: v for k, v in fields.items() if v not in (None, "")}
-    if starting:
-        fields["effective_on"] = db.parse_when(str(starting), strict=True)[0].isoformat()
-    elif known is None or cadence or weekday is not None or day_of_month is not None:
-        # New or reshaped rules take effect today; restating a link never moves the anchor.
-        fields.setdefault("effective_on", db.today().isoformat())
-    if len(fields) <= 3:                       # slug, title, source and nothing said
-        raise LiveError("say how often it repeats, or what changed about it")
-
-    based_on = _version_of(conn, "series", slug)
+    if weekday is not None:
+        weekday = day_number(weekday)
+    if weekdays is not None:
+        if not isinstance(weekdays, list) or not weekdays:
+            raise LiveError("weekdays must be a nonempty list, e.g. ['tuesday', 'thursday']")
+        weekdays = sorted({day_number(day) for day in weekdays})
+        if weekday is not None and weekdays != [weekday]:
+            raise LiveError("use weekdays for several days; do not also supply weekday")
+    if cadence:
+        cadence = str(cadence).strip().lower()
+        if cadence == 'every_two_weeks':
+            cadence = 'fortnightly'
+        if cadence not in series.CADENCES:
+            raise LiveError("cadence must be daily, weekly, every_two_weeks, or monthly")
+    if weekdays is not None and not cadence and known is None:
+        cadence = 'weekly'
+    if weekdays and (cadence or (known.cadence if known else None)) not in ('weekly', 'fortnightly'):
+        raise LiveError('weekdays applies to a weekly schedule')
+    if interval is not None and (type(interval) is not int or not 1 <= interval <= 366):
+        raise LiveError('interval must be a whole number from 1 to 366')
+    if cadence == 'fortnightly' and interval not in (None, 2):
+        raise LiveError('every_two_weeks already means interval 2')
+    fields = {'slug': slug, 'title': title, 'cadence': cadence, 'weekday': weekday,
+              'weekdays': weekdays, 'interval': interval, 'day_of_month': day_of_month,
+              'time': time, 'location': location, 'join_url': join_url, 'status': status,
+              'source': _origin_pointer(conn, origin)}
+    fields = {key: value for key, value in fields.items() if value is not None}
+    reshaped = cadence or weekday is not None or weekdays is not None or interval is not None or day_of_month is not None
+    if known is None or reshaped:
+        fields['effective_on'] = effective
+    if status == 'active':
+        fields['ends_on'] = ''
+    elif status == 'ended':
+        fields['ends_on'] = effective
+    if len(fields) <= 3:
+        raise LiveError('say how often it repeats, or what changed')
+    based_on = _version_of(conn, 'series', slug)
     with _atomic(conn):
-        rule, verb = series.upsert(conn, fields, written_by="live", commit=False)
-        if verb != "unchanged":
-            _stamp_live(conn, "series", slug, verb, origin=origin,
-                        fields={k: ["", str(v)] for k, v in fields.items()
-                                if k not in ("slug", "source")},
-                        based_on=based_on, commit=False)
-    if verb == "unchanged":
+        rule, verb = series.upsert(conn, fields, written_by='live', commit=False, change_on=effective)
+        if verb != 'unchanged':
+            _stamp_live(conn, 'series', slug, verb, origin=origin,
+                        fields={key: ['', str(value)] for key, value in fields.items()
+                                if key not in ('slug', 'source')}, based_on=based_on, commit=False)
+    if verb == 'unchanged':
         return rule, []
     log = series.roll_forward(conn, slug=slug)
-    from .sources import ical                                        # noqa: PLC0415
+    from .sources import ical
     log += ical.publish_schedules(conn, cfg, slugs=[slug])
-    # Publish every upcoming occurrence after a cadence change.
-    upcoming = [row["key"] for row in conn.execute(
-        "SELECT key FROM events WHERE series = ? AND date >= ?",
-        (slug, db.today().isoformat()))]
+    upcoming = [row['key'] for row in conn.execute(
+        'SELECT key FROM events WHERE series=? AND date>=?', (slug, db.today().isoformat()))]
     _refresh(conn, cfg, *upcoming)
     return rule, log
 
 
 def move_one_occurrence(conn: sqlite3.Connection, cfg: Config, which: str, *,
-                        to: str, time: str | None = None, cancelled: bool = False,
+                        to: str | None = None, on: str | None = None,
+                        time: str | None = None, cancelled: bool = False,
                         origin: Origin = actions.UNKNOWN) -> tuple[events.Event, str]:
     """Move one occurrence without changing its series schedule."""
-    event = find_event(conn, which)
+    if not to and not cancelled:
+        raise LiveError('give the new date in to, or cancelled=true to skip one occurrence')
+    if on:
+        rule = series.get(conn, db.slugify(which))
+        if rule is None:
+            raise LiveError('with on, which must name the recurring series')
+        original = db.parse_when(on, strict=True)[0]
+        if not series.occurrences(None, original, original, series=rule):
+            raise LiveError('the series is not scheduled on that date')
+        row = conn.execute('SELECT key FROM events WHERE series=? AND (date=? OR instead_of=?)',
+                            (rule.slug, original.isoformat(), original.isoformat())).fetchone()
+        if row:
+            event = events.get(conn, row['key'])
+        else:
+            event, _ = events.upsert(conn, series._projection(rule, original), written_by='series', match=False)
+    else:
+        event = find_event(conn, which)
     if not event.series:
         raise LiveError(f"{event.title!r} is not part of a recurring thing — "
                         "change the date on it directly instead",
                         row=event.one_line())
     rule = series.get(conn, event.series)
     replaced = series.slot_for(rule, event.date, event.instead_of) if rule else None
-    payload = {"key": event.key, "date": db.parse_when(to, strict=True)[0].isoformat(),
+    payload = {"key": event.key, "date": db.parse_when(to, strict=True)[0].isoformat() if to else event.date,
                "instead_of": replaced or event.instead_of or event.date}
     if time:
         payload["time"] = time

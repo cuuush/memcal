@@ -933,17 +933,12 @@ class TestOnePageToolAnsweredTwoDifferentWays(Base):
         text = self._server().call("memcal_open_page", {"slug": "nobody"})
         self.assertIn("reese", text)
 
-    def test_both_surfaces_point_at_the_line_that_routes_the_call(self):
-        # The tool description is what the call routes on. A surface that does not name
-        # the brief's index is a surface where the reported bug is still live.
-        mcp = next(t for t in mcp_server.TOOLS
-                   if t["name"] == "memcal_open_page")["description"]
-        hermes = (Path(__file__).resolve().parent.parent / "integrations" / "hermes"
-                  / "memcal" / "__init__.py").read_text(encoding="utf-8")
-        hermes = hermes.split("OPEN_PAGE = {", 1)[1].split("\n}", 1)[0]
-        for text, where in ((mcp, "mcp_server"), (hermes, "hermes")):
-            self.assertIn("Pages:", text, where)
-            self.assertIn("current resume", text, where)
+    def test_both_surfaces_advertise_the_unified_open_without_a_deprecated_alias(self):
+        tools = {tool['name']: tool for tool in mcp_server.TOOLS}
+        self.assertNotIn('memcal_open_page', tools)
+        self.assertIn('wiki page', tools['memcal_open']['description'])
+        hermes = (Path(__file__).resolve().parent.parent / 'integrations/hermes/memcal/__init__.py').read_text()
+        self.assertNotIn('OPEN_PAGE = {', hermes)
 
 
 class TestAPassThatReportedSuccessWithASourceDown(Base):

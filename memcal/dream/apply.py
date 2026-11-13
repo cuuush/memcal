@@ -1506,6 +1506,8 @@ def _apply_series(conn: sqlite3.Connection, cfg: Config, row: dict, *, source: s
                                               slug.replace("-", " ").title()),
         "cadence": _clean(row.get("cadence")),
         "weekday": row.get("weekday"),
+        "weekdays": row.get("weekdays"), "interval": row.get("interval"),
+        "status": row.get("status"),
         "day_of_month": row.get("day_of_month"),
         "time": _clean(row.get("time")),
         "location": _clean(row.get("location")),
@@ -1555,7 +1557,7 @@ def _schedule_moved(known, fields: dict) -> bool:
     """Whether this diff changes *when* the thing meets, as against what it knows."""
     return any(fields.get(name) is not None
                and str(fields[name]) != str(getattr(known, name, None) or "")
-               for name in ("cadence", "weekday", "day_of_month", "time"))
+               for name in ("cadence", "weekday", "weekdays", "interval", "status", "day_of_month", "time"))
 
 
 def _apply_standing(conn: sqlite3.Connection, row: dict, *, written_by: str,

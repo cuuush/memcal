@@ -149,9 +149,8 @@ def _event_text(conn: sqlite3.Connection, cfg: Config, ref: str) -> str:
     out.extend(_fields([
         ("when", _when(row)),
         ("state", row["state"]),
-        ("where", row["location"]),
+        ("where", ' · '.join(dict.fromkeys(value for value in (row['location'], row['join_url']) if value))),
         # Full URLs; the detail view carries what the summary cannot.
-        ("join", row["join_url"]),
         ("rsvp", row["rsvp_url"]),
         ("who", ", ".join(row["participants"])),
         ("hosted by", ", ".join(row["hosts"])),
@@ -191,10 +190,9 @@ def _series_lines(conn: sqlite3.Connection, row: dict) -> list[str]:
     if rule is None:
         return []
     lines = ["", f"part of the series {rule.slug!r}: {rule.phrase}"]
-    if rule.join_url:
-        lines.append(f"  the rule's join link: {rule.join_url}")
-    if getattr(rule, "where", ""):
-        lines.append(f"  the rule's usual place: {rule.where}")
+    where = ' · '.join(dict.fromkeys(value for value in (rule.location, rule.join_url) if value))
+    if where:
+        lines.append(f"  the rule's location: {where}")
     return lines
 
 
@@ -312,7 +310,7 @@ def _standing_text(conn: sqlite3.Connection, cfg: Config, ref: str) -> str:
 
 def _pending_text(conn: sqlite3.Connection, kind: str, ref: str,
                   handle: str) -> tuple[str, set[int]]:
-    page = activity.read(conn, kind, ref, limit=PENDING_MESSAGE_LIMIT)
+    page = activity.read(conn, kind, ref, limit=PENDING_MESSAGE_LIMIT, relevant_only=True)
     if not page["total"]:
         return "", set()
 

@@ -2,11 +2,16 @@
 
 ### Added
 
+- Recurring schedules support multiple weekdays, custom day/week/month intervals,
+  dated changes, and pause/resume/end states. Native Calendar publishing uses
+  recurring segments and individual occurrence exceptions, preserving earlier dates.
 - `memcal mcp` launches the local stdio server for package-based MCP discovery.
 - Draft official Registry metadata, pending the next approved package release.
 
 ### Changed
 
+- Agent tools use `location` for places and video-call URLs, with `note` for other
+  event details. Tool descriptions are shorter and use plain recurrence wording.
 - Updated the agent installation skill for stable 0.8.11, managed integrations,
   explicit privacy/model-cost guidance, and its separate MIT-0 license.
 - Added the MCP Registry ownership marker to the package README; registry
@@ -25,6 +30,11 @@
 - Sender-name confirmation nudges require an explicitly low-confidence guess;
   confident and legacy guesses stay quiet. Dream records its confidence with
   each new name guess.
+
+### Removed
+
+- Deprecated `memcal_open_page` from advertised tool schemas; `memcal_open` opens
+  both records and wiki pages. Hermes exposes 20 tools and MCP/OpenClaw expose 22.
 
 ## [0.8.11] - 2026-11-12
 

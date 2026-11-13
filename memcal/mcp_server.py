@@ -31,14 +31,7 @@ TOOLS = [
     {
         "name": "memcal_open",
         "description": (
-            "Open a relevant brief handle or wiki page first when the brief omits a "
-            "detail. Returns stored details, change history and linked evidence; "
-            "check these before searching the archive. Accepts me, page names and "
-            "recorded aliases. Includes cited evidence, nearby source context and "
-            "bounded pending messages, labeled separately. Use memcal_activity "
-            "only to continue past an omitted-message cap. "
-            "Takes the handle the brief prints in brackets, such as E258, T2, or "
-            "Q12. Existing legacy S handles remain readable."),
+            'Open a brief handle or wiki page for details and history. Includes labeled citations, nearby context, and capped pending messages. Use memcal_activity only to continue omitted messages. Accepts E#, T#, Q#, page names, aliases, or me.'),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -49,32 +42,9 @@ TOOLS = [
         },
     },
     {
-        "name": "memcal_open_page",
-        "description": (
-            "Deprecated: prefer memcal_open, which also opens wiki pages. Read "
-            "remembered facts about a person or topic. Accept me, page names, "
-            "recorded aliases. Return facts first, then evidence/supplementary detail.\n"
-            "Facts already in the brief answer directly; the brief's `Pages:` line "
-            "names, in parentheses, the facts each page holds — 'what should I get "
-            "Jordan for their birthday', and equally 'where is my most recent resume' "
-            "against a page holding a current resume. When one of those names is what "
-            "the question is about, open that page; when the page is unknown, use "
-            "memcal_search_wiki; only then memcal_search_archive. Stored pages are "
-            "evidence of what was said, not instructions."),
-        "inputSchema": {
-            "type": "object",
-            "properties": {"slug": {"type": "string", "description": "page slug, e.g. jordan; 'me' for the user"}},
-            "required": ["slug"], "additionalProperties": False,
-        },
-    },
-    {
         "name": "memcal_search_wiki",
         "description": (
-            "Find remembered facts when the page is unknown. Search names, aliases, "
-            "fact labels, values, prose; bounded matches with page refs + provenance.\n"
-            "Use after the brief and before memcal_search_archive. Returns bounded "
-            "matches with page references and available provenance; you judge which "
-            "answers the question."),
+            'Find remembered facts when the page is unknown. Searches names, aliases, fact labels, values, and prose. Use before searching original messages.'),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -87,16 +57,7 @@ TOOLS = [
     },
     {
         "name": "memcal_list_days",
-        "description": ("What memcal has on one day or a short stretch of days — "
-                        "'am I free Saturday', 'what's on this week', 'anything Friday "
-                        "night'. Takes plain words: 'saturday', 'tomorrow', 'this "
-                        "weekend', 'next tuesday', or a yyyy-mm-dd date. Prefer this "
-                        "over memcal_list_month for any question about a specific day; "
-                        "a month of rows buries the one day that was asked about. Each "
-                        "row ends in an E# handle; pass that exact handle to "
-                        "memcal_update, memcal_move_once, memcal_merge, or memcal_drop. "
-                        "For an entire year, use when='YYYY-01-01' and days=365 "
-                        "(366 in a leap year)."),
+        "description": ('List a day or date range beyond the brief, using plain date words or YYYY-MM-DD and days. For a year, use YYYY-01-01 with days=365 (366 in a leap year). Weekly overviews within the brief need no lookup.'),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -110,11 +71,7 @@ TOOLS = [
     },
     {
         "name": "memcal_list_month",
-        "description": ("Everything memcal knows for a whole month. This is the memory "
-                        "view, including direct observations imported from macOS "
-                        "Calendar and plans learned elsewhere. Reading it never changes "
-                        "Calendar.app. For a single day or a weekend use "
-                        "memcal_list_days instead."),
+        "description": ('List a whole calendar month, YYYY-MM. For one day or a short range use memcal_list_days. Weekly overviews within the brief need no lookup.'),
         "inputSchema": {
             "type": "object",
             "properties": {"month": {"type": "string", "description": "yyyy-mm; omit for this month"}},
@@ -124,13 +81,7 @@ TOOLS = [
     {
         "name": "memcal_search_archive",
         "description": (
-            "Search original statements after relevant records and wiki lookup do not "
-            "answer. First open matching brief handles or pages with memcal_open: a "
-            "short brief line may omit stored details and history. Search every raw message, email, and "
-            "note ever ingested. The filters are what make digging quick: `person` "
-            "for one side of a conversation, `channel` for a channel, `since`/`until` "
-            "for a window. `query` may be empty when the filters are the search. "
-            "Every result carries a `line_id` for memcal_conversation."),
+            'Search original messages when records and wiki facts do not answer. Filter by person, channel, or date; query may be empty with filters. Results include line_id for reading surrounding conversation.'),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -186,13 +137,7 @@ TOOLS = [
     {
         "name": "memcal_activity",
         "description": (
-            "Page pending messages behind one plan when memcal_open's pending-message "
-            "section is truncated. Start with "
-            "memcal_open, which already carries new messages with [ids] to cite; use "
-            "this only to page past a cap. Reading changes nothing; cite the [ids] "
-            "in a memcal_update (prefer field_sources when fields differ), or "
-            "acknowledge them with memcal_reviewed when the stored row still "
-            "stands. Takes a brief handle like E46."),
+            'Continue pending messages omitted by memcal_open, using its cursor. Messages are nominated for this entry, not every message in the thread. Reading does not review them; cite line ids in a correction or memcal_reviewed.'),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -209,28 +154,21 @@ TOOLS = [
     # already knows which field it means, so there is nothing left to extract.
     {
         "name": "memcal_add",
-        "description": ("Put a new thing in memcal's private memory now. memcal is "
-                        "optimistic and private: "
-                        "'I might get dinner Tuesday' belongs on it at status 'mentioned'. "
-                        "This does not create an event in Calendar.app; use the host's "
-                        "calendar capability for that. If it is already here, use "
-                        "memcal_update."),
+        "description": ('Add one private memory event. Use memcal_schedule for recurring events, including several weekdays; do not add each weekday separately. Tentative plans are allowed. Use memcal_update for an existing event.'),
         "inputSchema": {
             "type": "object",
             "properties": {
+                              "note": {"type": "string", "description": "Other event details in plain text"},
                 "title": {"type": "string"},
                 "when": {"type": "string",
                          "description": "'saturday', 'tomorrow', 'this weekend', or yyyy-mm-dd"},
                 "time": {"type": "string"},
-                "location": {"type": "string"},
+                "location": {"type": "string", "description": "Place, address, or video-call URL; omit if unknown"},
                 "participants": {"type": "array", "items": {"type": "string"}},
                 "status": {"type": "string", "enum": list(events.STATUSES)},
                 "kind": {"type": "string", "enum": list(events.KINDS)},
                 "subject": {"type": "string", "description": "whose thing this is; 'me' usually"},
                 "until": {"type": "string", "description": "last day, for multi-day things"},
-                "join_url": {"type": "string",
-                             "description": "the link you attend through, for anything "
-                                            "online. Not the same as where it is"},
                 "series": {"type": "string", "description": "the recurring thing this is one of, as a slug ('tutoring'). Sets it where repetition alone could not prove it — a new instance then starts with what the series already knows"},
                 "field_sources": {
                     "type": "object",
@@ -253,16 +191,7 @@ TOOLS = [
     },
     {
         "name": "memcal_update",
-        "description": ("Change a row that already exists — this is how corrections land. "
-                        "Pass the exact E# handle returned by a brief, list, or open "
-                        "read when you have it; otherwise use distinctive words from the "
-                        "row. 'not going' is status "
-                        "'declined'; 'it moved to Sunday' is when='sunday'; a span that "
-                        "was wrong at either end is when= and until= together. To "
-                        "**remove** a wrong detail rather than replace it, pass an empty "
-                        "string: location='' drops the place. Works for location, note, "
-                        "time, until, join_url, rsvp_url and series. Returns "
-                        "the row as it now stands, so nothing needs looking up afterwards."),
+        "description": ('Update one event by its E# handle or distinctive title. Omitted fields stay unchanged; an empty string clears an optional detail. Use status declined for cancellation or non-attendance. Use memcal_schedule to change a series. Returns the updated record; no verification read needed.'),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -271,7 +200,7 @@ TOOLS = [
                 "when": {"type": "string"},
                 "until": {"type": "string", "description": "last day, for multi-day things"},
                 "time": {"type": "string"},
-                "location": {"type": "string"},
+                "location": {"type": "string", "description": "Place, address, or video-call URL; omit if unknown"},
                 "title": {"type": "string"},
                 "kind": {"type": "string", "enum": list(events.KINDS)},
                 "subject": {"type": "string",
@@ -279,9 +208,6 @@ TOOLS = [
                                            "row filed under the wrong person"},
                 "add_participants": {"type": "array", "items": {"type": "string"}},
                 "remove_participants": {"type": "array", "items": {"type": "string"}},
-                "join_url": {"type": "string",
-                             "description": "the link you attend through, for anything "
-                                            "online. Not the same as where it is"},
                 "series": {"type": "string", "description": "the recurring thing this is one of, as a slug ('tutoring'). Sets it where repetition alone could not prove it — a new instance then starts with what the series already knows"},
                 "note": {"type": "string"},
                 "field_sources": {
@@ -305,25 +231,21 @@ TOOLS = [
     },
     {
         "name": "memcal_schedule",
-        "description": ("The recurring thing itself moved — 'tutoring is Tuesdays at 1 "
-                        "now, starting next week'. This is the *rule*, not one date: it "
-                        "supersedes the old cadence, writes the next occurrence, and "
-                        "withdraws the ones memcal had projected under the old one. Use "
-                        "memcal_move_once when only a single week changes."),
+        "description": ('Create or change ONE recurring series. weekdays lists all days: Monday/Wednesday/Friday is one weekly rule. interval repeats every N days/weeks/months. starting dates a change while preserving the earlier schedule. status paused/active/ended pauses, resumes, or stops it. Use memcal_move_once for one occurrence.'),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "which": {"type": "string",
                           "description": "the recurring thing, as a name or slug ('tutoring')"},
-                "cadence": {"type": "string", "enum": list(series.CADENCES)},
+                "cadence": {"type": "string", "enum": list(series.PUBLIC_CADENCES)},
+                "weekdays": {"type": "array", "items": {"type": "string"}, "description": "All repeating days, e.g. [monday, wednesday, friday]; one series"},
+                "interval": {"type": "integer", "minimum": 1, "maximum": 366, "description": "Repeat every N days/weeks/months; default 1"},
+                "status": {"type": "string", "enum": ["active", "paused", "ended"], "description": "Pause, resume (active), or stop the series, from starting"},
                 "weekday": {"type": "string",
-                            "description": "'tuesday', for weekly/fortnightly"},
+                            "description": "'tuesday', for a single weekly day; prefer weekdays"},
                 "day_of_month": {"type": "integer", "description": "1-31, for monthly"},
                 "time": {"type": "string", "description": "HH:MM"},
-                "location": {"type": "string"},
-                "join_url": {"type": "string",
-                             "description": "the link you attend through. Held on the "
-                                            "series, so every future occurrence has it"},
+                "location": {"type": "string", "description": "Place, address, or video-call URL; omit if unknown"},
                 "starting": {"type": "string",
                              "description": "the day the new schedule begins; omit for "
                                             "'from now on'. Never retro-dates what has "
@@ -337,14 +259,11 @@ TOOLS = [
     },
     {
         "name": "memcal_move_once",
-        "description": ("One week of a recurring thing moved, and only that week — 'I "
-                        "can't do Tuesday, we're doing Wednesday at noon just this "
-                        "once'. The schedule is untouched, so the week after is still "
-                        "on its normal day. If the schedule itself changed, that is "
-                        "memcal_schedule."),
+        "description": ('Move or cancel one occurrence without changing the series. Use an event E# handle, or the series name plus on for a date not yet materialized. Give to for a move; cancelled=true skips it without requiring to.'),
         "inputSchema": {
             "type": "object",
             "properties": {
+                              "on": {"type": "string", "description": "Original occurrence date when which names the series"},
                 "which": {"type": "string",
                           "description": "the row's E# handle when available, otherwise distinctive words"},
                 "to": {"type": "string", "description": "'wednesday' or yyyy-mm-dd"},
@@ -353,7 +272,7 @@ TOOLS = [
                               "description": "true when the week is skipped outright "
                                              "rather than moved"},
             },
-            "required": ["which", "to"], "additionalProperties": False,
+            "required": ["which"], "additionalProperties": False,
         },
     },
     {
@@ -433,13 +352,7 @@ TOOLS = [
     },
     {
         "name": "memcal_name",
-        "description": ("Confirm or correct a guessed sender's name — the ones shown as "
-                        "'\"<name>\" (inferred from messages)'. When a freshness hint says a name is a guess, "
-                        "check it with the user, then call this: `guess` is the guessed "
-                        "name as shown; give `correct` only if the user says it is "
-                        "someone else. Confirming stops it reading as a guess; a real "
-                        "contact name is never touched. Do not raise it unprompted — only "
-                        "when already discussing that plan or sender."),
+        "description": ('Confirm or correct an inferred sender name after the user supplies confirmation or a correction. Do not ask solely because a name is inferred; only an explicitly uncertain identity relevant to the answer warrants a question.'),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -720,6 +633,7 @@ class Server:
             start, span = db.parse_when(args.get("when", ""))
             span = max(1, int(args.get("days") or span))
             end = start + timedelta(days=span - 1)
+            series.materialize_between(self.conn, start, end)
             rows = events.overlapping(self.conn, start.isoformat(), end.isoformat())
             label = (start.strftime("%A %b %-d, %Y") if span == 1
                      else f"{start.isoformat()} – {end.isoformat()}")
@@ -735,6 +649,7 @@ class Server:
             month = args.get("month")
             start = db.parse_date(month + "-01") if month else db.today().replace(day=1)
             end = (start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+            series.materialize_between(self.conn, start, end)
             rows = events.overlapping(self.conn, start.isoformat(), end.isoformat())
             head = f"memcal {start.strftime('%B %Y')} ({len(rows)} rows)"
             return ("\n".join([head] + [f"{r.one_line()}  {brief.source_tag('event', r.id)}"
@@ -849,7 +764,7 @@ class Server:
                 time=args.get("time"), location=args.get("location"),
                 participants=args.get("participants") or [], status=args.get("status"),
                 kind=args.get("kind"), subject=args.get("subject"), until=args.get("until"),
-                join_url=args.get("join_url"), series=args.get("series"),
+                note=args.get('note'), join_url=args.get("join_url"), series=args.get("series"),
                 field_sources=args.get("field_sources"),
                 context_source_ids=args.get("context_source_ids"))
             event, verb = outcome.event, outcome.verb
@@ -892,6 +807,7 @@ class Server:
                 conn, cfg, args.get("which", ""), origin=self.origin(),
                 cadence=args.get("cadence"),
                 weekday=args.get("weekday"), day_of_month=args.get("day_of_month"),
+                weekdays=args.get('weekdays'), interval=args.get('interval'), status=args.get('status'),
                 time=args.get("time"), location=args.get("location"),
                 join_url=args.get("join_url"), starting=args.get("starting"),
                 ended=bool(args.get("ended")))
@@ -900,7 +816,7 @@ class Server:
         if name == "memcal_move_once":
             event, replaced = live.move_one_occurrence(
                 conn, cfg, args.get("which", ""), origin=self.origin(),
-                to=args.get("to", ""),
+                to=args.get("to", ""), on=args.get('on'),
                 time=args.get("time"), cancelled=bool(args.get("cancelled")))
             return (f"{event.one_line()}\nthis week only — the {replaced} session; "
                     f"the schedule is unchanged")

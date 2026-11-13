@@ -6,20 +6,19 @@ attendance state; ``roll_forward`` creates occurrences without inventing judgeme
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 
 from . import db
 
-#: How often, as a closed vocabulary. Open-ended RRULE grammar is not the requirement —
-#: what arrives in an email is "weekly", "every other week", "monthly". Anything the
-#: vocabulary cannot say is `None`, which means the series is real and its cadence is not
-#: known, and `roll_forward` declines to project rather than guessing at one.
-CADENCES = ("weekly", "fortnightly", "monthly")
+#: Structured recurrence units; multiple weekdays and an interval customize them.
+#: Legacy fortnightly rows remain readable as every-two-week schedules.
+CADENCES = ("daily", "weekly", "fortnightly", "monthly")
+PUBLIC_CADENCES = ("daily", "weekly", "every_two_weeks", "monthly")
 
 #: Fields a later write may change. `slug` is the identity and `created_at` is history.
 MUTABLE = (
-    "title", "cadence", "weekday", "day_of_month", "time", "location", "join_url",
+    "title", "cadence", "weekday", "weekdays", "interval", "day_of_month", "time", "location", "join_url",
     "effective_on", "ends_on", "status", "source",
 )
 
@@ -28,7 +27,7 @@ MUTABLE = (
 #: every future Tuesday `confirmed` on the strength of last Tuesday having happened.
 QUALITIES = ("location", "join_url")
 
-STATUSES = ("active", "ended")
+STATUSES = ("active", "paused", "ended")
 
 _WEEKDAYS = ("Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays",
              "Saturdays", "Sundays")
@@ -40,6 +39,8 @@ class Series:
     title: str
     cadence: str | None = None
     weekday: int | None = None
+    weekdays: list[int] = field(default_factory=list)
+    interval: int = 1
     day_of_month: int | None = None
     time: str | None = None
     location: str | None = None
@@ -52,25 +53,41 @@ class Series:
     written_by: str = "cli"
     created_at: str = ""
     updated_at: str = ""
+    changes: list[tuple[str, dict]] = field(default_factory=list, repr=False, compare=False)
+    segment_on: str = ''
+    segment_until: str = ''
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Series":
-        return cls(**{f: row[f] for f in cls.__dataclass_fields__ if f in row.keys()})
+        values = {f: row[f] for f in cls.__dataclass_fields__ if f in row.keys()}
+        values['weekdays'] = db.jload(values.get('weekdays'), [])
+        return cls(**values)
+
+    @property
+    def days(self) -> list[int]:
+        return self.weekdays or ([self.weekday] if self.weekday is not None else [])
+
+    @property
+    def every(self) -> int:
+        return 2 if self.cadence == 'fortnightly' else self.interval
 
     @property
     def phrase(self) -> str:
         """"Tuesdays at 13:00" — the rule as a person says it."""
-        if self.cadence == "monthly" and self.day_of_month:
-            stem = f"the {self.day_of_month} of each month"
-        elif self.weekday is not None and 0 <= self.weekday <= 6:
-            stem = _WEEKDAYS[self.weekday]
-            if self.cadence == "fortnightly":
-                stem = f"every other {stem[:-1]}"
+        if self.cadence == "daily":
+            stem = 'daily' if self.every == 1 else f'every {self.every} days'
+        elif self.cadence == "monthly" and self.day_of_month:
+            stem = (f"the {self.day_of_month} of each month" if self.every == 1 else
+                    f"the {self.day_of_month} every {self.every} months")
+        elif self.days:
+            stem = ', '.join(_WEEKDAYS[day] for day in self.days)
+            if self.every > 1:
+                stem = f"every {self.every} weeks on " + ', '.join(_WEEKDAYS[d][:-1] for d in self.days)
         else:
             stem = self.cadence or "on no fixed schedule"
         # A rule without a time has a hole in it; render the gap instead of silence.
         said = f"{stem} at {self.time}" if self.time else f"{stem}, time TBD"
-        return said if self.status == "active" else f"{said} (ended)"
+        return said if self.status == "active" else f"{said} ({self.status})"
 
     @property
     def projectable(self) -> bool:
@@ -79,31 +96,39 @@ class Series:
             return False
         if self.cadence == "monthly":
             return self.day_of_month is not None
-        return self.weekday is not None
+        return self.cadence == 'daily' or bool(self.days)
 
 
 def allows_date(conn: sqlite3.Connection, slug: str, on: str) -> bool:
     """A retired schedule cannot lend its identity or access details to a new plan."""
-    rule = conn.execute('SELECT status, effective_on, ends_on FROM series WHERE slug=?',
-                        (slug,)).fetchone()
+    rule = get(conn, slug, on=on)
     if rule is None:
         return True  # Legacy membership can predate declared schedule rules.
-    if rule['status'] == 'ended' and not rule['ends_on']:
+    if rule.status == 'paused' or (rule.status == 'ended' and not rule.ends_on):
         return False
-    return (not rule['effective_on'] or on >= rule['effective_on']) and (
-        not rule['ends_on'] or on <= rule['ends_on'])
+    return (not rule.effective_on or on >= rule.effective_on) and (
+        not rule.ends_on or on <= rule.ends_on)
 
 
-def get(conn: sqlite3.Connection, slug: str) -> Series | None:
+def get(conn: sqlite3.Connection, slug: str, *, on: str | None = None) -> Series | None:
     row = conn.execute("SELECT * FROM series WHERE slug = ?", (db.slugify(slug or ""),)
                        ).fetchone()
-    return Series.from_row(row) if row else None
+    if not row:
+        return None
+    rule = Series.from_row(row)
+    rule.changes = [(r['on_date'], db.jload(r['patch'], {})) for r in conn.execute(
+        'SELECT on_date, patch FROM series_changes WHERE slug=? ORDER BY on_date', (rule.slug,))]
+    for when, patch in rule.changes:
+        if when <= (on or db.today().isoformat()):
+            for name, value in patch.items():
+                if name in MUTABLE:
+                    setattr(rule, name, value)
+    return rule
 
 
 def all_active(conn: sqlite3.Connection) -> list[Series]:
-    rows = conn.execute(
-        "SELECT * FROM series WHERE status = 'active' ORDER BY slug").fetchall()
-    return [Series.from_row(row) for row in rows]
+    rules = [get(conn, row['slug']) for row in conn.execute('SELECT slug FROM series ORDER BY slug')]
+    return [rule for rule in rules if rule and (rule.status == 'active' or rule.changes)]
 
 
 def _clean(fields: dict) -> dict:
@@ -113,8 +138,23 @@ def _clean(fields: dict) -> dict:
         cadence = str(out["cadence"]).strip().lower()
         # Accept only unambiguous cadence words.
         cadence = {"every other week": "fortnightly", "every two weeks": "fortnightly",
+                   "every_two_weeks": "fortnightly",
                    "every week": "weekly", "every month": "monthly"}.get(cadence, cadence)
         out["cadence"] = cadence if cadence in CADENCES else None
+    if out.get('weekdays') is not None:
+        days = db.jload(out['weekdays'], []) if isinstance(out['weekdays'], str) else out['weekdays']
+        if not isinstance(days, list) or any(type(d) is not int or not 0 <= d <= 6 for d in days):
+            raise ValueError('weekdays must be a list of weekdays, Monday=0 through Sunday=6')
+        out['weekdays'] = sorted(set(days))
+        if days:
+            out['weekday'] = out['weekdays'][0]
+    elif out.get('weekday') is not None:
+        out['weekdays'] = []
+    if out.get('interval') is not None:
+        if type(out['interval']) is not int or not 1 <= out['interval'] <= 366:
+            raise ValueError('interval must be a whole number from 1 to 366')
+    if out.get('cadence') in ('daily', 'monthly'):
+        out['weekdays'] = []
     for name in ("weekday", "day_of_month"):
         if out.get(name) is not None:
             try:
@@ -128,13 +168,16 @@ def _clean(fields: dict) -> dict:
     for name in ("effective_on", "ends_on"):
         if out.get(name):
             out[name] = db.parse_date(out[name]).isoformat()
+    if out.get('status') is None:
+        out.pop('status', None)
     if out.get("status") not in STATUSES and "status" in out:
         out["status"] = "active"
     return out
 
 
 def upsert(conn: sqlite3.Connection, fields: dict, *, written_by: str = "cli",
-           commit: bool = True, evidence_ts: str | None = None) -> tuple[Series, str]:
+           commit: bool = True, evidence_ts: str | None = None,
+           change_on: str | None = None) -> tuple[Series, str]:
     """Insert or change one rule."""
     fields = _clean({k: v for k, v in fields.items()
                      if k in MUTABLE or k in ("slug", "origin")})
@@ -142,15 +185,17 @@ def upsert(conn: sqlite3.Connection, fields: dict, *, written_by: str = "cli",
     if not slug:
         raise ValueError("series needs a slug or a title")
     stamp = db.now()
-    existing = get(conn, slug)
+    applies_on = change_on or fields.get('effective_on') or db.today().isoformat()
+    existing = get(conn, slug, on=applies_on)
     if existing is None:
         conn.execute(
-            """INSERT INTO series(slug, title, cadence, weekday, day_of_month, time,
+            """INSERT INTO series(slug, title, cadence, weekday, weekdays, interval, day_of_month, time,
                                   location, join_url, effective_on, ends_on, status,
                                   source, origin, written_by, created_at, updated_at)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (slug, fields.get("title") or slug.replace("-", " ").title(),
-             fields.get("cadence"), fields.get("weekday"), fields.get("day_of_month"),
+             fields.get("cadence"), fields.get("weekday"), db.jdump(fields.get('weekdays') or []),
+             fields.get('interval') or 1, fields.get("day_of_month"),
              fields.get("time"), fields.get("location"), fields.get("join_url"),
              fields.get("effective_on") or db.today().isoformat(),
              fields.get("ends_on"), fields.get("status") or "active",
@@ -165,7 +210,7 @@ def upsert(conn: sqlite3.Connection, fields: dict, *, written_by: str = "cli",
                 conn.execute("INSERT INTO series_history(slug, field, old_value, new_value, changed_at, evidence_ts, written_by) VALUES(?,?,NULL,?,?,?,?)", (slug, name, str(value), stamp, evidence_ts or stamp, written_by))
         if commit:
             conn.commit()
-        return get(conn, slug), "inserted"  # type: ignore[return-value]
+        return get(conn, slug, on=fields.get('effective_on')), "inserted"  # type: ignore[return-value]
 
     changes = []
     for name in MUTABLE:
@@ -181,8 +226,29 @@ def upsert(conn: sqlite3.Connection, fields: dict, *, written_by: str = "cli",
         changes.append((name, before, after))
     if not changes:
         return existing, "unchanged"
+    # Dated patches preserve the old schedule until a future change takes effect.
+    conn.execute('INSERT OR IGNORE INTO series_changes(slug,on_date,patch) VALUES(?,?,?)',
+                 (slug, '0001-01-01', db.jdump({name: getattr(existing, name) for name in MUTABLE})))
+    on_date = applies_on
+    old_patch = conn.execute('SELECT patch FROM series_changes WHERE slug=? AND on_date=?',
+                             (slug, on_date)).fetchone()
+    patch = db.jload(old_patch['patch'], {}) if old_patch else {}
+    patch.update({name: after for name, _, after in changes})
+    if any(name == 'status' and after == 'ended' for name, _, after in changes):
+        # Stopping a series supersedes previously planned resumes. A later,
+        # explicit resume remains possible through the same dated write path.
+        for future in conn.execute('SELECT on_date, patch FROM series_changes WHERE slug=? AND on_date>?',
+                                   (slug, on_date)).fetchall():
+            later = db.jload(future['patch'], {})
+            if later.get('status') == 'active':
+                later.pop('status')
+                later.pop('ends_on', None)
+                conn.execute('UPDATE series_changes SET patch=? WHERE slug=? AND on_date=?',
+                             (db.jdump(later), slug, future['on_date']))
+    conn.execute('INSERT INTO series_changes(slug,on_date,patch) VALUES(?,?,?) '
+                 'ON CONFLICT(slug,on_date) DO UPDATE SET patch=excluded.patch',
+                 (slug, on_date, db.jdump(patch)))
     for name, before, after in changes:
-        conn.execute(f"UPDATE series SET {name} = ? WHERE slug = ?", (after, slug))
         conn.execute(
             """INSERT INTO series_history(slug, field, old_value, new_value,
                                           changed_at, evidence_ts, written_by)
@@ -194,7 +260,7 @@ def upsert(conn: sqlite3.Connection, fields: dict, *, written_by: str = "cli",
                  (stamp, written_by, slug))
     if commit:
         conn.commit()
-    return get(conn, slug), "updated"  # type: ignore[return-value]
+    return get(conn, slug, on=on_date), "updated"  # type: ignore[return-value]
 
 
 def end(conn: sqlite3.Connection, slug: str, *, on: str | None = None,
@@ -209,8 +275,25 @@ def end(conn: sqlite3.Connection, slug: str, *, on: str | None = None,
     return updated
 
 
-def _step(cadence: str) -> timedelta:
-    return timedelta(days=14) if cadence == "fortnightly" else timedelta(days=7)
+def segments(rule: Series, start: str | date, end_at: str | date | None = None) -> list[Series]:
+    """Continuous schedule versions, preserving anchors across location edits."""
+    first = db.parse_date(start).isoformat()
+    last = db.parse_date(end_at).isoformat() if end_at else '9999-12-31'
+    if not rule.changes:
+        return [replace(rule, changes=[])]
+    current = replace(rule, changes=[])
+    out = []
+    began = '0001-01-01'
+    for when, patch in rule.changes:
+        if when != '0001-01-01':
+            until = (db.parse_date(when) - timedelta(days=1)).isoformat()
+            if until >= first and began <= last:
+                out.append(replace(current, segment_on=began, segment_until=until))
+        current = replace(current, **{name: value for name, value in patch.items() if name in MUTABLE})
+        began = when
+    if began <= last:
+        out.append(replace(current, segment_on=began))
+    return out
 
 
 def occurrences(conn_or_series, start: str | date, end_at: str | date,
@@ -220,6 +303,9 @@ def occurrences(conn_or_series, start: str | date, end_at: str | date,
     Pure projection; the caller joins rules to stored rows.
     """
     rule = series if series is not None else conn_or_series
+    if isinstance(rule, Series) and rule.changes:
+        return sorted({day for part in segments(rule, start, end_at)
+                       for day in occurrences(None, start, end_at, series=part)})
     if not isinstance(rule, Series) or not rule.projectable:
         return []
     first = db.parse_date(start)
@@ -228,10 +314,21 @@ def occurrences(conn_or_series, start: str | date, end_at: str | date,
         first = max(first, db.parse_date(rule.effective_on))
     if rule.ends_on:
         last = min(last, db.parse_date(rule.ends_on))
+    if rule.segment_on:
+        first = max(first, db.parse_date(rule.segment_on))
+    if rule.segment_until:
+        last = min(last, db.parse_date(rule.segment_until))
     if first > last:
         return []
 
     out: list[date] = []
+    anchor = db.parse_date(rule.effective_on) if rule.effective_on else first
+    if rule.cadence == 'daily':
+        cursor = first + timedelta(days=(-(first - anchor).days) % rule.every)
+        while cursor <= last:
+            out.append(cursor)
+            cursor += timedelta(days=rule.every)
+        return out
     if rule.cadence == "monthly":
         day = rule.day_of_month or 1
         cursor = first.replace(day=1)
@@ -241,24 +338,22 @@ def occurrences(conn_or_series, start: str | date, end_at: str | date,
             except ValueError:
                 # Skip months without that day rather than clamping.
                 landed = None
-            if landed is not None and first <= landed <= last:
+            months = (cursor.year - anchor.year) * 12 + cursor.month - anchor.month
+            if landed is not None and first <= landed <= last and months % rule.every == 0:
                 out.append(landed)
             cursor = (cursor.replace(day=28) + timedelta(days=7)).replace(day=1)
         return out
 
     # `effective_on` anchors a fortnightly rule, not just bounds it.
-    anchor = db.parse_date(rule.effective_on) if rule.effective_on else first
-    anchor += timedelta(days=(rule.weekday - anchor.weekday()) % 7)
-    step = _step(rule.cadence or "weekly")
-    cursor = anchor
-    if cursor < first:
-        skipped = (first - cursor) // step
-        cursor += step * skipped
-        while cursor < first:
-            cursor += step
+    # Anchor on the week of the first matching day, preserving old every-other-week rules.
+    anchor += timedelta(days=min((day - anchor.weekday()) % 7 for day in rule.days))
+    week_zero = anchor - timedelta(days=anchor.weekday())
+    cursor = first
     while cursor <= last:
-        out.append(cursor)
-        cursor += step
+        week = (cursor - week_zero).days // 7
+        if cursor.weekday() in rule.days and week % rule.every == 0:
+            out.append(cursor)
+        cursor += timedelta(days=1)
     return out
 
 
@@ -270,6 +365,23 @@ def next_on(conn: sqlite3.Connection, rule: Series, *, after: str | date | None 
     return landed[0] if landed else None
 
 
+def materialize_between(conn: sqlite3.Connection, start: str | date, end_at: str | date) -> None:
+    """Give requested calendar slots stable handles without creating extra rules."""
+    from . import events
+    first, last = db.parse_date(start), db.parse_date(end_at)
+    if (last - first).days > 3660:
+        raise ValueError('request at most ten years at a time')
+    for row in conn.execute('SELECT slug FROM series').fetchall():
+        rule = get(conn, row['slug'])
+        skip = covered(conn, rule.slug)
+        for on in occurrences(None, first, last, series=rule):
+            if on.isoformat() in skip:
+                continue
+            if conn.execute('SELECT 1 FROM events WHERE series=? AND date=?', (rule.slug, on.isoformat())).fetchone():
+                continue
+            events.upsert(conn, _projection(rule, on), written_by=WRITER, match=False)
+
+
 #: Projected occurrences kept per rule. The rule holds the long-term schedule.
 MATERIALIZE_AHEAD = 1
 
@@ -279,6 +391,8 @@ WRITER = "series"
 
 
 def _projection(rule: Series, on: date) -> dict:
+    if rule.changes:
+        rule = segments(rule, on, on)[0]
     fields = {
         "title": rule.title,
         "date": on.isoformat(),
@@ -303,15 +417,15 @@ def roll_forward(conn: sqlite3.Connection, *, slug: str | None = None,
 
     log: list[str] = []
     rules = [get(conn, slug)] if slug else [
-        Series.from_row(row) for row in conn.execute("SELECT * FROM series ORDER BY slug")]
+        get(conn, row['slug']) for row in conn.execute("SELECT slug FROM series ORDER BY slug")]
     for rule in [r for r in rules if r is not None]:
-        if not rule.projectable:
-            for row in conn.execute("SELECT key FROM events WHERE series = ? AND date >= ? AND written_by = ?", (rule.slug, db.today().isoformat(), WRITER)).fetchall():
-                events.delete(conn, row["key"])
+        scheduled = occurrences(None, db.today(), db.today() + timedelta(days=horizon_days), series=rule)
+        if not scheduled:
+            for row in conn.execute("SELECT key, date FROM events WHERE series = ? AND date >= ? AND written_by = ?", (rule.slug, db.today().isoformat(), WRITER)).fetchall():
+                if not occurrences(None, row['date'], row['date'], series=rule):
+                    events.delete(conn, row["key"])
             continue
         start = db.today()
-        if rule.effective_on:
-            start = max(start, db.parse_date(rule.effective_on))
         scheduled = occurrences(None, start, start + timedelta(days=horizon_days),
                                 series=rule)
         skip = covered(conn, rule.slug)
@@ -330,7 +444,7 @@ def roll_forward(conn: sqlite3.Connection, *, slug: str | None = None,
                 "SELECT key, date FROM events"
                 "  WHERE series = ? AND date >= ? AND written_by = ?",
                 (rule.slug, db.today().isoformat(), WRITER)):
-            if row["date"] in landing:
+            if row["date"] in landing or occurrences(None, row['date'], row['date'], series=rule):
                 events.upsert(conn,
                               {**_projection(rule, db.parse_date(row["date"])),
                                "key": row["key"]},
@@ -359,7 +473,7 @@ def roll_forward(conn: sqlite3.Connection, *, slug: str | None = None,
                   AND written_by = ?""",
             (rule.slug, db.today().isoformat(), WRITER)).fetchall()
         for row in stale:
-            if row["date"] in landing:
+            if row["date"] in landing or occurrences(None, row['date'], row['date'], series=rule):
                 continue
             events.delete(conn, row["key"])
             log.append(f"series  withdrew the projected {rule.title} on {row['date']} — "
@@ -374,7 +488,7 @@ def stale_occurrences(conn: sqlite3.Connection, slug: str) -> list[sqlite3.Row]:
     Returned for the caller to ask about; this never deletes observations.
     """
     rule = get(conn, slug)
-    if rule is None or not rule.projectable:
+    if rule is None:
         return []
     start = db.today()
     landing = {d.isoformat() for d in
@@ -390,12 +504,12 @@ def stale_occurrences(conn: sqlite3.Connection, slug: str) -> list[sqlite3.Row]:
 
 def slot_for(rule: Series, on: str | date, instead_of: str | None = None) -> str | None:
     """Which scheduled day an occurrence belongs to, or None if the rule cannot say."""
-    if not rule.projectable:
+    if not rule.projectable and not rule.changes:
         return None
     if instead_of:
         return db.parse_date(instead_of).isoformat()
     day = db.parse_date(on)
-    reach = 14 if rule.cadence == "fortnightly" else (16 if rule.cadence == "monthly" else 7)
+    reach = (16 if rule.cadence == 'monthly' else 1 if rule.cadence == 'daily' else 7) * rule.every
     landing = occurrences(None, day - timedelta(days=reach), day + timedelta(days=reach),
                           series=rule)
     if not landing:
@@ -415,6 +529,7 @@ def slot_for(rule: Series, on: str | date, instead_of: str | None = None) -> str
 def covered(conn: sqlite3.Connection, slug: str) -> set[str]:
     """Scheduled days some row already stands in for, by date or `instead_of`."""
     rows = conn.execute(
-        "SELECT instead_of FROM events WHERE series = ? AND instead_of IS NOT NULL",
+        "SELECT coalesce(instead_of, date) AS instead_of FROM events WHERE series = ?"
+        " AND (instead_of IS NOT NULL OR status = 'declined')",
         (db.slugify(slug or ""),)).fetchall()
     return {str(row["instead_of"]) for row in rows if row["instead_of"]}

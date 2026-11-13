@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS series (
     title        TEXT NOT NULL,
     cadence      TEXT,                  -- weekly | fortnightly | monthly, or NULL
     weekday      INTEGER,               -- 0=Mon .. 6=Sun, for weekly/fortnightly
+    weekdays     TEXT NOT NULL DEFAULT '[]', -- multiple weekdays, Monday=0
+    interval     INTEGER NOT NULL DEFAULT 1 CHECK(interval > 0),
     day_of_month INTEGER,               -- 1..31, for monthly
     time         TEXT,                  -- 'HH:MM'
     -- Canonical location/join_url; `events.SERIES_QUALITIES` reads here first.
@@ -91,6 +93,13 @@ CREATE TABLE IF NOT EXISTS series (
     written_by   TEXT NOT NULL DEFAULT 'cli',
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS series_changes (
+    slug TEXT NOT NULL REFERENCES series(slug) ON DELETE CASCADE,
+    on_date TEXT NOT NULL,
+    patch TEXT NOT NULL,
+    PRIMARY KEY(slug, on_date)
 );
 
 CREATE TABLE IF NOT EXISTS series_history (

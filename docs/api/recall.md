@@ -20,8 +20,7 @@ memcal search "dinner next week"   # full-text archive search
 | Tool | Reads |
 |---|---|
 | `memcal_brief` | The always-in-context block — read first |
-| `memcal_open` | One brief line: detail, links, messages, history |
-| `memcal_open_page` | Wiki page facts, encounters, citations |
+| `memcal_open` | Record or wiki page: details, source context, capped new messages, history |
 | `memcal_search_wiki` | Find stored facts by name, alias, label, value, or prose |
 | `memcal_list_days` | Day or stretch (`saturday`, `tomorrow`, `weekend`, date) |
 | `memcal_list_month` | Whole-month memory view |
@@ -39,8 +38,8 @@ the range. A shortened brief discloses missing rows instead of claiming complete
 
 Open durable facts with `memcal_open(ref="me")` or a page name. When the page is
 unknown, use `memcal_search_wiki` before searching raw archive messages. A flagged
-event's `memcal_open` result contains its stored details and cited evidence only;
-use `memcal_activity` to read pending messages separately.
+event's `memcal_open` result includes capped pending messages alongside labeled
+citations and nearby context. Use `memcal_activity` only to read beyond that cap.
 
 `memcal_conversation` takes a `line_id` from search results or a channel/thread
 pair, so a flagged thread is one call away — the assistant never invents a

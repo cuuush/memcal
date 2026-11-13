@@ -11,7 +11,7 @@ Canonical docs: https://cuuush.github.io/memcal/ · skill pack: [`skills/memcal-
 Mac-first product path. Coding agents: follow this section (or load
 [`skills/memcal-install`](skills/memcal-install/SKILL.md)) — no product tour.
 
-Honest tool counts: **MCP 23** (+ `memcal://brief` resource); **Hermes 21**
+Honest tool counts: **MCP 22** (+ `memcal://brief` resource); **Hermes 20**
 (prefetch replaces `memcal_brief`; `memcal_name` is MCP-only). Host agents are required for Hermes/OpenClaw —
 memcal does not install them.
 
@@ -54,7 +54,7 @@ charges. Show the [privacy guide](https://cuuush.github.io/memcal/privacy/) firs
 Smoke:
 
 ```bash
-python3 -m memcal.mcp_server   # stdio JSON-RPC; 23 tools + memcal://brief
+python3 -m memcal.mcp_server   # stdio JSON-RPC; 22 tools + memcal://brief
 ```
 
 **Cursor** — `~/.cursor/mcp.json` or project `.cursor/mcp.json`:
@@ -102,7 +102,7 @@ No checkout or manual symlink is required for a PyPI install. Direct pip upgrade
 need `memcal hermes refresh --yes`; `memcal update` refreshes existing managed
 copies automatically and preserves local-edit conflicts.
 
-Verify: `MEMCAL SNAPSHOT` injects initially and when changed; **21** tools list (`memcal_open`,
+Verify: `MEMCAL SNAPSHOT` injects initially and when changed; **20** tools list (`memcal_open`,
 `memcal_open_source`, typed writes, … — prefetch replaces `memcal_brief`).
 
 Details: https://cuuush.github.io/memcal/integrations/hermes/
@@ -144,7 +144,7 @@ writes nothing and prints cron lines instead — use those verbatim (nightly
 ### 7. Done when
 
 - `memcal doctor` / `memcal brief` run
-- Chosen harness shows memcal tools / injection (MCP 23 or Hermes 21)
+- Chosen harness shows memcal tools / injection (MCP 22 or Hermes 20)
 - Privacy: user has seen https://cuuush.github.io/memcal/privacy/ before connecting real accounts
 
 ---

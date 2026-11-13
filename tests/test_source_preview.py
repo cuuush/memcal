@@ -33,7 +33,7 @@ class TestBoundedSourcePreviewKeepsRecentEvidence(Base):
             'location':'West room'},written_by='dream',evidence_ts='2026-08-10T10:31:00')
         opened=detail.open_handle(self.conn,self.cfg,f'E{self.event.id}')
         self.assertIn('train is delayed',opened)
-        self.assertIn('pending messages (not cited evidence',opened)
+        self.assertIn('nearby source context (not citations',opened)
         self.assertIn(f'[{correction}]',opened)
         preview=detail._sources_text(self.conn,'event',self.event.key)
         self.assertNotIn('train is delayed',preview)

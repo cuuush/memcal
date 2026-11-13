@@ -315,9 +315,10 @@ class TestEvidenceLifecycleAcrossWritesAndReplay(Pinned):
                 apply._apply_series(self.conn, self.cfg, {'slug': 'tutoring', 'cadence': 'weekly', 'weekday': weekday, 'time': time}, source='person:Morgan', written_by='dream:nightly', evidence_ts=stamp)
                 apply._apply_wiki(self.conn, self.cfg, {'page': 'morgan', 'slot': 'address', 'value': address}, source='person:Morgan', evidence_ts=stamp, archive_ids=[aid])
             expected = (1, '13:00', 'New Street') if external_id == 'old' else (4, '17:00', 'Newest Street')
-            rule = series.get(self.conn, 'tutoring')
+            rule = series.get(self.conn, 'tutoring', on=stamp[:10] if external_id == 'new' else None)
             page = wiki.read(self.cfg.wiki_dir, 'morgan')
             self.assertEqual((rule.weekday, rule.time, page.slots['address']['value']), expected)
+            self.assertEqual(series.get(self.conn, 'tutoring').weekday, 1, 'a future change must preserve the current rule')
         self.assertEqual(self.conn.execute('SELECT count(*) FROM series').fetchone()[0], 1)
 
 class TestStableConversationIdentity(Pinned):

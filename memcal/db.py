@@ -69,6 +69,8 @@ def connect(db_path: Path, *, read_only: bool = False) -> sqlite3.Connection:
 
 # Existing databases need explicit ALTERs; schema.sql only creates new tables.
 ADDED_COLUMNS = (
+    ("series", "weekdays", "TEXT NOT NULL DEFAULT '[]'"),
+    ("series", "interval", "INTEGER NOT NULL DEFAULT 1 CHECK(interval > 0)"),
     ("slot_history", "evidence_ts", "TEXT"),
     ("events", "until", "TEXT"),
     # What a cancellation named, for exact re-identification.

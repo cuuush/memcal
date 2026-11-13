@@ -12,7 +12,7 @@ The server also exposes the brief as the `memcal://brief` resource.
 
 ## Reads
 
-`memcal_brief`, `memcal_open` (stored row, change history, and cited evidence only), `memcal_open_page`,
+`memcal_brief`, `memcal_open` (record or wiki page, history, source context, and capped pending messages),
 `memcal_search_wiki`, `memcal_list_days`, `memcal_list_month`,
 `memcal_search_archive`, `memcal_source`, `memcal_conversation`,
 `memcal_activity` (pending new messages for a handle, or the backlog), and

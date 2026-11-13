@@ -45,7 +45,7 @@ coverage or review of later messages.
 - **Archive** — `on_turn_start` / `sync_turn` file the clean user message under
   the agent channel. Assistant replies, injected snapshots, and tool outputs are
   excluded on these paths.
-- **Tools** — 21 schemas: reads (`memcal_open`, `memcal_open_page`,
+- **Tools** — 20 schemas: reads (`memcal_open`,
   `memcal_search_wiki`, `memcal_open_source`, `memcal_conversation`,
   `memcal_list_days`, `memcal_list_month`, `memcal_search_archive`,
   `memcal_activity`, `memcal_refresh`) and typed writes (`memcal_add`,

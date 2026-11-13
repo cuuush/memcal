@@ -63,7 +63,7 @@ class TestLaterEventsPreservePeople(Base):
         line = self.line(event)
         for text in ("Oct 16–18", "7pm", "not replied", "with Rowan Vale",
                      "hosted by Blair", "via Partiful", "3 days",
-                     "invite:", "join: https://meet.example/join"):
+                     "invite:", "https://meet.example/join"):
             self.assertIn(text, line)
 
 

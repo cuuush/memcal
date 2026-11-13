@@ -393,27 +393,49 @@ _RRULE_DAYS = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
 
 
 def recurrence_rule(text: str | None) -> dict | None:
-    """The cadence Calendar.app is already telling us, in memcal's vocabulary."""
-    body = (text or "").strip().upper()
+    """Import only recurrence patterns the structured schedule can preserve exactly."""
+    body = (text or '').strip().upper()
     if not body:
         return None
-    parts = dict(piece.split("=", 1) for piece in
-                 re.sub(r"^RRULE:", "", body.splitlines()[0]).split(";")
-                 if "=" in piece)
-    freq, interval = parts.get("FREQ"), int(parts.get("INTERVAL") or 1)
-    days = [_RRULE_DAYS[d[-2:]] for d in (parts.get("BYDAY") or "").split(",")
-            if d[-2:] in _RRULE_DAYS]
-    if freq == "WEEKLY" and len(days) == 1 and interval in (1, 2):
-        # Multi-day weekly cadences have no vocabulary; record only single days.
-        return {"cadence": "weekly" if interval == 1 else "fortnightly",
-                "weekday": days[0]}
-    if freq == "MONTHLY" and interval == 1 and not days:
+    parts = dict(piece.split('=', 1) for piece in re.sub(r'^RRULE:', '', body.splitlines()[0]).split(';') if '=' in piece)
+    if set(parts) - {'FREQ', 'INTERVAL', 'BYDAY', 'BYMONTHDAY', 'UNTIL', 'WKST'}:
+        return None
+    try:
+        interval = int(parts.get('INTERVAL') or 1)
+    except ValueError:
+        return None
+    if not 1 <= interval <= 366 or parts.get('WKST', 'MO') != 'MO':
+        return None
+    words = (parts.get('BYDAY') or '').split(',') if parts.get('BYDAY') else []
+    if any(word not in _RRULE_DAYS for word in words):
+        return None
+    days = sorted({_RRULE_DAYS[word] for word in words})
+    freq = parts.get('FREQ')
+    if freq == 'WEEKLY' and days:
+        if len(days) == 1 and interval in (1, 2):
+            result = {'cadence': 'weekly' if interval == 1 else 'fortnightly', 'weekday': days[0]}
+        else:
+            result = {'cadence': 'weekly', 'weekdays': days, 'interval': interval}
+    elif freq == 'MONTHLY' and not days:
         try:
-            return {"cadence": "monthly",
-                    "day_of_month": int((parts.get("BYMONTHDAY") or "").split(",")[0])}
-        except (TypeError, ValueError):
+            day = int(parts.get('BYMONTHDAY') or '')
+        except ValueError:
             return None
-    return None
+        if not 1 <= day <= 31:
+            return None
+        result = {'cadence': 'monthly', 'day_of_month': day}
+        if interval != 1:
+            result['interval'] = interval
+    elif freq == 'DAILY' and not days and not parts.get('BYMONTHDAY'):
+        result = {'cadence': 'daily', 'interval': interval}
+    else:
+        return None
+    if parts.get('UNTIL'):
+        try:
+            result['ends_on'] = datetime.strptime(parts['UNTIL'][:8], '%Y%m%d').date().isoformat()
+        except ValueError:
+            return None
+    return result
 
 
 def learn_cadence(conn: sqlite3.Connection, item: dict, event) -> None:
@@ -1433,11 +1455,64 @@ function request(store) {
 //: already encoded in the thing the rule is attached to. Passing them again would be
 //: saying the same fact twice, in two places that can then disagree.
 function ruleFor(spec) {
-  const frequency = spec.cadence === "monthly"
-    ? $.EKRecurrenceFrequencyMonthly : $.EKRecurrenceFrequencyWeekly;
-  const interval = spec.cadence === "fortnightly" ? 2 : 1;
-  return $.EKRecurrenceRule.alloc.initRecurrenceWithFrequencyIntervalEnd(
-    frequency, interval, $());
+  const frequency = spec.cadence === "daily" ? $.EKRecurrenceFrequencyDaily : spec.cadence === "monthly" ? $.EKRecurrenceFrequencyMonthly : $.EKRecurrenceFrequencyWeekly;
+  const interval = spec.cadence === "fortnightly" ? 2 : (spec.interval || 1);
+  const stop = spec.until ? $.EKRecurrenceEnd.recurrenceEndWithEndDate($.NSISO8601DateFormatter.alloc.init.dateFromString($(spec.until))) : $();
+  const days = (spec.weekdays || []).map(day => $.EKRecurrenceDayOfWeek.dayOfWeek((day + 1) % 7 + 1));
+  if (days.length > 1) {
+    return $.EKRecurrenceRule.alloc.initRecurrenceWithFrequencyIntervalDaysOfTheWeekDaysOfTheMonthMonthsOfTheYearWeeksOfTheYearDaysOfTheYearSetPositionsEnd(frequency, interval, $(days), $(), $(), $(), $(), $(), stop);
+  }
+  return $.EKRecurrenceRule.alloc.initRecurrenceWithFrequencyIntervalEnd(frequency, interval, stop);
+}
+
+// Resolve an occurrence at the requested date boundary, not the historical root.
+// Saving/removing this occurrence with FutureEvents preserves earlier history.
+function occurrence(store, wanted, uid, from, days) {
+  if (!uid) return null;
+  const source = icloudSource(store);
+  if (!source) return null;
+  const formatter = $.NSISO8601DateFormatter.alloc.init;
+  const start = formatter.dateFromString($(from));
+  if (!start || start.isNil()) return null;
+  const end = $.NSDate.dateWithTimeIntervalSinceReferenceDate(start.timeIntervalSinceReferenceDate + days * 86400);
+  const calendars = calendarsIn(source).filter(cal => text(cal.title) === wanted);
+  if (!calendars.length) return null;
+  const predicate = store.predicateForEventsWithStartDateEndDateCalendars(start, end, $(calendars));
+  const found = ObjC.unwrap(store.eventsMatchingPredicate(predicate)) || [];
+  const matches = found.filter(event => text(event.calendarItemIdentifier) === uid || text(event.eventIdentifier) === uid);
+  matches.sort((a, b) => a.startDate.compare(b.startDate));
+  return matches.length ? matches[0] : null;
+}
+
+function exception(store, wanted, spec) {
+  let event = spec.exception_uid ? occurrence(store, wanted, spec.exception_uid, spec.lookup_start || spec.original_start, 1) : null;
+  if (!event) event = occurrence(store, wanted, spec.uid, spec.original_start, 1);
+  if (spec.cancelled) {
+    if (!event) return {removed: false};
+    const err = Ref();
+    if (!store.removeEventSpanCommitError(event, $.EKSpanThisEvent, true, err)) return {error: why(err)};
+    return {removed: true};
+  }
+  const formatter = $.NSISO8601DateFormatter.alloc.init;
+  if (spec.lookup_start && spec.lookup_start !== spec.original_start) {
+    const original = occurrence(store, wanted, spec.uid, spec.original_start, 1);
+    if (original && (!event || text(original.eventIdentifier) !== text(event.eventIdentifier))) {
+      const err = Ref();
+      if (!store.removeEventSpanCommitError(original, $.EKSpanThisEvent, true, err)) return {error: why(err)};
+    }
+  }
+  if (!event) {
+    const calendars = calendarsIn(icloudSource(store)).filter(cal => text(cal.title) === wanted);
+    if (!calendars.length) return {error: "managed calendar is missing"};
+    event = $.EKEvent.eventWithEventStore(store); event.calendar = calendars[0];
+  }
+  const start = formatter.dateFromString($(spec.start)), end = formatter.dateFromString($(spec.end));
+  if (!start || start.isNil() || !end || end.isNil()) return {error: "invalid exception dates"};
+  event.endDate = end; event.startDate = start;
+  event.title = $(spec.title); event.location = $(spec.location || "");
+  const err = Ref();
+  if (!store.saveEventSpanCommitError(event, $.EKSpanThisEvent, true, err)) return {error: why(err)};
+  return {uid: text(event.eventIdentifier)};
 }
 
 //: Publish or update one recurring event, and return the identifier to recognise it by.
@@ -1456,7 +1531,7 @@ function repeat(store, wanted, spec) {
 
   let event = null;
   if (spec.uid) {
-    const found = store.eventWithIdentifier($(spec.uid));
+    const found = occurrence(store, wanted, spec.uid, spec.change_from || spec.start, 1460);
     if (found && !found.isNil()) event = found;
   }
   const fresh = !event;
@@ -1499,7 +1574,7 @@ function repeat(store, wanted, spec) {
 //: recorded, in memcal's own calendar — the same three bounds `retract_unpublishable`
 //: works under, because this deletes from outside this process too.
 function unrepeat(store, wanted, spec) {
-  const found = spec.uid ? store.eventWithIdentifier($(spec.uid)) : null;
+  const found = occurrence(store, wanted, spec.uid, spec.from, 1460);
   if (!found || found.isNil()) return {removed: false};
   if (text(found.calendar.title) !== wanted) return {removed: false, foreign: true};
   const err = Ref();
@@ -1527,6 +1602,8 @@ function run(argv) {
     out = migrate(store, wanted, argv[2] === "apply");
   } else if (verb === "repeat") {
     out = repeat(store, wanted, JSON.parse(argv[2] || "{}"));
+  } else if (verb === "exception") {
+    out = exception(store, wanted, JSON.parse(argv[2] || "{}"));
   } else if (verb === "unrepeat") {
     out = unrepeat(store, wanted, JSON.parse(argv[2] || "{}"));
   } else {
@@ -2197,8 +2274,8 @@ def _series_window(rule, on) -> tuple[str, str]:
 def _series_state(rule) -> str:
     """What memcal published about a rule, so a later run can tell "already there" from
     "the schedule moved". Same trick as `_published_state`, same reason."""
-    fields = ("title", "cadence", "weekday", "day_of_month", "time",
-              "effective_on", "status")
+    fields = ("title", "cadence", "weekday", "weekdays", "interval", "day_of_month", "time",
+              "effective_on", "status", "ends_on", "segment_on", "segment_until")
     return "|".join(
         [str(getattr(rule, name, "") or "") for name in fields]
         + [publish_location(getattr(rule, "location", ""),
@@ -2206,7 +2283,7 @@ def _series_state(rule) -> str:
 
 
 def publish_series(conn: sqlite3.Connection, cfg, rule, *,
-                   runner=subprocess.run) -> dict:
+                   key: str | None = None, runner=subprocess.run) -> dict:
     """Put the *rule* on their real calendar, as one genuinely repeating event."""
     name = (getattr(cfg, "publish_calendar", "") or "").strip()
     if not name:
@@ -2223,6 +2300,8 @@ def publish_series(conn: sqlite3.Connection, cfg, rule, *,
     start = db.today()
     if rule.effective_on:
         start = max(start, db.parse_date(rule.effective_on))
+    if rule.segment_on:
+        start = max(start, db.parse_date(rule.segment_on))
     skip = series_mod.covered(conn, rule.slug)
     first = next((day for day in series_mod.occurrences(
         None, start, start + timedelta(days=400), series=rule)
@@ -2230,17 +2309,21 @@ def publish_series(conn: sqlite3.Connection, cfg, rule, *,
     if first is None:
         raise PublishError(f"{rule.slug} has no upcoming occurrence to anchor on")
 
-    key = series_key(rule.slug)
+    key = key or series_key(rule.slug)
     known = conn.execute(
         "SELECT identity, event_uid, published_state FROM calendar_items"
         "  WHERE event_key = ? AND published = 1 LIMIT 1", (key,)).fetchone()
     start, end = _series_window(rule, first)
+    last_day = min((day for day in (rule.segment_until, rule.ends_on) if day), default=None)
     spec = {
         "uid": known["event_uid"] if known else "",
         "title": rule.title,
         "start": start, "end": end,
         "cadence": rule.cadence, "weekday": rule.weekday,
-        "day_of_month": rule.day_of_month,
+        "day_of_month": rule.day_of_month, "weekdays": rule.days, "interval": rule.every,
+        "change_from": datetime.combine(db.today(), clock_time.min).astimezone().isoformat(),
+        "until": (datetime.combine(db.parse_date(last_day), clock_time(23,59,59)).astimezone().isoformat()
+                  if last_day else None),
         "location": publish_location(rule.location, rule.join_url),
         "notes": "Added by memcal.",
     }
@@ -2295,34 +2378,43 @@ def publish_schedules(conn: sqlite3.Connection, cfg, *, slugs=None,
             "SELECT slug FROM series WHERE status = 'active'"
             " UNION SELECT substr(event_key, 8) FROM calendar_items"
             "  WHERE published = 1 AND event_key LIKE 'series:%'")]
-    rules = [r for r in (series_mod.get(conn, s) for s in slugs) if r]
+    # A dated cadence change or a pause/resume splits the native repeating event
+    # into bounded recurring segments. Each segment remains a genuine recurrence.
+    slugs = sorted({str(slug).split('@', 1)[0] for slug in slugs})
+    rules = [r for r in (series_mod.get(conn, slug) for slug in slugs) if r]
     log = []
     for rule in rules:
-        known = conn.execute(
-            "SELECT published_state FROM calendar_items"
-            "  WHERE event_key = ? AND published = 1 LIMIT 1",
-            (series_key(rule.slug),)).fetchone()
-        if rule.status != "active" or not rule.projectable:
-            if known:
-                log.extend(retract_series(conn, cfg, rule.slug, runner=runner))
-            continue
-        if known and known["published_state"] == _series_state(rule):
-            continue
-        try:
-            written = publish_series(conn, cfg, rule, runner=runner)
-        except (PublishError, CalendarAccountError) as exc:
-            log.append(f"calendar  could not publish the {rule.title} schedule: {exc}")
-            continue
-        log.append(f"calendar  {'added' if written.get('created') else 'updated'} "
-                   f"{rule.title} — {rule.phrase} — in {written['calendar']}")
-        trace.stamp(conn, kind="series", ref=rule.slug, verb="published",
-                    entity=f"calendar:{written['calendar']}", stage="ical")
+        parts = series_mod.segments(rule, db.today())
+        desired = {}
+        for part in parts:
+            begins = max(db.today(), db.parse_date(part.segment_on or part.effective_on or db.today()))
+            if not part.projectable or not series_mod.occurrences(None, begins, begins + timedelta(days=400), series=part):
+                continue
+            key = series_key(rule.slug) + ('@' + part.segment_on if part.segment_on and part.segment_on != '0001-01-01' else '')
+            desired[key] = part
+        known_rows = conn.execute("SELECT event_key, published_state FROM calendar_items WHERE published=1").fetchall()
+        known = {row['event_key']: row['published_state'] for row in known_rows
+                 if row['event_key'] == series_key(rule.slug) or row['event_key'].startswith(series_key(rule.slug) + '@')}
+        for key in known.keys() - desired.keys():
+            log += retract_series(conn, cfg, rule.slug, key=key, runner=runner)
+        for key, part in desired.items():
+            if known.get(key) == _series_state(part):
+                continue
+            try:
+                written = publish_series(conn, cfg, part, key=key, runner=runner)
+            except (PublishError, CalendarAccountError) as exc:
+                log.append(f"calendar  could not publish the {rule.title} schedule: {exc}")
+                continue
+            log.append(f"calendar  {'added' if written.get('created') else 'updated'} {part.title} — {part.phrase} — in {written['calendar']}")
+            trace.stamp(conn, kind='series', ref=rule.slug, verb='published', entity=f"calendar:{written['calendar']}", stage='ical')
+    log += _publish_series_exceptions(conn, cfg, runner=runner)
+
     conn.commit()
     return log
 
 
 def retract_series(conn: sqlite3.Connection, cfg, slug: str, *,
-                   runner=subprocess.run) -> list[str]:
+                   key: str | None = None, runner=subprocess.run) -> list[str]:
     """Take a repeating event back off the calendar, whole.
 
     Only ever an event memcal published, by the uid it recorded, in memcal's own
@@ -2330,14 +2422,15 @@ def retract_series(conn: sqlite3.Connection, cfg, slug: str, *,
     outside this process and the bounds belong next to the delete.
     """
     name = (getattr(cfg, "publish_calendar", "") or "").strip()
-    key = series_key(slug)
+    key = key or series_key(slug)
     known = conn.execute(
         "SELECT identity, event_uid FROM calendar_items"
         "  WHERE event_key = ? AND published = 1 LIMIT 1", (key,)).fetchone()
     if not name or not known:
         return []
     try:
-        done = _account_call("unrepeat", name, json.dumps({"uid": known["event_uid"]}),
+        done = _account_call("unrepeat", name, json.dumps({"uid": known["event_uid"],
+                             "from": datetime.combine(db.today(), clock_time.min).astimezone().isoformat()}),
                              cfg=cfg, runner=runner)
     except CalendarAccountError as exc:
         return [f"calendar  could not retract the {slug} schedule: {exc}"]
@@ -2349,6 +2442,54 @@ def retract_series(conn: sqlite3.Connection, cfg, slug: str, *,
     conn.commit()
     return [f"calendar  removed the {slug} schedule from {name}"] if done.get("removed") \
         else []
+
+
+def _publish_series_exceptions(conn: sqlite3.Connection, cfg, *, runner=subprocess.run) -> list[str]:
+    """Apply one-occurrence changes to native recurrences, with a replay receipt."""
+    from .. import series as series_mod
+    name = (getattr(cfg, 'publish_calendar', '') or '').strip()
+    if not name:
+        return []
+    log = []
+    for row in conn.execute("SELECT * FROM events WHERE series IS NOT NULL AND "
+                            "(instead_of IS NOT NULL OR status='declined')").fetchall():
+        event = events.Event.from_row(row)
+        original = event.instead_of or event.date
+        if max(original, event.date) < db.today().isoformat():
+            continue
+        rule = series_mod.get(conn, event.series)
+        parts = series_mod.segments(rule, original, original) if rule else []
+        if not parts:
+            continue
+        part = parts[0]
+        key = series_key(event.series) + ('@' + part.segment_on if part.segment_on and part.segment_on != '0001-01-01' else '')
+        known = conn.execute('SELECT event_uid, published_state FROM calendar_items WHERE event_key=? AND published=1', (key,)).fetchone()
+        if not known:
+            continue
+        receipt_key = f'calendar.exception:{event.key}'
+        receipt = db.jload(db.get_meta(conn, receipt_key), {})
+        state = known['event_uid'] + '|' + str(known['published_state']) + '|' + event.status + '|' + _published_state(event)
+        if receipt.get('state') == state:
+            continue
+        start, end, _ = _event_window(event)
+        def midnight(day):
+            return datetime.combine(db.parse_date(day), clock_time.min).astimezone().isoformat()
+        spec = {'uid': known['event_uid'], 'original_start': midnight(original),
+                'lookup_start': midnight(receipt.get('day') or original),
+                'exception_uid': receipt.get('uid'), 'cancelled': event.status == 'declined',
+                'start': start, 'end': end, 'title': event.title,
+                'location': publish_location(event.location, event.join_url)}
+        try:
+            result = _account_call('exception', name, json.dumps(spec), cfg=cfg, runner=runner)
+            if result.get('error'):
+                raise PublishError(result['error'])
+        except (PublishError, CalendarAccountError) as exc:
+            log.append(f'calendar  could not update one {event.title} occurrence: {exc}')
+            continue
+        db.set_meta(conn, receipt_key, db.jdump({'state': state, 'day': event.date,
+                                               'uid': result.get('uid')}))
+        log.append(f'calendar  updated one {event.title} occurrence')
+    return log
 
 
 def published_series_uids(conn: sqlite3.Connection) -> set[str]:
@@ -2423,6 +2564,7 @@ def publish_pending(conn: sqlite3.Connection, cfg, *, keys=None,
     if not (getattr(cfg, "publish_calendar", "") or "").strip():
         return []
     log = retract_unpublishable(conn, cfg, dry_run=False, runner=runner)
+    log += _publish_series_exceptions(conn, cfg, runner=runner)
     if keys is None:
         rows = conn.execute(
             "SELECT * FROM events WHERE status IN ('confirmed','happened') AND date >= ?",
@@ -2440,6 +2582,8 @@ def publish_pending(conn: sqlite3.Connection, cfg, *, keys=None,
         if event.key in contested:
             log.append(f"{event.key}: an unplaced cancellation names it — not publishing")
             continue
+        if event.series and event.instead_of and db.get_meta(conn, f'calendar.exception:{event.key}'):
+            continue  # Already moved/cancelled within the native recurring event.
         # A rule already on the calendar puts its own occurrence there. Publishing the
         # row as well would show them two tutoring appointments on one Tuesday, both real,
         # both memcal's. The exception is exactly the row that contradicts the rule, so

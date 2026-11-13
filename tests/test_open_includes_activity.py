@@ -98,7 +98,7 @@ class TestCappedOpenMessages(unittest.TestCase):
 
     def test_overflow_cursor_continues_without_losing_a_correction_or_marking_review(self):
         for n in range(55):
-            self.line(f"Short message {n}")
+            self.line(f"Studio visit update {n}")
         correction = self.line("The studio visit is cancelled")
         handle = f"E{self.event.id}"
         opened = detail.open_handle(self.conn, self.cfg, handle)
@@ -110,7 +110,7 @@ class TestCappedOpenMessages(unittest.TestCase):
         self.assertEqual(detail.open_handle(self.conn, self.cfg, handle), opened)
 
     def test_one_huge_message_is_omitted_whole_with_cursor_zero(self):
-        self.line("huge-message-fragment " * 8000 + "cancel the visit")
+        self.line("Studio visit " + "huge-message-fragment " * 8000 + "cancel the visit")
         opened = detail.open_handle(self.conn, self.cfg, f"E{self.event.id}")
         section = opened.split("pending messages (", 1)[1]
         self.assertLessEqual(textclean.estimate_tokens("pending messages (" + section),

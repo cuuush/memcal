@@ -109,7 +109,7 @@ class TestHermesProvider(unittest.TestCase):
     def test_the_spec_tools_are_exposed(self):
         names = {t["name"] for t in self._ready().get_tool_schemas()}
         # §8 names the read tools explicitly.
-        self.assertTrue({"memcal_open_page", "memcal_list_month",
+        self.assertTrue({"memcal_open", "memcal_list_month",
                          "memcal_search_archive", "memcal_open_source"} <= names)
         # §8's fourth is `remember`, taking a sentence. What that shipped as sent the
         # sentence to a model to be turned back into fields the caller already had, so
@@ -696,11 +696,10 @@ class TestHermesUnifiedOpenRouting(unittest.TestCase):
         self.assertIn("memcal_open with ref=", result["hint"])
         self.assertNotIn("memcal_open_page", result["hint"])
 
-    def test_schemas_advertise_pages_and_deprecate_only_the_alias(self):
+    def test_schemas_advertise_pages_without_the_deprecated_alias(self):
         schemas = {tool["name"]: tool for tool in self.provider.get_tool_schemas()}
         self.assertIn("wiki page", schemas["memcal_open"]["description"])
-        self.assertIn("Deprecated", schemas["memcal_open_page"]["description"])
-        self.assertIn("prefer memcal_open", schemas["memcal_open_page"]["description"])
+        self.assertNotIn("memcal_open_page", schemas)
 
 
 def tearDownModule():

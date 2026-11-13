@@ -139,7 +139,7 @@ def _validate_calendar(value) -> None:
             except ValueError:
                 pass
     verbs = ({"request": 0, "where": 1, "ensure": 1, "migrate": 2,
-              "repeat": 2, "unrepeat": 2} if kind == "account" else
+              "repeat": 2, "unrepeat": 2, "exception": 2} if kind == "account" else
              {"request": 1, "status": 1, "put": 2, "drop": 2} if kind == "reminder" else {})
     if args and args[0] in verbs and len(args) == verbs[args[0]] + 1:
         if args[0] == "migrate" and args[-1] not in {"plan", "apply"}:
