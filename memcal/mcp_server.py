@@ -14,6 +14,7 @@ import sys
 import traceback
 from datetime import timedelta
 
+from . import __version__
 from . import (archive, brief, config, db, detail, events, harness, live, presentation,
                series, todos, trace, whois, wiki)
 
@@ -943,7 +944,7 @@ class Server:
             return _ok(request_id, {
                 "protocolVersion": params.get("protocolVersion", PROTOCOL_VERSION),
                 "capabilities": {"tools": {}, "resources": {}},
-                "serverInfo": {"name": "memcal", "version": "0.8.2"},
+                "serverInfo": {"name": "memcal", "version": __version__},
             })
         if method in ("notifications/initialized", "notifications/cancelled"):
             return None

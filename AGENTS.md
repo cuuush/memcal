@@ -26,23 +26,19 @@ memcal does not install them.
 Never write to a live `~/.memcal` during development tests — use tmp homes. For a
 real user install, `~/.memcal` is the store (`MEMCAL_HOME`).
 
-### 1. Install the CLI (from this checkout)
+### 1. Install the stable CLI
 
-```bash
-git clone https://github.com/cuuush/memcal.git
-cd memcal
-./install.sh                 # PATH launcher; --nightly also schedules the 3am dream pass (macOS launchd only — never pass it on Linux)
-export PATH="$HOME/.local/bin:$PATH"
-memcal doctor
-memcal permissions setup     # macOS: guide protected-source approval; Linux opens nothing
-memcal setup                 # provider + model → ~/.memcal/.env
-memcal brief
-```
+Prefer the released package, not development main, for user installations. Follow
+[`skills/memcal-install`](skills/memcal-install/SKILL.md) for an isolated Python
+virtual environment pinned to 0.8.11 and the exact MCP interpreter path.
+Run `doctor`, then `setup`, then `brief` from that environment. Obtain approval
+before configuring accounts, source permissions, scheduling, or host integration.
 
-PyPI alternate: `pip install memcal` then the same `doctor` / `setup` / `brief` sequence.
-Chat extras: `pip install "memcal[slack]"` or `"memcal[chat]"`.
-
-`MEMCAL_SRC` / checkout `cwd` / `PYTHONPATH` from `install.sh` make `python3 -m memcal.mcp_server` resolve.
+`install.sh` is a checkout-development path, not the stable default; never run it
+from a worktree. Chat extras are optional (`memcal[slack]` or `memcal[chat]`).
+Local storage does not make remote model calls private to the machine: selected
+source text and related context can reach the configured backend and incur model
+charges. Show the [privacy guide](https://cuuush.github.io/memcal/privacy/) first.
 
 ### 2. Choose a harness path
 
@@ -96,14 +92,15 @@ Details: https://cuuush.github.io/memcal/clients/mcp/
 Requires Hermes already installed.
 
 ```bash
-mkdir -p ~/.hermes/plugins
-ln -sfn "$(pwd)/integrations/hermes/memcal" ~/.hermes/plugins/memcal
+memcal hermes setup --yes    # only after approval; stages the packaged provider
 hermes memory setup
 ```
 
-Symlink the **`integrations/hermes/memcal` package directory** (not the parent
-`hermes/` folder). Set `MEMCAL_SRC` to this checkout if import fails (Hermes may
-default to `~/code/memcal`).
+Select MemCal in Hermes and restart it. Setup stages a managed provider under
+`MEMCAL_HOME/integrations/hermes/memcal` and links it into the host plugin folder.
+No checkout or manual symlink is required for a PyPI install. Direct pip upgrades
+need `memcal hermes refresh --yes`; `memcal update` refreshes existing managed
+copies automatically and preserves local-edit conflicts.
 
 Verify: `MEMCAL SNAPSHOT` injects initially and when changed; **21** tools list (`memcal_open`,
 `memcal_open_source`, typed writes, … — prefetch replaces `memcal_brief`).
@@ -120,10 +117,12 @@ openclaw gateway restart
 memcal openclaw status        # plugins inspect + mcp show
 ```
 
-`setup` runs `openclaw plugins install --link <checkout>/integrations/openclaw`,
-`plugins enable memcal`, and `mcp set memcal` with `python3 -m memcal.mcp_server`
-(`cwd` = checkout, `MEMCAL_HOME` set). Plugin points at the checkout — code edits
-need no reinstall; restart the gateway after setup.
+For PyPI installs, setup stages the packaged plugin under
+`MEMCAL_HOME/integrations/openclaw`, enables it, and registers stdio MCP using the
+installing interpreter. Checkout installs can still link their source plugin.
+After a direct pip upgrade, run `memcal openclaw refresh --yes` and restart the
+gateway. `memcal update` refreshes existing managed copies without installing
+new host integrations; locally edited copies are preserved as conflicts.
 
 Details: https://cuuush.github.io/memcal/integrations/openclaw/
 

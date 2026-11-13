@@ -1,5 +1,22 @@
 ## [Unreleased]
 
+### Added
+
+- `memcal mcp` launches the local stdio server for package-based MCP discovery.
+- Draft official Registry metadata, pending the next approved package release.
+
+### Changed
+
+- Updated the agent installation skill for stable 0.8.11, managed integrations,
+  explicit privacy/model-cost guidance, and its separate MIT-0 license.
+- Added the MCP Registry ownership marker to the package README; registry
+  publication still requires a subsequent package release and verified launch metadata.
+
+### Fixed
+
+- MCP initialization reports the installed MemCal version instead of a stale
+  hardcoded version.
+
 ## [0.8.11] - 2026-11-12
 
 ### Added

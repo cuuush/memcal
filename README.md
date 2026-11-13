@@ -1,3 +1,5 @@
+<!-- mcp-name: io.github.cuuush/memcal -->
+
 # memcal
 
 **Memory and calendar for AI agents**
