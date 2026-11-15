@@ -148,13 +148,29 @@ page.
 """
 
 
+_PREFERENCE_CORRECTIONS = """\
+
+WIKI PREFERENCE CORRECTIONS
+For an explicit correction of an existing preference, fill `supersedes` with the
+exact prior slot, current value, and #archive ids from this page's wiki comment,
+plus a verbatim passage from the cited correction. This resolves the prior slot
+even if you generated a synonymous new label; code keeps the existing slot key.
+Set scope to `same` only when the source explicitly corrects that very preference
+in the same context. Pizza-only and all-meal restrictions are different scopes
+unless the source explicitly connects them. Similar labels alone prove nothing.
+Use null for ordinary inserts or updates, unrelated facts, and historical quotes.
+Never treat a quoted old statement as a fresh assertion. When unsure, leave the
+correction unapplied rather than inserting a competing value under a new label.
+"""
+
+
 V2 = """\
 RESPONSE CONTRACT
 List every six-character BUNDLE ID in `reviewed`. Add a `diffs` entry only for a bundle
 with changes, using that same id in `bundle`. Every diff array is required; unused arrays
 are empty. Return only the schema-shaped JSON.
 
-""" + _CORE
+""" + _CORE + _PREFERENCE_CORRECTIONS
 
 
 V1 = """\

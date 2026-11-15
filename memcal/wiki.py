@@ -742,6 +742,97 @@ def slot_history(conn, page: str, slot: str | None = None) -> list:
         "SELECT * FROM slot_history WHERE page = ? ORDER BY id", (page,)).fetchall()
 
 
+def resolved_slot(conn, page: str, proposed: str, value: str, archive_ids) -> str | None:
+    """Replay only an exact, previously validated source/value resolution.
+
+    A label is never an alias for other facts, sources, people or scopes.
+    """
+    ids = db.jdump(sorted(set(archive_ids or [])))
+    row = conn.execute(
+        "SELECT target_slot FROM wiki_slot_resolutions WHERE page = ?"
+        " AND proposed_slot = ? AND value = ? AND archive_ids = ?",
+        (page, proposed, value, ids)).fetchone()
+    return row["target_slot"] if row else None
+
+
+class SlotCorrectionRejected(ValueError):
+    """A correction did not validate; no state has changed."""
+
+
+def correct_slot(conn, wiki_dir: Path, slug: str, proposed: str, value: str, correction: dict,
+                 *, source: str, section: str, archive_ids: list[int], evidence_ts: str,
+                 commit: bool = True) -> str:
+    """Apply a source-backed explicit correction to an exact prior slot snapshot.
+
+    Semantic ownership/scope and explicit-correction extraction belong to propose;
+    this boundary validates the named version and evidence, never label similarity.
+    Keep the old key, history and evidence. A pre-existing duplicate may be retired
+    only when it is exactly this correction's value AND cited source/version.
+    """
+    with _wiki_write(conn, wiki_dir, commit=commit):
+        if not isinstance(correction, dict) or correction.get("scope") != "same":
+            raise SlotCorrectionRejected("correction must explicitly address the same preference scope")
+        target = correction.get("slot")
+        if not isinstance(target, str) or not target.strip():
+            raise SlotCorrectionRejected("correction needs an exact prior slot")
+        page = _page_for_write(conn, wiki_dir, slug, section)
+        old = page.slots.get(target)
+        prior_ids = correction.get("prior_lines")
+        if (not old or old.get("value") != correction.get("previous")
+                or not isinstance(prior_ids, list) or not prior_ids
+                or any(type(i) is not int for i in prior_ids)
+                or set(prior_ids) != set(old.get("lines") or [])):
+            raise SlotCorrectionRejected("prior slot value or cited version changed; read the page again")
+        ids = sorted(set(archive_ids or []))
+        quote = correction.get("quote")
+        if not ids or not isinstance(quote, str) or not quote.strip() or not evidence_ts:
+            raise SlotCorrectionRejected("correction needs its exact cited statement")
+        lines = [conn.execute("SELECT * FROM archive WHERE id = ?", (i,)).fetchone()
+                 for i in ids]
+        prior = [conn.execute("SELECT * FROM archive WHERE id = ?", (i,)).fetchone()
+                 for i in prior_ids]
+        if any(line is None for line in [*lines, *prior]):
+            raise SlotCorrectionRejected("correction or prior evidence is missing")
+        # The corrective passage must actually be in a new cited message, not just
+        # supplied by the model. The prior statement cannot correct itself.
+        quoted = [line for line in lines if quote in line["text"]]
+        if (not quoted or set(ids) & set(prior_ids)
+                or any(quote in line["text"] for line in prior)):
+            raise SlotCorrectionRejected("correction passage is not in new cited evidence")
+        stamp = db.parse_ts(evidence_ts, strict=True)
+        if not any(db.parse_ts(line["ts"], strict=True) == stamp for line in quoted):
+            raise SlotCorrectionRejected("correction date must come from the corrective statement")
+        if any(db.parse_ts(line["ts"], strict=True) >= stamp for line in prior):
+            raise SlotCorrectionRejected("correction keeps the newer prior evidence")
+        # History includes typed/manual edits; a matching value alone is not proof
+        # that a newer user's decision can be removed.
+        for name in {target, proposed} & page.slots.keys():
+            history = slot_history(conn, page.slug, name)
+            if history:
+                latest = history[-1]
+                if latest["new_value"] != page.slots[name]["value"]:
+                    raise SlotCorrectionRejected("slot has an unrecorded manual edit")
+                current = db.parse_ts(latest["evidence_ts"] or latest["changed_at"], strict=True)
+                if current > stamp or name == target and current == stamp:
+                    raise SlotCorrectionRejected("correction keeps the newer slot version")
+        duplicate = page.slots.get(proposed) if proposed != target else None
+        if duplicate and (duplicate.get("value") != value
+                          or set(duplicate.get("lines") or []) != set(ids)):
+            raise SlotCorrectionRejected("proposed label already holds a different fact or source")
+        if duplicate:
+            del page.slots[proposed]
+            record_slot_change(conn, page.slug, proposed, value, None,
+                               source=source, evidence_ts=evidence_ts)
+            _stage_page(conn, wiki_dir, page)
+        set_slot(wiki_dir, page.slug, target, value, source=source, section=section,
+                 conn=conn, commit=False, archive_ids=ids, evidence_ts=evidence_ts)
+        conn.execute(
+            "INSERT INTO wiki_slot_resolutions"
+            " (page, proposed_slot, value, archive_ids, target_slot, correction) VALUES(?,?,?,?,?,?)",
+            (page.slug, proposed, value, db.jdump(ids), target, db.jdump(correction)))
+        return target
+
+
 def add_question(wiki_dir: Path, slug: str, question: str, section: str = "people", *,
                  conn=None, commit: bool = True) -> Page:
     if section not in SECTIONS:

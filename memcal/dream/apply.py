@@ -1382,6 +1382,29 @@ def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None =
     if rejection:
         return [("rejected-claim", f"{slug}: {rejection}")]
     slot, value = _clean(row.get("slot")), _clean(row.get("value"))
+    correction = row.get("supersedes")
+    if correction is not None:
+        # Legacy diffs still work, but the new authority to select another slot
+        # requires the full claim contract and explicit (not derived) citations.
+        if (conn is None or row.get("durability") != "lasting"
+                or row.get("claim_kind") != "preference"
+                or not row.get("cite_ids") or not slot or not value):
+            return [("rejected-correction", f"{slug}: correction needs a lasting preference and explicit citations")]
+        if isinstance(correction, dict) and isinstance(correction.get("quote"), str):
+            quote_ids = [i for i in archive_ids or [] if (line := conn.execute(
+                "SELECT text FROM archive WHERE id = ?", (i,)).fetchone())
+                and correction["quote"] in line["text"]]
+            if quote_ids:
+                rejection = _wiki_claim_rejection(conn, cfg, slug, section, row, quote_ids)
+                if rejection:
+                    return [("rejected-correction", f"{slug}: {rejection}")]
+    resolved = (wiki.resolved_slot(conn, slug, slot, value, archive_ids)
+                if conn is not None and slot and value else None)
+    if resolved:
+        current = wiki._page_for_write(conn, cfg.wiki_dir, slug, section)
+        if resolved not in current.slots:
+            return [("rejected-correction", f"{slug}: resolved slot was removed; read the page again")]
+        slot = resolved
     question = _clean(row.get("question"))
     alias = _clean(row.get("alias"))
     out = []
@@ -1394,11 +1417,25 @@ def _apply_wiki(conn, cfg: Config, row: dict, *, source: str, seen: set | None =
         elif len(value) > MAX_SLOT_VALUE:
             out.append(("rejected-verbose",
                         f"{slug}.{slot} value too long ({len(value)} chars)"))
+        elif correction is not None and resolved is None:
+            try:
+                target = wiki.correct_slot(
+                    conn, cfg.wiki_dir, slug, slot, value, correction,
+                    source=source, section=section, archive_ids=archive_ids,
+                    evidence_ts=evidence_ts, commit=commit)
+                if seen is not None:
+                    seen.add((slug, target.lower()))
+                made_self = True
+                out.append(("slot", f"{slug}.{target} = {value} (explicit correction)",
+                            f"{slug}.{target.lower()}"))
+            except wiki.SlotCorrectionRejected as exc:
+                out.append(("rejected-correction", f"{slug}: {exc}"))
         else:
             marker = (slug, slot.lower())
             if seen is None or marker not in seen:
                 previous = None
-                existing = wiki.read(cfg.wiki_dir, slug)
+                existing = (wiki._page_for_write(conn, cfg.wiki_dir, slug, section)
+                            if conn is not None else wiki.read(cfg.wiki_dir, slug))
                 if existing is not None:
                     previous = (existing.slots.get(slot) or {}).get("value")
                 if evidence_ts is not None and previous != value:

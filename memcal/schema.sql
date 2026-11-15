@@ -632,6 +632,18 @@ CREATE TABLE IF NOT EXISTS slot_history (
 );
 CREATE INDEX IF NOT EXISTS slot_history_page_idx ON slot_history(page, slot);
 
+-- Evidence-bound resolutions, not global synonyms for slot labels. Old saved
+-- diffs for this exact value and source must replay against the resolved slot.
+CREATE TABLE IF NOT EXISTS wiki_slot_resolutions (
+    page          TEXT NOT NULL,
+    proposed_slot TEXT NOT NULL,
+    value         TEXT NOT NULL,
+    archive_ids   TEXT NOT NULL,
+    target_slot   TEXT NOT NULL,
+    correction    TEXT NOT NULL,
+    PRIMARY KEY (page, proposed_slot, value, archive_ids)
+);
+
 -- Durable outbox for atomically replacing a wiki file after its history commits.
 CREATE TABLE IF NOT EXISTS wiki_pending_writes (
     id            INTEGER PRIMARY KEY,

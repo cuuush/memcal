@@ -295,7 +295,7 @@ WIKI_DIFF_V2 = {
     **BUNDLE_DIFF["properties"]["wiki"]["items"],
     "required": (BUNDLE_DIFF["properties"]["wiki"]["items"]["required"]
                  + ["cites", "subject", "subject_role", "durability", "claim_kind",
-                    "note_key", "note_text", "note_previous"]),
+                    "note_key", "note_text", "note_previous", "supersedes"]),
     "properties": {
         **BUNDLE_DIFF["properties"]["wiki"]["items"]["properties"],
         "cites": _CITES,
@@ -306,6 +306,19 @@ WIKI_DIFF_V2 = {
         "note_key": {**_STR, "description": "Stable key for one freeform context paragraph (e.g. employer-background)."},
         "note_text": {**_STR, "description": "Complete new prose for that key; empty deletes it. Never replace the page."},
         "note_previous": {**_STR, "description": "Exact existing paragraph; null only when adding a new key."},
+        "supersedes": {
+            "type": ["object", "null"], "additionalProperties": False,
+            "required": ["slot", "previous", "prior_lines", "scope", "quote"],
+            "properties": {
+                "slot": {"type": "string", "description": "Exact existing slot on THIS page explicitly corrected by the source."},
+                "previous": {"type": "string", "description": "Exact current value of that slot."},
+                "prior_lines": {"type": "array", "items": {"type": "integer"},
+                                "description": "Exact #archive ids in that slot's wiki comment, not L tags."},
+                "scope": {"type": "string", "enum": ["same", "different", "uncertain"],
+                          "description": "Whether the correction explicitly addresses the same restriction/context, not merely similar labels."},
+                "quote": {"type": "string", "description": "Verbatim passage in a cited NEW statement explicitly correcting that prior fact; never a historical quotation."},
+            },
+        },
     },
 }
 

@@ -45,6 +45,24 @@ statements, account notices, course plans, and tautologies do not belong in prof
 Plans belong in events or to-dos. Older saved responses remain replayable, with
 per-field evidence precedence protecting later corrections and deleted facts.
 
+An explicit preference correction can name `supersedes`: the exact prior slot,
+value, and cited archive IDs on the same page, plus a verbatim corrective passage
+and a judgment that it addresses the same scope. Code checks that snapshot and
+newer source evidence, then updates the existing key even if the proposed label
+differs. Similar labels never merge automatically. A pizza restriction does not
+become an all-meal restriction without explicit source evidence connecting them.
+Only lasting claims qualify; temporary preferences still stay out of profiles.
+
+The prior value and dates remain in slot history, with old and new source links.
+A small `wiki_slot_resolutions` receipt binds the proposed label to that key only
+for replay of the exact same value and cited sources; it is not a label alias.
+Existing pages and saved responses require no format changes. There is no bulk
+deduplication on upgrade: a validated correction can retire an existing duplicate
+only when its value and citations exactly match the correction and it has no
+newer edit. Other collisions are rejected for review. Pages without prior source
+IDs cannot use automatic supersession; inspect their sources and correct the
+existing slot explicitly instead of guessing which labels to combine.
+
 For explanations that need prose, pages have a **Context** section containing named
 paragraphs alongside Facts and hand-written introductory text. For example, a
 paragraph can explain what a named employer does and how it relates to someone.

@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### Fixed
+
+- Source-backed explicit preference corrections can supersede an exact prior wiki
+  slot despite a different proposed label, preserving dated history and replay
+  safety. Existing duplicates are reconciled only for the same validated correction;
+  unrelated people, scopes, temporary claims, and newer edits remain protected.
+
 ## [0.8.12] - 2026-11-12
 
 ### Added
