@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### Fixed
+
+- Public opportunities with conflicting times or places no longer silently move
+  personal commitments through title/date matching. These associations require
+  explicit identity or evidence-backed merge review; compatible calendar imports
+  still enrich existing plans.
+
 ## [0.8.12] - 2026-11-12
 
 ### Added

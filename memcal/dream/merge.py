@@ -596,6 +596,8 @@ def _conflicted(group: list[Mention]) -> bool:
     """Does this cluster need a model at all? Only if the fragments disagree about
     something a union cannot settle. Agreeing fragments are the common case and must
     not cost a call."""
+    if any(m.row.get("_category_conflict") for m in group):
+        return True
     rosters = _roster_updates(group)
     if rosters:
         selected = _people(rosters[0].row)
@@ -876,7 +878,24 @@ def _stored_near(conn, mentions: list[Mention], *, include_claimed: bool = False
                 subject=str(m.row.get("subject") or "me"),
                 time=m.row.get("time"), location=m.row.get("location"))
             if hit is not None:
-                claimed.add(hit.key)
+                # Keep conflicting cross-category candidates in the review pool.
+                # Compatible imports retain their existing enrichment behavior.
+                compatible = hit
+                if {m.row.get("kind"), hit.kind} == {"opportunity", "commitment"}:
+                    compatible = events.find_match(
+                        conn, title=str(m.row.get("title") or ""), on=m.date,
+                        series=m.row.get("series"),
+                        participants=[p for p in (m.row.get("participants") or [])
+                                      if isinstance(p, str)],
+                        subject=str(m.row.get("subject") or "me"),
+                        time=m.row.get("time"), location=m.row.get("location"),
+                        kind=m.row.get("kind"))
+                if compatible is not None and compatible.key == hit.key:
+                    claimed.add(hit.key)
+                else:
+                    # Token containment (e.g. "Studio A" / "Studio B") must
+                    # not locally erase the structured matching conflict.
+                    m.row["_category_conflict"] = True
                 targets[id(m)] = hit.key
     out: list[Mention] = []
     for event in events.between(conn, lo, hi):
