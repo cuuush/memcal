@@ -953,8 +953,9 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
     # moment it was said — the latest of whatever supported the diff it came out of.
     said_at = (max((str(v) for v in evidence_ts.values() if v), key=lambda v: db.parse_ts(v, strict=True), default=None)
                if isinstance(evidence_ts, dict) else evidence_ts)
-    title = _clean(row.get("title"))
-    date_value = _clean(row.get("date"))
+    identified = events.get(conn, str(row.get("key") or ""))
+    title = _clean(row.get("title")) or (identified.title if identified else None)
+    date_value = _clean(row.get("date")) or (identified.date if identified else None)
     status_said = _clean(row.get("status")) or ""
     if not title or not date_value:
         # A cancellation that names neither. Dropping it loses a real statement about
@@ -1059,8 +1060,19 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
         "join_url": join_url,
         "source": source,
     }
+    if identified is not None:
+        # A keyed amendment need only assert changed fields. Stored identity
+        # supplies routing, not new claims about omitted status, subject or roster.
+        fields = {k: v for k, v in fields.items()
+                  if k in row or k in ("key", "date") or (k == "join_url" and join_url)}
     fields["instead_of"] = _stands_in_for(conn, fields, _clean(row.get("instead_of")))
     fields = {k: v for k, v in fields.items() if v is not None}
+    if identified is not None and evidence_ts and not isinstance(evidence_ts, dict):
+        # Preserve the scalar evidence contract for supplied/derived fields,
+        # including join links and recurrence association. Only the stored date
+        # used for routing lacks a new assertion and must not gain a timestamp.
+        evidence_ts = {name: evidence_ts for name in fields
+                       if name != "date" or _clean(row.get("date"))}
     if status == "declined" and not key and not row.get("_allow_declined_insert") \
             and not events.find_match(
             conn, title=title, on=date_value, series=fields.get("series"),
@@ -1091,6 +1103,7 @@ def _apply_event(conn: sqlite3.Connection, row: dict, *, source: str, written_by
                     replaced.add(target.id)
     report = events.upsert(conn, fields, written_by=written_by,
                                 exclude_match_ids=frozenset(replaced),
+                                separate_conflicting_details=bool(row.get("_separate_conflicting_details")),
                                 evidence_ts=evidence_ts,
                                 reconsider=row.get("_reconsider"),
                                 replace_participants=bool(key and isinstance(evidence_ts, dict)

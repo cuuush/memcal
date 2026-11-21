@@ -1012,6 +1012,9 @@ def merge_all(client: CompletionClient, cfg: Config, proposals: list,
             _defer_claimed_review(group)
             continue
         if answer.get("same_event") is False:
+            for mention in group:
+                if not mention.existing and not mention.row.get("key"):
+                    mention.row["_separate_conflicting_details"] = True
             # A refused association cannot still update the row via its original
             # key. Preserve that proposed update for review; ordinary keyless,
             # distinct proposals retain their normal independent identities.
@@ -1205,10 +1208,10 @@ def _corroborate(row: dict, voices: int) -> None:
 
 
 def _collapse(group: list[Mention], merged: dict) -> None:
-    """Put the merged row on the earliest-dated mention; drop the rest.
+    """Keep fresh cited input visible, then prefer the earliest-dated mention.
 
-    Earliest rather than best-worded: the first conversation to mention a plan is the
-    one whose bundle the reader will look in for it.
+    A restored-context copy cannot own a fresh claim and make Apply reject it.
+    Among equally fresh mentions, retain the first conversation about the plan.
     """
     writable = [m for m in group if not m.existing]
     if not writable:
@@ -1228,7 +1231,12 @@ def _collapse(group: list[Mention], merged: dict) -> None:
                     and m.bundle.entity.startswith('person:')}
         if len(visitors) == 1:
             merged['_visit_subject'] = next(iter(visitors))
-    keeper = min(writable, key=lambda m: m.date)
+    # A context copy must not become the sole owner of a newly received claim.
+    # Apply rejects context-only creations, so prefer a mention citing fresh
+    # input before using the date tie-breaker. Do not relabel other bundle rows.
+    keeper = min(writable, key=lambda m: (
+        not any(i not in m.bundle.context_ids for i in (m.row.get("cite_ids") or [])),
+        m.date))
     for mention in group:
         if mention.existing:
             continue

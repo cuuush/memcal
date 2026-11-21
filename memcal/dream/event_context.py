@@ -69,7 +69,8 @@ def normalize(conn: sqlite3.Connection, bundle: Bundle, row: dict) -> dict:
             try:
                 matched = events.find_match(conn, title=str(row['title']), on=str(row['date']),
                     subject=row.get('subject') or 'me', time=row.get('time'),
-                    location=row.get('location'), participants=row.get('participants') or [])
+                    location=row.get('location'), participants=row.get('participants') or [],
+                    separate_conflicting_details=bool(row.get('_separate_conflicting_details')))
             except ValueError:
                 matched = None  # Apply rejects malformed dates through its usual path.
             # Resolve only an exact same-day identity here. Other matching and date
