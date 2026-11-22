@@ -65,6 +65,21 @@ class TestListingAndCommitmentIdentity(Base):
         self.assertEqual(events.get(self.conn, plan.key).location, 'Studio A')
         self.assertEqual(len(events.between(self.conn, '2026-09-04', '2026-09-04')), 2)
 
+    def test_listing_attendance_cannot_bind_to_a_private_plan_at_another_venue(self):
+        plan = self.plan()
+        for _ in range(2):
+            proposals = self.proposals(title='Pottery', time='18:00', location='Studio B')
+            row = proposals[0][1]['events'][0]
+            row['attendance'] = []
+            proposals, _ = merge.merge_all(FakeClient(answer={'same_event': False}),
+                                           self.cfg, proposals, conn=self.conn)
+            apply_stage.apply_diffs(self.conn, self.cfg, proposals, written_by='dream:nightly')
+        stored = events.get(self.conn, plan.key)
+        self.assertEqual((stored.location, stored.participants), ('Studio A', ['Aster']))
+        rows = events.between(self.conn, '2026-09-04', '2026-09-04')
+        self.assertEqual(sorted((e.location, e.kind, e.participants) for e in rows),
+                         [('Studio A', 'commitment', ['Aster']), ('Studio B', 'opportunity', [])])
+
     def test_explicit_identity_still_allows_accepting_a_listing(self):
         listing = events.upsert(self.conn, {'title': 'Workshop', 'date': '2026-09-04',
             'kind': 'opportunity', 'status': 'mentioned'}).event

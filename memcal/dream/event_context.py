@@ -70,6 +70,7 @@ def normalize(conn: sqlite3.Connection, bundle: Bundle, row: dict) -> dict:
                 matched = events.find_match(conn, title=str(row['title']), on=str(row['date']),
                     subject=row.get('subject') or 'me', time=row.get('time'),
                     location=row.get('location'), participants=row.get('participants') or [],
+                    kind=row.get('kind'),
                     separate_conflicting_details=bool(row.get('_separate_conflicting_details')))
             except ValueError:
                 matched = None  # Apply rejects malformed dates through its usual path.
@@ -113,7 +114,8 @@ def normalize(conn: sqlite3.Connection, bundle: Bundle, row: dict) -> dict:
                 continue
             old_descriptions = [f'{name}: attendance conditional.',
                                 f'{name}: invited; attendance unconfirmed.',
-                                f'{name}: not attending.']
+                                f'{name}: not attending.',
+                                f'{name}: participation confirmed.']
             note = str(row.get('note') or (existing.note if existing else '') or '')
             had_description = any(s.casefold() in note.casefold() for s in old_descriptions)
             if had_description:
@@ -134,6 +136,10 @@ def normalize(conn: sqlite3.Connection, bundle: Bundle, row: dict) -> dict:
                 description = {'conditional': 'attendance conditional',
                                'invited': 'invited; attendance unconfirmed',
                                'declined': 'not attending'}[role]
+                # This role amends one guest. Keep the rest of the stored note
+                # when the proposal supplied no replacement prose.
+                if not had_description:
+                    row['note'] = note
                 add_note(f'{name}: {description}.', ids)
             all_ids.extend(ids)
         # Empty or uncited assessments cannot erase known companions. A role patch

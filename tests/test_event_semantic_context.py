@@ -79,6 +79,30 @@ class TestStructuredAttendance(EventContextBase):
         self.assertNotIn('attendance conditional', saved.note)
         self.assertIn('participation confirmed', saved.note)
 
+    def test_one_guests_reply_keeps_the_other_guests_conditional_status(self):
+        first = self.line('I might join the workshop.')
+        event = self.save([first], {'attendance': [
+            {'name': 'Nick', 'role': 'conditional', 'cites': ['L1']}]})
+        invite = self.line('I invited Aster.', person='me', from_me=True,
+                           stamp='2026-10-20T14:30:00-04:00')
+        self.save([invite], {'key': event.key, 'attendance': [
+            {'name': 'Aster', 'role': 'invited', 'cites': ['L1']}]})
+        acceptance = self.line('I can join.', person='Aster', stamp='2026-10-20T15:00:00-04:00')
+        attending = self.save([acceptance], {'key': event.key, 'attendance': [
+            {'name': 'Aster', 'role': 'attending', 'cites': ['L1']}]})
+        self.assertEqual(attending.participants, ['Aster'])
+        self.assertIn('Nick: attendance conditional.', attending.note)
+        later = self.line('I cannot join the workshop.', person='Aster',
+                          stamp='2026-10-20T16:00:00-04:00')
+        patch = {'key': event.key, 'attendance': [
+            {'name': 'Aster', 'role': 'declined', 'cites': ['L1']}]}
+        for _ in range(2):
+            saved = self.save([later], patch)
+            self.assertIn('Nick: attendance conditional.', saved.note)
+            self.assertEqual(saved.note.count('Aster: not attending.'), 1)
+            self.assertNotIn('Aster: participation confirmed.', saved.note)
+            self.assertEqual(saved.participants, [])
+
     def test_performers_are_saved_as_hosts_and_not_companions(self):
         msg = self.line('The advertised lineup features DJ Example.')
         ev = self.save([msg], {'title': 'Club night', 'participants': ['DJ Example'],
