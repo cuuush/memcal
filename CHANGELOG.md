@@ -2,6 +2,10 @@
 
 ### Fixed
 
+- Attendance processing respects venue and time conflicts between public listings
+  and personal commitments, including listings with an empty guest list.
+- A guest’s attendance update preserves other guests’ recorded responses.
+
 - Dream applies keyed partial event corrections without requiring the unchanged
   title and date or falsely advancing evidence for omitted fields.
 - Merge keeps fresh cited input visible when another bundle carries the same
