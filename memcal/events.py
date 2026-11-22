@@ -393,11 +393,14 @@ def find_match(
     subject: str = "me",
     time: str | None = None,
     location: str | None = None,
+    kind: str | None = None,
+    separate_conflicting_details: bool = False,
 ) -> Event | None:
     """Deterministic match. Returns the row a new mention should update, or None."""
     scored = find_match_scored(conn, title=title, on=on, series=series,
                                participants=participants, subject=subject,
-                               time=time, location=location)
+                               time=time, location=location, kind=kind,
+                               separate_conflicting_details=separate_conflicting_details)
     return scored[0] if scored else None
 
 
@@ -433,6 +436,8 @@ def find_match_scored(
     time: str | None = None,
     location: str | None = None,
     exclude_ids: frozenset[int] = frozenset(),
+    kind: str | None = None,
+    separate_conflicting_details: bool = False,
 ) -> tuple[Event, int] | None:
     """Return the best deterministic match and its confidence tier."""
     target = db.parse_date(on)
@@ -462,6 +467,8 @@ def find_match_scored(
         # A shared name/day cannot override evidence of separate occasions.
         # Partial rosters can legitimately grow across a DM and a group; an
         # explicit key or series identifies corrections even when guests change.
+        # When Merge has refused association, absent rosters cannot rescue
+        # conflicting times and venues through this deterministic fallback.
         incoming_people = {str(p).strip().casefold() for p in participants if str(p).strip()}
         stored_people = {str(p).strip().casefold() for p in ev.participants if str(p).strip()}
         disjoint = incoming_people and stored_people and not incoming_people & stored_people
@@ -469,7 +476,14 @@ def find_match_scored(
         different_place = (location and ev.location and
                            " ".join(location.casefold().split()) !=
                            " ".join(ev.location.casefold().split()))
-        if (ordinal == target.toordinal() and disjoint and different_time and different_place
+        # A listing cannot move a personal plan (or vice versa) solely because
+        # their titles match. Missing details still allow normal enrichment;
+        # conflicting details require an explicit key or merge review.
+        if ({kind, ev.kind} == {"opportunity", "commitment"}
+                and (different_time or different_place)):
+            continue
+        if (ordinal == target.toordinal() and (disjoint or separate_conflicting_details)
+                and different_time and different_place
                 and not (series and ev.series == series)):
             continue
 
@@ -709,6 +723,7 @@ def upsert(
     written_by: str = "cli",
     match: bool = True,
     exclude_match_ids: frozenset[int] = frozenset(),
+    separate_conflicting_details: bool = False,
     evidence_ts: "str | dict[str, str] | None" = None,
     inferred: tuple[str, ...] = (),
     clear: tuple[str, ...] = (),
@@ -764,6 +779,8 @@ def upsert(
             time=fields.get("time"),
             location=fields.get("location"),
             exclude_ids=exclude_match_ids,
+            kind=fields.get("kind"),
+            separate_conflicting_details=separate_conflicting_details,
         )
         if scored:
             existing, confidence = scored

@@ -1,5 +1,19 @@
 ## [Unreleased]
 
+### Fixed
+
+- Dream applies keyed partial event corrections without requiring the unchanged
+  title and date or falsely advancing evidence for omitted fields.
+- Merge keeps fresh cited input visible when another bundle carries the same
+  claim only as restored context, preserving one-off recurrence exceptions.
+- A refused merge of events with conflicting times and venues is no longer
+  silently undone by automatic matching when their guest lists are missing.
+
+- Public opportunities with conflicting times or places no longer silently move
+  personal commitments through title/date matching. These associations require
+  explicit identity or evidence-backed merge review; compatible calendar imports
+  still enrich existing plans.
+
 ## [0.8.12] - 2026-11-12
 
 ### Added

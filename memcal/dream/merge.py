@@ -596,6 +596,8 @@ def _conflicted(group: list[Mention]) -> bool:
     """Does this cluster need a model at all? Only if the fragments disagree about
     something a union cannot settle. Agreeing fragments are the common case and must
     not cost a call."""
+    if any(m.row.get("_category_conflict") for m in group):
+        return True
     rosters = _roster_updates(group)
     if rosters:
         selected = _people(rosters[0].row)
@@ -876,7 +878,24 @@ def _stored_near(conn, mentions: list[Mention], *, include_claimed: bool = False
                 subject=str(m.row.get("subject") or "me"),
                 time=m.row.get("time"), location=m.row.get("location"))
             if hit is not None:
-                claimed.add(hit.key)
+                # Keep conflicting cross-category candidates in the review pool.
+                # Compatible imports retain their existing enrichment behavior.
+                compatible = hit
+                if {m.row.get("kind"), hit.kind} == {"opportunity", "commitment"}:
+                    compatible = events.find_match(
+                        conn, title=str(m.row.get("title") or ""), on=m.date,
+                        series=m.row.get("series"),
+                        participants=[p for p in (m.row.get("participants") or [])
+                                      if isinstance(p, str)],
+                        subject=str(m.row.get("subject") or "me"),
+                        time=m.row.get("time"), location=m.row.get("location"),
+                        kind=m.row.get("kind"))
+                if compatible is not None and compatible.key == hit.key:
+                    claimed.add(hit.key)
+                else:
+                    # Token containment (e.g. "Studio A" / "Studio B") must
+                    # not locally erase the structured matching conflict.
+                    m.row["_category_conflict"] = True
                 targets[id(m)] = hit.key
     out: list[Mention] = []
     for event in events.between(conn, lo, hi):
@@ -993,6 +1012,9 @@ def merge_all(client: CompletionClient, cfg: Config, proposals: list,
             _defer_claimed_review(group)
             continue
         if answer.get("same_event") is False:
+            for mention in group:
+                if not mention.existing and not mention.row.get("key"):
+                    mention.row["_separate_conflicting_details"] = True
             # A refused association cannot still update the row via its original
             # key. Preserve that proposed update for review; ordinary keyless,
             # distinct proposals retain their normal independent identities.
@@ -1186,10 +1208,10 @@ def _corroborate(row: dict, voices: int) -> None:
 
 
 def _collapse(group: list[Mention], merged: dict) -> None:
-    """Put the merged row on the earliest-dated mention; drop the rest.
+    """Keep fresh cited input visible, then prefer the earliest-dated mention.
 
-    Earliest rather than best-worded: the first conversation to mention a plan is the
-    one whose bundle the reader will look in for it.
+    A restored-context copy cannot own a fresh claim and make Apply reject it.
+    Among equally fresh mentions, retain the first conversation about the plan.
     """
     writable = [m for m in group if not m.existing]
     if not writable:
@@ -1209,7 +1231,12 @@ def _collapse(group: list[Mention], merged: dict) -> None:
                     and m.bundle.entity.startswith('person:')}
         if len(visitors) == 1:
             merged['_visit_subject'] = next(iter(visitors))
-    keeper = min(writable, key=lambda m: m.date)
+    # A context copy must not become the sole owner of a newly received claim.
+    # Apply rejects context-only creations, so prefer a mention citing fresh
+    # input before using the date tie-breaker. Do not relabel other bundle rows.
+    keeper = min(writable, key=lambda m: (
+        not any(i not in m.bundle.context_ids for i in (m.row.get("cite_ids") or [])),
+        m.date))
     for mention in group:
         if mention.existing:
             continue
